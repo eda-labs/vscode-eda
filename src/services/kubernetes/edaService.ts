@@ -1,10 +1,12 @@
 // src/k8s/edaService.ts
-import * as k8s from '@kubernetes/client-node';
 import { EdaTransaction, EdaAlarm, EdaDeviation } from '../types';
 import { BaseK8sService } from './baseK8sService';
 import { ToolboxService } from './toolboxService';
 import { LogLevel, log } from '../../extension';
 import { cache } from '../../utils/cacheUtils';
+
+// Get the k8s types from require
+import { k8sClient } from './k8sClient';
 
 export class EdaService extends BaseK8sService {
   // We no longer store local "edaNamespacesCache" or "edaTransactionsCache".
@@ -40,8 +42,8 @@ export class EdaService extends BaseK8sService {
           // 2) Fallback: label-based search
           log('No output from edactl, using label-based search...', LogLevel.INFO);
           const allNamespaces = await this.k8sApi.listNamespace();
-          const edaNamespaces = allNamespaces.body.items
-            .filter(ns => {
+          const edaNamespaces = allNamespaces.items
+            .filter((ns: any) => {
               const name = ns.metadata?.name || '';
               const labels = ns.metadata?.labels || {};
               return (
@@ -52,7 +54,7 @@ export class EdaService extends BaseK8sService {
                 name === 'eda'
               );
             })
-            .map(ns => ns.metadata!.name!);
+            .map((ns: any) => ns.metadata!.name!);
 
           // Add known EDA namespaces
           ['eda', 'eda-system'].forEach(known => {
@@ -254,12 +256,14 @@ export class EdaService extends BaseK8sService {
   /**
    * Get NPP pods for a given EDA namespace
    */
-  async getNppPodsForNamespace(edaNamespace: string): Promise<k8s.V1Pod[]> {
+  async getNppPodsForNamespace(edaNamespace: string): Promise<any[]> {
     try {
       const prefix = `eda-npp-${edaNamespace}`;
       log(`Fetching NPP Pods (prefix='${prefix}') in toolbox namespace '${this.toolboxNamespace}'...`, LogLevel.DEBUG);
-      const response = await this.k8sApi.listNamespacedPod(this.toolboxNamespace);
-      const filteredPods = response.body.items.filter(pod => {
+      const response = await this.k8sApi.listNamespacedPod({
+        namespace: this.toolboxNamespace
+      });
+      const filteredPods = response.items.filter((pod: any) => {
         const podName = pod.metadata?.name || '';
         return podName.startsWith(prefix);
       });

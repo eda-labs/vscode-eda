@@ -4,6 +4,7 @@ import * as yaml from 'js-yaml';
 import { KubernetesService } from '../services/kubernetes/kubernetes';
 import { K8sFileSystemProvider } from '../providers/documents/resourceProvider';
 import { log, LogLevel, edaOutputChannel } from '../extension';
+import { CrdVersion } from '../services/types';
 
 // Keep track of open resource editors
 const openResourceEditors = new Set<string>();
@@ -75,8 +76,8 @@ export function registerResourceEditCommands(
 
               if (crdDef && crdDef.spec?.group) {
                 // Get the preferred version (storage: true, or first served version)
-                const version = crdDef.spec.versions?.find(v => v.storage === true) ||
-                              crdDef.spec.versions?.find(v => v.served === true) ||
+                const version = crdDef.spec.versions?.find((v: CrdVersion) => v.storage === true) ||
+                crdDef.spec.versions?.find((v: CrdVersion) => v.served === true) ||
                               crdDef.spec.versions?.[0];
 
                 if (version?.name) {

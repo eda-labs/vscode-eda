@@ -104,6 +104,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
 
   k8sService = new KubernetesService();
+
+  // Initialize Kubernetes service before using it
+  log('Initializing Kubernetes services...', LogLevel.INFO, true);
+  await k8sService.initialize();
+
   resourceStore = new ResourceStore(k8sService);
 
   // Initialize cluster manager

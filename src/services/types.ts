@@ -1,4 +1,24 @@
 // src/services/types.ts
+// Define a more compatible interface for Kubernetes resources
+export interface KubernetesObject {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: {
+    name: string;
+    namespace?: string;
+    uid?: string;
+    resourceVersion?: string;
+    generation?: number;
+    creationTimestamp?: string;
+    labels?: { [key: string]: string };
+    annotations?: { [key: string]: string };
+    [key: string]: any;
+  };
+  spec?: any;
+  status?: any;
+  [key: string]: any;
+}
+
 // EDA transaction interface
 export interface EdaTransaction {
   id: string;

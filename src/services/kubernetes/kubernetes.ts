@@ -1,5 +1,4 @@
-// src/k8s/kubernetesService.ts - Facade implementing the original interface
-import * as k8s from '@kubernetes/client-node';
+// src/services/kubernetes/kubernetes.ts - Facade implementing the original interface
 import { BaseK8sService } from './baseK8sService';
 import { K8sResourcesService } from './k8sResourcesService';
 import { CrdService } from './crdService';
@@ -22,7 +21,44 @@ export class KubernetesService extends BaseK8sService {
     this.toolboxService = new ToolboxService();
     this.edaService = new EdaService(this.toolboxService);
 
-    log('KubernetesService initialized with all component services', LogLevel.INFO);
+    log('KubernetesService constructed with all component services', LogLevel.INFO);
+  }
+
+  /**
+   * Initialize all Kubernetes services
+   * This must be called before using any Kubernetes functionality
+   */
+  public async initialize(): Promise<void> {
+    if (this._initialized) {
+      return;
+    }
+
+    try {
+      log('Initializing KubernetesService and all component services...', LogLevel.INFO);
+      
+      // Initialize the base service first
+      await super.initialize();
+      
+      // Initialize all component services in parallel
+      await Promise.all([
+        this.resourcesService.initialize(),
+        this.crdService.initialize(),
+        this.toolboxService.initialize()
+      ]);
+      
+      // Initialize EDA service after others are ready
+      await this.edaService.initialize();
+      
+      this._initialized = true;
+      log('KubernetesService and all component services initialized successfully', LogLevel.INFO);
+    } catch (error) {
+      log(`Failed to initialize KubernetesService: ${error}`, LogLevel.ERROR);
+      throw error;
+    }
+  }
+
+  public isInitialized(): boolean {
+    return this._initialized;
   }
 
   // Override setNamespace to propagate to all services
@@ -40,27 +76,27 @@ export class KubernetesService extends BaseK8sService {
   // ----- Delegating methods to appropriate services -----
 
   // Standard K8s resources - delegated to resourcesService
-  async getPods(namespace?: string): Promise<k8s.V1Pod[]> {
+  async getPods(namespace?: string): Promise<any[]> {
     return this.resourcesService.getPods(namespace);
   }
 
-  async getServices(namespace?: string): Promise<k8s.V1Service[]> {
+  async getServices(namespace?: string): Promise<any[]> {
     return this.resourcesService.getServices(namespace);
   }
 
-  async getDeployments(namespace?: string): Promise<k8s.V1Deployment[]> {
+  async getDeployments(namespace?: string): Promise<any[]> {
     return this.resourcesService.getDeployments(namespace);
   }
 
-  async getConfigMaps(namespace?: string): Promise<k8s.V1ConfigMap[]> {
+  async getConfigMaps(namespace?: string): Promise<any[]> {
     return this.resourcesService.getConfigMaps(namespace);
   }
 
-  async getSecrets(namespace?: string): Promise<k8s.V1Secret[]> {
+  async getSecrets(namespace?: string): Promise<any[]> {
     return this.resourcesService.getSecrets(namespace);
   }
 
-  async getNodes(): Promise<k8s.V1Node[]> {
+  async getNodes(): Promise<any[]> {
     return this.resourcesService.getNodes();
   }
 
@@ -77,7 +113,7 @@ export class KubernetesService extends BaseK8sService {
   }
 
   // CRD-related methods - delegated to crdService
-  async getAllCrds(): Promise<k8s.V1CustomResourceDefinition[]> {
+  async getAllCrds(): Promise<any[]> {
     return this.crdService.getAllCrds();
   }
 
@@ -117,7 +153,7 @@ export class KubernetesService extends BaseK8sService {
     return this.crdService.getCrdSchemaForKind(kind);
   }
 
-  public async getCrdDefinitionForKind(kind: string): Promise<k8s.V1CustomResourceDefinition> {
+  public async getCrdDefinitionForKind(kind: string): Promise<any> {
     return this.crdService.getCrdDefinitionForKind(kind);
   }
 
@@ -169,7 +205,7 @@ export class KubernetesService extends BaseK8sService {
     return this.edaService.restoreTransaction(commitHash);
   }
 
-  async getNppPodsForNamespace(edaNamespace: string): Promise<k8s.V1Pod[]> {
+  async getNppPodsForNamespace(edaNamespace: string): Promise<any[]> {
     return this.edaService.getNppPodsForNamespace(edaNamespace);
   }
 

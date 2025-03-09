@@ -4,6 +4,7 @@ import * as yaml from 'js-yaml';
 import { KubernetesService } from '../services/kubernetes/kubernetes';
 import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
 import { log, LogLevel } from '../extension';
+import { CrdVersion } from '../services/types';
 
 /**
  * Registers the "viewResource" command that opens a read-only YAML view (k8s-view:)
@@ -48,8 +49,8 @@ export function registerResourceViewCommands(
               try {
                 const crdDef = await k8sService.getCrdDefinitionForKind(kind);
                 if (crdDef && crdDef.spec?.group) {
-                  const version = crdDef.spec.versions?.find(v => v.storage === true) ||
-                                  crdDef.spec.versions?.find(v => v.served === true) ||
+                  const version = crdDef.spec.versions?.find((v: CrdVersion) => v.storage === true) ||
+                  crdDef.spec.versions?.find((v: CrdVersion) => v.served === true) ||
                                   crdDef.spec.versions?.[0];
                   computedApiVersion = version?.name ? `${crdDef.spec.group}/${version.name}` : `${crdDef.spec.group}/v1alpha1`;
                 }

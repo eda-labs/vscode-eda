@@ -1,4 +1,4 @@
-import * as k8s from '@kubernetes/client-node';
+// src/services/kubernetes/crdService.ts
 import { execSync } from 'child_process';
 import { BaseK8sService } from './baseK8sService';
 import { CrdInfo } from '../types';
@@ -6,11 +6,36 @@ import { LogLevel, log } from '../../extension';
 import { fetchResources, executeKubectl } from '../../utils/resourceUtils';
 import { cache } from '../../utils/cacheUtils';
 
+// Define a version interface for type safety
+interface CrdVersionType {
+  name: string;
+  served?: boolean;
+  storage?: boolean;
+  schema?: any;
+}
+
 export class CrdService extends BaseK8sService {
   constructor() {
     super();
     // Pre-fetch all CRDs to build cache in background
-    this.prefetchAllCrds();
+    // this.prefetchAllCrds();
+  }
+
+  public async initialize(): Promise<void> {
+    // Guard against re-init
+    if (this._initialized) {
+      return;
+    }
+    await super.initialize(); // sets this.k8sApiext, etc.
+    
+    // Now that .initialize() is done, it's safe to prefetch:
+    this.prefetchAllCrds()
+      .catch(err => {
+        log(`Error pre-fetching CRDs: ${err}`, LogLevel.ERROR);
+      });
+
+    this._initialized = true;
+    log('CrdService initialized', LogLevel.INFO);
   }
 
   // Pre-fetch all CRDs in background
@@ -26,14 +51,14 @@ export class CrdService extends BaseK8sService {
   }
 
   // Retrieve all CRDs at once and cache them using the new cache helper
-  async getAllCrds(): Promise<k8s.V1CustomResourceDefinition[]> {
-    return cache.getOrFetch<k8s.V1CustomResourceDefinition[]>(
+  async getAllCrds(): Promise<any[]> {
+    return cache.getOrFetch<any[]>(
       'allCrds',
       'cluster-wide',
       async () => {
         log(`Fetching all CRDs cluster-wide...`, LogLevel.INFO);
         const response = await this.k8sApiext.listCustomResourceDefinition();
-        const items = response.body.items;
+        const items = response.items;
         log(`Found ${items.length} CRDs in the cluster`, LogLevel.INFO);
         return items;
       },
@@ -88,11 +113,11 @@ export class CrdService extends BaseK8sService {
     try {
       log('Getting CRDs from cluster using API...', LogLevel.INFO);
       const response = await this.k8sApiext.listCustomResourceDefinition();
-      if (!response.body.items || !Array.isArray(response.body.items)) {
+      if (!response.items || !Array.isArray(response.items)) {
         log('No CRDs found in the cluster', LogLevel.WARN);
         return [];
       }
-      return response.body.items;
+      return response.items;
     } catch (error) {
       log(`Error getting CRDs: ${error}`, LogLevel.ERROR);
       return [];
@@ -116,7 +141,7 @@ export class CrdService extends BaseK8sService {
     const result = crds
       .filter(crd => crd.spec?.group === group)
       .map(crd => {
-        const version = crd.spec?.versions?.find(v => v.served)?.name || 'v1';
+        const version = crd.spec?.versions?.find((v: CrdVersionType) => v.served)?.name || 'v1';
         return {
           name: crd.metadata?.name || '',
           apiGroup: crd.spec?.group || '',
@@ -164,7 +189,7 @@ export class CrdService extends BaseK8sService {
             namespace,
             resource
           );
-          const items = (response.body as any).items;
+          const items = (response as any).items;
           return Array.isArray(items) && items.length > 0;
         } catch (error) {
           // If error is 404, it means the resource type doesn't exist in this namespace
@@ -189,7 +214,7 @@ export class CrdService extends BaseK8sService {
         namespace,
         resource
       );
-      const items = (response.body as any).items || [];
+      const items = (response as any).items || [];
       log(`Found ${items.length} instances of ${crd.kind} in ${namespace}`, LogLevel.DEBUG);
       return items;
     } catch (error) {
@@ -253,7 +278,7 @@ export class CrdService extends BaseK8sService {
       // Modern v1 CRDs store schema in versions array
       if (crd.spec?.versions && crd.spec.versions.length > 0) {
         // Find the served version (or first if none marked as served)
-        const version = crd.spec.versions.find(v => v.served === true) || crd.spec.versions[0];
+        const version = crd.spec.versions.find((v: CrdVersionType) => v.served === true) || crd.spec.versions[0];
         log(`Using CRD version: ${version.name} for kind: ${kind}`, LogLevel.DEBUG);
         // v1 CRDs have schema in version.schema.openAPIV3Schema
         if (version.schema?.openAPIV3Schema) {
@@ -279,7 +304,7 @@ export class CrdService extends BaseK8sService {
   }
 
   // Retrieve the full CRD object for a given Kind
-  public async getCrdDefinitionForKind(kind: string): Promise<k8s.V1CustomResourceDefinition> {
+  public async getCrdDefinitionForKind(kind: string): Promise<any> {
     const allCrds = await this.getAllCrds();
     const crd = allCrds.find(crd => crd.spec?.names?.kind === kind);
     if (!crd) {
