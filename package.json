@@ -340,8 +340,11 @@
   },
   "devDependencies": {
     "@types/glob": "^8.1.0",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^18.15.11",
+    "@types/request": "^2.48.12",
     "@types/vscode": "^1.70.0",
+    "@types/ws": "^8.18.0",
     "@typescript-eslint/eslint-plugin": "~5.59.0",
     "@typescript-eslint/parser": "~5.59.0",
     "eslint": "~8.38.0",
@@ -353,8 +356,9 @@
     "vscode-test": "^1.6.1"
   },
   "dependencies": {
-    "@kubernetes/client-node": "^0.18.1",
-    "handlebars": "^4.7.8"
+    "@kubernetes/client-node": "^0.22.3",
+    "handlebars": "^4.7.8",
+    "js-yaml": "^4.1.0"
   },
   "keybindings": [
     {
