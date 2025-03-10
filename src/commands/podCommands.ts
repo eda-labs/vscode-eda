@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { KubernetesService } from '../services/kubernetes/kubernetes';
-import { edaOutputChannel } from '../extension';
+import { edaOutputChannel } from '../extension.js';
 import { PodDescribeDocumentProvider } from '../providers/documents/podDescribeProvider';
 
 export function registerPodCommands(

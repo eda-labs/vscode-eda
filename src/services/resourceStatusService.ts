@@ -1,7 +1,7 @@
 // src/services/resourceStatusService.ts
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { LogLevel, log } from '../extension';
+import { LogLevel, log } from '../extension.js';
 import { KubernetesService } from './kubernetes/kubernetes';
 
 /**

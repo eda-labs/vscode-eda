@@ -1,10 +1,10 @@
 import * as vscode from 'vscode';
 import { execSync } from 'child_process';
 import { KubernetesService } from '../../services/kubernetes/kubernetes';
-import { log, LogLevel, globalTreeFilter } from '../../extension';
+import { log, LogLevel, globalTreeFilter } from '../../extension.js';
 import { TreeItemBase } from './common/treeItem';
-import { resourceStatusService } from '../../extension';
-import { resourceStore } from '../../extension';
+import { resourceStatusService } from '../../extension.js';
+import { resourceStore } from '../../extension.js';
 
 export class EdaSystemProvider implements vscode.TreeDataProvider<SystemTreeItem> {
   private _onDidChangeTreeData: vscode.EventEmitter<SystemTreeItem | undefined | null | void>
@@ -564,6 +564,6 @@ export class EdaSystemProvider implements vscode.TreeDataProvider<SystemTreeItem
 
 export class SystemTreeItem extends TreeItemBase {
   public crdGroup?: string;
-  public resourceType?: string;
+//  public resourceType?: string;
   public children?: SystemTreeItem[];
 }

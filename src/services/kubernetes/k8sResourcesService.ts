@@ -1,11 +1,11 @@
-import * as k8s from '@kubernetes/client-node';
+import { V1Pod, V1Service, V1Deployment, V1ConfigMap, V1Secret, V1Node } from '@kubernetes/client-node';
 import * as yaml from 'js-yaml';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { BaseK8sService } from './baseK8sService';
-import { LogLevel, log } from '../../extension';
+import { LogLevel, log } from '../../extension.js';
 import { fetchResources, executeKubectl } from '../../utils/resourceUtils';
 import { cache } from '../../utils/cacheUtils';
 
@@ -15,17 +15,16 @@ export class K8sResourcesService extends BaseK8sService {
   }
 
   // Standard Kubernetes resource retrieval using the k8s client library
-  async getPods(namespace?: string): Promise<k8s.V1Pod[]> {
+  async getPods(namespace?: string): Promise<V1Pod[]> {
     const ns = namespace || this.namespace;
-    return cache.getOrFetch<k8s.V1Pod[]>(
+    return cache.getOrFetch<V1Pod[]>(
       'pods',
       ns,
-      () =>
-        fetchResources<k8s.V1Pod>(
-          () => this.k8sApi.listNamespacedPod(ns),
-          'Pods',
-          { namespace: ns }
-        ),
+      () => fetchResources<V1Pod>(
+        () => this.k8sApi.listNamespacedPod({ namespace: ns }),
+        'Pods',
+        { namespace: ns }
+      ),
       {
         ttl: this.cacheTtl,
         description: `pods in namespace '${ns}'`,
@@ -35,14 +34,14 @@ export class K8sResourcesService extends BaseK8sService {
   }
 
   // Using the new caching pattern for services as well
-  async getServices(namespace?: string): Promise<k8s.V1Service[]> {
+  async getServices(namespace?: string): Promise<V1Service[]> {
     const ns = namespace || this.namespace;
-    return cache.getOrFetch<k8s.V1Service[]>(
+    return cache.getOrFetch<V1Service[]>(
       'services',
       ns,
       () =>
-        fetchResources<k8s.V1Service>(
-          () => this.k8sApi.listNamespacedService(ns),
+        fetchResources<V1Service>(
+          () => this.k8sApi.listNamespacedService({ namespace: ns }),
           'Services',
           { namespace: ns }
         ),
@@ -55,14 +54,14 @@ export class K8sResourcesService extends BaseK8sService {
   }
 
   // Updated getDeployments using cache.getOrFetch
-  async getDeployments(namespace?: string): Promise<k8s.V1Deployment[]> {
+  async getDeployments(namespace?: string): Promise<V1Deployment[]> {
     const ns = namespace || this.namespace;
-    return cache.getOrFetch<k8s.V1Deployment[]>(
+    return cache.getOrFetch<V1Deployment[]>(
       'deployments',
       ns,
       () =>
-        fetchResources<k8s.V1Deployment>(
-          () => this.k8sAppsApi.listNamespacedDeployment(ns),
+        fetchResources<V1Deployment>(
+          () => this.k8sAppsApi.listNamespacedDeployment({ namespace: ns }),
           'Deployments',
           { namespace: ns }
         ),
@@ -75,14 +74,14 @@ export class K8sResourcesService extends BaseK8sService {
   }
 
   // Updated getConfigMaps using cache.getOrFetch
-  async getConfigMaps(namespace?: string): Promise<k8s.V1ConfigMap[]> {
+  async getConfigMaps(namespace?: string): Promise<V1ConfigMap[]> {
     const ns = namespace || this.namespace;
-    return cache.getOrFetch<k8s.V1ConfigMap[]>(
+    return cache.getOrFetch<V1ConfigMap[]>(
       'configmaps',
       ns,
       () =>
-        fetchResources<k8s.V1ConfigMap>(
-          () => this.k8sApi.listNamespacedConfigMap(ns),
+        fetchResources<V1ConfigMap>(
+          () => this.k8sApi.listNamespacedConfigMap({ namespace: ns }),
           'ConfigMaps',
           { namespace: ns }
         ),
@@ -95,14 +94,14 @@ export class K8sResourcesService extends BaseK8sService {
   }
 
   // Updated getSecrets using cache.getOrFetch
-  async getSecrets(namespace?: string): Promise<k8s.V1Secret[]> {
+  async getSecrets(namespace?: string): Promise<V1Secret[]> {
     const ns = namespace || this.namespace;
-    return cache.getOrFetch<k8s.V1Secret[]>(
+    return cache.getOrFetch<V1Secret[]>(
       'secrets',
       ns,
       () =>
-        fetchResources<k8s.V1Secret>(
-          () => this.k8sApi.listNamespacedSecret(ns),
+        fetchResources<V1Secret>(
+          () => this.k8sApi.listNamespacedSecret({ namespace: ns }),
           'Secrets',
           { namespace: ns }
         ),
@@ -115,12 +114,12 @@ export class K8sResourcesService extends BaseK8sService {
   }
 
   // Updated getNodes using cache.getOrFetch with 'cluster-wide' namespace
-  async getNodes(): Promise<k8s.V1Node[]> {
-    return cache.getOrFetch<k8s.V1Node[]>(
+  async getNodes(): Promise<V1Node[]> {
+    return cache.getOrFetch<V1Node[]>(
       'nodes',
       'cluster-wide',
       () =>
-        fetchResources<k8s.V1Node>(
+        fetchResources<V1Node>(
           () => this.k8sApi.listNode(),
           'Nodes',
           { namespace: 'cluster-wide' }
@@ -281,7 +280,7 @@ export class K8sResourcesService extends BaseK8sService {
     try {
       log(`Deleting pod '${podName}' in namespace '${namespace}'`, LogLevel.INFO);
       // Use K8s API directly for better performance
-      await this.k8sApi.deleteNamespacedPod(podName, namespace);
+      await this.k8sApi.deleteNamespacedPod({ name: podName, namespace });
       log(`Successfully deleted pod '${podName}'`, LogLevel.INFO);
       this.resetPodCache();
     } catch (error: any) {

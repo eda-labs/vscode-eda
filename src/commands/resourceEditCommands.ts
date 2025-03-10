@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
 import { KubernetesService } from '../services/kubernetes/kubernetes';
 import { K8sFileSystemProvider } from '../providers/documents/resourceProvider';
-import { log, LogLevel, edaOutputChannel } from '../extension';
+import { log, LogLevel, edaOutputChannel } from '../extension.js';
 
 // Keep track of open resource editors
 const openResourceEditors = new Set<string>();

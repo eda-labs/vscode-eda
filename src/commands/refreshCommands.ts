@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { log, LogLevel, k8sService, resourceStore, edaAlarmProvider, edaDeviationProvider, edaTransactionProvider } from '../extension';
+import { log, LogLevel, k8sService, resourceStore, edaAlarmProvider, edaDeviationProvider, edaTransactionProvider } from '../extension.js';
 
 
 /**

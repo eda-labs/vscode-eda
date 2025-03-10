@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
 import { KubernetesService } from '../services/kubernetes/kubernetes';
 import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
-import { log, LogLevel } from '../extension';
+import { log, LogLevel } from '../extension.js';
 
 /**
  * Registers the "viewResource" command that opens a read-only YAML view (k8s-view:)

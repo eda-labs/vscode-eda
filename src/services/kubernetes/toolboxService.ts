@@ -1,6 +1,6 @@
 // src/k8s/toolboxService.ts
 import { BaseK8sService } from './baseK8sService';
-import { LogLevel, log } from '../../extension';
+import { LogLevel, log } from '../../extension.js';
 import { executeKubectl } from '../../utils/resourceUtils';
 import { cache } from '../../utils/cacheUtils';
 
@@ -26,24 +26,22 @@ export class ToolboxService extends BaseK8sService {
           'app.kubernetes.io/name=eda-toolbox',
         ];
         for (const selector of labelSelectors) {
-          const pods = await this.k8sApi.listNamespacedPod(
-            this.toolboxNamespace,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            selector
-          );
-          if (pods.body.items.length > 0) {
-            const podName = pods.body.items[0].metadata!.name!;
+          const pods = await this.k8sApi.listNamespacedPod({
+            namespace: this.toolboxNamespace,
+            labelSelector: selector
+          });
+          if (pods.items.length > 0) {
+            const podName = pods.items[0].metadata!.name!;
             log(`Found toolbox pod: ${podName} using selector: ${selector}`, LogLevel.INFO);
             return podName;
           }
         }
 
         // 2) If label search fails, try name-based search
-        const allPods = await this.k8sApi.listNamespacedPod(this.toolboxNamespace);
-        for (const pod of allPods.body.items) {
+        const allPods = await this.k8sApi.listNamespacedPod({ 
+          namespace: this.toolboxNamespace 
+        });
+        for (const pod of allPods.items) {
           const name = pod.metadata!.name!;
           if (name.includes('toolbox') || name.includes('eda-toolbox')) {
             log(`Found toolbox pod by name: ${name}`, LogLevel.INFO);

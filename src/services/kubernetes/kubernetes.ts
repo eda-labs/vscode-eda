@@ -1,12 +1,13 @@
 // src/k8s/kubernetesService.ts - Facade implementing the original interface
-import * as k8s from '@kubernetes/client-node';
+//import * as k8s from '@kubernetes/client-node';
+import { V1Pod, V1Service, V1Deployment, V1ConfigMap, V1Secret, V1Node, V1CustomResourceDefinition } from '@kubernetes/client-node';
 import { BaseK8sService } from './baseK8sService';
 import { K8sResourcesService } from './k8sResourcesService';
 import { CrdService } from './crdService';
 import { ToolboxService } from './toolboxService';
 import { EdaService } from './edaService';
 import { EdaTransaction, EdaAlarm, EdaDeviation, CrdInfo } from '../types';
-import { LogLevel, log } from '../../extension';
+import { LogLevel, log } from '../../extension.js';
 
 export class KubernetesService extends BaseK8sService {
   private resourcesService: K8sResourcesService;
@@ -40,27 +41,27 @@ export class KubernetesService extends BaseK8sService {
   // ----- Delegating methods to appropriate services -----
 
   // Standard K8s resources - delegated to resourcesService
-  async getPods(namespace?: string): Promise<k8s.V1Pod[]> {
+  async getPods(namespace?: string): Promise<V1Pod[]> {
     return this.resourcesService.getPods(namespace);
   }
 
-  async getServices(namespace?: string): Promise<k8s.V1Service[]> {
+  async getServices(namespace?: string): Promise<V1Service[]> {
     return this.resourcesService.getServices(namespace);
   }
 
-  async getDeployments(namespace?: string): Promise<k8s.V1Deployment[]> {
+  async getDeployments(namespace?: string): Promise<V1Deployment[]> {
     return this.resourcesService.getDeployments(namespace);
   }
 
-  async getConfigMaps(namespace?: string): Promise<k8s.V1ConfigMap[]> {
+  async getConfigMaps(namespace?: string): Promise<V1ConfigMap[]> {
     return this.resourcesService.getConfigMaps(namespace);
   }
 
-  async getSecrets(namespace?: string): Promise<k8s.V1Secret[]> {
+  async getSecrets(namespace?: string): Promise<V1Secret[]> {
     return this.resourcesService.getSecrets(namespace);
   }
 
-  async getNodes(): Promise<k8s.V1Node[]> {
+  async getNodes(): Promise<V1Node[]> {
     return this.resourcesService.getNodes();
   }
 
@@ -77,7 +78,7 @@ export class KubernetesService extends BaseK8sService {
   }
 
   // CRD-related methods - delegated to crdService
-  async getAllCrds(): Promise<k8s.V1CustomResourceDefinition[]> {
+  async getAllCrds(): Promise<V1CustomResourceDefinition[]> {
     return this.crdService.getAllCrds();
   }
 
@@ -117,7 +118,7 @@ export class KubernetesService extends BaseK8sService {
     return this.crdService.getCrdSchemaForKind(kind);
   }
 
-  public async getCrdDefinitionForKind(kind: string): Promise<k8s.V1CustomResourceDefinition> {
+  public async getCrdDefinitionForKind(kind: string): Promise<V1CustomResourceDefinition> {
     return this.crdService.getCrdDefinitionForKind(kind);
   }
 
@@ -169,7 +170,7 @@ export class KubernetesService extends BaseK8sService {
     return this.edaService.restoreTransaction(commitHash);
   }
 
-  async getNppPodsForNamespace(edaNamespace: string): Promise<k8s.V1Pod[]> {
+  async getNppPodsForNamespace(edaNamespace: string): Promise<V1Pod[]> {
     return this.edaService.getNppPodsForNamespace(edaNamespace);
   }
 

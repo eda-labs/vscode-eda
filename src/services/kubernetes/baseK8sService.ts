@@ -1,16 +1,16 @@
 // src/k8s/baseK8sService.ts
-import * as k8s from '@kubernetes/client-node';
+import { KubeConfig, CoreV1Api, AppsV1Api, ApiextensionsV1Api, CustomObjectsApi } from '@kubernetes/client-node';
 import * as vscode from 'vscode';
 import { execSync } from 'child_process';
-import { LogLevel, log } from '../../extension';
+import { LogLevel, log } from '../../extension.js';
 import { cache } from '../../utils/cacheUtils';
 
 export class BaseK8sService {
-  protected kc: k8s.KubeConfig;
-  protected k8sApi: k8s.CoreV1Api;
-  protected k8sAppsApi: k8s.AppsV1Api;
-  protected k8sApiext: k8s.ApiextensionsV1Api;
-  protected k8sCustomObjects: k8s.CustomObjectsApi;
+  protected kc: KubeConfig;
+  protected k8sApi: CoreV1Api;
+  protected k8sAppsApi: AppsV1Api;
+  protected k8sApiext: ApiextensionsV1Api;
+  protected k8sCustomObjects: CustomObjectsApi;
 
   protected namespace: string;
   protected toolboxNamespace: string = 'eda-system';
@@ -23,17 +23,17 @@ export class BaseK8sService {
   protected cacheTtl = 15000; // 15s
 
   constructor() {
-    this.kc = new k8s.KubeConfig();
+    this.kc = new KubeConfig();
     try {
       this.kc.loadFromDefault();
     } catch (error) {
       vscode.window.showErrorMessage(`Failed to load Kubernetes configuration: ${error}`);
     }
 
-    this.k8sApi = this.kc.makeApiClient(k8s.CoreV1Api);
-    this.k8sAppsApi = this.kc.makeApiClient(k8s.AppsV1Api);
-    this.k8sApiext = this.kc.makeApiClient(k8s.ApiextensionsV1Api);
-    this.k8sCustomObjects = this.kc.makeApiClient(k8s.CustomObjectsApi);
+    this.k8sApi = this.kc.makeApiClient(CoreV1Api);
+    this.k8sAppsApi = this.kc.makeApiClient(AppsV1Api);
+    this.k8sApiext = this.kc.makeApiClient(ApiextensionsV1Api);
+    this.k8sCustomObjects = this.kc.makeApiClient(CustomObjectsApi);
 
     this.namespace = 'eda-system';
 
@@ -110,14 +110,14 @@ export class BaseK8sService {
       execSync(`${this.kubectlPath} config use-context ${contextName}`, { encoding: 'utf-8' });
       
       // Reload the kubeconfig from disk to sync our in-memory state
-      this.kc = new k8s.KubeConfig();
+      this.kc = new KubeConfig();
       this.kc.loadFromDefault();
   
       // Recreate the API clients with the new context
-      this.k8sApi = this.kc.makeApiClient(k8s.CoreV1Api);
-      this.k8sAppsApi = this.kc.makeApiClient(k8s.AppsV1Api);
-      this.k8sApiext = this.kc.makeApiClient(k8s.ApiextensionsV1Api);
-      this.k8sCustomObjects = this.kc.makeApiClient(k8s.CustomObjectsApi);
+      this.k8sApi = this.kc.makeApiClient(CoreV1Api);
+      this.k8sAppsApi = this.kc.makeApiClient(AppsV1Api);
+      this.k8sApiext = this.kc.makeApiClient(ApiextensionsV1Api);
+      this.k8sCustomObjects = this.kc.makeApiClient(CustomObjectsApi);
   
       // Clear all caches
       cache.clearAll();

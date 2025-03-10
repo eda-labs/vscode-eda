@@ -1,4 +1,4 @@
-import { log, LogLevel } from '../extension';
+import { log, LogLevel } from '../extension.js';
 
 /**
  * Generic cache entry with value and expiration tracking

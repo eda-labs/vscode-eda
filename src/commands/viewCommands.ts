@@ -1,10 +1,10 @@
 // src/commands/viewCommands.ts (using improved template loader)
 import * as vscode from 'vscode';
 import { KubernetesService } from '../services/kubernetes/kubernetes';
-import { edaOutputChannel } from '../extension';
+import { edaOutputChannel } from '../extension.js';
 import { CrdDefinitionFileSystemProvider } from '../providers/documents/crdDefinitionProvider';
 import { TransactionDetailsDocumentProvider } from '../providers/documents/transactionDetailsProvider';
-import { alarmDetailsProvider, deviationDetailsProvider } from '../extension';
+import { alarmDetailsProvider, deviationDetailsProvider } from '../extension.js';
 import { loadTemplate } from '../utils/templateLoader';
 
 export function registerViewCommands(

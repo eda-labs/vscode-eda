@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 import { KubernetesService } from '../../services/kubernetes/kubernetes';
-import { edaOutputChannel, LogLevel, log } from '../../extension';
+import { edaOutputChannel, LogLevel, log } from '../../extension.js';
 import { TreeItemBase } from './common/treeItem';
-import { resourceStatusService } from '../../extension';
+import { resourceStatusService } from '../../extension.js';
 
 export class EdaTransactionProvider implements vscode.TreeDataProvider<TransactionTreeItem> {
   private _onDidChangeTreeData: vscode.EventEmitter<TransactionTreeItem | undefined | null | void> = new vscode.EventEmitter<TransactionTreeItem | undefined | null | void>();

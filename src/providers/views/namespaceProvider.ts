@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { KubernetesService } from '../../services/kubernetes/kubernetes';
-import { log, LogLevel, globalTreeFilter } from '../../extension';
+import { log, LogLevel, globalTreeFilter } from '../../extension.js';
 import { TreeItemBase } from './common/treeItem';
-import { resourceStore, resourceStatusService  } from '../../extension';
+import { resourceStore, resourceStatusService  } from '../../extension.js';
 
 export class EdaNamespaceProvider implements vscode.TreeDataProvider<NamespaceTreeItem> {
   private _onDidChangeTreeData: vscode.EventEmitter<NamespaceTreeItem | undefined | null | void>

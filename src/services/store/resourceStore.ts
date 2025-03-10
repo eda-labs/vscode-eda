@@ -1,8 +1,7 @@
 // src/services/resourceStore.ts
 import * as vscode from 'vscode';
-import * as k8s from '@kubernetes/client-node';
 import { KubernetesService } from '../kubernetes/kubernetes';
-import { log, LogLevel, measurePerformance } from '../../extension';
+import { log, LogLevel, measurePerformance } from '../../extension.js';
 
 export interface ResourceStoreItem {
   kind: string;

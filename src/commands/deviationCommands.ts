@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
 import { execSync } from 'child_process';
 import { KubernetesService } from '../services/kubernetes/kubernetes';
-import { log, LogLevel, edaDeviationProvider, edaOutputChannel } from '../extension';
+import { log, LogLevel, edaDeviationProvider, edaOutputChannel } from '../extension.js';
 import { DeviationResource } from '../services/types';
 
 /**

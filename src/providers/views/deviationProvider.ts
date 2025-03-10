@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
 import { EdaDeviation } from '../../services/types';
 import { KubernetesService } from '../../services/kubernetes/kubernetes';
-import { log, LogLevel, globalTreeFilter } from '../../extension';
+import { log, LogLevel, globalTreeFilter } from '../../extension.js';
 import { TreeItemBase } from './common/treeItem';
-import { resourceStatusService } from '../../extension';
+import { resourceStatusService } from '../../extension.js';
 
 /**
  * EdaDeviationProvider displays the list of deviations from

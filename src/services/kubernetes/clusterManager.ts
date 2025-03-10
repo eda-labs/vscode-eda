@@ -1,7 +1,7 @@
 // src/services/kubernetes/clusterManager.ts
 import * as vscode from 'vscode';
 import { BaseK8sService } from './baseK8sService';
-import { log, LogLevel } from '../../extension';
+import { log, LogLevel } from '../../extension.js';
 
 export class ClusterManager {
   private statusBarItem: vscode.StatusBarItem;

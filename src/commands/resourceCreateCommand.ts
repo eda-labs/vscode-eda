@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
 import { KubernetesService } from '../services/kubernetes/kubernetes';
 import { K8sFileSystemProvider } from '../providers/documents/resourceProvider';
-import { log, LogLevel } from '../extension';
+import { log, LogLevel } from '../extension.js';
 import { CrdVersion } from '../services/types';
 
 /**

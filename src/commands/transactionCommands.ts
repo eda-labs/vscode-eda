@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { KubernetesService } from '../services/kubernetes/kubernetes';
-import { edaOutputChannel } from '../extension';
-import { log, LogLevel } from '../extension';
+import { edaOutputChannel } from '../extension.js';
+import { log, LogLevel } from '../extension.js';
 
 /**
  * Registers commands for managing EDA transactions (revert and restore)

@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
 import { KubernetesService } from '../../services/kubernetes/kubernetes';
-import { log, LogLevel } from '../../extension';
+import { log, LogLevel } from '../../extension.js';
 
 /**
  * Interface for a K8s resource with minimum required fields

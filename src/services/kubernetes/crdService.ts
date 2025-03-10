@@ -1,8 +1,8 @@
-import * as k8s from '@kubernetes/client-node';
+import { V1CustomResourceDefinition } from '@kubernetes/client-node';
 import { execSync } from 'child_process';
 import { BaseK8sService } from './baseK8sService';
 import { CrdInfo } from '../types';
-import { LogLevel, log } from '../../extension';
+import { LogLevel, log } from '../../extension.js';
 import { fetchResources, executeKubectl } from '../../utils/resourceUtils';
 import { cache } from '../../utils/cacheUtils';
 
@@ -26,14 +26,14 @@ export class CrdService extends BaseK8sService {
   }
 
   // Retrieve all CRDs at once and cache them using the new cache helper
-  async getAllCrds(): Promise<k8s.V1CustomResourceDefinition[]> {
-    return cache.getOrFetch<k8s.V1CustomResourceDefinition[]>(
+  async getAllCrds(): Promise<V1CustomResourceDefinition[]> {
+    return cache.getOrFetch<V1CustomResourceDefinition[]>(
       'allCrds',
       'cluster-wide',
       async () => {
         log(`Fetching all CRDs cluster-wide...`, LogLevel.INFO);
         const response = await this.k8sApiext.listCustomResourceDefinition();
-        const items = response.body.items;
+        const items = response.items;
         log(`Found ${items.length} CRDs in the cluster`, LogLevel.INFO);
         return items;
       },
@@ -88,11 +88,11 @@ export class CrdService extends BaseK8sService {
     try {
       log('Getting CRDs from cluster using API...', LogLevel.INFO);
       const response = await this.k8sApiext.listCustomResourceDefinition();
-      if (!response.body.items || !Array.isArray(response.body.items)) {
+      if (!response.items || !Array.isArray(response.items)) {
         log('No CRDs found in the cluster', LogLevel.WARN);
         return [];
       }
-      return response.body.items;
+      return response.items;
     } catch (error) {
       log(`Error getting CRDs: ${error}`, LogLevel.ERROR);
       return [];
@@ -158,12 +158,12 @@ export class CrdService extends BaseK8sService {
       async () => {
         try {
           const resource = crd.name.split('.')[0]; // e.g. "fabrics"
-          const response = await this.k8sCustomObjects.listNamespacedCustomObject(
-            crd.apiGroup,
-            crd.version,
+          const response = await this.k8sCustomObjects.listNamespacedCustomObject({
+            group: crd.apiGroup,
+            version: crd.version,
             namespace,
-            resource
-          );
+            plural: resource
+          });
           const items = (response.body as any).items;
           return Array.isArray(items) && items.length > 0;
         } catch (error) {
@@ -183,12 +183,12 @@ export class CrdService extends BaseK8sService {
     try {
       log(`Fetching instances of ${crd.kind} in ${namespace} via K8s API`, LogLevel.DEBUG);
       const resource = crd.name.split('.')[0]; // e.g. "fabrics"
-      const response = await this.k8sCustomObjects.listNamespacedCustomObject(
-        crd.apiGroup,
-        crd.version,
+      const response = await this.k8sCustomObjects.listNamespacedCustomObject({
+        group: crd.apiGroup,
+        version: crd.version,
         namespace,
-        resource
-      );
+        plural: resource
+      });
       const items = (response.body as any).items || [];
       log(`Found ${items.length} instances of ${crd.kind} in ${namespace}`, LogLevel.DEBUG);
       return items;
@@ -279,7 +279,7 @@ export class CrdService extends BaseK8sService {
   }
 
   // Retrieve the full CRD object for a given Kind
-  public async getCrdDefinitionForKind(kind: string): Promise<k8s.V1CustomResourceDefinition> {
+  public async getCrdDefinitionForKind(kind: string): Promise<V1CustomResourceDefinition> {
     const allCrds = await this.getAllCrds();
     const crd = allCrds.find(crd => crd.spec?.names?.kind === kind);
     if (!crd) {

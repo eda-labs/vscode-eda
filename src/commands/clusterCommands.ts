@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { KubernetesService } from '../services/kubernetes/kubernetes';
 import { ClusterManager } from '../services/kubernetes/clusterManager';
 import { ResourceStore } from '../services/store/resourceStore';
-import { log, LogLevel } from '../extension';
+import { log, LogLevel } from '../extension.js';
 
 /**
  * Registers commands for managing and switching between Kubernetes clusters

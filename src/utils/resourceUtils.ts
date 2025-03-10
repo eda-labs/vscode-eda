@@ -1,5 +1,5 @@
-import * as k8s from '@kubernetes/client-node';
-import { log, LogLevel } from '../extension';
+import { KubernetesObject } from '@kubernetes/client-node';
+import { log, LogLevel } from '../extension.js';
 
 /**
  * Interface for resource fetch options
@@ -12,8 +12,9 @@ export interface ResourceFetchOptions {
 /**
  * Generic function to fetch Kubernetes resources
  */
-export async function fetchResources<T extends k8s.KubernetesObject>(
-  fetchFn: () => Promise<{ body: { items: T[] } }>,
+export async function fetchResources<T extends KubernetesObject>(
+  // Update the type definition to match the new response format
+  fetchFn: () => Promise<{ items: T[] }>,  // Remove 'body' wrapper
   resourceType: string,
   options: ResourceFetchOptions
 ): Promise<T[]> {
@@ -24,7 +25,7 @@ export async function fetchResources<T extends k8s.KubernetesObject>(
     const startTime = Date.now();
 
     const response = await fetchFn();
-    const items = response.body.items;
+    const items = response.items;  // Direct access - no more response.body
 
     const elapsedTime = Date.now() - startTime;
     log(`Found ${items.length} ${resourceType} in namespace '${namespace}' (${elapsedTime}ms)`, LogLevel.DEBUG);

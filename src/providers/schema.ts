@@ -5,7 +5,7 @@ import * as path from 'path';
 import * as os from 'os';
 import * as yaml from 'js-yaml';
 import { KubernetesService } from '../services/kubernetes/kubernetes';
-import { log, LogLevel } from '../extension';
+import { log, LogLevel } from '../extension.js';
 import { K8sFileSystemProvider } from './documents/resourceProvider';
 
 /**

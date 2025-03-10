@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
 import { EdaAlarm} from '../../services/types';
 import { KubernetesService } from '../../services/kubernetes/kubernetes';
-import { log, LogLevel, globalTreeFilter } from '../../extension';
+import { log, LogLevel, globalTreeFilter } from '../../extension.js';
 import { TreeItemBase } from './common/treeItem';
-import { resourceStatusService } from '../../extension';
+import { resourceStatusService } from '../../extension.js';
 
 /**
  * EdaAlarmProvider displays the list of active alarms from "edactl query .namespace.alarms.current-alarm".
