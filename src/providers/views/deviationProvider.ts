@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { EdaDeviation } from '../../services/types';
-import { KubernetesService } from '../../services/kubernetes/kubernetes';
+import { serviceManager } from '../../services/serviceManager';
+import { EdaService } from '../../services/edaService';
+import { StatusService } from '../../services/statusService';
 import { log, LogLevel, globalTreeFilter } from '../../extension.js';
 import { TreeItemBase } from './common/treeItem';
 import { resourceStatusService } from '../../extension.js';
@@ -16,10 +18,13 @@ export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTr
   // Cache of currently displayed deviations
   private deviations: EdaDeviation[] = [];
 
+  private k8sService: EdaService;
+
   constructor(
-    private context: vscode.ExtensionContext,
-    private k8sService: KubernetesService
-  ) {}
+    private context: vscode.ExtensionContext
+  ) {
+    this.k8sService = serviceManager.getService<EdaService>('eda');
+  }
 
   /**
    * Refresh method, to be called from our extension-level refresh

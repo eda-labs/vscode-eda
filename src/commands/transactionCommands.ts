@@ -1,15 +1,18 @@
 import * as vscode from 'vscode';
-import { KubernetesService } from '../services/kubernetes/kubernetes';
 import { edaOutputChannel } from '../extension.js';
 import { log, LogLevel } from '../extension.js';
+import { serviceManager } from '../services/serviceManager';
+import { EdaService } from '../services/edaService';
 
 /**
  * Registers commands for managing EDA transactions (revert and restore)
  */
 export function registerTransactionCommands(
-  context: vscode.ExtensionContext,
-  k8sService: KubernetesService
+  context: vscode.ExtensionContext
 ) {
+  // Get EDA service
+  const edaService = serviceManager.getService<EdaService>('eda');
+
   // Command to revert a transaction (undoing changes)
   const revertTransactionCmd = vscode.commands.registerCommand(
     'vscode-eda.revertTransaction',
@@ -23,7 +26,7 @@ export function registerTransactionCommands(
 
       // Fetch transaction details to get commit hash
       try {
-        const details = await k8sService.getEdaTransactionDetails(transactionId);
+        const details = await edaService.getEdaTransactionDetails(transactionId);
 
         // Extract commit hash using regex
         const match = details.match(/commit-hash:\s*([a-f0-9]+)/i);
@@ -47,7 +50,7 @@ export function registerTransactionCommands(
             log(`Executing revert for transaction ${transactionId} (${commitHash})`, LogLevel.INFO, true);
 
             // Execute revert command via edactl
-            const output = await k8sService.revertTransaction(commitHash);
+            const output = await edaService.revertTransaction(commitHash);
 
             vscode.window.showInformationMessage(`Transaction ${transactionId} reverted successfully.`);
             edaOutputChannel.appendLine(`Revert Transaction ${transactionId} (${commitHash}) output:\n${output}`);
@@ -79,7 +82,7 @@ export function registerTransactionCommands(
 
       // Fetch transaction details to get commit hash
       try {
-        const details = await k8sService.getEdaTransactionDetails(transactionId);
+        const details = await edaService.getEdaTransactionDetails(transactionId);
 
         // Extract commit hash using regex
         const match = details.match(/commit-hash:\s*([a-f0-9]+)/i);
@@ -103,7 +106,7 @@ export function registerTransactionCommands(
             log(`Executing restore for transaction ${transactionId} (${commitHash})`, LogLevel.INFO, true);
 
             // Execute restore command via edactl
-            const output = await k8sService.restoreTransaction(commitHash);
+            const output = await edaService.restoreTransaction(commitHash);
 
             vscode.window.showInformationMessage(`Transaction ${transactionId} restored successfully.`);
             edaOutputChannel.appendLine(`Restore Transaction ${transactionId} (${commitHash}) output:\n${output}`);

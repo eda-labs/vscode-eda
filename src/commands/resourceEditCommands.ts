@@ -1,9 +1,12 @@
 // src/commands/resourceEditCommands.ts
 import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
-import { KubernetesService } from '../services/kubernetes/kubernetes';
 import { K8sFileSystemProvider } from '../providers/documents/resourceProvider';
 import { log, LogLevel, edaOutputChannel } from '../extension.js';
+import { serviceManager } from '../services/serviceManager';
+import { ResourceService } from '../services/resourceService';
+import { CrdService } from '../services/crdService';
+
 
 // Keep track of open resource editors
 const openResourceEditors = new Set<string>();
@@ -19,7 +22,6 @@ interface ActionQuickPickItem extends vscode.QuickPickItem {
 
 export function registerResourceEditCommands(
   context: vscode.ExtensionContext,
-  k8sService: KubernetesService,
   fileSystemProvider: K8sFileSystemProvider,
   providers?: {
     namespaceProvider?: any;
@@ -27,6 +29,11 @@ export function registerResourceEditCommands(
     transactionProvider?: any;
   }
 ) {
+
+  // Get services
+  const resourceService = serviceManager.getService<ResourceService>('resource');
+  const crdService = serviceManager.getService<CrdService>('crd');
+
   // Edit resource in editor - accept either tree item or direct resource parameters
   const editResourceCommand = vscode.commands.registerCommand(
     'vscode-eda.editResource',
@@ -61,7 +68,7 @@ export function registerResourceEditCommands(
 
           // We need to fetch the resource
           log(`Fetching ${resourceKind}/${resourceName} from ${namespace} for editing...`, LogLevel.INFO);
-          let yamlContent = await k8sService.getResourceYaml(resourceKind, resourceName, namespace);
+          let yamlContent = await resourceService.getResourceYaml(resourceKind, resourceName, namespace);
 
           // Check if the YAML has apiVersion (might be missing in edactl output)
           const hasApiVersion = yamlContent.includes('apiVersion:');
@@ -71,7 +78,7 @@ export function registerResourceEditCommands(
 
             try {
               // Get the CRD definition directly from the Kubernetes service
-              const crdDef = await k8sService.getCrdDefinitionForKind(resourceKind);
+              const crdDef = await crdService.getCrdDefinitionForKind(resourceKind);
 
               if (crdDef && crdDef.spec?.group) {
                 // Get the preferred version (storage: true, or first served version)
@@ -227,7 +234,7 @@ export function registerResourceEditCommands(
         // If we have an explicit option (dry run or direct apply), skip the initial prompt
         if (options.skipPrompt) {
           if (options.dryRun) {
-            return await validateAndPromptForApply(k8sService, fileSystemProvider, documentUri, resource, providers);
+            return await validateAndPromptForApply(resourceService, fileSystemProvider, documentUri, resource, providers);
           } else {
             // Direct apply - still show diff first
             const shouldContinue = await showResourceDiff(fileSystemProvider, documentUri);
@@ -238,7 +245,7 @@ export function registerResourceEditCommands(
             // Confirm and apply
             const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
             if (confirmed) {
-              const result = await applyResource(k8sService, resource, { dryRun: false }, providers);
+              const result = await applyResource(resourceService, resource, { dryRun: false }, providers);
               if (result) {
                 fileSystemProvider.setOriginalResource(documentUri, resource);
                 vscode.window.showInformationMessage(`Successfully applied ${resource.kind} "${resource.metadata?.name}"`,
@@ -275,12 +282,12 @@ export function registerResourceEditCommands(
 
           if (nextAction === 'validate') {
             // Validate and then ask for apply
-            return await validateAndPromptForApply(k8sService, fileSystemProvider, documentUri, resource, providers);
+            return await validateAndPromptForApply(resourceService, fileSystemProvider, documentUri, resource, providers);
           } else {
             // Direct apply after diff
             const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
             if (confirmed) {
-              const result = await applyResource(k8sService, resource, { dryRun: false }, providers);
+              const result = await applyResource(resourceService, resource, { dryRun: false }, providers);
               if (result) {
                 fileSystemProvider.setOriginalResource(documentUri, resource);
                 vscode.window.showInformationMessage(`Successfully applied ${resource.kind} "${resource.metadata?.name}"`,
@@ -294,7 +301,7 @@ export function registerResourceEditCommands(
           }
         } else if (action === 'validate') {
           // Validate and then ask for apply
-          return await validateAndPromptForApply(k8sService, fileSystemProvider, documentUri, resource, providers);
+          return await validateAndPromptForApply(resourceService, fileSystemProvider, documentUri, resource, providers);
         } else {
           // Direct apply - still show diff first as a safeguard
           const shouldContinue = await showResourceDiff(fileSystemProvider, documentUri);
@@ -305,7 +312,7 @@ export function registerResourceEditCommands(
           // Confirm and apply
           const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
           if (confirmed) {
-            const result = await applyResource(k8sService, resource, { dryRun: false }, providers);
+            const result = await applyResource(resourceService, resource, { dryRun: false }, providers);
             if (result) {
               fileSystemProvider.setOriginalResource(documentUri, resource);
               vscode.window.showInformationMessage(`Successfully applied ${resource.kind} "${resource.metadata?.name}"`,
@@ -416,7 +423,7 @@ async function promptForNextAction(resource: any, currentStep: string): Promise<
 
 // Validate and then prompt for apply
 async function validateAndPromptForApply(
-  k8sService: KubernetesService,
+  k8sService: ResourceService,
   fileSystemProvider: K8sFileSystemProvider,
   documentUri: vscode.Uri,
   resource: any,
@@ -617,7 +624,7 @@ async function confirmResourceUpdate(kind: string, name: string, dryRun: boolean
 
 // Apply the resource changes to the cluster
 async function applyResource(
-  k8sService: KubernetesService,
+  k8sService: ResourceService,
   resource: any,
   options: { dryRun?: boolean },
   providers?: {

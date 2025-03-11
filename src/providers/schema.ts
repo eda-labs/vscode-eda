@@ -4,7 +4,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as yaml from 'js-yaml';
-import { KubernetesService } from '../services/kubernetes/kubernetes';
+import { serviceManager } from '../services/serviceManager';
+import { CrdService } from '../services/crdService';
+import { ResourceService } from '../services/resourceService';
 import { log, LogLevel } from '../extension.js';
 import { K8sFileSystemProvider } from './documents/resourceProvider';
 
@@ -16,7 +18,10 @@ export class SchemaProvider {
   private disposables: vscode.Disposable[] = [];
   private schemaCache = new Map<string, string>(); // Maps kind to schema file path
 
-  constructor(private k8sService: KubernetesService) {
+  private crdService: CrdService;
+
+  constructor() {
+    this.crdService = serviceManager.getService<CrdService>('crd');
     // Create a directory for storing CRD schemas
     this.schemaCacheDir = path.join(os.tmpdir(), 'vscode-k8s-schemas');
     if (!fs.existsSync(this.schemaCacheDir)) {
@@ -164,7 +169,7 @@ export class SchemaProvider {
       }
 
       // Get schema from K8s service
-      const schema = await this.k8sService.getCrdSchemaForKind(kind);
+      const schema = await this.crdService.getCrdSchemaForKind(kind);
       if (!schema) {
         return null;
       }
@@ -301,7 +306,7 @@ export class SchemaProvider {
       log('Updating CRD schemas...', LogLevel.INFO);
 
       // Get all CRDs
-      const crds = await this.k8sService.getCRDs();
+      const crds = await this.crdService.getCRDs();
       if (!crds || crds.length === 0) {
         log('No CRDs found in the cluster', LogLevel.WARN);
         return;

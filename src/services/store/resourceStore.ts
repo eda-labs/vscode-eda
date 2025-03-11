@@ -1,7 +1,11 @@
-// src/services/resourceStore.ts
+// src/services/store/resourceStore.ts
 import * as vscode from 'vscode';
-import { KubernetesService } from '../kubernetes/kubernetes';
+import { KubernetesClient } from '../../clients/kubernetesClient';
+import { ResourceService } from '../resourceService';
+import { EdaService } from '../edaService';
+import { CrdService } from '../crdService';
 import { log, LogLevel, measurePerformance } from '../../extension.js';
+import { CrdInfo } from '../types';
 
 export interface ResourceStoreItem {
   kind: string;
@@ -41,7 +45,12 @@ export class ResourceStore {
   // Last refresh time per namespace
   private lastRefreshTime: Map<string, number> = new Map();
 
-  constructor(private k8sService: KubernetesService) {}
+  constructor(
+    private k8sClient: KubernetesClient,
+    private resourceService: ResourceService,
+    private edaService: EdaService,
+    private crdService: CrdService // You'll need to create this service
+  ) {}
 
   /**
    * Gets all resources for a namespace
@@ -185,15 +194,16 @@ export class ResourceStore {
   public async initCrdGroups(): Promise<void> {
     try {
       log('Initializing CRD group information...', LogLevel.INFO);
-      const groups = await this.k8sService.getAvailableCrdGroups();
+      // Call to crdService instead of k8sService
+      const groups = await this.crdService.getAvailableCrdGroups();
 
       // Clear existing data
       this.crdGroups.clear();
 
       // Fetch each group and its kinds
       for (const group of groups) {
-        const crds = await this.k8sService.getCrdsForGroup(group);
-        const kinds = crds.map(crd => crd.kind);
+        const crds = await this.crdService.getCrdsForGroup(group);
+        const kinds = crds.map((crd: CrdInfo) => crd.kind);
         this.crdGroups.set(group, kinds);
       }
 
@@ -234,7 +244,6 @@ export class ResourceStore {
           this.loadK8sResourceType(namespace, 'ConfigMap', changes, existingResources),
           this.loadK8sResourceType(namespace, 'Secret', changes, existingResources)
         ]);
-
 
         // Add NPP pods if this is not the system namespace
         await Promise.all([
@@ -285,7 +294,6 @@ export class ResourceStore {
   }, `Loading all resources for namespace '${namespace}'`, LogLevel.INFO, true);
 }
 
-
   /**
    * Load standard Kubernetes resources of a specific type
    */
@@ -298,22 +306,23 @@ export class ResourceStore {
     try {
       let resources: any[] = [];
 
-      // Get resources based on type
+      // Get resources based on type using resourceService instead of k8sService
       switch (kind) {
         case 'Pod':
-          resources = await this.k8sService.getPods(namespace);
+          resources = await this.resourceService.getPods(namespace);
           break;
         case 'Service':
-            resources = await this.k8sService.getServices(namespace);
-            break;
+          resources = await this.resourceService.getServices(namespace);
+          break;
         case 'Deployment':
-          resources = await this.k8sService.getDeployments(namespace);
-          break
+          resources = await this.resourceService.getDeployments(namespace);
+          break;
         case 'ConfigMap':
-          resources = await this.k8sService.getConfigMaps(namespace);
-          break
+          resources = await this.resourceService.getConfigMaps(namespace);
+          break;
         case 'Secret':
-          resources = await this.k8sService.getSecrets(namespace);
+          resources = await this.resourceService.getSecrets(namespace);
+          break;
       }
 
       // Process resources
@@ -335,16 +344,16 @@ export class ResourceStore {
   ): Promise<void> {
     try {
       // Get CRD info for ALL kinds in the group at once
-      const allCrdInfos = await this.k8sService.getCrdsForGroup(group);
+      const allCrdInfos = await this.crdService.getCrdsForGroup(group);
 
       // Process kinds in parallel with Promise.all
       await Promise.all(kinds.map(async kind => {
         // Find the matching CRD info from our single batch call
-        const crdInfo = allCrdInfos.find(crd => crd.kind === kind);
+        const crdInfo = allCrdInfos.find((crd: CrdInfo) => crd.kind === kind);
         if (!crdInfo) return;
 
         // Get instances and process them
-        const resources = await this.k8sService.getCrdInstances(namespace, crdInfo);
+        const resources = await this.crdService.getCrdInstances(namespace, crdInfo);
         await this.processResources(namespace, kind, resources, changes, existingResources);
       }));
     } catch (error) {
@@ -361,7 +370,7 @@ export class ResourceStore {
     existingResources: Map<string, ResourceStoreItem>
   ): Promise<void> {
     try {
-      const nppPods = await this.k8sService.getNppPodsForNamespace(namespace);
+      const nppPods = await this.edaService.getNppPodsForNamespace(namespace);
 
       // NPP pods are special - they're in the system namespace but we present them
       // as part of the user namespace. We'll still store them in system namespace,
@@ -486,8 +495,8 @@ export class ResourceStore {
       for (const [group, kinds] of this.crdGroups.entries()) {
         if (kinds.includes(kind)) {
           // Get the cached CRD infos for this group
-          const crds = await this.k8sService.getCrdsForGroup(group);
-          return crds.find(crd => crd.kind === kind);
+          const crds = await this.crdService.getCrdsForGroup(group);
+          return crds.find((crd: CrdInfo) => crd.kind === kind);
         }
       }
       return null;
@@ -509,7 +518,7 @@ export class ResourceStore {
       this.clear();
 
       // IMPORTANT: Get namespaces fresh from the new context
-      const namespaces = await this.k8sService.getEdaNamespaces();
+      const namespaces = await this.edaService.getEdaNamespaces();
 
       // Reinitialize everything
       await this.initCrdGroups();

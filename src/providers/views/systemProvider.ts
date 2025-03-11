@@ -1,10 +1,14 @@
 import * as vscode from 'vscode';
 import { execSync } from 'child_process';
-import { KubernetesService } from '../../services/kubernetes/kubernetes';
+import { serviceManager } from '../../services/serviceManager';
+import { ResourceService } from '../../services/resourceService';
+import { EdaService } from '../../services/edaService';
+import { CrdService } from '../../services/crdService';
+import { KubernetesClient } from '../../clients/kubernetesClient';
+import { resourceStore } from '../../extension.js';
 import { log, LogLevel, globalTreeFilter } from '../../extension.js';
 import { TreeItemBase } from './common/treeItem';
 import { resourceStatusService } from '../../extension.js';
-import { resourceStore } from '../../extension.js';
 
 export class EdaSystemProvider implements vscode.TreeDataProvider<SystemTreeItem> {
   private _onDidChangeTreeData: vscode.EventEmitter<SystemTreeItem | undefined | null | void>
@@ -12,12 +16,17 @@ export class EdaSystemProvider implements vscode.TreeDataProvider<SystemTreeItem
   readonly onDidChangeTreeData: vscode.Event<SystemTreeItem | undefined | null | void>
     = this._onDidChangeTreeData.event;
 
-  private systemNamespace = 'eda-system';
+    private systemNamespace = 'eda-system';
+    private k8sService: ResourceService;
+    private crdService: CrdService;
+    private k8sClient: KubernetesClient;
 
   constructor(
-    private context: vscode.ExtensionContext,
-    private k8sService: KubernetesService
+    private context: vscode.ExtensionContext
   ) {
+    this.k8sService = serviceManager.getService<ResourceService>('resource');
+    this.crdService = serviceManager.getService<CrdService>('crd');
+    this.k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
     // Listen for system namespace changes
     resourceStore.onDidChangeResources(changes => {
       // Only refresh if changes affect the system namespace
@@ -405,14 +414,14 @@ export class EdaSystemProvider implements vscode.TreeDataProvider<SystemTreeItem
   }
 
   private async loadCrdTypes(group: string): Promise<SystemTreeItem[]> {
-    const crds = await this.k8sService.getCrdsForGroup(group);
-    const instSet = await this.k8sService.batchCheckCrdInstances(this.systemNamespace, crds);
+    const crds = await this.crdService.getCrdsForGroup(group);
+    const instSet = await this.crdService.batchCheckCrdInstances(this.systemNamespace, crds);
     if (instSet.size === 0) {
       return [this.noItems(`CRDs in ${this.makeFriendlyGroupName(group)}`)];
     }
     return crds
-      .filter(crd => instSet.has(crd.kind))
-      .map(crd => {
+      .filter((crd: any) => instSet.has(crd.kind))
+      .map((crd: any) => {
         const item = new SystemTreeItem(
           crd.kind,
           vscode.TreeItemCollapsibleState.Collapsed,
@@ -427,11 +436,11 @@ export class EdaSystemProvider implements vscode.TreeDataProvider<SystemTreeItem
   private async loadCrdInstances(crdInfo: any): Promise<SystemTreeItem[]> {
     log(`System: loadCrdInstances(${crdInfo.kind})`, LogLevel.DEBUG);
     try {
-      const items = await this.k8sService.getCrdInstances(this.systemNamespace, crdInfo);
+      const items = await this.crdService.getCrdInstances(this.systemNamespace, crdInfo);
       if (!items.length) {
         return [this.noItems(`${crdInfo.kind} instances`)];
       }
-      return items.map(obj => {
+      return items.map((obj: any) => {
         const name = obj.metadata?.name || 'unnamed';
         const it = new SystemTreeItem(
           name,
@@ -456,7 +465,7 @@ export class EdaSystemProvider implements vscode.TreeDataProvider<SystemTreeItem
   private async renderGenericResources(resourceType: string): Promise<SystemTreeItem[]> {
     try {
       const kind = resourceType.endsWith('s') ? resourceType.slice(0, -1) : resourceType;
-      const cmd = `${this.k8sService.getKubectlPath()} get ${resourceType.toLowerCase()} -n ${this.systemNamespace} -o json`;
+      const cmd = `${this.k8sClient.getKubectlPath()} get ${resourceType.toLowerCase()} -n ${this.systemNamespace} -o json`;
       const output = execSync(cmd, { encoding: 'utf-8' });
       const resources = JSON.parse(output).items || [];
       if (!resources.length) {

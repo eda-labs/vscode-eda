@@ -1,26 +1,23 @@
-// src/k8s/baseK8sService.ts
+// src/clients/kubernetesClient.ts
 import { KubeConfig, CoreV1Api, AppsV1Api, ApiextensionsV1Api, CustomObjectsApi } from '@kubernetes/client-node';
 import * as vscode from 'vscode';
 import { execSync } from 'child_process';
-import { LogLevel, log } from '../../extension.js';
-import { cache } from '../../utils/cacheUtils';
+import { LogLevel, log } from '../extension';
 
-export class BaseK8sService {
-  protected kc: KubeConfig;
-  protected k8sApi: CoreV1Api;
-  protected k8sAppsApi: AppsV1Api;
-  protected k8sApiext: ApiextensionsV1Api;
-  protected k8sCustomObjects: CustomObjectsApi;
+/**
+ * Client for interacting with Kubernetes API
+ */
+export class KubernetesClient {
+  private kc: KubeConfig;
+  private coreV1Api: CoreV1Api;
+  private appsV1Api: AppsV1Api;
+  private apiExtensionsV1Api: ApiextensionsV1Api;
+  private customObjectsApi: CustomObjectsApi;
 
-  protected namespace: string;
-  protected toolboxNamespace: string = 'eda-system';
-  protected kubectlPath: string;
+  private kubectlPath: string;
 
   private _onDidChangeContext = new vscode.EventEmitter<string>();
   readonly onDidChangeContext = this._onDidChangeContext.event;
-
-  // Common cache TTL
-  protected cacheTtl = 15000; // 15s
 
   constructor() {
     this.kc = new KubeConfig();
@@ -30,14 +27,11 @@ export class BaseK8sService {
       vscode.window.showErrorMessage(`Failed to load Kubernetes configuration: ${error}`);
     }
 
-    this.k8sApi = this.kc.makeApiClient(CoreV1Api);
-    this.k8sAppsApi = this.kc.makeApiClient(AppsV1Api);
-    this.k8sApiext = this.kc.makeApiClient(ApiextensionsV1Api);
-    this.k8sCustomObjects = this.kc.makeApiClient(CustomObjectsApi);
+    this.coreV1Api = this.kc.makeApiClient(CoreV1Api);
+    this.appsV1Api = this.kc.makeApiClient(AppsV1Api);
+    this.apiExtensionsV1Api = this.kc.makeApiClient(ApiextensionsV1Api);
+    this.customObjectsApi = this.kc.makeApiClient(CustomObjectsApi);
 
-    this.namespace = 'eda-system';
-
-    // Cache the path to kubectl once
     this.kubectlPath = this.findKubectlPath();
   }
 
@@ -51,23 +45,29 @@ export class BaseK8sService {
     }
   }
 
-  // Set namespace for resource operations
-  public setNamespace(namespace: string, shouldLog: boolean = true): void {
-    this.namespace = namespace;
-    if (shouldLog) {
-      log(`BaseK8sService: set resource namespace to '${namespace}'`, LogLevel.INFO);
-    }
+  // Get API clients
+  public getCoreV1Api(): CoreV1Api {
+    return this.coreV1Api;
   }
 
-  // Get current namespace
-  public getCurrentNamespace(): string {
-    return this.namespace;
+  public getAppsV1Api(): AppsV1Api {
+    return this.appsV1Api;
   }
 
-  // Get kubectl path for direct usage
+  public getApiExtensionsV1Api(): ApiextensionsV1Api {
+    return this.apiExtensionsV1Api;
+  }
+
+  public getCustomObjectsApi(): CustomObjectsApi {
+    return this.customObjectsApi;
+  }
+
+  // Get kubectl path
   public getKubectlPath(): string {
     return this.kubectlPath;
   }
+
+
 
   /**
    * Get the current Kubernetes context name
@@ -94,38 +94,53 @@ export class BaseK8sService {
   }
 
   /**
+   * Get cluster name for a context
+   */
+  public getClusterNameForContext(contextName: string): string {
+    try {
+      const contexts = this.kc.getContexts();
+      const context = contexts.find(ctx => ctx.name === contextName);
+
+      if (context && context.cluster) {
+        return context.cluster;
+      }
+
+      return "Unknown";
+    } catch (error) {
+      log(`Error getting cluster name for context ${contextName}: ${error}`, LogLevel.ERROR);
+      return "Unknown";
+    }
+  }
+
+  /**
    * Switch to a different Kubernetes context
    */
   public async useContext(contextName: string): Promise<void> {
     try {
       log(`Switching to Kubernetes context '${contextName}'`, LogLevel.INFO, true);
-  
+
       // Make sure the context exists
       const contexts = this.getAvailableContexts();
       if (!contexts.includes(contextName)) {
         throw new Error(`Context '${contextName}' not found in kubeconfig`);
       }
-  
-      // Use kubectl to change the context (this will update kubeconfig file)
+
+      // Use kubectl to change context
       execSync(`${this.kubectlPath} config use-context ${contextName}`, { encoding: 'utf-8' });
-      
-      // Reload the kubeconfig from disk to sync our in-memory state
+
+      // Reload kubeconfig
       this.kc = new KubeConfig();
       this.kc.loadFromDefault();
-  
-      // Recreate the API clients with the new context
-      this.k8sApi = this.kc.makeApiClient(CoreV1Api);
-      this.k8sAppsApi = this.kc.makeApiClient(AppsV1Api);
-      this.k8sApiext = this.kc.makeApiClient(ApiextensionsV1Api);
-      this.k8sCustomObjects = this.kc.makeApiClient(CustomObjectsApi);
-  
-      // Clear all caches
-      cache.clearAll();
-      log('Clearing all caches after context switch', LogLevel.INFO);
-  
-      // Emit an event to notify that context has changed
+
+      // Recreate API clients
+      this.coreV1Api = this.kc.makeApiClient(CoreV1Api);
+      this.appsV1Api = this.kc.makeApiClient(AppsV1Api);
+      this.apiExtensionsV1Api = this.kc.makeApiClient(ApiextensionsV1Api);
+      this.customObjectsApi = this.kc.makeApiClient(CustomObjectsApi);
+
+      // Emit event
       this._onDidChangeContext.fire(contextName);
-  
+
       log(`Successfully switched to context '${contextName}'`, LogLevel.INFO, true);
     } catch (error) {
       log(`Failed to switch to context '${contextName}': ${error}`, LogLevel.ERROR, true);
@@ -133,5 +148,10 @@ export class BaseK8sService {
     }
   }
 
-
+  /**
+   * Get KubeConfig object
+   */
+  public getKubeConfig(): KubeConfig {
+    return this.kc;
+  }
 }

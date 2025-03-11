@@ -1,18 +1,25 @@
 // src/commands/viewCommands.ts (using improved template loader)
 import * as vscode from 'vscode';
-import { KubernetesService } from '../services/kubernetes/kubernetes';
 import { edaOutputChannel } from '../extension.js';
 import { CrdDefinitionFileSystemProvider } from '../providers/documents/crdDefinitionProvider';
 import { TransactionDetailsDocumentProvider } from '../providers/documents/transactionDetailsProvider';
 import { alarmDetailsProvider, deviationDetailsProvider } from '../extension.js';
 import { loadTemplate } from '../utils/templateLoader';
+import { serviceManager } from '../services/serviceManager';
+import { EdaService } from '../services/edaService';
+import { CrdService } from '../services/crdService';
+import { ResourceService } from '../services/resourceService';
 
 export function registerViewCommands(
   context: vscode.ExtensionContext,
-  k8sService: KubernetesService,
   crdFsProvider: CrdDefinitionFileSystemProvider,
   transactionDetailsProvider?: TransactionDetailsDocumentProvider
 ) {
+  // Get services
+  const edaService = serviceManager.getService<EdaService>('eda');
+  const crdService = serviceManager.getService<CrdService>('crd');
+  const resourceService = serviceManager.getService<ResourceService>('resource');
+
   // Show transaction details command (unchanged)
   const showTransactionDetailsCommand = vscode.commands.registerCommand(
     'vscode-eda.showTransactionDetails',
@@ -23,8 +30,8 @@ export function registerViewCommands(
       }
 
       try {
-        // 1) Retrieve text from "edactl transaction <id>" (or your existing method)
-        const detailsText = await k8sService.getEdaTransactionDetails(transactionId);
+        // 1) Retrieve text from "edactl transaction <id>"
+        const detailsText = await edaService.getEdaTransactionDetails(transactionId);
 
         // If no read-only provider was given, fallback to older approach
         if (!transactionDetailsProvider) {
@@ -71,8 +78,8 @@ export function registerViewCommands(
       }
       const { kind } = treeItem.resource;
 
-      // 1) Get the YAML from k8sService (using --show-managed-fields=false)
-      const crdYaml = await k8sService.getCrdYamlForKind(kind);
+      // 1) Get the YAML from crdService
+      const crdYaml = await crdService.getCrdYamlForKind(kind);
 
       // 2) Create a unique crd: URI
       //    e.g. crd:/Interface?random=...
@@ -177,7 +184,7 @@ export function registerViewCommands(
 
       try {
         // Fetch the YAML for the deviation
-        const resourceYaml = await k8sService.getResourceYaml(kind, name, namespace);
+        const resourceYaml = await resourceService.getResourceYaml(kind, name, namespace);
         templateVars.resourceYaml = resourceYaml;
       } catch (error) {
         // Add error message if we couldn't get the YAML
@@ -197,4 +204,6 @@ export function registerViewCommands(
       vscode.window.showErrorMessage(`Failed to load deviation details: ${error.message || error}`);
     }
   });
+
+  context.subscriptions.push(showTransactionDetailsCommand, showCRDDefinitionCommand);
 }

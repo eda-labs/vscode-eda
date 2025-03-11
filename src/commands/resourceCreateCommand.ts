@@ -1,10 +1,12 @@
 // src/commands/resourceCreateCommand.ts
 import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
-import { KubernetesService } from '../services/kubernetes/kubernetes';
 import { K8sFileSystemProvider } from '../providers/documents/resourceProvider';
 import { log, LogLevel } from '../extension.js';
 import { CrdVersion } from '../services/types';
+import { serviceManager } from '../services/serviceManager';
+import { CrdService } from '../services/crdService';
+import { EdaService } from '../services/edaService'
 
 /**
  * Generate a spec object based on a JSON schema
@@ -194,9 +196,10 @@ function generateArrayExampleItem(itemSchema: any): any {
  */
 export function registerResourceCreateCommand(
   context: vscode.ExtensionContext,
-  k8sService: KubernetesService,
   fileSystemProvider: K8sFileSystemProvider
 ): void {
+  const crdService = serviceManager.getService<CrdService>('crd');
+
   const createResourceCommand = vscode.commands.registerCommand(
     'vscode-eda.createResource',
     async () => {
@@ -204,7 +207,7 @@ export function registerResourceCreateCommand(
         log('Creating new resource from CRD...', LogLevel.INFO, true);
 
         // 1. Get all available CRDs
-        const crds = await k8sService.getCRDs();
+        const crds = await crdService.getCRDs();
         if (!crds || crds.length === 0) {
           vscode.window.showErrorMessage('No Custom Resource Definitions found in the cluster');
           return;
@@ -260,7 +263,7 @@ export function registerResourceCreateCommand(
               group: group.split('.')[0], // Group by first part of the API group
               crd
             };
-          })
+          });
 
         // 3. Show quick pick with nice grouping by API group
         const selected = await vscode.window.showQuickPick(crdItems, {
@@ -274,7 +277,8 @@ export function registerResourceCreateCommand(
         }
 
         // 4. Get a namespace to create the resource in
-        const namespaces = await k8sService.getEdaNamespaces();
+        const edaService = serviceManager.getService<EdaService>('eda');
+        const namespaces = await edaService.getEdaNamespaces();
         const namespace = await vscode.window.showQuickPick(namespaces, {
           placeHolder: 'Select a namespace for the new resource',
         });
@@ -304,7 +308,7 @@ export function registerResourceCreateCommand(
         // 6. Generate a skeleton resource based on the schema
         let schema: any = null;
         try {
-          schema = await k8sService.getCrdSchemaForKind(selected.label);
+          schema = await crdService.getCrdSchemaForKind(selected.label);
         } catch (error) {
           log(`Error getting schema for ${selected.label}: ${error}`, LogLevel.WARN);
           // Continue without schema, we'll create a minimal skeleton

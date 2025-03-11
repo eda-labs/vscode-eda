@@ -1,9 +1,12 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
-import { KubernetesService } from '../../services/kubernetes/kubernetes';
+import { serviceManager } from '../../services/serviceManager';
+import { ResourceService } from '../../services/resourceService';
+import { EdaService } from '../../services/edaService';
+import { CrdService } from '../../services/crdService';
+import { resourceStatusService } from '../../extension.js';
+import { resourceStore } from '../../extension.js';
 import { log, LogLevel, globalTreeFilter } from '../../extension.js';
 import { TreeItemBase } from './common/treeItem';
-import { resourceStore, resourceStatusService  } from '../../extension.js';
 
 export class EdaNamespaceProvider implements vscode.TreeDataProvider<NamespaceTreeItem> {
   private _onDidChangeTreeData: vscode.EventEmitter<NamespaceTreeItem | undefined | null | void>
@@ -11,10 +14,17 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<NamespaceTr
   readonly onDidChangeTreeData: vscode.Event<NamespaceTreeItem | undefined | null | void>
     = this._onDidChangeTreeData.event;
 
+    private k8sService: ResourceService;
+    private edaService: EdaService;
+    private crdService: CrdService;
+
+
   constructor(
-    private context: vscode.ExtensionContext,
-    private k8sService: KubernetesService
+    private context: vscode.ExtensionContext
   ) {
+    this.k8sService = serviceManager.getService<ResourceService>('resource');
+    this.edaService = serviceManager.getService<EdaService>('eda');
+    this.crdService = serviceManager.getService<CrdService>('crd');
     // Listen for resource store changes
     resourceStore.onDidChangeResources(changes => {
       // Only refresh the tree if there are namespace-related changes
@@ -296,7 +306,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<NamespaceTr
    */
   private async getNamespaceItems(): Promise<NamespaceTreeItem[]> {
     log("EdaNamespaceProvider: getNamespaceItems()", LogLevel.DEBUG);
-    const namespaces = await this.k8sService.getEdaNamespaces();
+    const namespaces = await this.edaService.getEdaNamespaces();
 
     // Process all namespaces in parallel for initial load
     const loadPromises = [];
@@ -313,8 +323,8 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<NamespaceTr
 
     // Create tree items
     return namespaces
-      .filter(ns => ns !== 'eda-system')
-      .map(ns => {
+      .filter((ns: string) => ns !== 'eda-system')
+      .map((ns: string) => {
         const item = new NamespaceTreeItem(
           ns,
           vscode.TreeItemCollapsibleState.Collapsed,
@@ -374,11 +384,11 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<NamespaceTr
   }
 
   private async getNppPodsForNamespace(namespace: string): Promise<NamespaceTreeItem[]> {
-    const pods = await this.k8sService.getNppPodsForNamespace(namespace);
+    const pods = await this.edaService.getNppPodsForNamespace(namespace);
     if (pods.length === 0) {
       return [this.createNoResourcesFoundItem('NPP pods')];
     }
-    return pods.map(pod => {
+    return pods.map((pod: any) => {
       const name = pod.metadata?.name || '';
       const status = pod.status?.phase || 'Unknown';
       const nodeName = name;
@@ -402,14 +412,14 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<NamespaceTr
   }
 
   private async getCrdTypesForGroup(ns: string, group: string): Promise<NamespaceTreeItem[]> {
-    const crds = await this.k8sService.getCrdsForGroup(group);
-    const instancesSet = await this.k8sService.batchCheckCrdInstances(ns, crds);
+    const crds = await this.crdService.getCrdsForGroup(group);
+    const instancesSet = await this.crdService.batchCheckCrdInstances(ns, crds);
     if (instancesSet.size === 0) {
       return [this.createNoResourcesFoundItem(`CRDs in ${this.makeFriendlyGroupName(group)}`)];
     }
     return crds
-      .filter(c => instancesSet.has(c.kind))
-      .map(crd => {
+      .filter((c: any) => instancesSet.has(c.kind))
+      .map((crd: any) => {
         const item = new NamespaceTreeItem(
           crd.kind,
           vscode.TreeItemCollapsibleState.Collapsed,
@@ -424,11 +434,11 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<NamespaceTr
 
   private async getCrdInstances(ns: string, crdInfo: any): Promise<NamespaceTreeItem[]> {
     try {
-      const inst = await this.k8sService.getCrdInstances(ns, crdInfo);
+      const inst = await this.crdService.getCrdInstances(ns, crdInfo);
       if (inst.length === 0) {
         return [this.createNoResourcesFoundItem(`${crdInfo.kind} instances`)];
       }
-      return inst.map(obj => {
+      return inst.map((obj: any) => {
         const name = obj.metadata?.name || 'unnamed';
         const item = new NamespaceTreeItem(
           name,

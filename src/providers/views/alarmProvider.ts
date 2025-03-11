@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { EdaAlarm} from '../../services/types';
-import { KubernetesService } from '../../services/kubernetes/kubernetes';
+import { serviceManager } from '../../services/serviceManager';
+import { EdaService } from '../../services/edaService';
+import { StatusService } from '../../services/statusService';
 import { log, LogLevel, globalTreeFilter } from '../../extension.js';
 import { TreeItemBase } from './common/treeItem';
 import { resourceStatusService } from '../../extension.js';
@@ -12,10 +14,13 @@ export class EdaAlarmProvider implements vscode.TreeDataProvider<AlarmTreeItem> 
   private _onDidChangeTreeData = new vscode.EventEmitter<AlarmTreeItem | undefined | null | void>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
+  private k8sService: EdaService;
+
   constructor(
-    private context: vscode.ExtensionContext,
-    private k8sService: KubernetesService
-  ) {}
+    private context: vscode.ExtensionContext
+  ) {
+    this.k8sService = serviceManager.getService<EdaService>('eda');
+  }
 
   /**
    * Refresh method, to be called from our extension-level refresh

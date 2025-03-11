@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
-import { KubernetesService } from '../../services/kubernetes/kubernetes';
 import { log, LogLevel } from '../../extension.js';
+import { serviceManager } from '../../services/serviceManager';
+import { ResourceService } from '../../services/resourceService';
 
 /**
  * Interface for a K8s resource with minimum required fields
@@ -31,7 +32,11 @@ export class K8sFileSystemProvider implements vscode.FileSystemProvider {
   // Map to store file contents for virtual files
   private fileContents = new Map<string, Uint8Array>();
 
-  constructor(private k8sService: KubernetesService) {}
+  private k8sService: ResourceService;
+
+  constructor() {
+    this.k8sService = serviceManager.getService<ResourceService>('resource');
+  }
 
   setFileContent(uri: vscode.Uri, content: Uint8Array): void {
     this.fileContents.set(uri.toString(), content);

@@ -1,13 +1,16 @@
 import * as vscode from 'vscode';
-import { KubernetesService } from '../services/kubernetes/kubernetes';
-import { edaOutputChannel } from '../extension.js';
 import { PodDescribeDocumentProvider } from '../providers/documents/podDescribeProvider';
+import { serviceManager } from '../services/serviceManager';
+import { ResourceService } from '../services/resourceService';
+import { KubernetesClient } from '../clients/kubernetesClient';
 
 export function registerPodCommands(
   context: vscode.ExtensionContext,
-  k8sService: KubernetesService,
   podDescribeProvider: PodDescribeDocumentProvider
 ) {
+  const resourceService = serviceManager.getService<ResourceService>('resource');
+  const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
+
   // 1) Delete Pod
   const deletePodCmd = vscode.commands.registerCommand('vscode-eda.deletePod', async (treeItem) => {
     if (!treeItem || !treeItem.resource) {
@@ -25,7 +28,7 @@ export function registerPodCommands(
     );
     if (confirmed === 'Yes') {
       try {
-        await k8sService.deletePod(ns, name);
+        await resourceService.deletePod(name, ns);
         vscode.window.showInformationMessage(`Pod '${name}' deleted successfully.`);
       } catch (err: any) {
         vscode.window.showErrorMessage(err.message);
@@ -46,7 +49,7 @@ export function registerPodCommands(
     // Create a new VS Code Terminal that runs `kubectl exec -it`
     const term = vscode.window.createTerminal({
       name: `Shell: ${name}`,
-      shellPath: 'kubectl',
+      shellPath: k8sClient.getKubectlPath(),
       shellArgs: ['exec', '-it', '-n', ns, name, '--', '/bin/sh']
     });
     term.show();
@@ -62,10 +65,10 @@ export function registerPodCommands(
     const ns = pod.metadata.namespace;
     const name = pod.metadata.name;
 
-  // Create a new Terminal that runs `kubectl logs` with follow mode (-f)
-  const term = vscode.window.createTerminal({
+    // Create a new Terminal that runs `kubectl logs` with follow mode (-f)
+    const term = vscode.window.createTerminal({
       name: `Logs: ${name}`,
-      shellPath: 'kubectl',
+      shellPath: k8sClient.getKubectlPath(),
       shellArgs: ['logs', '-f', '--tail=100', '-n', ns, name]
     });
     term.show();
@@ -83,7 +86,7 @@ export function registerPodCommands(
 
     try {
       // 1) Get "describe" text via kubectl
-      const describeOutput = k8sService.getPodDescribeOutput(ns, name);
+      const describeOutput = resourceService.getPodDescribeOutput(name, ns);
 
       // 2) Construct a "k8s-describe:" URI (with a random query param)
       //    so each time you call "describePod" for that pod, it refreshes

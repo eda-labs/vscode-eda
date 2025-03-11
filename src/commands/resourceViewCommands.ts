@@ -1,18 +1,23 @@
 // Updated src/commands/resourceViewCommand.ts with read-only enforcement
 import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
-import { KubernetesService } from '../services/kubernetes/kubernetes';
 import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
 import { log, LogLevel } from '../extension.js';
+import { serviceManager } from '../services/serviceManager';
+import { ResourceService } from '../services/resourceService';
+import { CrdService } from '../services/crdService';
 
 /**
  * Registers the "viewResource" command that opens a read-only YAML view (k8s-view:)
  */
 export function registerResourceViewCommands(
   context: vscode.ExtensionContext,
-  k8sService: KubernetesService,
   viewProvider: ResourceViewDocumentProvider
 ) {
+  // Get services
+  const resourceService = serviceManager.getService<ResourceService>('resource');
+  const crdService = serviceManager.getService<CrdService>('crd');
+
   const viewResourceCommand = vscode.commands.registerCommand(
     'vscode-eda.viewResource',
     async (treeItemOrResourceInfo: any) => {
@@ -37,16 +42,16 @@ export function registerResourceViewCommands(
         }
 
         // 1) Fetch resource YAML
-        let yamlContent = await k8sService.getResourceYaml(kind, name, namespace);
+        let yamlContent = await resourceService.getResourceYaml(kind, name, namespace);
         try {
           const resource = yaml.load(yamlContent) as any;
           if (!resource.apiVersion) {
-            // Compute the appropriate apiVersion (as you already do)
+            // Compute the appropriate apiVersion
             let computedApiVersion = '';
-            const isEdaCrd = await k8sService.isEdaCrd(kind);
+            const isEdaCrd = await crdService.isEdaCrd(kind);
             if (isEdaCrd) {
               try {
-                const crdDef = await k8sService.getCrdDefinitionForKind(kind);
+                const crdDef = await crdService.getCrdDefinitionForKind(kind);
                 if (crdDef && crdDef.spec?.group) {
                   const version = crdDef.spec.versions?.find(v => v.storage === true) ||
                                   crdDef.spec.versions?.find(v => v.served === true) ||

@@ -1,11 +1,12 @@
 import * as vscode from 'vscode';
-import { log, LogLevel, k8sService, resourceStore, edaAlarmProvider, edaDeviationProvider, edaTransactionProvider } from '../extension.js';
-
+import { log, LogLevel, resourceStore, edaAlarmProvider, edaDeviationProvider, edaTransactionProvider } from '../extension.js';
+import { serviceManager } from '../services/serviceManager';
+import { EdaService } from '../services/edaService';
 
 /**
  * Registers the refresh commands and sets up auto-refresh.
  * Both manual and automatic refresh routines use the same underlying logic:
- * - Get the list of EDA namespaces (using k8sService.getEdaNamespaces())
+ * - Get the list of EDA namespaces (using edaService.getEdaNamespaces())
  * - Refresh each namespace's resources via resourceStore.loadNamespaceResources()
  * - Also refresh the system namespace ("eda-system")
  * - Refresh all providers (alarms, deviations, transactions)
@@ -26,13 +27,18 @@ export function registerRefreshCommands(context: vscode.ExtensionContext) {
     log('Manual refresh of resources triggered.', LogLevel.INFO, true);
 
     try {
+      // Get EDA service
+      const edaService = serviceManager.getService<EdaService>('eda');
+
       // Deduplicate namespaces in case there are duplicates.
-      const namespaces = Array.from(new Set(await k8sService.getEdaNamespaces()));
+      const rawNamespaces = await edaService.getEdaNamespaces();
+      const namespaces = Array.from(new Set(rawNamespaces));
+
       await Promise.all(namespaces.map(ns => resourceStore.loadNamespaceResources(ns)));
-      
+
       // Clear any transaction cache to force fresh data
-      k8sService.clearTransactionCache();
-      
+      edaService.clearTransactionCache();
+
       // Refresh all providers
       edaAlarmProvider.refresh();
       edaDeviationProvider.refresh();
@@ -56,12 +62,15 @@ export function registerRefreshCommands(context: vscode.ExtensionContext) {
   const autoRefreshTimer = setInterval(async () => {
     log('Auto-refreshing resources...', LogLevel.DEBUG);
     try {
-      const namespaces = await k8sService.getEdaNamespaces();
+      // Get EDA service
+      const edaService = serviceManager.getService<EdaService>('eda');
+
+      const namespaces = await edaService.getEdaNamespaces();
       await Promise.all(namespaces.map(ns => resourceStore.loadNamespaceResources(ns)));
-      
+
       // Clear any transaction cache to force fresh data
-      k8sService.clearTransactionCache();
-      
+      edaService.clearTransactionCache();
+
       // Refresh all providers
       edaAlarmProvider.refresh();
       edaDeviationProvider.refresh();

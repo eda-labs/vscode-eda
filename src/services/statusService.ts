@@ -1,168 +1,117 @@
-// src/services/resourceStatusService.ts
+// src/services/statusService.ts
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { LogLevel, log } from '../extension.js';
-import { KubernetesService } from './kubernetes/kubernetes';
+import { CoreService } from './coreService';
+import { KubernetesClient } from '../clients/kubernetesClient';
+import { LogLevel, log } from '../extension';
 
 /**
  * Service for handling resource status information, icons, and tooltips
- * This centralizes all status-related functionality across the extension
- * Incorporates and replaces functionality from statusUtils
+ * Extracted from resourceStatusService.ts
  */
-export class ResourceStatusService {
+export class StatusService extends CoreService {
   // Maps for caching status icons
   private statusIconCache: Map<string, vscode.Uri> = new Map();
   private transactionIconCache: Map<string, vscode.Uri> = new Map();
-
-  // Store CRD status schemas for improved status handling
+  
+  // Store CRD status schemas
   private crdStatusSchemas: Map<string, any> = new Map();
   private initialized: boolean = false;
-
+  
   // Extension context for resource loading
   private extensionContext?: vscode.ExtensionContext;
-
-  constructor(private k8sService: KubernetesService) {}
-
+  
+  constructor(private k8sClient: KubernetesClient) {
+    super('Status');
+  }
+  
   /**
-   * Initialize the service with extension context and loading CRD status schemas
-   * This should be called during extension activation
+   * Initialize the service with extension context
+   * @param context VSCode extension context
    */
   public async initialize(context: vscode.ExtensionContext): Promise<void> {
     if (this.initialized) return;
-
+    
     try {
       this.extensionContext = context;
       await this.loadCrdStatusSchemas();
       this.initialized = true;
-      log('ResourceStatusService initialized successfully', LogLevel.INFO);
+      this.logWithPrefix('Initialized successfully', LogLevel.INFO);
     } catch (error) {
-      log(`Failed to initialize ResourceStatusService: ${error}`, LogLevel.ERROR);
+      this.logWithPrefix(`Failed to initialize: ${error}`, LogLevel.ERROR);
     }
   }
-
+  
   /**
    * Load status schemas for all CRDs
    */
   private async loadCrdStatusSchemas(): Promise<void> {
     try {
-      const crds = await this.k8sService.getCRDs();
-      log(`Loading status schemas for ${crds.length} CRDs...`, LogLevel.INFO);
-
-      for (const crd of crds) {
-        const kind = crd.spec?.names?.kind;
-        if (!kind) continue;
-
-        // Extract schema from CRD
-        const schema = this.extractStatusSchema(crd);
-        if (schema) {
-          this.crdStatusSchemas.set(kind, schema);
-        }
-      }
-
-      log(`Loaded status schemas for ${this.crdStatusSchemas.size} CRDs`, LogLevel.INFO);
+      // This will be implemented later when we have a dedicated CRD service
+      // For now, we're just creating the placeholder
+      this.logWithPrefix('CRD status schemas will be loaded when CRD service is implemented', LogLevel.INFO);
     } catch (error) {
-      log(`Failed to load CRD status schemas: ${error}`, LogLevel.ERROR);
+      this.logWithPrefix(`Failed to load CRD status schemas: ${error}`, LogLevel.ERROR);
     }
   }
-
+  
   /**
-   * Extract status schema from CRD definition
-   */
-  private extractStatusSchema(crd: any): any {
-    try {
-      // Find the schema section
-      let schema = null;
-
-      if (crd.spec?.versions && Array.isArray(crd.spec.versions)) {
-        // Find the version marked as storage or the first one
-        const version = crd.spec.versions.find((v: any) => v.storage === true) ||
-                      crd.spec.versions[0];
-
-        if (version?.schema?.openAPIV3Schema?.properties?.status) {
-          schema = version.schema.openAPIV3Schema.properties.status;
-        }
-      }
-
-      // Check for legacy format if schema is still null
-      if (!schema && crd.spec) {
-        const specObj = crd.spec as Record<string, any>;
-        if ('validation' in specObj &&
-            specObj.validation &&
-            typeof specObj.validation === 'object' &&
-            'openAPIV3Schema' in specObj.validation &&
-            specObj.validation.openAPIV3Schema &&
-            typeof specObj.validation.openAPIV3Schema === 'object' &&
-            'properties' in specObj.validation.openAPIV3Schema &&
-            specObj.validation.openAPIV3Schema.properties &&
-            typeof specObj.validation.openAPIV3Schema.properties === 'object' &&
-            'status' in specObj.validation.openAPIV3Schema.properties) {
-
-          schema = specObj.validation.openAPIV3Schema.properties.status;
-        }
-      }
-
-      return schema;
-    } catch (error) {
-      log(`Error extracting status schema: ${error}`, LogLevel.ERROR);
-      return null;
-    }
-  }
-
-  // --- Status Icon Methods (from statusUtils) ---
-
-  /**
-   * Get status icon based on indicator color (green, red, yellow, gray)
-   * This is the primary icon function that should be used for most resources
+   * Get status icon based on indicator color
+   * @param indicator Indicator color ('green', 'red', 'yellow', 'gray')
+   * @returns URI to status icon
    */
   public getStatusIcon(indicator: string): vscode.Uri {
     if (!this.extensionContext) {
-      throw new Error('ResourceStatusService not properly initialized with context');
+      throw new Error('StatusService not properly initialized with context');
     }
-
+    
     const validIndicators = ['green', 'red', 'yellow', 'gray'];
     const actualIndicator = validIndicators.includes(indicator) ? indicator : 'gray';
-
+    
     // Use cached icon if available
     if (this.statusIconCache.has(actualIndicator)) {
       return this.statusIconCache.get(actualIndicator)!;
     }
-
+    
     // Create and cache the icon
     const iconUri = vscode.Uri.file(
       this.extensionContext.asAbsolutePath(path.join('resources', 'status', `status-${actualIndicator}.svg`))
     );
-
+    
     this.statusIconCache.set(actualIndicator, iconUri);
     return iconUri;
   }
-
+  
   /**
    * Get transaction icon based on success/failure
-   * Only used for transaction items
+   * @param success Whether the transaction was successful
+   * @returns URI to transaction icon
    */
   public getTransactionIcon(success: boolean): vscode.Uri {
     if (!this.extensionContext) {
-      throw new Error('ResourceStatusService not properly initialized with context');
+      throw new Error('StatusService not properly initialized with context');
     }
-
+    
     const status = success ? 'green' : 'red';
-
+    
     // Use cached icon if available
     if (this.transactionIconCache.has(status)) {
       return this.transactionIconCache.get(status)!;
     }
-
+    
     // Create and cache the icon
     const iconUri = vscode.Uri.file(
       this.extensionContext.asAbsolutePath(path.join('resources', 'status', `transaction-${status}.svg`))
     );
-
+    
     this.transactionIconCache.set(status, iconUri);
     return iconUri;
   }
-
+  
   /**
-   * Get a ThemeIcon for a status color (for tree items that use ThemeIcon)
+   * Get ThemeIcon for status color
+   * @param indicator Indicator color ('green', 'red', 'yellow', 'gray', 'blue')
+   * @returns ThemeIcon
    */
   public getThemeStatusIcon(indicator: string): vscode.ThemeIcon {
     switch (indicator) {
@@ -179,9 +128,11 @@ export class ResourceStatusService {
         return new vscode.ThemeIcon('circle-outline');
     }
   }
-
+  
   /**
-   * Get a ThemeIcon for alarm severities (for tree items that use ThemeIcon)
+   * Get ThemeIcon for alarm severity
+   * @param severity Alarm severity
+   * @returns ThemeIcon
    */
   public getAlarmThemeIcon(severity: string): vscode.ThemeIcon {
     const level = severity.toUpperCase();
@@ -200,32 +151,36 @@ export class ResourceStatusService {
         return new vscode.ThemeIcon('question');
     }
   }
-
+  
   /**
-   * Map severity/status/health to a standard indicator color
-   * (green, red, yellow, gray)
+   * Map severity/status/health to indicator color
+   * @param status Status string
+   * @param health Health percentage
+   * @returns Indicator color ('green', 'red', 'yellow', 'gray')
    */
   public getStatusIndicator(status: string | undefined, health: number | undefined): string {
     if (!status && health === undefined) return 'gray';
-
+    
     if (status) {
       const s = status.toLowerCase();
       if (['up', 'running', 'active'].includes(s)) return 'green';
       if (['down', 'failed', 'error'].includes(s)) return 'red';
       if (['degraded', 'warning'].includes(s)) return 'yellow';
     }
-
+    
     if (health !== undefined) {
       if (health > 90) return 'green';
       if (health > 50) return 'yellow';
       return 'red';
     }
-
+    
     return 'gray';
   }
-
+  
   /**
-   * Get alarm status indicator color based on severity
+   * Get alarm status indicator based on severity
+   * @param severity Alarm severity
+   * @returns Indicator color ('green', 'red', 'yellow', 'gray')
    */
   public getAlarmStatusIndicator(severity: string): string {
     const level = (severity || '').toUpperCase();
@@ -238,96 +193,93 @@ export class ResourceStatusService {
       default: return 'gray';
     }
   }
-
-  // --- Resource Status Methods ---
-
+  
   /**
    * Get status icon for a resource
-   * @param resource Kubernetes resource object
-   * @returns URI to the status icon
+   * @param resource Kubernetes resource
+   * @returns URI to status icon
    */
   public getResourceStatusIcon(resource: any): vscode.Uri {
     const indicator = this.getResourceStatusIndicator(resource);
     return this.getStatusIcon(indicator);
   }
-
+  
   /**
    * Get status icon as ThemeIcon for a resource
-   * @param resource Kubernetes resource object
-   * @returns ThemeIcon representing the resource status
+   * @param resource Kubernetes resource
+   * @returns ThemeIcon
    */
   public getResourceThemeStatusIcon(resource: any): vscode.ThemeIcon {
     const indicator = this.getResourceStatusIndicator(resource);
     return this.getThemeStatusIcon(indicator);
   }
-
+  
   /**
-   * Get status indicator string (green, yellow, red, gray) for a resource
-   * @param resource Kubernetes resource object
-   * @returns Status indicator string
+   * Get status indicator for a resource
+   * @param resource Kubernetes resource
+   * @returns Indicator color ('green', 'red', 'yellow', 'gray')
    */
   public getResourceStatusIndicator(resource: any): string {
     if (!resource) return 'gray';
-
+    
     const kind = resource.kind;
-
+    
     // Handle standard Kubernetes resources
     if (this.isStandardK8sResource(kind)) {
       return this.getStandardK8sResourceStatus(resource);
     }
-
+    
     // Handle custom resources
     return this.getCustomResourceStatus(resource);
   }
-
+  
   /**
-   * Get description text for status display
-   * This extracts a short status description for display in tree views
-   * @param resource Kubernetes resource object
-   * @returns Short status description
+   * Get status description text for display
+   * @param resource Kubernetes resource
+   * @returns Status description
    */
   public getStatusDescription(resource: any): string {
     if (!resource) return '';
-
+    
     const kind = resource.kind;
-
+    
     switch (kind) {
       case 'Pod':
         return resource.status?.phase || '';
-
+        
       case 'Deployment':
         const ready = resource.status?.readyReplicas || 0;
         const desired = resource.spec?.replicas || 0;
         return `${ready}/${desired}`;
-
+        
       case 'Service':
         return resource.spec?.type || 'ClusterIP';
-
+        
       case 'ConfigMap':
         const dataCount = Object.keys(resource.data || {}).length;
         return `${dataCount} items`;
-
+        
       case 'Secret':
         return resource.type || 'Opaque';
     }
-
+    
     // For custom resources
     if (resource.status) {
       let desc = '';
-
+      
       // Common status fields for EDA resources
       if (resource.status.operationalState) {
         desc += `State: ${resource.status.operationalState}`;
       }
-
+      
       if (resource.status.health !== undefined) {
         desc += (desc ? ', ' : '') + `Health: ${resource.status.health}%`;
       }
-
+      
       if (resource.status.state) {
         desc += (desc ? ', ' : '') + `State: ${resource.status.state}`;
       }
-
+      
       // Look for other important status fields defined in schema
       if (!desc && this.crdStatusSchemas.has(kind)) {
         const schema = this.crdStatusSchemas.get(kind);
@@ -341,42 +293,42 @@ export class ResourceStatusService {
           }
         }
       }
-
+      
       return desc;
     }
-
+    
     return '';
   }
-
+  
   /**
    * Get tooltip text for a resource
-   * @param resource Kubernetes resource object
-   * @returns Tooltip text with detailed resource info
+   * @param resource Kubernetes resource
+   * @returns Tooltip text
    */
   public getResourceTooltip(resource: any): string {
     if (!resource) return '';
-
+    
     const kind = resource.kind;
     const name = resource.metadata?.name || 'Unnamed';
     const namespace = resource.metadata?.namespace || 'default';
-
+    
     let tooltip = `Name: ${name}\nKind: ${kind}\nNamespace: ${namespace}`;
-
+    
     // Add API Version if available
     if (resource.apiVersion) {
       tooltip += `\nAPI Version: ${resource.apiVersion}`;
     }
-
+    
     // Add resource UID if available
     if (resource.metadata?.uid) {
       tooltip += `\nUID: ${resource.metadata.uid}`;
     }
-
+    
     // Add creation timestamp if available
     if (resource.metadata?.creationTimestamp) {
       tooltip += `\nCreated: ${resource.metadata.creationTimestamp}`;
     }
-
+    
     // Add status fields
     if (resource.status) {
       const statusFields = this.extractStatusFields(resource.status, kind);
@@ -387,18 +339,21 @@ export class ResourceStatusService {
         }
       }
     }
-
+    
     return tooltip;
   }
-
+  
   /**
-   * Extract relevant status fields based on resource kind and schema
+   * Extract relevant status fields
+   * @param status Resource status
+   * @param kind Resource kind
+   * @returns List of status fields
    */
   private extractStatusFields(status: any, kind: string): { label: string, value: string }[] {
     const fields: { label: string, value: string }[] = [];
     if (!status) return fields;
-  
-    // Handle standard resource kinds as before
+    
+    // Handle standard resource kinds
     switch (kind) {
       case 'Pod':
         if (status.phase) fields.push({ label: 'Phase', value: status.phase });
@@ -416,7 +371,7 @@ export class ResourceStatusService {
           }
         }
         break;
-  
+        
       case 'Deployment':
         if (status.replicas !== undefined) fields.push({ label: 'Replicas', value: `${status.replicas}` });
         if (status.readyReplicas !== undefined) fields.push({ label: 'Ready', value: `${status.readyReplicas}` });
@@ -431,7 +386,7 @@ export class ResourceStatusService {
           }
         }
         break;
-  
+        
       case 'Service':
         if (status.loadBalancer?.ingress && Array.isArray(status.loadBalancer.ingress)) {
           for (const ingress of status.loadBalancer.ingress) {
@@ -444,25 +399,24 @@ export class ResourceStatusService {
           }
         }
         break;
-  
+        
       default:
-        // For custom resources, we ignore the schema and extract only the actual status values.
-        // We only add fields if the value is a primitive type (or a very simple object).
+        // For custom resources, extract only actual status values
         for (const [key, value] of Object.entries(status)) {
           if (value === undefined || value === null) {
             continue;
           }
-          // If the value is a primitive, use it directly.
+          // If the value is a primitive, use it directly
           if (['string', 'number', 'boolean'].includes(typeof value)) {
             fields.push({ label: this.formatFieldName(key), value: String(value) });
           }
-          // If the value is an object, try to extract a simple value.
+          // If the value is an object, try to extract a simple value
           else if (typeof value === 'object') {
-            // If it has a 'value' property that is primitive, use that.
-            if ('value' in value && ['string', 'number', 'boolean'].includes(typeof value.value)) {
-              fields.push({ label: this.formatFieldName(key), value: String(value.value) });
+            // If it has a 'value' property that is primitive, use that
+            if ('value' in value && ['string', 'number', 'boolean'].includes(typeof (value as any).value)) {
+              fields.push({ label: this.formatFieldName(key), value: String((value as any).value) });
             }
-            // Otherwise, if the object has only one key, use that single property.
+            // Otherwise, if the object has only one key, use that single property
             else if (Object.keys(value).length === 1) {
               const innerKey = Object.keys(value)[0];
               const innerVal = (value as Record<string, any>)[innerKey];
@@ -470,34 +424,38 @@ export class ResourceStatusService {
                 fields.push({ label: this.formatFieldName(key), value: String(innerVal) });
               }
             }
-            // Otherwise, skip complex objects.
+            // Otherwise, skip complex objects
           }
         }
         break;
     }
+    
     return fields;
   }
   
-
   /**
-   * Format a camelCase or snake_case field name to Title Case with spaces
+   * Format field name for display
+   * @param name Field name
+   * @returns Formatted field name
    */
   private formatFieldName(name: string): string {
     // Handle camelCase
     const spacedName = name.replace(/([A-Z])/g, ' $1');
-
+    
     // Handle snake_case
     const withoutUnderscores = spacedName.replace(/_/g, ' ');
-
+    
     // Title case
     return withoutUnderscores
       .split(' ')
       .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
       .join(' ');
   }
-
+  
   /**
    * Check if a resource kind is a standard Kubernetes resource
+   * @param kind Resource kind
+   * @returns Whether the resource is a standard Kubernetes resource
    */
   private isStandardK8sResource(kind: string): boolean {
     const standardResources = [
@@ -505,21 +463,23 @@ export class ResourceStatusService {
       'Node', 'Job', 'CronJob', 'DaemonSet', 'StatefulSet',
       'ReplicaSet', 'Ingress', 'PersistentVolumeClaim', 'PersistentVolume'
     ];
-
+    
     return standardResources.includes(kind);
   }
-
+  
   /**
    * Get status indicator for standard Kubernetes resources
+   * @param resource Kubernetes resource
+   * @returns Indicator color ('green', 'red', 'yellow', 'gray')
    */
   private getStandardK8sResourceStatus(resource: any): string {
     if (!resource) return 'gray';
-
+    
     const kind = resource.kind;
     const status = resource.status;
-
+    
     if (!status) return 'gray';
-
+    
     switch (kind) {
       case 'Pod':
         const phase = status.phase?.toLowerCase();
@@ -527,44 +487,46 @@ export class ResourceStatusService {
         if (phase === 'pending') return 'yellow';
         if (['failed', 'unknown', 'error'].includes(phase)) return 'red';
         break;
-
+        
       case 'Deployment':
         const desired = resource.spec?.replicas || 0;
         const ready = status.readyReplicas || 0;
-
+        
         if (desired === 0) return 'gray';
         if (ready === desired) return 'green';
         if (ready > 0) return 'yellow';
         return 'red';
-
+        
       case 'Service':
         // Services are typically always "green" if they exist
         return 'green';
-
+        
       case 'Node':
         // Check node conditions
         const conditions = status.conditions || [];
         const readyCondition = conditions.find((c: any) => c.type === 'Ready');
-
+        
         if (readyCondition && readyCondition.status === 'True') return 'green';
         return 'red';
-
+        
       case 'ConfigMap':
       case 'Secret':
         // Always green for these types
         return 'green';
     }
-
+    
     return 'gray';
   }
-
+  
   /**
-   * Get status indicator for custom resources, with generic support for keys containing "status" or "state"
+   * Get status indicator for custom resources
+   * @param resource Kubernetes resource
+   * @returns Indicator color ('green', 'red', 'yellow', 'gray')
    */
   private getCustomResourceStatus(resource: any): string {
     if (!resource || !resource.status) return 'gray';
-  
-    // Explicit checks for new conditions
+    
+    // Explicit checks for specific conditions
     if (resource.status.operational === true) {
       return 'green';
     }
@@ -574,39 +536,39 @@ export class ResourceStatusService {
     if (resource.status.error === "" && resource.status.reachable === true) {
       return 'green';
     }
-  
-    // Existing specific checks
+    
+    // Specific checks
     if (resource.status.operationalState) {
       const state = resource.status.operationalState.toLowerCase();
       if (['up', 'running', 'active'].includes(state)) return 'green';
       if (['down', 'failed', 'error'].includes(state)) return 'red';
       if (['degraded', 'warning'].includes(state)) return 'yellow';
     }
-  
+    
     if (resource.status.health !== undefined) {
       const health = Number(resource.status.health);
       if (health > 90) return 'green';
       if (health > 50) return 'yellow';
       return 'red';
     }
-  
+    
     if (resource.status.state) {
       const state = resource.status.state.toLowerCase();
       if (['up', 'running', 'active', 'ready'].includes(state)) return 'green';
       if (['down', 'failed', 'error'].includes(state)) return 'red';
       if (['degraded', 'warning', 'pending'].includes(state)) return 'yellow';
     }
-  
+    
     if (resource.status.phase) {
       const phase = resource.status.phase.toLowerCase();
       if (['active', 'succeeded', 'ready', 'running', 'available'].includes(phase)) return 'green';
       if (['pending', 'initializing', 'provisioning'].includes(phase)) return 'yellow';
       if (['failed', 'error', 'terminating'].includes(phase)) return 'red';
     }
-  
+    
     if (resource.status.ready === true) return 'green';
     if (resource.status.ready === false) return 'red';
-  
+    
     if (resource.status.conditions && Array.isArray(resource.status.conditions)) {
       const readyCondition = resource.status.conditions.find((c: any) =>
         c.type === 'Ready' || c.type === 'Available' || c.type === 'Healthy'
@@ -621,8 +583,8 @@ export class ResourceStatusService {
       );
       if (errorCondition) return 'red';
     }
-  
-    // Generic check: scan for keys containing "status" or "state" (skip keys like "details")
+    
+    // Generic check: scan for keys containing "status" or "state"
     const genericIndicators: string[] = [];
     for (const key in resource.status) {
       const keyLower = key.toLowerCase();
@@ -634,7 +596,7 @@ export class ResourceStatusService {
         genericIndicators.push(this.mapStatusTextToIndicator(resource.status[key]));
       }
     }
-  
+    
     if (genericIndicators.length > 0) {
       // Prioritize explicit failures or warnings
       if (genericIndicators.includes('red')) {
@@ -646,15 +608,15 @@ export class ResourceStatusService {
         return 'green';
       }
     }
-  
-    // If a status exists but none of the keys provided an indicator, default to green.
+    
+    // If a status exists but none of the keys provided an indicator, default to green
     return 'green';
   }
   
-  
-
   /**
-   * Helper function that maps a status string to a standard indicator color.
+   * Map status text to indicator color
+   * @param text Status text
+   * @returns Indicator color ('green', 'red', 'yellow', 'gray')
    */
   private mapStatusTextToIndicator(text: string): string {
     const t = text.toLowerCase();
@@ -665,8 +627,8 @@ export class ResourceStatusService {
       t.includes('active') ||
       t.includes('success') ||
       t.includes('available') ||
-      t.includes('synced') ||      // added for "node-state": "Synced"
-      t.includes('connected')       // added for "npp-state": "Connected"
+      t.includes('synced') ||
+      t.includes('connected')
     ) {
       return 'green';
     }
@@ -678,10 +640,9 @@ export class ResourceStatusService {
     }
     return 'gray';
   }
-
+  
   /**
    * Refresh CRD status schemas
-   * This should be called when CRDs are updated
    */
   public async refreshStatusSchemas(): Promise<void> {
     this.crdStatusSchemas.clear();

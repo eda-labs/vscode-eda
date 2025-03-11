@@ -331,10 +331,11 @@
     }
   },
   "scripts": {
-    "compile": "npm run check-types && npm run lint && node esbuild.js --production",
+    "compile": "npm run check-types && node esbuild.js --production",
     "watch": "npm-run-all -p watch:*",
     "watch:esbuild": "node esbuild.js --watch",
-    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json"
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "check-types": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/glob": "^8.1.0",

@@ -1,10 +1,10 @@
 // src/extension.ts
+// Updated to use only the new service architecture
 
 import * as vscode from 'vscode';
 import { EdaNamespaceProvider } from './providers/views/namespaceProvider';
 import { EdaSystemProvider } from './providers/views/systemProvider';
 import { EdaTransactionProvider } from './providers/views/transactionProvider';
-import { KubernetesService } from './services/kubernetes/kubernetes';
 import { K8sFileSystemProvider } from './providers/documents/resourceProvider';
 import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 import { PodDescribeDocumentProvider } from './providers/documents/podDescribeProvider';
@@ -16,8 +16,16 @@ import { EdaDeviationProvider } from './providers/views/deviationProvider';
 import { AlarmDetailsDocumentProvider } from './providers/documents/alarmDetailsProvider';
 import { DeviationDetailsDocumentProvider } from './providers/documents/deviationDetailsProvider';
 import { ResourceViewDocumentProvider } from './providers/documents/resourceViewProvider';
-import { ClusterManager } from './services/kubernetes/clusterManager';
-import { ResourceStatusService } from './services/resourceStatusService';
+
+// Import new service architecture components
+import { serviceManager } from './services/serviceManager';
+import { KubernetesClient } from './clients/kubernetesClient';
+import { EdactlClient } from './clients/edactlClient';
+import { CacheService } from './services/cacheService';
+import { ResourceService } from './services/resourceService';
+import { EdaService } from './services/edaService';
+import { StatusService } from './services/statusService';
+import { CrdService } from './services/crdService';
 
 import * as cmd from './commands/index';
 
@@ -30,7 +38,6 @@ export enum LogLevel {
 
 export let edaOutputChannel: vscode.OutputChannel;
 export let k8sFileSystemProvider: K8sFileSystemProvider;
-export let k8sService: KubernetesService;
 export let currentLogLevel: LogLevel = LogLevel.INFO;
 export let resourceStore: ResourceStore;
 export let edaAlarmProvider: EdaAlarmProvider;
@@ -39,8 +46,8 @@ export let alarmDetailsProvider: AlarmDetailsDocumentProvider;
 export let deviationDetailsProvider: DeviationDetailsDocumentProvider;
 export let edaTransactionProvider: EdaTransactionProvider;
 export let registerResourceViewCommands: ResourceViewDocumentProvider;
-export let clusterManager: ClusterManager;
-export let resourceStatusService: ResourceStatusService;
+
+export let resourceStatusService: StatusService;
 
 // The global text filter that only applies to Namespaces & System
 export let globalTreeFilter: string = '';
@@ -93,6 +100,29 @@ export function measurePerformance<T>(
   });
 }
 
+async function initializeServices(context: vscode.ExtensionContext) {
+  try {
+    // Get necessary services from the service manager
+    const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
+    const resourceService = serviceManager.getService<ResourceService>('resource');
+    const edaService = serviceManager.getService<EdaService>('eda');
+    const crdService = serviceManager.getService<CrdService>('crd');
+
+    // Initialize ResourceStore with all required services
+    resourceStore = new ResourceStore(k8sClient, resourceService, edaService, crdService);
+
+    // Initialize the resource store
+    log('Initializing resource store...', LogLevel.INFO, true);
+    await resourceStore.initCrdGroups();
+    await resourceStore.loadNamespaceResources('eda-system');
+
+    return true;
+  } catch (error) {
+    log(`Error initializing services: ${error}`, LogLevel.ERROR, true);
+    return false;
+  }
+}
+
 export async function activate(context: vscode.ExtensionContext) {
   console.log('Activating EDA extension');
   edaOutputChannel = vscode.window.createOutputChannel('EDA');
@@ -102,25 +132,46 @@ export async function activate(context: vscode.ExtensionContext) {
 
   log('EDA extension activating...', LogLevel.INFO, true);
 
+  // Initialize new service architecture
+  try {
+    log('Initializing service architecture...', LogLevel.INFO, true);
+    await serviceManager.initialize(context);
 
-  k8sService = new KubernetesService();
-  resourceStore = new ResourceStore(k8sService);
+    // Register and initialize services
+    const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
 
-  // Initialize cluster manager
-  clusterManager = new ClusterManager(k8sService);
-  context.subscriptions.push(clusterManager);
+    // Register CacheService
+    const cacheService = serviceManager.registerService('cache', new CacheService());
 
-  // Initialize the resource store
-  log('Initializing resource store...', LogLevel.INFO, true);
-  await resourceStore.initCrdGroups();
-  await resourceStore.loadNamespaceResources('eda-system');
+    // Register EdactlClient
+    const edactlClient = serviceManager.registerClient('edactl', new EdactlClient(k8sClient, cacheService));
 
-  // Initialize the resource status service
-  log('Initializing resource status service...', LogLevel.INFO, true);
-  resourceStatusService = new ResourceStatusService(k8sService);
-  await resourceStatusService.initialize(context);
+    // Register ResourceService
+    const resourceService = serviceManager.registerService('resource', new ResourceService(k8sClient, cacheService));
 
-  k8sFileSystemProvider = new K8sFileSystemProvider(k8sService);
+    // Register CrdService - needs to be registered before EdaService
+    const crdService = serviceManager.registerService('crd', new CrdService(k8sClient, cacheService, resourceService));
+
+    // Register EdaService
+    const edaService = serviceManager.registerService('eda', new EdaService(k8sClient, edactlClient, cacheService));
+
+    // Register StatusService
+    const statusService = serviceManager.registerService('status', new StatusService(k8sClient));
+    await statusService.initialize(context);
+    resourceStatusService = statusService;
+
+    log('Service architecture initialized successfully', LogLevel.INFO, true);
+
+    // Initialize ResourceStore and other components
+    await initializeServices(context);
+  } catch (error) {
+    log(`Error initializing service architecture: ${error}`, LogLevel.ERROR, true);
+    vscode.window.showErrorMessage(`Failed to initialize EDA extension: ${error}`);
+    throw error; // Re-throw to indicate activation failure
+  }
+
+  // Initialize filesystem providers and UI components
+  k8sFileSystemProvider = new K8sFileSystemProvider();
   context.subscriptions.push(
     vscode.workspace.registerFileSystemProvider('k8s', k8sFileSystemProvider, { isCaseSensitive: true })
   );
@@ -142,10 +193,10 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.workspace.registerFileSystemProvider('k8s-describe', podDescribeProvider, { isCaseSensitive: true })
   );
 
-  edaAlarmProvider = new EdaAlarmProvider(context, k8sService);
+  edaAlarmProvider = new EdaAlarmProvider(context);
   vscode.window.registerTreeDataProvider('edaAlarms', edaAlarmProvider);
 
-  edaDeviationProvider = new EdaDeviationProvider(context, k8sService);
+  edaDeviationProvider = new EdaDeviationProvider(context);
   vscode.window.registerTreeDataProvider('edaDeviations', edaDeviationProvider);
 
   const transactionDetailsProvider = new TransactionDetailsDocumentProvider();
@@ -153,33 +204,30 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.workspace.registerFileSystemProvider('eda-transaction', transactionDetailsProvider, { isCaseSensitive: true })
   );
 
-  const edaNamespaceProvider = new EdaNamespaceProvider(context, k8sService);
-  const edaSystemProvider = new EdaSystemProvider(context, k8sService);
-  edaTransactionProvider = new EdaTransactionProvider(context, k8sService);
+  const edaNamespaceProvider = new EdaNamespaceProvider(context);
+  const edaSystemProvider = new EdaSystemProvider(context);
+  edaTransactionProvider = new EdaTransactionProvider(context);
 
   vscode.window.registerTreeDataProvider('edaNamespaces', edaNamespaceProvider);
   vscode.window.registerTreeDataProvider('edaSystem', edaSystemProvider);
   vscode.window.registerTreeDataProvider('edaTransactions', edaTransactionProvider);
 
   log('Registering Schema Provider...', LogLevel.INFO, true);
-  const schemaProvider = new SchemaProvider(k8sService);
+  const schemaProvider = new SchemaProvider();
   schemaProvider.register(context);
 
-  // Register commands
-  cmd.registerClusterCommands(context, k8sService, clusterManager, resourceStore);
-  cmd.registerRefreshCommands(context);
-  cmd.registerViewCommands(context, k8sService, crdFsProvider, transactionDetailsProvider);
-  cmd.registerPodCommands(context, k8sService, podDescribeProvider);
-  cmd.registerResourceViewCommands(context, k8sService, resourceViewProvider);
-  cmd.registerSwitchToEditCommand(context);
-  cmd.registerResourceEditCommands(context, k8sService, k8sFileSystemProvider, {
+  // Register commands - updated to use serviceManager instead of k8sService
+  cmd.registerViewCommands(context, crdFsProvider, transactionDetailsProvider);
+  cmd.registerPodCommands(context, podDescribeProvider);
+  cmd.registerResourceViewCommands(context, resourceViewProvider);
+  cmd.registerResourceEditCommands(context, k8sFileSystemProvider, {
     namespaceProvider: edaNamespaceProvider,
     systemProvider: edaSystemProvider,
     transactionProvider: edaTransactionProvider
   });
-  cmd.registerResourceCreateCommand(context, k8sService, k8sFileSystemProvider);
-  cmd.registerDeviationCommands(context, k8sService);
-  cmd.registerTransactionCommands(context, k8sService);
+  cmd.registerResourceCreateCommand(context, k8sFileSystemProvider);
+  cmd.registerDeviationCommands(context);
+  cmd.registerTransactionCommands(context);
 
   // Filter command: Just set the globalTreeFilter, then refresh
   const filterTreeCommand = vscode.commands.registerCommand('vscode-eda.filterTree', async () => {
@@ -197,14 +245,14 @@ export async function activate(context: vscode.ExtensionContext) {
   });
   context.subscriptions.push(filterTreeCommand);
 
-    // Create provider instances
-    alarmDetailsProvider = new AlarmDetailsDocumentProvider();
-    deviationDetailsProvider = new DeviationDetailsDocumentProvider();
+  // Create provider instances
+  alarmDetailsProvider = new AlarmDetailsDocumentProvider();
+  deviationDetailsProvider = new DeviationDetailsDocumentProvider();
 
-    context.subscriptions.push(
-      vscode.workspace.registerFileSystemProvider('eda-alarm', alarmDetailsProvider, { isCaseSensitive: true }),
-      vscode.workspace.registerFileSystemProvider('eda-deviation', deviationDetailsProvider, { isCaseSensitive: true })
-    );
+  context.subscriptions.push(
+    vscode.workspace.registerFileSystemProvider('eda-alarm', alarmDetailsProvider, { isCaseSensitive: true }),
+    vscode.workspace.registerFileSystemProvider('eda-deviation', deviationDetailsProvider, { isCaseSensitive: true })
+  );
 
   const clearFilterCommand = vscode.commands.registerCommand('vscode-eda.clearFilter', () => {
     // Reset the global filter variable
@@ -218,7 +266,6 @@ export async function activate(context: vscode.ExtensionContext) {
   });
   context.subscriptions.push(clearFilterCommand);
 
-
   console.log('EDA extension activated');
   edaOutputChannel.appendLine('EDA extension activated');
 }
@@ -227,5 +274,11 @@ export function deactivate() {
   console.log('EDA extension deactivated');
   edaOutputChannel?.appendLine('EDA extension deactivated');
   edaOutputChannel?.dispose();
-  clusterManager?.dispose();
+
+  // Dispose service architecture
+  try {
+    serviceManager.dispose();
+  } catch (error) {
+    console.error('Error disposing service manager:', error);
+  }
 }

@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
-import { KubernetesService } from '../../services/kubernetes/kubernetes';
+import { serviceManager } from '../../services/serviceManager';
+import { EdaService } from '../../services/edaService';
+import { StatusService } from '../../services/statusService';
 import { edaOutputChannel, LogLevel, log } from '../../extension.js';
 import { TreeItemBase } from './common/treeItem';
 import { resourceStatusService } from '../../extension.js';
@@ -8,10 +10,12 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
   private _onDidChangeTreeData: vscode.EventEmitter<TransactionTreeItem | undefined | null | void> = new vscode.EventEmitter<TransactionTreeItem | undefined | null | void>();
   readonly onDidChangeTreeData: vscode.Event<TransactionTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
+
+  private k8sService: EdaService;
   constructor(
-    private context: vscode.ExtensionContext,
-    private k8sService: KubernetesService
+    private context: vscode.ExtensionContext
   ) {
+    this.k8sService = serviceManager.getService<EdaService>('eda');
   }
 
   refresh(): void {
@@ -35,7 +39,7 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
 
     // Sort transactions by ID (assuming higher ID = newer transaction)
     // This will display the newest transactions at the top
-    transactions.sort((a, b) => {
+    transactions.sort((a: any, b: any) => {
       // Try numeric comparison first (most reliable if IDs are numeric)
       const idA = parseInt(a.id, 10);
       const idB = parseInt(b.id, 10);
@@ -48,7 +52,7 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
       return b.id.localeCompare(a.id);
     });
 
-    return transactions.map(t => {
+    return transactions.map((t: any) => {
       const label = `${t.id} - ${t.username}`;
       const item = new TransactionTreeItem(
         label,
