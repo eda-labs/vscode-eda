@@ -57,7 +57,7 @@ export interface EdaDeviation {
 export class EdaService extends CoreService {
   private cacheTtl: number = 15000; // 15s
   private toolboxNamespace: string = 'eda-system';
-  
+
   constructor(
     private k8sClient: KubernetesClient,
     private edactlClient: EdactlClient,
@@ -65,7 +65,7 @@ export class EdaService extends CoreService {
   ) {
     super('EDA');
   }
-  
+
   /**
    * Get EDA namespaces
    * @returns List of EDA namespaces
@@ -73,7 +73,7 @@ export class EdaService extends CoreService {
   public async getEdaNamespaces(): Promise<string[]> {
     return this.edactlClient.getEdaNamespaces();
   }
-  
+
   /**
    * Get EDA alarms
    * @returns List of EDA alarms
@@ -84,7 +84,7 @@ export class EdaService extends CoreService {
       description: 'EDA alarms',
       namespace: 'global'
     };
-    
+
     return this.cacheService.getOrFetch<EdaAlarm[]>(
       'eda-service',
       'alarms',
@@ -94,14 +94,14 @@ export class EdaService extends CoreService {
           const output = await this.edactlClient.executeEdactl(
             'query .namespace.alarms.current-alarm -f json'
           );
-          
+
           if (!output || !output.trim().length) {
             return [];
           }
-          
+
           const alarms = JSON.parse(output) as EdaAlarm[];
           this.logWithPrefix(`Found ${alarms.length} alarms from edactl output`, LogLevel.DEBUG);
-          
+
           return alarms;
         } catch (err) {
           this.logWithPrefix(`Failed to get EDA alarms: ${err}`, LogLevel.ERROR, true);
@@ -111,7 +111,7 @@ export class EdaService extends CoreService {
       cacheOptions
     );
   }
-  
+
   /**
    * Get EDA deviations
    * @returns List of EDA deviations
@@ -122,7 +122,7 @@ export class EdaService extends CoreService {
       description: 'EDA deviations',
       namespace: 'global'
     };
-    
+
     return this.cacheService.getOrFetch<EdaDeviation[]>(
       'eda-service',
       'deviations',
@@ -132,14 +132,14 @@ export class EdaService extends CoreService {
           const output = await this.edactlClient.executeEdactl(
             'query .namespace.resources.cr.core_eda_nokia_com.v1.deviation -f json'
           );
-          
+
           if (!output || !output.trim().length) {
             return [];
           }
-          
+
           const deviations = JSON.parse(output) as EdaDeviation[];
           this.logWithPrefix(`Found ${deviations.length} deviations from edactl output`, LogLevel.DEBUG);
-          
+
           return deviations;
         } catch (err) {
           this.logWithPrefix(`Failed to get EDA deviations: ${err}`, LogLevel.ERROR, true);
@@ -149,7 +149,7 @@ export class EdaService extends CoreService {
       cacheOptions
     );
   }
-  
+
   /**
    * Get EDA transactions
    * @returns List of EDA transactions
@@ -157,7 +157,7 @@ export class EdaService extends CoreService {
   public async getEdaTransactions(): Promise<EdaTransaction[]> {
     return this.edactlClient.getEdaTransactions() as Promise<EdaTransaction[]>;
   }
-  
+
   /**
    * Get EDA transaction details
    * @param id Transaction ID
@@ -166,7 +166,7 @@ export class EdaService extends CoreService {
   public async getEdaTransactionDetails(id: string): Promise<string> {
     return this.edactlClient.getTransactionDetails(id);
   }
-  
+
   /**
    * Revert a transaction
    * @param commitHash Commit hash
@@ -182,7 +182,7 @@ export class EdaService extends CoreService {
       throw error;
     }
   }
-  
+
   /**
    * Restore a transaction
    * @param commitHash Commit hash
@@ -198,7 +198,7 @@ export class EdaService extends CoreService {
       throw error;
     }
   }
-  
+
   /**
    * Get NPP pods for a namespace
    * @param edaNamespace EDA namespace
@@ -208,20 +208,20 @@ export class EdaService extends CoreService {
     try {
       const prefix = `eda-npp-${edaNamespace}`;
       const coreV1Api = this.k8sClient.getCoreV1Api();
-      const response = await coreV1Api.listNamespacedPod({ namespace: this.toolboxNamespace });
-      
-      const filteredPods = response.items.filter(pod => {
+      const response = await coreV1Api.listNamespacedPod(this.toolboxNamespace);
+
+      const filteredPods = response.body.items.filter(pod => {
         const podName = pod.metadata?.name || '';
         return podName.startsWith(prefix);
       });
-      
+
       return filteredPods;
     } catch (error) {
       this.logWithPrefix(`Failed to get NPP pods for namespace '${edaNamespace}': ${error}`, LogLevel.ERROR, true);
       return [];
     }
   }
-  
+
   /**
    * Get EDA resource YAML
    * @param kind Resource kind
@@ -237,22 +237,22 @@ export class EdaService extends CoreService {
     isEdaCrd: boolean = true
   ): Promise<string> {
     const ns = namespace || this.namespace;
-    
+
     try {
       if (isEdaCrd) {
         this.logWithPrefix(`Using edactl for EDA CRD ${kind}/${name} in namespace ${ns}`, LogLevel.INFO);
         const edaResource = kind.charAt(0).toLowerCase() + kind.slice(1);
-        
+
         const edaOutput = await this.edactlClient.executeEdactl(
           `get ${edaResource} ${name} -n ${ns} -o yaml`,
           true
         );
-        
+
         if (edaOutput && edaOutput.trim().length > 0) {
           return edaOutput;
         }
       }
-      
+
       // Fallback
       this.logWithPrefix(`EDA resource not found with edactl, falling back to kubectl`, LogLevel.DEBUG);
       return '';
@@ -261,7 +261,7 @@ export class EdaService extends CoreService {
       return '';
     }
   }
-  
+
   /**
    * Clear the transaction cache
    */
@@ -269,7 +269,7 @@ export class EdaService extends CoreService {
     this.cacheService.remove('eda-service', 'transactions');
     this.logWithPrefix('Transaction cache cleared', LogLevel.DEBUG);
   }
-  
+
   /**
    * Reset namespace cache
    */

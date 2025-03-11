@@ -48,13 +48,10 @@ export class EdactlClient {
 
         for (const selector of labelSelectors) {
           try {
-            const pods = await coreV1Api.listNamespacedPod({
-              namespace: this.toolboxNamespace,
-              labelSelector: selector
-            });
+            const pods = await coreV1Api.listNamespacedPod(this.toolboxNamespace, selector);
 
-            if (pods.items.length > 0) {
-              const podName = pods.items[0].metadata!.name!;
+            if (pods.body.items.length > 0) {
+              const podName = pods.body.items[0].metadata!.name!;
               log(`Found toolbox pod: ${podName} using selector: ${selector}`, LogLevel.INFO);
               return podName;
             }
@@ -65,11 +62,9 @@ export class EdactlClient {
 
         // If label search fails, try name-based search
         try {
-          const allPods = await coreV1Api.listNamespacedPod({
-            namespace: this.toolboxNamespace
-          });
+          const allPods = await coreV1Api.listNamespacedPod(this.toolboxNamespace);
 
-          for (const pod of allPods.items) {
+          for (const pod of allPods.body.items) {
             const name = pod.metadata!.name!;
             if (name.includes('toolbox') || name.includes('eda-toolbox')) {
               log(`Found toolbox pod by name: ${name}`, LogLevel.INFO);
@@ -183,7 +178,7 @@ export class EdactlClient {
           log('No output from edactl, using label-based search...', LogLevel.INFO);
           const coreV1Api = this.k8sClient.getCoreV1Api();
           const allNamespaces = await coreV1Api.listNamespace();
-          const edaNamespaces = allNamespaces.items
+          const edaNamespaces = allNamespaces.body.items
             .filter(ns => {
               const name = ns.metadata?.name || '';
               const labels = ns.metadata?.labels || {};

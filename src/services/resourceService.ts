@@ -47,8 +47,8 @@ export class ResourceService extends CoreService {
 
         try {
           const coreV1Api = this.k8sClient.getCoreV1Api();
-          const response = await coreV1Api.listNamespacedPod({ namespace: ns });
-          const pods = response.items;
+          const response = await coreV1Api.listNamespacedPod( ns );
+          const pods = response.body.items;
 
           this.logWithPrefix(`Found ${pods.length} pods in namespace '${ns}'`, LogLevel.DEBUG);
           return pods;
@@ -82,8 +82,8 @@ export class ResourceService extends CoreService {
 
         try {
           const coreV1Api = this.k8sClient.getCoreV1Api();
-          const response = await coreV1Api.listNamespacedService({ namespace: ns });
-          const services = response.items;
+          const response = await coreV1Api.listNamespacedService(ns);
+          const services = response.body.items;
 
           this.logWithPrefix(`Found ${services.length} services in namespace '${ns}'`, LogLevel.DEBUG);
           return services;
@@ -117,8 +117,8 @@ export class ResourceService extends CoreService {
 
         try {
           const appsV1Api = this.k8sClient.getAppsV1Api();
-          const response = await appsV1Api.listNamespacedDeployment({ namespace: ns });
-          const deployments = response.items;
+          const response = await appsV1Api.listNamespacedDeployment(ns);
+          const deployments = response.body.items;
 
           this.logWithPrefix(`Found ${deployments.length} deployments in namespace '${ns}'`, LogLevel.DEBUG);
           return deployments;
@@ -152,8 +152,8 @@ export class ResourceService extends CoreService {
 
         try {
           const coreV1Api = this.k8sClient.getCoreV1Api();
-          const response = await coreV1Api.listNamespacedConfigMap({ namespace: ns });
-          const configMaps = response.items;
+          const response = await coreV1Api.listNamespacedConfigMap(ns);
+          const configMaps = response.body.items;
 
           this.logWithPrefix(`Found ${configMaps.length} config maps in namespace '${ns}'`, LogLevel.DEBUG);
           return configMaps;
@@ -187,8 +187,8 @@ export class ResourceService extends CoreService {
 
         try {
           const coreV1Api = this.k8sClient.getCoreV1Api();
-          const response = await coreV1Api.listNamespacedSecret({ namespace: ns });
-          const secrets = response.items;
+          const response = await coreV1Api.listNamespacedSecret(ns);
+          const secrets = response.body.items;
 
           this.logWithPrefix(`Found ${secrets.length} secrets in namespace '${ns}'`, LogLevel.DEBUG);
           return secrets;
@@ -221,7 +221,7 @@ export class ResourceService extends CoreService {
         try {
           const coreV1Api = this.k8sClient.getCoreV1Api();
           const response = await coreV1Api.listNode();
-          const nodes = response.items;
+          const nodes = response.body.items;
 
           this.logWithPrefix(`Found ${nodes.length} nodes in the cluster`, LogLevel.DEBUG);
           return nodes;
@@ -413,7 +413,7 @@ export class ResourceService extends CoreService {
       this.logWithPrefix(`Deleting pod '${podName}' in namespace '${ns}'`, LogLevel.INFO);
 
       const coreV1Api = this.k8sClient.getCoreV1Api();
-      await coreV1Api.deleteNamespacedPod({ name: podName, namespace: ns });
+      await coreV1Api.deleteNamespacedPod(podName, ns);
 
       this.logWithPrefix(`Successfully deleted pod '${podName}'`, LogLevel.INFO);
 

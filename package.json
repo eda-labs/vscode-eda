@@ -356,7 +356,7 @@
     "vscode-test": "^1.6.1"
   },
   "dependencies": {
-    "@kubernetes/client-node": "^1.0.0",
+    "@kubernetes/client-node": "^0.22.3",
     "handlebars": "^4.7.8",
     "js-yaml": "^4.1.0"
   },

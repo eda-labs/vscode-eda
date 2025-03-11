@@ -43,7 +43,7 @@ export class CrdService extends CoreService {
         try {
           const apiExtV1 = this.k8sClient.getApiExtensionsV1Api();
           const response = await apiExtV1.listCustomResourceDefinition();
-          const crds = response.items;
+          const crds = response.body.items;
 
           this.logWithPrefix(`Found ${crds.length} CRDs in cluster`, LogLevel.DEBUG);
           return crds;
@@ -262,14 +262,16 @@ export class CrdService extends CoreService {
           // Use dynamic client to get custom resources
           const customObjectsApi = this.k8sClient.getCustomObjectsApi();
 
-          const response = await customObjectsApi.listNamespacedCustomObject({
-            group: crd.apiGroup,
-            version: crd.version,
-            namespace: namespace,
-            plural: crd.name.split('.')[0].toLowerCase() + 's'
-          });
+          const plural = crd.name.split('.')[0].toLowerCase() + 's';
+          const response = await customObjectsApi.listNamespacedCustomObject(
+            crd.apiGroup,
+            crd.version,
+            namespace,
+            plural
+          );
 
-          const instances = response.body.items || [];
+          const responseBody: any = response.body;
+          const instances = responseBody.items || [];
           this.logWithPrefix(`Found ${instances.length} ${crd.kind} instances in '${namespace}'`, LogLevel.DEBUG);
 
           return instances;
