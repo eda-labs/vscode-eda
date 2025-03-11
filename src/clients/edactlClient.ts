@@ -40,15 +40,20 @@ export class EdactlClient {
         // Try multiple label selectors
         const labelSelectors = [
           'eda.nokia.com/app=eda-toolbox',
-          'app=eda-toolbox',
-          'app.kubernetes.io/name=eda-toolbox'
         ];
 
         const coreV1Api = this.k8sClient.getCoreV1Api();
 
         for (const selector of labelSelectors) {
           try {
-            const pods = await coreV1Api.listNamespacedPod(this.toolboxNamespace, selector);
+            const pods = await coreV1Api.listNamespacedPod(
+              this.toolboxNamespace,  // namespace
+              undefined,              // pretty
+              undefined,              // allowWatchBookmarks
+              undefined,              // _continue
+              undefined,              // fieldSelector
+              selector                // labelSelector
+            );
 
             if (pods.body.items.length > 0) {
               const podName = pods.body.items[0].metadata!.name!;
@@ -59,22 +64,6 @@ export class EdactlClient {
             log(`Error finding toolbox pod with selector ${selector}: ${error}`, LogLevel.DEBUG);
           }
         }
-
-        // If label search fails, try name-based search
-        try {
-          const allPods = await coreV1Api.listNamespacedPod(this.toolboxNamespace);
-
-          for (const pod of allPods.body.items) {
-            const name = pod.metadata!.name!;
-            if (name.includes('toolbox') || name.includes('eda-toolbox')) {
-              log(`Found toolbox pod by name: ${name}`, LogLevel.INFO);
-              return name;
-            }
-          }
-        } catch (error) {
-          log(`Error finding toolbox pod by name: ${error}`, LogLevel.ERROR);
-        }
-
         throw new Error(`No toolbox pod found in namespace ${this.toolboxNamespace}`);
       },
       cacheOptions
