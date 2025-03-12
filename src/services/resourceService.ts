@@ -1,493 +1,219 @@
-// src/services/resourceService.ts
-import { V1Pod, V1Service, V1Deployment, V1ConfigMap, V1Secret, V1Node } from '@kubernetes/client-node';
-import * as yaml from 'js-yaml';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as vscode from 'vscode';
 import { CoreService } from './coreService';
-import { EdaService } from './edaService';
-import { CrdService } from './crdService';
 import { KubernetesClient } from '../clients/kubernetesClient';
-import { CacheService, CacheOptions } from './cacheService';
-import { LogLevel, log } from '../extension';
-import { runKubectl, getResourceYaml, deleteResource } from '../utils/kubectlRunner';
+import { log, LogLevel } from '../extension';
+
+interface ResourceDefinition {
+  name: string;        // CRD plural
+  kind?: string;       // CRD kind
+  namespaced?: boolean;
+  apiVersion?: string; // the version part only (e.g., "v1alpha1")
+  apiGroup?: string;   // the group part (e.g., "mycrd.example.com")
+  plural?: string;     // CRD "plural"
+}
+
+interface ResourceResult {
+  resource: ResourceDefinition;
+  instances: any[];
+}
 
 /**
- * Service for managing Kubernetes resources
- * Combines functionality from k8sResourcesService.ts and related services
+ * Service for fetching and managing custom resources
  */
 export class ResourceService extends CoreService {
-  private cacheTtl: number = 15000; // 15s
+  private k8sClient: KubernetesClient;
 
-  constructor(
-    private k8sClient: KubernetesClient,
-    private cacheService: CacheService
-  ) {
-    super('Resource');
+  // We cache discovered CRDs so we don't fetch them repeatedly
+  private crdsCache: ResourceDefinition[] = [];
+
+  // We'll still cache namespaces. We allow only some
+  // set if we want to limit or filter them.
+  private ALLOWED_NAMESPACES = ['default', 'eda-system', 'eda', 'clab-eda-st'];
+  private namespaceCache: string[] = [];
+
+  constructor(k8sClient: KubernetesClient) {
+    super();
+    this.k8sClient = k8sClient;
   }
 
   /**
-   * Get pods in a namespace
-   * @param namespace Namespace (optional, uses current namespace if not provided)
-   * @returns List of pods
+   * Run resource fetch tests (example usage)
    */
-  public async getPods(namespace?: string): Promise<V1Pod[]> {
-    const ns = namespace || this.namespace;
-    const cacheOptions: CacheOptions = {
-      ttl: this.cacheTtl,
-      description: `pods in namespace '${ns}'`,
-      namespace: ns
-    };
-
-    return this.cacheService.getOrFetch<V1Pod[]>(
-      'pods',
-      ns,
-      async () => {
-        this.logWithPrefix(`Fetching pods in namespace '${ns}'...`, LogLevel.DEBUG);
-
-        try {
-          const coreV1Api = this.k8sClient.getCoreV1Api();
-          const response = await coreV1Api.listNamespacedPod( ns );
-          const pods = response.body.items;
-
-          this.logWithPrefix(`Found ${pods.length} pods in namespace '${ns}'`, LogLevel.DEBUG);
-          return pods;
-        } catch (error) {
-          this.logWithPrefix(`Error fetching pods in namespace '${ns}': ${error}`, LogLevel.ERROR);
-          return [];
+  public async runResourceFetchTests(): Promise<void> {
+    try {
+      const startTime = Date.now();
+      log('===== Testing resource fetching =====', LogLevel.INFO);
+  
+      const crds = await this.getAllCrds();
+      log(`Found ${crds.length} custom resource definitions`, LogLevel.INFO);
+  
+      const resourceInstances = await this.getAllResourceInstances();
+      log(`Found resources across ${resourceInstances.length} CRD types`, LogLevel.INFO);
+  
+      // Log every resource instance (this may flood the output if there are many)
+      let instanceCount = 0;
+      for (const rr of resourceInstances) {
+        log(`CRD ${rr.resource.name} has ${rr.instances.length} instance(s)`, LogLevel.INFO);
+        for (const instance of rr.instances) {
+          // Print each instance as a JSON string. You can adjust the verbosity or formatting as needed.
+          log(JSON.stringify(instance), LogLevel.DEBUG);
+          instanceCount++;
         }
-      },
-      cacheOptions
-    );
+      }
+      log(`Total of ${instanceCount} resource instances logged.`, LogLevel.INFO);
+  
+      const duration = Date.now() - startTime;
+      log(`===== Testing resource fetching took ${duration} ms =====`, LogLevel.INFO);
+  
+      vscode.window.showInformationMessage('Kubernetes resource fetch test completed. Check output panel for details.');
+    } catch (error) {
+      log(`Error testing resource fetching: ${error}`, LogLevel.ERROR);
+      vscode.window.showErrorMessage(`Error fetching Kubernetes resources: ${error}`);
+    }
   }
+  
 
   /**
-   * Get services in a namespace
-   * @param namespace Namespace (optional, uses current namespace if not provided)
-   * @returns List of services
+   * Get (and cache) the namespaces, filtered by ALLOWED_NAMESPACES
    */
-  public async getServices(namespace?: string): Promise<V1Service[]> {
-    const ns = namespace || this.namespace;
-    const cacheOptions: CacheOptions = {
-      ttl: this.cacheTtl,
-      description: `services in namespace '${ns}'`,
-      namespace: ns
-    };
-
-    return this.cacheService.getOrFetch<V1Service[]>(
-      'services',
-      ns,
-      async () => {
-        this.logWithPrefix(`Fetching services in namespace '${ns}'...`, LogLevel.DEBUG);
-
-        try {
-          const coreV1Api = this.k8sClient.getCoreV1Api();
-          const response = await coreV1Api.listNamespacedService(ns);
-          const services = response.body.items;
-
-          this.logWithPrefix(`Found ${services.length} services in namespace '${ns}'`, LogLevel.DEBUG);
-          return services;
-        } catch (error) {
-          this.logWithPrefix(`Error fetching services in namespace '${ns}': ${error}`, LogLevel.ERROR);
-          return [];
-        }
-      },
-      cacheOptions
-    );
-  }
-
-  /**
-   * Get deployments in a namespace
-   * @param namespace Namespace (optional, uses current namespace if not provided)
-   * @returns List of deployments
-   */
-  public async getDeployments(namespace?: string): Promise<V1Deployment[]> {
-    const ns = namespace || this.namespace;
-    const cacheOptions: CacheOptions = {
-      ttl: this.cacheTtl,
-      description: `deployments in namespace '${ns}'`,
-      namespace: ns
-    };
-
-    return this.cacheService.getOrFetch<V1Deployment[]>(
-      'deployments',
-      ns,
-      async () => {
-        this.logWithPrefix(`Fetching deployments in namespace '${ns}'...`, LogLevel.DEBUG);
-
-        try {
-          const appsV1Api = this.k8sClient.getAppsV1Api();
-          const response = await appsV1Api.listNamespacedDeployment(ns);
-          const deployments = response.body.items;
-
-          this.logWithPrefix(`Found ${deployments.length} deployments in namespace '${ns}'`, LogLevel.DEBUG);
-          return deployments;
-        } catch (error) {
-          this.logWithPrefix(`Error fetching deployments in namespace '${ns}': ${error}`, LogLevel.ERROR);
-          return [];
-        }
-      },
-      cacheOptions
-    );
-  }
-
-  /**
-   * Get config maps in a namespace
-   * @param namespace Namespace (optional, uses current namespace if not provided)
-   * @returns List of config maps
-   */
-  public async getConfigMaps(namespace?: string): Promise<V1ConfigMap[]> {
-    const ns = namespace || this.namespace;
-    const cacheOptions: CacheOptions = {
-      ttl: this.cacheTtl,
-      description: `config maps in namespace '${ns}'`,
-      namespace: ns
-    };
-
-    return this.cacheService.getOrFetch<V1ConfigMap[]>(
-      'configmaps',
-      ns,
-      async () => {
-        this.logWithPrefix(`Fetching config maps in namespace '${ns}'...`, LogLevel.DEBUG);
-
-        try {
-          const coreV1Api = this.k8sClient.getCoreV1Api();
-          const response = await coreV1Api.listNamespacedConfigMap(ns);
-          const configMaps = response.body.items;
-
-          this.logWithPrefix(`Found ${configMaps.length} config maps in namespace '${ns}'`, LogLevel.DEBUG);
-          return configMaps;
-        } catch (error) {
-          this.logWithPrefix(`Error fetching config maps in namespace '${ns}': ${error}`, LogLevel.ERROR);
-          return [];
-        }
-      },
-      cacheOptions
-    );
-  }
-
-  /**
-   * Get secrets in a namespace
-   * @param namespace Namespace (optional, uses current namespace if not provided)
-   * @returns List of secrets
-   */
-  public async getSecrets(namespace?: string): Promise<V1Secret[]> {
-    const ns = namespace || this.namespace;
-    const cacheOptions: CacheOptions = {
-      ttl: this.cacheTtl,
-      description: `secrets in namespace '${ns}'`,
-      namespace: ns
-    };
-
-    return this.cacheService.getOrFetch<V1Secret[]>(
-      'secrets',
-      ns,
-      async () => {
-        this.logWithPrefix(`Fetching secrets in namespace '${ns}'...`, LogLevel.DEBUG);
-
-        try {
-          const coreV1Api = this.k8sClient.getCoreV1Api();
-          const response = await coreV1Api.listNamespacedSecret(ns);
-          const secrets = response.body.items;
-
-          this.logWithPrefix(`Found ${secrets.length} secrets in namespace '${ns}'`, LogLevel.DEBUG);
-          return secrets;
-        } catch (error) {
-          this.logWithPrefix(`Error fetching secrets in namespace '${ns}': ${error}`, LogLevel.ERROR);
-          return [];
-        }
-      },
-      cacheOptions
-    );
-  }
-
-  /**
-   * Get nodes in the cluster
-   * @returns List of nodes
-   */
-  public async getNodes(): Promise<V1Node[]> {
-    const cacheOptions: CacheOptions = {
-      ttl: this.cacheTtl,
-      description: 'cluster nodes',
-      namespace: 'cluster-wide'
-    };
-
-    return this.cacheService.getOrFetch<V1Node[]>(
-      'nodes',
-      'cluster-wide',
-      async () => {
-        this.logWithPrefix('Fetching cluster nodes...', LogLevel.DEBUG);
-
-        try {
-          const coreV1Api = this.k8sClient.getCoreV1Api();
-          const response = await coreV1Api.listNode();
-          const nodes = response.body.items;
-
-          this.logWithPrefix(`Found ${nodes.length} nodes in the cluster`, LogLevel.DEBUG);
-          return nodes;
-        } catch (error) {
-          this.logWithPrefix(`Error fetching cluster nodes: ${error}`, LogLevel.ERROR);
-          return [];
-        }
-      },
-      cacheOptions
-    );
-  }
-
-  /**
-   * Get system resources (resources in eda-system namespace)
-   * @param resourceType Resource type (pods, services, deployments, etc.)
-   * @returns List of resources
-   */
-  public async getSystemResources(resourceType: string): Promise<any[]> {
-    this.logWithPrefix(
-      `Explicitly fetching ${resourceType} from system namespace`,
-      LogLevel.INFO
-    );
-
-    // Save current namespace
-    const prevNamespace = this.namespace;
+  private async getAllNamespaces(): Promise<string[]> {
+    if (this.namespaceCache.length > 0) {
+      return this.namespaceCache;
+    }
 
     try {
-      // Set namespace to eda-system for this operation
-      this.setNamespace('eda-system', false);
+      // We use the generic custom objects approach for "namespaces"
+      // but it's actually possible to get them from the core API.
+      // Since the requirement is to keep everything generic, we can do:
+      const resp = await this.k8sClient.listClusterCustomObject('', 'v1', 'namespaces');
+      const allNs = (resp.items || []).map((ns: any) => ns.metadata?.name).filter(Boolean);
 
-      // Get resources based on type
-      switch (resourceType.toLowerCase()) {
-        case 'pods':
-          return await this.getPods('eda-system');
-        case 'deployments':
-          return await this.getDeployments('eda-system');
-        case 'services':
-          return await this.getServices('eda-system');
-        case 'configmaps':
-          return await this.getConfigMaps('eda-system');
-        case 'secrets':
-          return await this.getSecrets('eda-system');
-        default:
-          this.logWithPrefix(`Unknown system resource type: ${resourceType}`, LogLevel.WARN);
-          return [];
-      }
+      // Filter to allowed
+      this.namespaceCache = allNs.filter((ns: string) => this.ALLOWED_NAMESPACES.includes(ns));
+      log(`Filtered to ${this.namespaceCache.length} allowed namespaces: ${this.namespaceCache.join(', ')}`, /* LogLevel.INFO */);
+      return this.namespaceCache;
     } catch (error) {
-      this.logWithPrefix(
-        `Error fetching system resources (${resourceType}): ${error}`,
-        LogLevel.ERROR
-      );
+      log(`Error fetching namespaces: ${error}`, /* LogLevel.INFO */);
+      // Fallback to the known allowed list if we couldn't fetch
+      this.namespaceCache = this.ALLOWED_NAMESPACES;
+      return this.namespaceCache;
+    }
+  }
+
+  /**
+   * Fetch all CRDs in the cluster, skipping standard K8s groups
+   */
+  public async getAllCrds(): Promise<ResourceDefinition[]> {
+    if (this.crdsCache.length > 0) {
+      return this.crdsCache;
+    }
+
+    log('Fetching all CRDs...', /* LogLevel.INFO */);
+
+    try {
+      // 1) List CRDs via the k8sClient
+      const crdItems = await this.k8sClient.listCustomResourceDefinitions();
+
+      const results: ResourceDefinition[] = [];
+
+      for (const crd of crdItems) {
+        // skip if it's in a standard group
+        const group = crd.spec.group || '';
+        if (!group || group.endsWith('k8s.io')) {
+          // skip standard resources
+          continue;
+        }
+
+        // Many CRDs have multiple versions; pick the first served version
+        const versionObj = crd.spec.versions?.find((v: any) => v.served) || crd.spec.versions?.[0];
+        if (!versionObj) {
+          continue;
+        }
+
+        // Construct the ResourceDefinition
+        const rd: ResourceDefinition = {
+          name: crd.metadata?.name || '',
+          kind: crd.spec.names?.kind || '',
+          namespaced: crd.spec.scope === 'Namespaced',
+          apiVersion: versionObj.name, // e.g. "v1alpha1"
+          apiGroup: group,            // e.g. "mycrd.example.com"
+          plural: crd.spec.names?.plural || ''
+        };
+        results.push(rd);
+      }
+
+      this.crdsCache = results;
+      log(`Found ${results.length} CRDs (excluding standard k8s.io groups)`, /* LogLevel.INFO */);
+      return results;
+    } catch (error) {
+      log(`Error fetching CRDs: ${error}`, /* LogLevel.INFO */);
       return [];
-    } finally {
-      // Restore previous namespace
-      this.setNamespace(prevNamespace, false);
     }
   }
 
   /**
-   * Get resource YAML - a comprehensive method that handles different resource types
-   * @param kind Resource kind
-   * @param name Resource name
-   * @param namespace Namespace (optional, uses current namespace if not provided)
-   * @param edaService Optional EdaService for EDA-specific resources
-   * @param crdService Optional CrdService for CRD validation
-   * @returns Resource YAML
+   * Fetch instances of all discovered CRDs, in parallel
    */
-  public async getResourceYaml(
-    kind: string,
-    name: string,
-    namespace?: string,
-    edaService?: EdaService,
-    crdService?: CrdService
-  ): Promise<string> {
-    const ns = namespace || this.namespace;
+  public async getAllResourceInstances(): Promise<ResourceResult[]> {
+    log('Fetching all resource instances (from CRDs)...', /* LogLevel.INFO */);
 
-    try {
-      this.logWithPrefix(`Getting ${kind}/${name} in namespace ${ns}...`, LogLevel.DEBUG);
+    const crds = await this.getAllCrds();
+    const namespaces = await this.getAllNamespaces();
+    const results: ResourceResult[] = [];
 
-      // For transaction-focused operations, use edactl (special case)
-      if (kind.toLowerCase() === 'transaction' && edaService) {
-        return edaService.getEdaTransactionDetails(name);
-      }
+    // Kick off parallel fetches for each CRD
+    await Promise.all(
+      crds.map(async (crd) => {
+        try {
+          let allInstances: any[] = [];
 
-      // If CRD service is provided, check if this is an EDA CRD
-      let isEdaCrd = false;
-      if (crdService) {
-        isEdaCrd = await crdService.isEdaCrd(kind);
-      }
+          if (crd.namespaced) {
+            // For namespaced CRDs, fetch from each allowed namespace in parallel
+            const nsResults = await Promise.all(
+              namespaces.map(async (ns) => {
+                try {
+                  const resp = await this.k8sClient.listNamespacedCustomObject(
+                    crd.apiGroup || '',
+                    crd.apiVersion || '',
+                    ns,
+                    crd.plural || ''
+                  );
+                  return resp.items || [];
+                } catch (error) {
+                  log(`Skipping namespace ${ns} for CRD ${crd.name}: ${error}`, /* LogLevel.INFO */);
+                  return [];
+                }
+              })
+            );
+            // Flatten
+            nsResults.forEach((arr) => allInstances.push(...arr));
+          } else {
+            // Cluster-scoped
+            try {
+              const resp = await this.k8sClient.listClusterCustomObject(
+                crd.apiGroup || '',
+                crd.apiVersion || '',
+                crd.plural || ''
+              );
+              allInstances = resp.items || [];
+            } catch (error) {
+              log(`Error fetching cluster-scoped CRD ${crd.name}: ${error}`, /* LogLevel.INFO */);
+            }
+          }
 
-      // If it's an EDA CRD and we have an EdaService, use edactl for it
-      if (isEdaCrd && edaService) {
-        const edaYaml = await edaService.getEdaResourceYaml(kind, name, ns, isEdaCrd);
-        if (edaYaml && edaYaml.trim().length > 0) {
-          return edaYaml;
+          results.push({ resource: crd, instances: allInstances });
+        } catch (error) {
+          log(`Error fetching resource instances for CRD ${crd.name}: ${error}`, /* LogLevel.INFO */);
         }
-      }
+      })
+    );
 
-      // For non-EDA resources or if edactl fails, use kubectl
-      const kubectlPath = this.k8sClient.getKubectlPath();
-      return getResourceYaml(kubectlPath, kind, name, ns);
-    } catch (error: any) {
-      this.logWithPrefix(`Error getting resource YAML: ${error}`, LogLevel.ERROR);
-      return `# Error loading resource: ${error.message || error}`;
+    let total = 0;
+    for (const rr of results) {
+      total += rr.instances.length;
     }
-  }
+    log(`Total resource instances (across all CRDs): ${total}`, /* LogLevel.INFO */);
 
-  /**
-   * Apply a Kubernetes resource
-   * @param resource Resource object
-   * @param dryRun Whether to use dry run mode
-   * @returns Result of apply operation
-   */
-  public async applyResource(resource: any, dryRun: boolean = false): Promise<string> {
-    // Validate required fields
-    if (
-      !resource.kind ||
-      !resource.apiVersion ||
-      !resource.metadata ||
-      !resource.metadata.name
-    ) {
-      throw new Error(
-        'Invalid resource: missing required fields (kind, apiVersion, metadata.name)'
-      );
-    }
-
-    // Determine namespace
-    const namespace = resource.metadata.namespace || this.namespace;
-
-    // Convert resource to YAML
-    const resourceYaml = yaml.dump(resource);
-
-    // Create temporary file
-    const tmpDir = os.tmpdir();
-    const tmpFile = path.join(tmpDir, `resource-${Date.now()}.yaml`);
-
-    try {
-      // Write resource to file
-      fs.writeFileSync(tmpFile, resourceYaml);
-
-      // Apply resource
-      const kubectlPath = this.k8sClient.getKubectlPath();
-      const args = ['apply', '-f', tmpFile, '-o', 'yaml'];
-
-      if (dryRun) {
-        args.push('--dry-run=server');
-      }
-
-      this.logWithPrefix(
-        `Applying ${resource.kind}/${resource.metadata.name} with kubectl...`,
-        LogLevel.INFO
-      );
-
-      const output = runKubectl(kubectlPath, args, { namespace });
-
-      this.logWithPrefix(
-        `Successfully ${dryRun ? 'validated' : 'applied'} ${resource.kind}/${resource.metadata.name}`,
-        LogLevel.INFO
-      );
-
-      return output;
-    } catch (error: any) {
-      this.logWithPrefix(`Error applying resource: ${error.message}`, LogLevel.ERROR, true);
-      throw error;
-    } finally {
-      // Clean up temporary file
-      try {
-        if (fs.existsSync(tmpFile)) {
-          fs.unlinkSync(tmpFile);
-        }
-      } catch (cleanupError) {
-        this.logWithPrefix(
-          `Warning: Could not delete temporary file ${tmpFile}: ${cleanupError}`,
-          LogLevel.WARN
-        );
-      }
-    }
-  }
-
-  /**
-   * Delete a pod
-   * @param podName Pod name
-   * @param namespace Namespace (optional, uses current namespace if not provided)
-   */
-  public async deletePod(podName: string, namespace?: string): Promise<void> {
-    const ns = namespace || this.namespace;
-
-    try {
-      this.logWithPrefix(`Deleting pod '${podName}' in namespace '${ns}'`, LogLevel.INFO);
-
-      const coreV1Api = this.k8sClient.getCoreV1Api();
-      await coreV1Api.deleteNamespacedPod(podName, ns);
-
-      this.logWithPrefix(`Successfully deleted pod '${podName}'`, LogLevel.INFO);
-
-      // Clear pod cache for this namespace
-      this.cacheService.remove('pods', ns, ns);
-    } catch (error: any) {
-      const errorMsg = `Failed to delete Pod ${podName} in namespace ${ns}: ${
-        error.body?.message || error.message || error
-      }`;
-
-      this.logWithPrefix(errorMsg, LogLevel.ERROR, true);
-      throw new Error(errorMsg);
-    }
-  }
-
-  /**
-   * Get pod describe output
-   * @param podName Pod name
-   * @param namespace Namespace (optional, uses current namespace if not provided)
-   * @returns Pod describe output
-   */
-  public getPodDescribeOutput(podName: string, namespace?: string): string {
-    const ns = namespace || this.namespace;
-
-    try {
-      const kubectlPath = this.k8sClient.getKubectlPath();
-      const output = runKubectl(
-        kubectlPath,
-        ['describe', 'pod', podName],
-        { namespace: ns }
-      );
-
-      return output;
-    } catch (error: any) {
-      const msg = `Failed to describe pod ${podName} in namespace ${ns}: ${error.message}`;
-      throw new Error(msg);
-    }
-  }
-
-  /**
-   * Get available resource types in a namespace
-   * @param namespace Namespace
-   * @returns List of available resource types
-   */
-  public async getAvailableResourceTypes(namespace: string): Promise<string[]> {
-    try {
-      this.logWithPrefix(`Getting available resource types in namespace ${namespace}...`, LogLevel.INFO);
-
-      // Return a static list of common resource types instead of an expensive kubectl call
-      const resourceTypes = [
-        'Pods',
-        'Services',
-        'Deployments',
-        'ConfigMaps',
-        'Secrets',
-      ];
-
-      this.logWithPrefix(`Using ${resourceTypes.length} common resource types`, LogLevel.DEBUG);
-      return resourceTypes;
-    } catch (error) {
-      this.logWithPrefix(`Error getting resource types: ${error}`, LogLevel.ERROR);
-      return ['Pods', 'Services', 'Deployments', 'ConfigMaps', 'Secrets']; // Fallback
-    }
-  }
-
-  /**
-   * Clear resource caches
-   */
-  public clearCaches(): void {
-    this.cacheService.clear('pods');
-    this.cacheService.clear('services');
-    this.cacheService.clear('deployments');
-    this.cacheService.clear('configmaps');
-    this.cacheService.clear('secrets');
-    this.cacheService.clear('nodes');
+    return results;
   }
 }
