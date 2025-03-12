@@ -3,6 +3,7 @@ import { serviceManager } from './services/serviceManager';
 import { KubernetesClient } from './clients/kubernetesClient';
 import { ResourceService } from './services/resourceService';
 import { EdactlClient } from './clients/edactlClient';
+import { EdaNamespaceProvider } from './providers/views/namespaceProvider';
 
 export enum LogLevel {
   DEBUG = 0,
@@ -86,6 +87,46 @@ export async function activate(context: vscode.ExtensionContext) {
     // Show EDA namespaces after activation
     const edaNamespaces = await edactlClient.getEdaNamespaces();
     log(`EDA namespaces: ${edaNamespaces.join(', ')}`, LogLevel.INFO, true);
+
+    // Initialize the namespace tree provider
+    const namespaceProvider = new EdaNamespaceProvider(context);
+    
+    // Register the tree view
+    const namespaceTreeView = vscode.window.createTreeView('edaNamespaces', {
+      treeDataProvider: namespaceProvider,
+      showCollapseAll: true
+    });
+    
+    // Register the tree view to extension context
+    context.subscriptions.push(namespaceTreeView);
+    
+    // Register the refresh command
+    context.subscriptions.push(
+      vscode.commands.registerCommand('vscode-eda.refreshResources', () => {
+        namespaceProvider.refresh();
+      })
+    );
+    
+    // Register filter commands
+    context.subscriptions.push(
+      vscode.commands.registerCommand('vscode-eda.filterTree', async () => {
+        const filterText = await vscode.window.showInputBox({
+          prompt: 'Enter filter text',
+          placeHolder: 'Filter resources...'
+        });
+        
+        if (filterText !== undefined) {
+          namespaceProvider.setTreeFilter(filterText);
+        }
+      })
+    );
+    
+    context.subscriptions.push(
+      vscode.commands.registerCommand('vscode-eda.clearFilter', () => {
+        namespaceProvider.clearTreeFilter();
+      })
+    );
+
 
     log('Service architecture initialized successfully', LogLevel.INFO, true);
   } catch (error) {

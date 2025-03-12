@@ -16,8 +16,13 @@ import {
 import * as http from 'http';
 import { log, LogLevel } from '../extension';
 import { EdactlClient } from './edactlClient'; // Only for the type reference
+import * as vscode from 'vscode';
 
 export class KubernetesClient {
+
+  private _onResourceChanged = new vscode.EventEmitter<void>();
+  readonly onResourceChanged = this._onResourceChanged.event;
+
   private kc: KubeConfig;
   private apiExtensionsV1Api: ApiextensionsV1Api;
   private customObjectsApi: CustomObjectsApi;
@@ -322,6 +327,7 @@ export class KubernetesClient {
         this.resourceCache.set(key, arr);
         const resourceName = obj.metadata?.name || 'unknown';
         log(`Watcher detected new ${crd.spec?.names?.kind || 'resource'}: ${resourceName}`, LogLevel.INFO);
+        this._onResourceChanged.fire(); // Fire event when resource is added
       }
     });
 
@@ -336,6 +342,7 @@ export class KubernetesClient {
       this.resourceCache.set(key, arr);
       const resourceName = obj.metadata?.name || 'unknown';
       log(`Watcher detected update to ${crd.spec?.names?.kind || 'resource'}: ${resourceName}`, LogLevel.INFO);
+      this._onResourceChanged.fire(); // Fire event when resource is updated
     });
 
     informer.on('delete', (obj: KubernetesObject) => {
@@ -344,6 +351,7 @@ export class KubernetesClient {
       this.resourceCache.set(key, arr);
       const resourceName = obj.metadata?.name || 'unknown';
       log(`Watcher detected deletion of ${crd.spec?.names?.kind || 'resource'}: ${resourceName}`, LogLevel.INFO);
+      this._onResourceChanged.fire(); // Fire event when resource is deleted
     });
 
     informer.on('error', (err: any) => {
@@ -365,9 +373,35 @@ export class KubernetesClient {
     return this.namespacesCache;
   }
 
-  public getCachedResources(group: string, version: string, plural: string): KubernetesObject[] {
-    const key = `${group}_${version}_${plural}`;
-    return this.resourceCache.get(key) || [];
+  public getCachedResources(group: string, version: string, plural: string, namespace?: string): KubernetesObject[] {
+    if (namespace) {
+      const key = `${group}_${version}_${plural}_${namespace}`;
+      return this.resourceCache.get(key) || [];
+    } else {
+      const key = `${group}_${version}_${plural}`;
+      return this.resourceCache.get(key) || [];
+    }
+  }
+
+  public dispose(): void {
+    // Stop all informers
+    for (const informer of this.resourceInformers.values()) {
+      try {
+        informer.stop();
+      } catch (error) {
+        log(`Error stopping informer: ${error}`, LogLevel.ERROR);
+      }
+    }
+
+    this.crdsInformer?.stop();
+    this.namespacesInformer?.stop();
+    this._onResourceChanged.dispose();
+
+    // Clear caches
+    this.resourceInformers.clear();
+    this.resourceCache.clear();
+    this.crdsCache = [];
+    this.namespacesCache = [];
   }
 
   // Direct listing methods are the same:
