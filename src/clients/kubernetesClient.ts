@@ -234,14 +234,14 @@ export class KubernetesClient {
     // We will watch cluster-wide for both cluster-scoped and namespaced CRDs
     const path = `/apis/${group}/${version}/${plural}`;
 
-    // The list function must return { response, body }, 
+    // The list function must return { response, body },
     // where body.items = array of objects that implement KubernetesObject
     const listFn = async (): Promise<{
       response: http.IncomingMessage;
       body: { items: KubernetesObject[] };
     }> => {
       const res = await this.customObjectsApi.listClusterCustomObject(group, version, plural);
-      // The returned object is typed 
+      // The returned object is typed
       //   { response: IncomingMessage; body: any }
       // We must cast `res.body` to { items: KubernetesObject[] } for the informer to work
       return {

@@ -65,27 +65,17 @@ export async function activate(context: vscode.ExtensionContext) {
     const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
 
     await k8sClient.startWatchers();
-    
+
     const resourceService = new ResourceService(k8sClient);
     serviceManager.registerService('kubernetes-resources', resourceService);
-    
-    // Register commands
-    const runTestsCommand = vscode.commands.registerCommand('vscode-eda.runResourceTests', async () => {
-      const resourceSvc = serviceManager.getService<ResourceService>('kubernetes-resources');
-      await resourceSvc.runResourceFetchTests();
-    });
-    
-    context.subscriptions.push(runTestsCommand);
+
+
     log('Service architecture initialized successfully', LogLevel.INFO, true);
-    
-    // Run resource tests during activation
-    const resourceSvc = serviceManager.getService<ResourceService>('kubernetes-resources');
-    await resourceSvc.runResourceFetchTests();
   } catch (error) {
     log(`Error initializing service architecture: ${error}`, LogLevel.ERROR, true);
     vscode.window.showErrorMessage(`Failed to initialize EDA extension: ${error}`);
   }
-  
+
   log('EDA extension activated', LogLevel.INFO, true);
 }
 

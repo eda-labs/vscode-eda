@@ -37,43 +37,6 @@ export class ResourceService extends CoreService {
   }
 
   /**
-   * Run resource fetch tests (example usage)
-   */
-  public async runResourceFetchTests(): Promise<void> {
-    try {
-      const startTime = Date.now();
-      log('===== Testing resource fetching =====', LogLevel.INFO);
-  
-      const crds = await this.getAllCrds();
-      log(`Found ${crds.length} custom resource definitions`, LogLevel.INFO);
-  
-      const resourceInstances = await this.getAllResourceInstances();
-      log(`Found resources across ${resourceInstances.length} CRD types`, LogLevel.INFO);
-  
-      // Log every resource instance (this may flood the output if there are many)
-      let instanceCount = 0;
-      for (const rr of resourceInstances) {
-        log(`CRD ${rr.resource.name} has ${rr.instances.length} instance(s)`, LogLevel.INFO);
-        for (const instance of rr.instances) {
-          // Print each instance as a JSON string. You can adjust the verbosity or formatting as needed.
-          log(JSON.stringify(instance), LogLevel.DEBUG);
-          instanceCount++;
-        }
-      }
-      log(`Total of ${instanceCount} resource instances logged.`, LogLevel.INFO);
-  
-      const duration = Date.now() - startTime;
-      log(`===== Testing resource fetching took ${duration} ms =====`, LogLevel.INFO);
-  
-      vscode.window.showInformationMessage('Kubernetes resource fetch test completed. Check output panel for details.');
-    } catch (error) {
-      log(`Error testing resource fetching: ${error}`, LogLevel.ERROR);
-      vscode.window.showErrorMessage(`Error fetching Kubernetes resources: ${error}`);
-    }
-  }
-  
-
-  /**
    * Get (and cache) the namespaces, filtered by ALLOWED_NAMESPACES
    */
   private async getAllNamespaces(): Promise<string[]> {

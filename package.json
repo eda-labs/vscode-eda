@@ -1,8 +1,7 @@
 {
-  "name": "vscode-eda",
+  "name": "k8stest",
   "publisher": "eda-labs",
   "displayName": "Event Driven Automation",
-  "icon": "resources/eda.png",
   "description": "Manage and monitor Event-Driven Architecture resources in Kubernetes",
   "version": "0.1.0",
   "engines": {
