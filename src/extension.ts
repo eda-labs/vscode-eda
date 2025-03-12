@@ -63,6 +63,8 @@ export async function activate(context: vscode.ExtensionContext) {
     log('Initializing service architecture...', LogLevel.INFO, true);
     await serviceManager.initialize(context);
     const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
+
+    await k8sClient.startWatchers();
     
     const resourceService = new ResourceService(k8sClient);
     serviceManager.registerService('kubernetes-resources', resourceService);
