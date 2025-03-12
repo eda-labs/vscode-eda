@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { serviceManager } from './services/serviceManager';
 import { KubernetesClient } from './clients/kubernetesClient';
 import { ResourceService } from './services/resourceService';
+import { EdactlClient } from './clients/edactlClient';
 
 export enum LogLevel {
   DEBUG = 0,
@@ -62,13 +63,25 @@ export async function activate(context: vscode.ExtensionContext) {
   try {
     log('Initializing service architecture...', LogLevel.INFO, true);
     await serviceManager.initialize(context);
-    const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
 
+    const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
     await k8sClient.startWatchers();
 
     const resourceService = new ResourceService(k8sClient);
     serviceManager.registerService('kubernetes-resources', resourceService);
 
+    // Initialize and register the EdactlClient
+    const edactlClient = new EdactlClient(k8sClient);
+    serviceManager.registerClient('edactl', edactlClient);
+
+    // Execute the getEdaNamespaces method once after activation
+    log('Fetching EDA namespaces after activation...', LogLevel.INFO, true);
+    try {
+      const namespaces = await edactlClient.getEdaNamespaces();
+      log(`Found ${namespaces.length} EDA namespaces: ${namespaces.join(', ')}`, LogLevel.INFO, true);
+    } catch (error) {
+      log(`Error fetching EDA namespaces: ${error}`, LogLevel.ERROR, true);
+    }
 
     log('Service architecture initialized successfully', LogLevel.INFO, true);
   } catch (error) {
