@@ -56,32 +56,36 @@ export function measurePerformance<T>(
 export async function activate(context: vscode.ExtensionContext) {
   console.log('Activating EDA extension');
   edaOutputChannel = vscode.window.createOutputChannel('EDA');
+
   const config = vscode.workspace.getConfiguration('vscode-eda');
   currentLogLevel = config.get<LogLevel>('logLevel', LogLevel.INFO);
+
   log('EDA extension activating...', LogLevel.INFO, true);
 
   try {
     log('Initializing service architecture...', LogLevel.INFO, true);
-    await serviceManager.initialize(context);
 
-    const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
+    // 1) Create the clients independently
+    const edactlClient = new EdactlClient(/* no K8sClient needed here */);
+    const k8sClient = new KubernetesClient();
+
+    // 2) Optionally register them in your ServiceManager
+    serviceManager.registerClient('edactl', edactlClient);
+    serviceManager.registerClient('kubernetes', k8sClient);
+
+    // 3) Let k8sClient know about edactlClient so it can call it
+    k8sClient.setEdactlClient(edactlClient);
+
+    // 4) Start watchers
     await k8sClient.startWatchers();
 
+    // 5) Example: create ResourceService, etc.
     const resourceService = new ResourceService(k8sClient);
     serviceManager.registerService('kubernetes-resources', resourceService);
 
-    // Initialize and register the EdactlClient
-    const edactlClient = new EdactlClient(k8sClient);
-    serviceManager.registerClient('edactl', edactlClient);
-
-    // Execute the getEdaNamespaces method once after activation
-    log('Fetching EDA namespaces after activation...', LogLevel.INFO, true);
-    try {
-      const namespaces = await edactlClient.getEdaNamespaces();
-      log(`Found ${namespaces.length} EDA namespaces: ${namespaces.join(', ')}`, LogLevel.INFO, true);
-    } catch (error) {
-      log(`Error fetching EDA namespaces: ${error}`, LogLevel.ERROR, true);
-    }
+    // Show EDA namespaces after activation
+    const edaNamespaces = await edactlClient.getEdaNamespaces();
+    log(`EDA namespaces: ${edaNamespaces.join(', ')}`, LogLevel.INFO, true);
 
     log('Service architecture initialized successfully', LogLevel.INFO, true);
   } catch (error) {

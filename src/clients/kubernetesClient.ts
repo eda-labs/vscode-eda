@@ -1,4 +1,5 @@
-// === ./src/clients/kubernetesClient.ts ===
+// === ./src/clients/kubernetesClient.ts (UPDATED) ===
+
 import {
   KubeConfig,
   ApiextensionsV1Api,
@@ -10,17 +11,12 @@ import {
   V1Namespace,
   V1CustomResourceDefinitionList,
   V1NamespaceList,
-  // We might need these for response shaping
   CoreV1Api,
-  HttpError
 } from '@kubernetes/client-node';
 import * as http from 'http';
 import { log, LogLevel } from '../extension';
+import { EdactlClient } from './edactlClient'; // Only for the type reference
 
-/**
- * Client for interacting with Kubernetes API in a generic way.
- * Only this class is allowed to import from '@kubernetes/client-node'.
- */
 export class KubernetesClient {
   private kc: KubeConfig;
   private apiExtensionsV1Api: ApiextensionsV1Api;
@@ -28,23 +24,20 @@ export class KubernetesClient {
   private apisApi: ApisApi;
   private coreApi: CoreV1Api;
 
-  // Watch-based caches:
   private crdsInformer: any;
   private crdsCache: V1CustomResourceDefinition[] = [];
 
   private namespacesInformer: any;
   private namespacesCache: V1Namespace[] = [];
 
-  /**
-   * We will create an informer per CRD (keyed by `group_version_plural`)
-   * to watch all objects of that CRD cluster-wide. This map holds those informers.
-   */
-  private resourceInformers: Map<string, any> = new Map();
+  // We store EDA namespaces here, updated whenever refreshEdaNamespaces() is called
+  private edaNamespaces: string[] = [];
 
-  /**
-   * The in-memory store for all CRDs' instances.
-   * Key: `${group}_${version}_${plural}`, Value: array of KubernetesObject
-   */
+  // This is initially undefined. We set it once from extension.ts or serviceManager
+  private edactlClient?: EdactlClient;
+
+  // Resource watchers:
+  private resourceInformers: Map<string, any> = new Map();
   private resourceCache: Map<string, KubernetesObject[]> = new Map();
 
   constructor() {
@@ -61,36 +54,46 @@ export class KubernetesClient {
   }
 
   /**
-   * Kick off all watchers so that CRDs, Namespaces, and their resources
-   * are continuously cached in memory.
+   * Let external code provide an EdactlClient so that we can fetch EDA namespaces.
+   */
+  public setEdactlClient(client: EdactlClient) {
+    this.edactlClient = client;
+  }
+
+  /**
+   * Start watchers for CRDs, namespaces, etc.
    */
   public async startWatchers(): Promise<void> {
     log('Starting watchers (CRDs, Namespaces, and CRD-based resources)...', LogLevel.INFO);
 
+    // 1) CRDs
     await this.startCrdWatcher();
+
+    // 2) Namespaces
     await this.startNamespaceWatcher();
+
+    // 3) If we have an edactlClient, do an initial EDA namespace load
+    if (this.edactlClient) {
+      await this.refreshEdaNamespaces();
+    }
 
     log('All watchers started.', LogLevel.INFO);
   }
 
   /**
-   * Begin watching CRDs themselves. Whenever a new CRD is added/updated,
-   * we also start a watcher for its resources (if not a standard k8s.io group).
+   * Watch CRDs themselves
    */
   private async startCrdWatcher(): Promise<void> {
     log('Starting CRD watcher...', LogLevel.INFO);
 
-    // Provide a list function with the correct shape
     const listCrds = async (): Promise<{
       response: http.IncomingMessage;
       body: V1CustomResourceDefinitionList;
     }> => {
       const resp = await this.apiExtensionsV1Api.listCustomResourceDefinition();
-      // resp.body is already V1CustomResourceDefinitionList
       return { response: resp.response, body: resp.body };
     };
 
-    // Watch: item type = V1CustomResourceDefinition
     this.crdsInformer = makeInformer<V1CustomResourceDefinition>(
       this.kc,
       '/apis/apiextensions.k8s.io/v1/customresourcedefinitions',
@@ -100,7 +103,7 @@ export class KubernetesClient {
     this.crdsInformer.on('add', (obj: V1CustomResourceDefinition) => {
       if (!this.crdsCache.find((o) => o.metadata?.name === obj.metadata?.name)) {
         this.crdsCache.push(obj);
-        log(`Watcher detected new CRD: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO)
+        log(`Watcher detected new CRD: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO);
         this.startResourceWatcher(obj).catch((err) =>
           log(`Error starting resource watcher: ${err}`, LogLevel.INFO)
         );
@@ -113,25 +116,24 @@ export class KubernetesClient {
         this.crdsCache[index] = obj;
       } else {
         this.crdsCache.push(obj);
-        log(`Watcher detected update on CRD: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO)
-        this.startResourceWatcher(obj).catch((err) =>
-          log(`Error starting resource watcher: ${err}`, LogLevel.INFO)
-        );
       }
+      log(`Watcher detected update CRD: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO);
+      this.startResourceWatcher(obj).catch((err) =>
+        log(`Error starting resource watcher: ${err}`, LogLevel.INFO)
+      );
     });
 
     this.crdsInformer.on('delete', (obj: V1CustomResourceDefinition) => {
       this.crdsCache = this.crdsCache.filter((o) => o.metadata?.name !== obj.metadata?.name);
-      log(`Watcher detected delete CRD: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO)
-      // Optionally: stop watchers for that CRD
+      log(`Watcher detected delete CRD: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO);
+      // optionally stop watchers for that CRD
     });
 
     this.crdsInformer.on('error', (err: any) => {
       log(`CRD informer error: ${err}`, LogLevel.INFO);
-      // Restart the informer after a short delay
       setTimeout(() => {
-        this.crdsInformer.start().catch((err: any) => {
-          log(`Failed to restart CRD informer: ${err}`, LogLevel.INFO);
+        this.crdsInformer.start().catch((e: any) => {
+          log(`Failed to restart CRD informer: ${e}`, LogLevel.INFO);
         });
       }, 5000);
     });
@@ -140,20 +142,16 @@ export class KubernetesClient {
   }
 
   /**
-   * Begin watching core Namespaces. We'll store them so that any
-   * namespaced CRD watchers know which namespaces exist, but
-   * in this example we simply store them for potential filtering.
+   * Watch all namespaces as you originally wanted
    */
   private async startNamespaceWatcher(): Promise<void> {
     log('Starting Namespace watcher...', LogLevel.INFO);
 
-    // We watch all namespaces from /api/v1/namespaces
     const listNamespaces = async (): Promise<{
       response: http.IncomingMessage;
       body: V1NamespaceList;
     }> => {
       const resp = await this.coreApi.listNamespace();
-      // resp.body is V1NamespaceList
       return { response: resp.response, body: resp.body };
     };
 
@@ -163,27 +161,37 @@ export class KubernetesClient {
       listNamespaces
     );
 
-    this.namespacesInformer.on('add', (obj: V1Namespace) => {
+    this.namespacesInformer.on('add', async (obj: V1Namespace) => {
       if (!this.namespacesCache.find((o) => o.metadata?.name === obj.metadata?.name)) {
         this.namespacesCache.push(obj);
         log(`Watcher detected new Namespace: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO);
       }
+      if (this.edactlClient) {
+        await this.refreshEdaNamespaces(); // re-check if EDA ns changed
+      }
     });
 
-    this.namespacesInformer.on('update', (obj: V1Namespace) => {
+    this.namespacesInformer.on('update', async (obj: V1Namespace) => {
       const idx = this.namespacesCache.findIndex((o) => o.metadata?.name === obj.metadata?.name);
       if (idx >= 0) {
         this.namespacesCache[idx] = obj;
       } else {
         this.namespacesCache.push(obj);
-        log(`Watcher detected update Namespace: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO);
+      }
+      log(`Watcher detected update Namespace: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO);
+      if (this.edactlClient) {
+        await this.refreshEdaNamespaces();
       }
     });
 
-    this.namespacesInformer.on('delete', (obj: V1Namespace) => {
+    this.namespacesInformer.on('delete', async (obj: V1Namespace) => {
       this.namespacesCache = this.namespacesCache.filter(
         (o) => o.metadata?.name !== obj.metadata?.name
       );
+      log(`Watcher detected delete Namespace: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO);
+      if (this.edactlClient) {
+        await this.refreshEdaNamespaces();
+      }
     });
 
     this.namespacesInformer.on('error', (err: any) => {
@@ -199,18 +207,36 @@ export class KubernetesClient {
   }
 
   /**
-   * Whenever a new CRD is discovered (or updated), we start a
-   * watch-based informer for that CRD’s resources, if it is
-   * not part of the standard k8s.io group. This yields a
-   * cluster-wide resource cache.
+   * Re-fetch EDA namespaces via edactlClient, then create watchers for only those namespaces
+   */
+  private async refreshEdaNamespaces() {
+    if (!this.edactlClient) {
+      return; // in case it's never set
+    }
+    try {
+      const ns = await this.edactlClient.getEdaNamespaces();
+      this.edaNamespaces = ns || [];
+      log(`Refreshed EDA namespaces: ${this.edaNamespaces.join(', ')}`, LogLevel.INFO);
+
+      // For all known CRDs, if they are "Namespaced", watch them in these EDA namespaces only
+      for (const crd of this.crdsCache) {
+        if (crd.spec.scope === 'Namespaced') {
+          await this.startResourceWatcher(crd);
+        }
+      }
+    } catch (err) {
+      log(`Failed to refresh EDA namespaces: ${err}`, LogLevel.ERROR);
+    }
+  }
+
+  /**
+   * If cluster-scoped, watch cluster-wide. If namespaced, watch only edaNamespaces.
    */
   private async startResourceWatcher(crd: V1CustomResourceDefinition): Promise<void> {
     const group = crd.spec?.group || '';
     if (!group || group.endsWith('k8s.io')) {
-      // Skip standard k8s
-      return;
+      return; // ignore standard k8s.io
     }
-
     const versionObj = crd.spec?.versions?.find((v) => v.served) || crd.spec?.versions?.[0];
     if (!versionObj) {
       return;
@@ -220,50 +246,82 @@ export class KubernetesClient {
     if (!plural) {
       return;
     }
-    const scope = crd.spec?.scope; // "Namespaced" or "Cluster"
 
-    // We'll store them in resourceCache keyed by "group_version_plural"
-    const key = `${group}_${version}_${plural}`;
-    if (this.resourceInformers.has(key)) {
-      // Already watching this CRD
-      return;
-    }
+    if (crd.spec.scope === 'Cluster') {
+      const key = `${group}_${version}_${plural}`;
+      if (this.resourceInformers.has(key)) {
+        // already have a cluster-wide informer
+        return;
+      }
+      log(`Starting cluster-wide resource watcher for CRD: ${key}`, LogLevel.INFO);
 
-    log(`Starting resource watcher for CRD: ${key}`, LogLevel.INFO);
-
-    // We will watch cluster-wide for both cluster-scoped and namespaced CRDs
-    const path = `/apis/${group}/${version}/${plural}`;
-
-    // The list function must return { response, body },
-    // where body.items = array of objects that implement KubernetesObject
-    const listFn = async (): Promise<{
-      response: http.IncomingMessage;
-      body: { items: KubernetesObject[] };
-    }> => {
-      const res = await this.customObjectsApi.listClusterCustomObject(group, version, plural);
-      // The returned object is typed
-      //   { response: IncomingMessage; body: any }
-      // We must cast `res.body` to { items: KubernetesObject[] } for the informer to work
-      return {
-        response: res.response,
-        body: res.body as { items: KubernetesObject[] }
+      const path = `/apis/${group}/${version}/${plural}`;
+      const listFn = async (): Promise<{ response: http.IncomingMessage; body: { items: KubernetesObject[] } }> => {
+        const res = await this.customObjectsApi.listClusterCustomObject(group, version, plural);
+        return { response: res.response, body: res.body as { items: KubernetesObject[] } };
       };
-    };
 
-    const informer = makeInformer<KubernetesObject>(this.kc, path, listFn);
-    this.resourceInformers.set(key, informer);
-    this.resourceCache.set(key, []); // Initialize empty array
+      const informer = makeInformer<KubernetesObject>(this.kc, path, listFn);
+      this.attachResourceInformerHandlers(informer, crd, key);
+      this.resourceInformers.set(key, informer);
+      await informer.start();
+    } else {
+      // "Namespaced" CRD => watchers only in this.edaNamespaces
+      const baseKey = `${group}_${version}_${plural}`;
 
+      // create watchers for each EDA namespace that doesn't already have one
+      for (const ns of this.edaNamespaces) {
+        const nsKey = `${baseKey}_${ns}`;
+        if (this.resourceInformers.has(nsKey)) {
+          // already watching
+          continue;
+        }
+        log(`Starting namespaced resource watcher for CRD: ${baseKey} in namespace: ${ns}`, LogLevel.INFO);
+
+        const path = `/apis/${group}/${version}/namespaces/${ns}/${plural}`;
+        const listFn = async (): Promise<{ response: http.IncomingMessage; body: { items: KubernetesObject[] } }> => {
+          const res = await this.customObjectsApi.listNamespacedCustomObject(group, version, ns, plural);
+          return { response: res.response, body: res.body as { items: KubernetesObject[] } };
+        };
+
+        const informer = makeInformer<KubernetesObject>(this.kc, path, listFn);
+        this.attachResourceInformerHandlers(informer, crd, nsKey);
+        this.resourceInformers.set(nsKey, informer);
+        await informer.start();
+      }
+
+      // OPTIONAL: Stop watchers for namespaces that are no longer in EDA set:
+      for (const [infKey, infVal] of this.resourceInformers.entries()) {
+        if (infKey.startsWith(`${baseKey}_`)) {
+          // e.g. "group_ver_plural_myns"
+          const parts = infKey.split('_');
+          const nsPart = parts[3];
+          if (!this.edaNamespaces.includes(nsPart)) {
+            log(`Stopping stale watcher for CRD: ${baseKey} in old namespace: ${nsPart}`, LogLevel.INFO);
+            try {
+              infVal.stop();
+            } catch (err) {
+              log(`Error stopping informer for ${infKey}: ${err}`, LogLevel.ERROR);
+            }
+            this.resourceInformers.delete(infKey);
+          }
+        }
+      }
+    }
+  }
+
+  private attachResourceInformerHandlers(
+    informer: ReturnType<typeof makeInformer<KubernetesObject>>,
+    crd: V1CustomResourceDefinition,
+    key: string
+  ) {
     informer.on('add', (obj: KubernetesObject) => {
       const arr = this.resourceCache.get(key) || [];
       if (!arr.find((o) => o.metadata?.uid === obj.metadata?.uid)) {
         arr.push(obj);
         this.resourceCache.set(key, arr);
-
         const resourceName = obj.metadata?.name || 'unknown';
-        const namespace = obj.metadata?.namespace ? `in namespace ${obj.metadata.namespace}` : '(cluster-scoped)';
-        log(`Watcher detected new ${crd.spec?.names?.kind || 'resource'}: ${resourceName} ${namespace}`, LogLevel.INFO);
-
+        log(`Watcher detected new ${crd.spec?.names?.kind || 'resource'}: ${resourceName}`, LogLevel.INFO);
       }
     });
 
@@ -290,20 +348,15 @@ export class KubernetesClient {
 
     informer.on('error', (err: any) => {
       log(`Resource watcher error for ${key}: ${err}`, LogLevel.INFO);
-      // Attempt to restart after a delay
       setTimeout(() => {
         informer.start().catch((startErr: any) => {
           log(`Failed to restart resource watcher (${key}): ${startErr}`, LogLevel.INFO);
         });
       }, 5000);
     });
-
-    await informer.start();
   }
 
-  /***********************
-   *  Cache Getters
-   **********************/
+  // Public getters remain as you had them:
   public getCachedCrds(): V1CustomResourceDefinition[] {
     return this.crdsCache;
   }
@@ -317,14 +370,7 @@ export class KubernetesClient {
     return this.resourceCache.get(key) || [];
   }
 
-  /***********************
-   *  (Optional) direct list methods
-   **********************/
-
-  /**
-   * List all CustomResourceDefinitions (direct API call).
-   * Not used by the informer, but can be used outside watchers if needed.
-   */
+  // Direct listing methods are the same:
   public async listCustomResourceDefinitions(): Promise<V1CustomResourceDefinition[]> {
     try {
       const resp = await this.apiExtensionsV1Api.listCustomResourceDefinition();
@@ -335,10 +381,6 @@ export class KubernetesClient {
     }
   }
 
-  /**
-   * List cluster-scoped objects for a given CRD (direct API call).
-   * Returns just { items: ... }, not suitable for `makeInformer`.
-   */
   public async listClusterCustomObject(
     group: string,
     version: string,
@@ -352,9 +394,6 @@ export class KubernetesClient {
     }
   }
 
-  /**
-   * List namespaced objects for a given CRD (direct API call).
-   */
   public async listNamespacedCustomObject(
     group: string,
     version: string,

@@ -15,7 +15,6 @@ export class EdactlClient {
   private cacheTTL: number = 60000; // 1 minute
 
   constructor(
-    private k8sClient: KubernetesClient,
   ) {
     log('Initializing EdactlClient', LogLevel.INFO);
   }
