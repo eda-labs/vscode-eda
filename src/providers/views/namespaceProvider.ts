@@ -16,6 +16,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   private resourceService: ResourceService;
   private edactlClient: EdactlClient;
   private treeFilter: string = '';
+  private _refreshDebounceTimer: NodeJS.Timeout | undefined;
 
   // Cache namespaces to avoid fetching during tree builds
   private cachedNamespaces: string[] = [];
@@ -38,13 +39,42 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   private setupEventListeners(): void {
     // Listen for changes to resources and refresh the tree
     this.resourceService.onDidChangeResources(() => {
+      log('Resource change detected, refreshing tree view', LogLevel.DEBUG);
       this.refresh();
     });
 
     // Listen for namespace changes
     this.resourceService.onDidChangeNamespace((namespace) => {
+      log(`Namespace changed to: ${namespace}, refreshing tree view`, LogLevel.DEBUG);
       this.refresh();
     });
+
+    // Debug events to trace through the event chain
+    vscode.window.onDidChangeActiveTextEditor(() => {
+      // Use editor focus as a trigger to validate tree state
+      this.validateTreeState();
+    });
+  }
+
+  /**
+   * Periodically validate tree state to ensure it's consistent with resource cache
+   */
+  private validateTreeState(): void {
+    try {
+      // Check if the cached namespaces match the edactl namespaces
+      this.edactlClient.getEdaNamespaces().then(namespaces => {
+        if (this.cachedNamespaces.length !== namespaces.length || 
+            !this.cachedNamespaces.every(ns => namespaces.includes(ns))) {
+          log(`Namespace cache mismatch, updating (${this.cachedNamespaces.join(',')} vs ${namespaces.join(',')})`, LogLevel.DEBUG);
+          this.cachedNamespaces = namespaces;
+          this.refresh();
+        }
+      }).catch(err => {
+        log(`Error validating namespace cache: ${err}`, LogLevel.ERROR);
+      });
+    } catch (error) {
+      log(`Error in validateTreeState: ${error}`, LogLevel.ERROR);
+    }
   }
 
   /**
@@ -66,7 +96,13 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   private async fetchNamespaces(): Promise<void> {
     try {
       const namespaces = await this.edactlClient.getEdaNamespaces();
-      if (JSON.stringify(this.cachedNamespaces) !== JSON.stringify(namespaces)) {
+      
+      // Deep comparison to avoid unnecessary refreshes
+      const currentNsStr = JSON.stringify(this.cachedNamespaces.sort());
+      const newNsStr = JSON.stringify(namespaces.sort());
+      
+      if (currentNsStr !== newNsStr) {
+        log(`Namespace changes detected. Old: [${this.cachedNamespaces.join(', ')}], New: [${namespaces.join(', ')}]`, LogLevel.DEBUG);
         this.cachedNamespaces = namespaces;
         this.refresh();
       }
@@ -80,7 +116,16 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
    */
   public refresh(): void {
     log('Refreshing EDA namespaces tree view...', LogLevel.DEBUG);
-    this._onDidChangeTreeData.fire(undefined);
+    
+    // To prevent multiple rapid refreshes, add a small debounce
+    if (this._refreshDebounceTimer) {
+      clearTimeout(this._refreshDebounceTimer);
+    }
+    
+    this._refreshDebounceTimer = setTimeout(() => {
+      this._onDidChangeTreeData.fire(undefined);
+      this._refreshDebounceTimer = undefined;
+    }, 100);
   }
 
   /**

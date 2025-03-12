@@ -69,7 +69,9 @@ export class ResourceService extends CoreService {
     const now = Date.now();
 
     // Rate limiting to prevent too frequent refreshes
-    if (now - this.lastRefreshTime < 2000) {
+    if (now - this.lastRefreshTime < 500) {
+      // For very rapid changes, defer the refresh but don't skip it
+      setTimeout(() => this.refreshCachedResources(), 500);
       return;
     }
 
@@ -86,7 +88,7 @@ export class ResourceService extends CoreService {
       });
 
       // Process CRDs to build resource results
-      this.cachedResourceResults = [];
+      const newResults: ResourceResult[] = [];
 
       for (const crd of crds) {
         const group = crd.spec?.group || '';
@@ -131,14 +133,79 @@ export class ResourceService extends CoreService {
           instances = this.k8sClient.getCachedResources(group, version, plural);
         }
 
-        this.cachedResourceResults.push({ resource: rd, instances });
+        log(`Found ${instances.length} instances of ${kind} (${group}/${version})`, LogLevel.DEBUG);
+        newResults.push({ resource: rd, instances });
       }
 
-      this.lastRefreshTime = now;
-      this._onDidChangeResources.fire();
+      // Check if anything has changed before updating
+      const hasChanges = this.hasResourceResultsChanged(this.cachedResourceResults, newResults);
+
+      if (hasChanges) {
+        log(`Resource changes detected, updating cache and notifying listeners`, LogLevel.DEBUG);
+        this.cachedResourceResults = newResults;
+        this.lastRefreshTime = now;
+        this._onDidChangeResources.fire();
+      } else {
+        log(`No resource changes detected, keeping existing cache`, LogLevel.DEBUG);
+        this.lastRefreshTime = now;
+      }
     } catch (error) {
       log(`Error refreshing cached resources: ${error}`, LogLevel.ERROR);
     }
+  }
+
+  /**
+   * Compare resource results to detect changes
+   */
+  private hasResourceResultsChanged(oldResults: ResourceResult[], newResults: ResourceResult[]): boolean {
+    // Quick check for length changes
+    if (oldResults.length !== newResults.length) {
+      return true;
+    }
+
+    // Check each resource type
+    for (let i = 0; i < newResults.length; i++) {
+      const newResult = newResults[i];
+
+      // Find matching resource in old results
+      const oldResult = oldResults.find(r =>
+        r.resource.kind === newResult.resource.kind &&
+        r.resource.apiGroup === newResult.resource.apiGroup);
+
+      if (!oldResult) {
+        // New resource type found
+        return true;
+      }
+
+      // Check instance count
+      if (oldResult.instances.length !== newResult.instances.length) {
+        return true;
+      }
+
+      // Check for new or updated instances by UID
+      for (const newInstance of newResult.instances) {
+        const uid = newInstance.metadata?.uid;
+        if (!uid) {
+          continue;
+        }
+
+        const oldInstance = oldResult.instances.find(i => i.metadata?.uid === uid);
+        if (!oldInstance) {
+          // New instance found
+          return true;
+        }
+
+        // Check resource version for updates
+        const newVersion = newInstance.metadata?.resourceVersion;
+        const oldVersion = oldInstance.metadata?.resourceVersion;
+        if (newVersion !== oldVersion) {
+          // Instance was updated
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   /**

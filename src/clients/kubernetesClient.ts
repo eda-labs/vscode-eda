@@ -327,7 +327,11 @@ export class KubernetesClient {
         this.resourceCache.set(key, arr);
         const resourceName = obj.metadata?.name || 'unknown';
         log(`Watcher detected new ${crd.spec?.names?.kind || 'resource'}: ${resourceName}`, LogLevel.INFO);
-        this._onResourceChanged.fire(); // Fire event when resource is added
+
+        // Fire the event with a slight delay to ensure consistent state
+        setTimeout(() => {
+          this._onResourceChanged.fire();
+        }, 50);
       }
     });
 
@@ -337,12 +341,17 @@ export class KubernetesClient {
       if (idx >= 0) {
         arr[idx] = obj;
       } else {
+        // If not found by UID, this is actually a new object we missed somehow
         arr.push(obj);
       }
       this.resourceCache.set(key, arr);
       const resourceName = obj.metadata?.name || 'unknown';
       log(`Watcher detected update to ${crd.spec?.names?.kind || 'resource'}: ${resourceName}`, LogLevel.INFO);
-      this._onResourceChanged.fire(); // Fire event when resource is updated
+
+      // Fire the event with a slight delay
+      setTimeout(() => {
+        this._onResourceChanged.fire();
+      }, 50);
     });
 
     informer.on('delete', (obj: KubernetesObject) => {
@@ -351,7 +360,11 @@ export class KubernetesClient {
       this.resourceCache.set(key, arr);
       const resourceName = obj.metadata?.name || 'unknown';
       log(`Watcher detected deletion of ${crd.spec?.names?.kind || 'resource'}: ${resourceName}`, LogLevel.INFO);
-      this._onResourceChanged.fire(); // Fire event when resource is deleted
+
+      // Fire the event with a slight delay
+      setTimeout(() => {
+        this._onResourceChanged.fire();
+      }, 50);
     });
 
     informer.on('error', (err: any) => {
@@ -374,14 +387,40 @@ export class KubernetesClient {
   }
 
   public getCachedResources(group: string, version: string, plural: string, namespace?: string): KubernetesObject[] {
-    if (namespace) {
-      const key = `${group}_${version}_${plural}_${namespace}`;
-      return this.resourceCache.get(key) || [];
-    } else {
-      const key = `${group}_${version}_${plural}`;
-      return this.resourceCache.get(key) || [];
+    let results: KubernetesObject[] = [];
+
+    // Collect all matching resources
+    for (const [key, resources] of this.resourceCache.entries()) {
+      // Parse the key to get components
+      const keyParts = key.split('_');
+      const keyGroup = keyParts[0];
+      const keyVersion = keyParts[1];
+      const keyPlural = keyParts[2];
+      const keyNamespace = keyParts.length > 3 ? keyParts[3] : undefined;
+
+      // Check if this cache entry matches our request
+      if (keyGroup === group && keyVersion === version && keyPlural === plural) {
+        // If namespace is specified, only include resources from that namespace
+        if (namespace) {
+          if (keyNamespace === namespace) {
+            results = [...results, ...resources];
+          } else {
+            // For resources without explicit namespace key, filter by metadata
+            const filteredResources = resources.filter(r =>
+              r.metadata?.namespace === namespace);
+            results = [...results, ...filteredResources];
+          }
+        } else {
+          // No namespace filter, include all resources
+          results = [...results, ...resources];
+        }
+      }
     }
+
+    log(`Found ${results.length} cached ${plural} resources in ${namespace || 'all namespaces'}`, LogLevel.DEBUG);
+    return results;
   }
+
 
   public dispose(): void {
     // Stop all informers
