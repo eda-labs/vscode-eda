@@ -1,5 +1,3 @@
-// === ./src/clients/kubernetesClient.ts (UPDATED) ===
-
 import {
   KubeConfig,
   ApiextensionsV1Api,
@@ -12,6 +10,8 @@ import {
   V1CustomResourceDefinitionList,
   V1NamespaceList,
   CoreV1Api,
+  V1Pod,
+  V1PodList,
 } from '@kubernetes/client-node';
 import * as http from 'http';
 import { log, LogLevel } from '../extension';
@@ -34,6 +34,10 @@ export class KubernetesClient {
 
   private namespacesInformer: any;
   private namespacesCache: V1Namespace[] = [];
+
+  // Pod watcher and cache
+  private podsInformer: any;
+  private podsCache: V1Pod[] = [];
 
   // We store EDA namespaces here, updated whenever refreshEdaNamespaces() is called
   private edaNamespaces: string[] = [];
@@ -116,6 +120,15 @@ export class KubernetesClient {
       }
     }
 
+    // Stop pod informer
+    if (this.podsInformer) {
+      try {
+        this.podsInformer.stop();
+      } catch (err) {
+        log(`Error stopping Pod informer: ${err}`, LogLevel.WARN);
+      }
+    }
+
     // Stop all resource informers
     for (const [key, informer] of this.resourceInformers.entries()) {
       try {
@@ -130,6 +143,7 @@ export class KubernetesClient {
     this.resourceCache.clear();
     this.crdsCache = [];
     this.namespacesCache = [];
+    this.podsCache = [];
 
     // Re-create API clients with the new context
     this.apiExtensionsV1Api = this.kc.makeApiClient(ApiextensionsV1Api);
@@ -161,7 +175,10 @@ export class KubernetesClient {
     // 2) Namespaces
     await this.startNamespaceWatcher();
 
-    // 3) If we have an edactlClient, do an initial EDA namespace load
+    // 3) Pods
+    await this.startPodWatcher();
+
+    // 4) If we have an edactlClient, do an initial EDA namespace load
     if (this.edactlClient) {
       await this.refreshEdaNamespaces();
     }
@@ -302,6 +319,71 @@ export class KubernetesClient {
     });
 
     await this.namespacesInformer.start();
+  }
+
+  /**
+   * Watch pods in all namespaces
+   */
+  private async startPodWatcher(): Promise<void> {
+    log('Starting Pod watcher...', LogLevel.INFO);
+
+    const listPods = async (): Promise<{
+      response: http.IncomingMessage;
+      body: V1PodList;
+    }> => {
+      const resp = await this.coreApi.listPodForAllNamespaces();
+      return { response: resp.response, body: resp.body };
+    };
+
+    this.podsInformer = makeInformer<V1Pod>(
+      this.kc,
+      '/api/v1/pods',
+      listPods
+    );
+
+    this.podsInformer.on('add', (obj: V1Pod) => {
+      if (!this.podsCache.find((o) => o.metadata?.uid === obj.metadata?.uid)) {
+        this.podsCache.push(obj);
+        log(`Watcher detected new Pod: ${obj.metadata?.name || 'unknown'} in namespace ${obj.metadata?.namespace || 'unknown'}`, LogLevel.INFO);
+      }
+      setTimeout(() => {
+        this._onResourceChanged.fire();
+      }, 50);
+    });
+
+    this.podsInformer.on('update', (obj: V1Pod) => {
+      const idx = this.podsCache.findIndex((o) => o.metadata?.uid === obj.metadata?.uid);
+      if (idx >= 0) {
+        this.podsCache[idx] = obj;
+      } else {
+        this.podsCache.push(obj);
+      }
+      log(`Watcher detected update Pod: ${obj.metadata?.name || 'unknown'} in namespace ${obj.metadata?.namespace || 'unknown'}`, LogLevel.INFO);
+      setTimeout(() => {
+        this._onResourceChanged.fire();
+      }, 50);
+    });
+
+    this.podsInformer.on('delete', (obj: V1Pod) => {
+      this.podsCache = this.podsCache.filter(
+        (o) => o.metadata?.uid !== obj.metadata?.uid
+      );
+      log(`Watcher detected delete Pod: ${obj.metadata?.name || 'unknown'} in namespace ${obj.metadata?.namespace || 'unknown'}`, LogLevel.INFO);
+      setTimeout(() => {
+        this._onResourceChanged.fire();
+      }, 50);
+    });
+
+    this.podsInformer.on('error', (err: any) => {
+      log(`Pod informer error: ${err}`, LogLevel.INFO);
+      setTimeout(() => {
+        this.podsInformer.start().catch((startErr: any) => {
+          log(`Failed to restart Pod informer: ${startErr}`, LogLevel.INFO);
+        });
+      }, 5000);
+    });
+
+    await this.podsInformer.start();
   }
 
   /**
@@ -479,6 +561,16 @@ export class KubernetesClient {
     return this.namespacesCache;
   }
 
+  /**
+   * Get cached pods, optionally filtered by namespace
+   */
+  public getCachedPods(namespace?: string): V1Pod[] {
+    if (namespace) {
+      return this.podsCache.filter(pod => pod.metadata?.namespace === namespace);
+    }
+    return this.podsCache;
+  }
+
   public getCachedResources(group: string, version: string, plural: string, namespace?: string): KubernetesObject[] {
     let results: KubernetesObject[] = [];
 
@@ -527,6 +619,7 @@ export class KubernetesClient {
 
     this.crdsInformer?.stop();
     this.namespacesInformer?.stop();
+    this.podsInformer?.stop();
     this._onResourceChanged.dispose();
 
     // Clear caches
@@ -534,6 +627,7 @@ export class KubernetesClient {
     this.resourceCache.clear();
     this.crdsCache = [];
     this.namespacesCache = [];
+    this.podsCache = [];
   }
 
   // Direct listing methods are the same:
