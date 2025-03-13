@@ -205,6 +205,43 @@ export class EdactlClient {
     }
   }
 
+  /**
+   * Get EDA alarms
+   * @returns List of EDA alarms
+   */
+  public async getEdaAlarms(): Promise<any[]> {
+    log(`Fetching EDA alarms via 'edactl query .namespace.alarms.current-alarm -f json'...`, LogLevel.DEBUG);
+    try {
+      const output = await this.executeEdactl('query .namespace.alarms.current-alarm -f json');
+      if (!output || output.trim().length === 0) {
+        return [];
+      }
+
+      const alarms = JSON.parse(output);
+      log(`Found ${alarms.length} alarms from edactl output`, LogLevel.DEBUG);
+      return alarms;
+    } catch (error) {
+      log(`Failed to get EDA alarms: ${error}`, LogLevel.ERROR, true);
+      return [];
+    }
+  }
+
+  /**
+   * Get alarm details
+   * @param id Alarm ID
+   * @returns Alarm details
+   */
+  public async getAlarmDetails(id: string): Promise<string> {
+    log(`Fetching EDA alarm details for '${id}'...`, LogLevel.INFO);
+    try {
+      const output = await this.executeEdactl(`query .namespace.alarms.current-alarm[${id}]`, true);
+      return output || `No details available for this alarm`;
+    } catch (error) {
+      log(`Failed to get alarm details for ID ${id}: ${error}`, LogLevel.ERROR, true);
+      return `Error retrieving alarm details for ID ${id}: ${error}`;
+    }
+  }
+
 /**
  * Clear cached toolbox pod information
  * This should be called when Kubernetes context changes

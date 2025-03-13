@@ -1,10 +1,12 @@
 import * as vscode from 'vscode';
-import { serviceManager } from './services/serviceManager';
 import { KubernetesClient } from './clients/kubernetesClient';
-import { ResourceService } from './services/resourceService';
 import { EdactlClient } from './clients/edactlClient';
-import { EdaNamespaceProvider } from './providers/views/namespaceProvider';
+import { serviceManager } from './services/serviceManager';
+import { ResourceService } from './services/resourceService';
 import { ResourceStatusService } from './services/resourceStatusService';
+import { EdaNamespaceProvider } from './providers/views/namespaceProvider';
+import { EdaAlarmProvider } from './providers/views/alarmProvider';
+
 
 export enum LogLevel {
   DEBUG = 0,
@@ -116,6 +118,14 @@ export async function activate(context: vscode.ExtensionContext) {
       treeDataProvider: namespaceProvider,
       showCollapseAll: true
     });
+
+    const alarmProvider = new EdaAlarmProvider(context);
+    const alarmTreeView = vscode.window.createTreeView('edaAlarms', {
+      treeDataProvider: alarmProvider,
+      showCollapseAll: true
+    });
+    context.subscriptions.push(alarmTreeView);
+    context.subscriptions.push({ dispose: () => alarmProvider.dispose() }); // To clean up timers
 
     // Register the tree view to extension context
     context.subscriptions.push(namespaceTreeView);
