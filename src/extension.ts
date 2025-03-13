@@ -4,6 +4,7 @@ import { KubernetesClient } from './clients/kubernetesClient';
 import { ResourceService } from './services/resourceService';
 import { EdactlClient } from './clients/edactlClient';
 import { EdaNamespaceProvider } from './providers/views/namespaceProvider';
+import { ResourceStatusService } from './services/resourceStatusService';
 
 export enum LogLevel {
   DEBUG = 0,
@@ -99,6 +100,10 @@ export async function activate(context: vscode.ExtensionContext) {
     const resourceService = new ResourceService(k8sClient);
     serviceManager.registerService('kubernetes-resources', resourceService);
 
+    const resourceStatusService = new ResourceStatusService(k8sClient);
+    serviceManager.registerService('resource-status', resourceStatusService);
+    await resourceStatusService.initialize(context);
+
     // Show EDA namespaces after activation
     const edaNamespaces = await edactlClient.getEdaNamespaces();
     log(`EDA namespaces: ${edaNamespaces.join(', ')}`, LogLevel.INFO, true);
@@ -181,11 +186,6 @@ export async function activate(context: vscode.ExtensionContext) {
         //    e.g., if you want to force ResourceService to fetch again:
         const resourceService = serviceManager.getService<ResourceService>('kubernetes-resources');
         resourceService.forceRefresh();
-
-        // If you have any other UI that needs manual refresh, do so here
-        // For example, if your EdaNamespaceProvider has a .refresh() method, call it:
-        // const namespaceProvider = ... // if you have the instance
-        // namespaceProvider.refresh();
 
         vscode.window.showInformationMessage(
           `Switched to Kubernetes context: ${newContext}`

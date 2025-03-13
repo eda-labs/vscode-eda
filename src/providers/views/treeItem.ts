@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 
-// Create a separate interface for resource data to avoid circular references
 export interface ResourceData {
   name: string;
   namespace?: string;
@@ -10,7 +9,7 @@ export interface ResourceData {
   apiGroup?: string;
   apiVersion?: string;
   plural?: string;
-  raw?: any; // The raw resource data
+  raw?: any; // Add raw resource data
 }
 
 export class TreeItemBase extends vscode.TreeItem {
@@ -18,8 +17,10 @@ export class TreeItemBase extends vscode.TreeItem {
   public resourceType?: string;
   public resourceCategory?: string;
   public crdInfo?: any;
-
-  // Store resource data separately from the tree item
+  public status?: {
+    indicator: string;
+    description: string;
+  };
   private _resourceData?: ResourceData;
 
   constructor(
@@ -30,14 +31,13 @@ export class TreeItemBase extends vscode.TreeItem {
   ) {
     super(label, collapsibleState);
     this.tooltip = label;
-
     if (resource) {
       this._resourceData = {
         name: resource.metadata?.name || label,
         namespace: resource.metadata?.namespace,
         uid: resource.metadata?.uid,
         kind: resource.kind,
-        raw: resource // Store raw data separately
+        raw: resource
       };
     }
   }
@@ -47,6 +47,13 @@ export class TreeItemBase extends vscode.TreeItem {
    */
   public get resource(): ResourceData | undefined {
     return this._resourceData;
+  }
+
+  /**
+   * Get the raw resource object if available
+   */
+  public get rawResource(): any | undefined {
+    return this._resourceData?.raw;
   }
 
   /**
@@ -63,6 +70,25 @@ export class TreeItemBase extends vscode.TreeItem {
       };
     } else {
       this._resourceData = undefined;
+    }
+  }
+
+  /**
+   * Set the status information for this tree item
+   */
+  public setStatus(indicator: string, description: string) {
+    this.status = { indicator, description };
+    
+    // Update the tooltip to include status information
+    let tooltip = this.label.toString();
+    if (description) {
+      tooltip += `\nStatus: ${description}`;
+    }
+    this.tooltip = tooltip;
+
+    // Update the description field in the tree item
+    if (description) {
+      this.description = description;
     }
   }
 
