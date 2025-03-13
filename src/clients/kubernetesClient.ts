@@ -45,12 +45,16 @@ import {
 import * as http from 'http';
 import { log, LogLevel } from '../extension';
 import { EdactlClient } from './edactlClient'; // Only for the type reference
+import { EdaDeviationProvider } from '../providers/views/deviationProvider';
 import * as vscode from 'vscode';
 
 export class KubernetesClient {
 
   private _onResourceChanged = new vscode.EventEmitter<void>();
   readonly onResourceChanged = this._onResourceChanged.event;
+
+  private _onDeviationChanged = new vscode.EventEmitter<void>();
+  public readonly onDeviationChanged: vscode.Event<void> = this._onDeviationChanged.event;
 
   private kc: KubeConfig;
   private apiExtensionsV1Api: ApiextensionsV1Api;
@@ -1135,7 +1139,9 @@ export class KubernetesClient {
         this.resourceCache.set(key, arr);
         const resourceName = obj.metadata?.name || 'unknown';
         log(`Watcher detected new ${crd.spec?.names?.kind || 'resource'}: ${resourceName}`, LogLevel.INFO);
-
+        if (crd.spec?.names?.kind === 'Deviation') {
+          this._onDeviationChanged.fire();
+        }
         // Fire the event with a slight delay to ensure consistent state
         setTimeout(() => {
           this._onResourceChanged.fire();
@@ -1155,7 +1161,9 @@ export class KubernetesClient {
       this.resourceCache.set(key, arr);
       const resourceName = obj.metadata?.name || 'unknown';
       log(`Watcher detected update to ${crd.spec?.names?.kind || 'resource'}: ${resourceName}`, LogLevel.INFO);
-
+      if (crd.spec?.names?.kind === 'Deviation') {
+        this._onDeviationChanged.fire();
+      }
       // Fire the event with a slight delay
       setTimeout(() => {
         this._onResourceChanged.fire();
@@ -1168,7 +1176,9 @@ export class KubernetesClient {
       this.resourceCache.set(key, arr);
       const resourceName = obj.metadata?.name || 'unknown';
       log(`Watcher detected deletion of ${crd.spec?.names?.kind || 'resource'}: ${resourceName}`, LogLevel.INFO);
-
+      if (crd.spec?.names?.kind === 'Deviation') {
+        this._onDeviationChanged.fire();
+      }
       // Fire the event with a slight delay
       setTimeout(() => {
         this._onResourceChanged.fire();

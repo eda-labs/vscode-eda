@@ -142,6 +142,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // Initialize tree view providers
     edaDeviationProvider = new EdaDeviationProvider(context);
+    // Listen for Deviation changes specifically
+    k8sClient.onDeviationChanged(() => {
+      edaDeviationProvider.refresh();  // Only refreshes the Deviation tree
+    });
+
     edaTransactionProvider = new EdaTransactionProvider(context);
 
     // Initialize document providers
