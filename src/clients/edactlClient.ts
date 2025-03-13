@@ -204,4 +204,14 @@ export class EdactlClient {
       return `Error retrieving transaction details for ID ${id}: ${error}`;
     }
   }
+
+/**
+ * Clear cached toolbox pod information
+ * This should be called when Kubernetes context changes
+ */
+public clearCache(): void {
+  log('Clearing EdactlClient cache due to context change', LogLevel.INFO);
+  this.cachedToolboxPod = null;
+  this.cacheExpiry = 0;
+}
 }

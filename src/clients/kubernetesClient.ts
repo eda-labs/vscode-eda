@@ -58,6 +58,90 @@ export class KubernetesClient {
     this.coreApi = this.kc.makeApiClient(CoreV1Api);
   }
 
+
+
+  /**
+   * Get the name of the current context from KubeConfig
+   */
+  public getCurrentContext(): string {
+    return this.kc.getCurrentContext() || 'none';
+  }
+
+  /**
+   * Return all available contexts in the KubeConfig
+   */
+  public getAvailableContexts(): string[] {
+    const contexts = this.kc.getContexts() || [];
+    return contexts.map((ctx) => ctx.name);
+  }
+
+  /**
+   * Switch the current context and re-init watchers
+   */
+  public async switchContext(contextName: string): Promise<void> {
+    log(`Switching Kubernetes context to "${contextName}"...`, LogLevel.INFO, true);
+
+    // Set the current context in memory
+    this.kc.setCurrentContext(contextName);
+
+    // Update the kubeconfig file
+    try {
+      const { execSync } = require('child_process');
+      execSync(`kubectl config use-context ${contextName}`, { encoding: 'utf-8' });
+      log(`Updated kubeconfig file to use context "${contextName}"`, LogLevel.INFO);
+    } catch (error) {
+      log(`Warning: Failed to update kubeconfig file: ${error}`, LogLevel.WARN);
+      // Continue anyway since we've updated the in-memory context
+    }
+
+    // Clear EdactlClient cache if it exists
+    if (this.edactlClient) {
+      this.edactlClient.clearCache();
+    }
+
+    // Dispose and recreate any client instances that might be context-dependent
+    if (this.crdsInformer) {
+      try {
+        this.crdsInformer.stop();
+      } catch (err) {
+        log(`Error stopping CRD informer: ${err}`, LogLevel.WARN);
+      }
+    }
+
+    if (this.namespacesInformer) {
+      try {
+        this.namespacesInformer.stop();
+      } catch (err) {
+        log(`Error stopping Namespace informer: ${err}`, LogLevel.WARN);
+      }
+    }
+
+    // Stop all resource informers
+    for (const [key, informer] of this.resourceInformers.entries()) {
+      try {
+        informer.stop();
+      } catch (err) {
+        log(`Error stopping resource informer ${key}: ${err}`, LogLevel.WARN);
+      }
+    }
+
+    // Clear caches
+    this.resourceInformers.clear();
+    this.resourceCache.clear();
+    this.crdsCache = [];
+    this.namespacesCache = [];
+
+    // Re-create API clients with the new context
+    this.apiExtensionsV1Api = this.kc.makeApiClient(ApiextensionsV1Api);
+    this.customObjectsApi = this.kc.makeApiClient(CustomObjectsApi);
+    this.apisApi = this.kc.makeApiClient(ApisApi);
+    this.coreApi = this.kc.makeApiClient(CoreV1Api);
+
+    // Restart the watchers
+    await this.startWatchers();
+    log(`Switched Kubernetes context to "${contextName}".`, LogLevel.INFO, true);
+  }
+
   /**
    * Let external code provide an EdactlClient so that we can fetch EDA namespaces.
    */
