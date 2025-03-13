@@ -242,6 +242,27 @@ export class EdactlClient {
     }
   }
 
+  /**
+   * Get EDA deviations
+   * @returns List of EDA deviations
+   */
+  public async getEdaDeviations(): Promise<any[]> {
+    log(`Fetching EDA deviations via 'edactl query .namespace.resources.cr.core_eda_nokia_com.v1.deviation -f json'...`, LogLevel.DEBUG);
+    try {
+      const output = await this.executeEdactl('query .namespace.resources.cr.core_eda_nokia_com.v1.deviation -f json', true);
+      if (!output || output.trim().length === 0) {
+        return [];
+      }
+
+      const deviations = JSON.parse(output);
+      log(`Found ${deviations.length} deviations from edactl output`, LogLevel.DEBUG);
+      return deviations;
+    } catch (error) {
+      log(`Failed to get EDA deviations: ${error}`, LogLevel.ERROR, true);
+      return [];
+    }
+  }
+
 /**
  * Clear cached toolbox pod information
  * This should be called when Kubernetes context changes

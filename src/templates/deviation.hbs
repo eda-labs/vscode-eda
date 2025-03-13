@@ -1,0 +1,22 @@
+# Deviation Details
+
+**Name:** `{{name}}`  
+**Kind:** `{{kind}}`  
+**API Version:** `{{apiVersion}}`  
+**Namespace:** `{{namespace}}`
+
+---
+
+{{#if resourceYaml}}
+### Resource YAML
+
+```yaml
+{{{resourceYaml}}}
+```
+{{/if}}
+
+{{#if errorMessage}}
+### Error
+
+Failed to fetch additional details: {{errorMessage}}
+{{/if}}

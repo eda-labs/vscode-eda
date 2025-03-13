@@ -7,6 +7,15 @@ import { ResourceStatusService } from './services/resourceStatusService';
 import { EdaNamespaceProvider } from './providers/views/namespaceProvider';
 import { EdaAlarmProvider } from './providers/views/alarmProvider';
 
+import { EdaDeviationProvider } from './providers/views/deviationProvider';
+import { EdaTransactionProvider } from './providers/views/transactionProvider';
+import { AlarmDetailsDocumentProvider } from './providers/documents/alarmDetailsProvider';
+import { DeviationDetailsDocumentProvider } from './providers/documents/deviationDetailsProvider';
+import { TransactionDetailsDocumentProvider } from './providers/documents/transactionDetailsProvider';
+import { registerDeviationCommands } from './commands/deviationCommands';
+import { registerTransactionCommands } from './commands/transactionCommands';
+import { registerViewCommands } from './commands/viewCommands';
+import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 
 export enum LogLevel {
   DEBUG = 0,
@@ -14,6 +23,12 @@ export enum LogLevel {
   WARN = 2,
   ERROR = 3
 }
+
+export let edaDeviationProvider: EdaDeviationProvider;
+export let edaTransactionProvider: EdaTransactionProvider;
+export let alarmDetailsProvider: AlarmDetailsDocumentProvider;
+export let deviationDetailsProvider: DeviationDetailsDocumentProvider;
+export let transactionDetailsProvider: TransactionDetailsDocumentProvider;
 
 export let edaOutputChannel: vscode.OutputChannel;
 export let currentLogLevel: LogLevel = LogLevel.INFO;
@@ -124,8 +139,55 @@ export async function activate(context: vscode.ExtensionContext) {
       treeDataProvider: alarmProvider,
       showCollapseAll: true
     });
+
+    // Initialize tree view providers
+    edaDeviationProvider = new EdaDeviationProvider(context);
+    edaTransactionProvider = new EdaTransactionProvider(context);
+
+    // Initialize document providers
+    alarmDetailsProvider = new AlarmDetailsDocumentProvider();
+    deviationDetailsProvider = new DeviationDetailsDocumentProvider();
+    transactionDetailsProvider = new TransactionDetailsDocumentProvider();
+
     context.subscriptions.push(alarmTreeView);
     context.subscriptions.push({ dispose: () => alarmProvider.dispose() }); // To clean up timers
+
+    // Register document providers
+    context.subscriptions.push(
+      vscode.workspace.registerFileSystemProvider('eda-alarm', alarmDetailsProvider, { isCaseSensitive: true }),
+      vscode.workspace.registerFileSystemProvider('eda-deviation', deviationDetailsProvider, { isCaseSensitive: true }),
+      vscode.workspace.registerFileSystemProvider('eda-transaction', transactionDetailsProvider, { isCaseSensitive: true })
+    );
+
+    // Create and register tree views
+    const deviationTreeView = vscode.window.createTreeView('edaDeviations', {
+      treeDataProvider: edaDeviationProvider,
+      showCollapseAll: true
+    });
+
+    const transactionTreeView = vscode.window.createTreeView('edaTransactions', {
+      treeDataProvider: edaTransactionProvider,
+      showCollapseAll: true
+    });
+
+    const crdFsProvider = new CrdDefinitionFileSystemProvider();
+    context.subscriptions.push(
+      vscode.workspace.registerFileSystemProvider('crd', crdFsProvider, { isCaseSensitive: true })
+    );
+
+    // Register commands
+    registerDeviationCommands(context, edaDeviationProvider);
+    registerTransactionCommands(context);
+    registerViewCommands(
+      context,
+      crdFsProvider,
+      transactionDetailsProvider,
+      alarmDetailsProvider,
+      deviationDetailsProvider
+    );
+
+    // Add tree views to subscriptions
+    context.subscriptions.push(deviationTreeView, transactionTreeView);
 
     // Register the tree view to extension context
     context.subscriptions.push(namespaceTreeView);
