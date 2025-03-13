@@ -12,13 +12,13 @@ import { log, LogLevel } from '../../extension';
 export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBase> {
   private _onDidChangeTreeData = new vscode.EventEmitter<TreeItemBase | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
   private k8sClient: KubernetesClient;
   private resourceService: ResourceService;
   private edactlClient: EdactlClient;
+
   private treeFilter: string = '';
   private _refreshDebounceTimer: NodeJS.Timeout | undefined;
-
-  // Cache namespaces to avoid fetching during tree builds
   private cachedNamespaces: string[] = [];
 
   constructor(private context: vscode.ExtensionContext) {
@@ -27,9 +27,11 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
     this.edactlClient = serviceManager.getClient<EdactlClient>('edactl');
 
     this.setupEventListeners();
-    this.setupAutoRefresh();
+    // Removed the auto-refresh call:
+    // this.setupAutoRefresh();
 
-    // Initial namespace fetch - do this once at startup
+    // Optionally do one initial fetch to show the namespaces on extension load
+    // (Then they will keep in sync via watchers afterward)
     this.fetchNamespaces();
   }
 
@@ -37,35 +39,39 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
    * Set up event listeners for resource changes
    */
   private setupEventListeners(): void {
-    // Listen for changes to resources and refresh the tree
-    this.resourceService.onDidChangeResources(() => {
+    this.resourceService.onDidChangeResources(async () => {
       log('Resource change detected, refreshing tree view', LogLevel.DEBUG);
+      await this.fetchNamespaces();
       this.refresh();
     });
 
-    // Listen for namespace changes
     this.resourceService.onDidChangeNamespace((namespace) => {
       log(`Namespace changed to: ${namespace}, refreshing tree view`, LogLevel.DEBUG);
       this.refresh();
     });
 
-    // Debug events to trace through the event chain
     vscode.window.onDidChangeActiveTextEditor(() => {
-      // Use editor focus as a trigger to validate tree state
       this.validateTreeState();
     });
   }
 
   /**
-   * Periodically validate tree state to ensure it's consistent with resource cache
+   * Periodically validate tree state to ensure it's consistent with resource cache.
+   * (This is not a timer, just a check when the user switches editors.)
    */
   private validateTreeState(): void {
     try {
-      // Check if the cached namespaces match the edactl namespaces
       this.edactlClient.getEdaNamespaces().then(namespaces => {
-        if (this.cachedNamespaces.length !== namespaces.length || 
-            !this.cachedNamespaces.every(ns => namespaces.includes(ns))) {
-          log(`Namespace cache mismatch, updating (${this.cachedNamespaces.join(',')} vs ${namespaces.join(',')})`, LogLevel.DEBUG);
+        if (
+          this.cachedNamespaces.length !== namespaces.length ||
+          !this.cachedNamespaces.every(ns => namespaces.includes(ns))
+        ) {
+          log(
+            `Namespace cache mismatch, updating 
+             (cached=${this.cachedNamespaces.join(',')} 
+              new=${namespaces.join(',')})`,
+            LogLevel.DEBUG
+          );
           this.cachedNamespaces = namespaces;
           this.refresh();
         }
@@ -78,31 +84,23 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   }
 
   /**
-   * Set up auto-refresh for the tree view
-   */
-  private setupAutoRefresh(): void {
-    const refreshInterval = vscode.workspace.getConfiguration('vscode-eda').get<number>('refreshInterval', 30000);
-    if (refreshInterval > 0) {
-      setInterval(() => {
-        // Just refresh namespaces on interval - resources will update via watchers
-        this.fetchNamespaces();
-      }, refreshInterval);
-    }
-  }
-
-  /**
-   * Fetch namespaces once and cache them
+   * Fetch namespaces once (from edactl) and cache them.
+   * Watchers will trigger more updates if anything changes.
    */
   private async fetchNamespaces(): Promise<void> {
     try {
       const namespaces = await this.edactlClient.getEdaNamespaces();
-      
-      // Deep comparison to avoid unnecessary refreshes
+
       const currentNsStr = JSON.stringify(this.cachedNamespaces.sort());
       const newNsStr = JSON.stringify(namespaces.sort());
-      
+
       if (currentNsStr !== newNsStr) {
-        log(`Namespace changes detected. Old: [${this.cachedNamespaces.join(', ')}], New: [${namespaces.join(', ')}]`, LogLevel.DEBUG);
+        log(
+          `Namespace changes detected. 
+           Old: [${this.cachedNamespaces.join(', ')}], 
+           New: [${namespaces.join(', ')}]`,
+          LogLevel.DEBUG
+        );
         this.cachedNamespaces = namespaces;
         this.refresh();
       }
@@ -112,16 +110,15 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   }
 
   /**
-   * Refresh the entire tree
+   * Refresh the entire tree.
    */
   public refresh(): void {
     log('Refreshing EDA namespaces tree view...', LogLevel.DEBUG);
-    
-    // To prevent multiple rapid refreshes, add a small debounce
+
     if (this._refreshDebounceTimer) {
       clearTimeout(this._refreshDebounceTimer);
     }
-    
+
     this._refreshDebounceTimer = setTimeout(() => {
       this._onDidChangeTreeData.fire(undefined);
       this._refreshDebounceTimer = undefined;
@@ -185,9 +182,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
    */
   private getNamespaces(): TreeItemBase[] {
     try {
-      // Use cached namespaces instead of fetching
       const namespaces = this.cachedNamespaces;
-
       if (namespaces.length === 0) {
         const treeItem = new TreeItemBase(
           'No EDA namespaces found',
@@ -197,7 +192,6 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
         treeItem.iconPath = new vscode.ThemeIcon('warning');
         return [treeItem];
       }
-
       const items = namespaces.map(ns => {
         const treeItem = new TreeItemBase(
           ns,
@@ -208,15 +202,14 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
         treeItem.namespace = ns;
         return treeItem;
       });
-
       if (this.treeFilter) {
-        return items.filter(item => item.label.toString().toLowerCase().includes(this.treeFilter));
+        return items.filter(item =>
+          item.label.toString().toLowerCase().includes(this.treeFilter)
+        );
       }
-
       return items;
     } catch (error) {
       log(`Error getting namespaces for tree view: ${error}`, LogLevel.ERROR);
-
       const treeItem = new TreeItemBase(
         'Error loading namespaces',
         vscode.TreeItemCollapsibleState.None,
@@ -239,26 +232,20 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       { id: 'k8s', label: 'Kubernetes Resources', icon: 'symbol-namespace' }
     ];
     const result: TreeItemBase[] = [];
-
-    // Use cached resource instances
     const allResources = this.resourceService.getAllResourceInstances();
-
     for (const category of categories) {
       let hasResources = false;
-
       if (category.id === 'eda') {
         hasResources = allResources.some(res => {
           const group = (res.resource.apiGroup || '');
-          // Check if there are any instances for this namespace
-          return !group.endsWith('k8s.io') && res.instances.some(
-            inst => !res.resource.namespaced || inst.metadata?.namespace === namespace
+          return (
+            !group.endsWith('k8s.io') &&
+            res.instances.some(inst => !res.resource.namespaced || inst.metadata?.namespace === namespace)
           );
         });
       } else if (category.id === 'k8s') {
-        // Always show k8s resources
-        hasResources = true;
+        hasResources = true; // By default, we always show these
       }
-
       if (hasResources) {
         const treeItem = new TreeItemBase(
           category.label,
@@ -271,11 +258,11 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
         result.push(treeItem);
       }
     }
-
     if (this.treeFilter) {
-      return result.filter(item => item.label.toString().toLowerCase().includes(this.treeFilter));
+      return result.filter(item =>
+        item.label.toString().toLowerCase().includes(this.treeFilter)
+      );
     }
-
     return result;
   }
 
@@ -288,23 +275,17 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   private getResourcesForCategory(namespace: string, category: string): TreeItemBase[] {
     try {
       const items: TreeItemBase[] = [];
-
-      // Use cached resource instances
       const allResources = this.resourceService.getAllResourceInstances();
-
       if (category === 'eda') {
         for (const resourceResult of allResources) {
           const resource = resourceResult.resource;
           const instances = resourceResult.instances;
-
           const group = resource.apiGroup || '';
           if (!group || group.endsWith('k8s.io')) continue;
 
-          // Filter instances for this namespace
           const namespaceInstances = instances.filter(inst =>
             !resource.namespaced || inst.metadata?.namespace === namespace
           );
-
           if (namespaceInstances.length === 0) continue;
 
           const kind = resource.kind || '';
@@ -335,7 +316,6 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
           { kind: 'ConfigMap', icon: 'file-binary', plural: 'configmaps' },
           { kind: 'Secret', icon: 'lock', plural: 'secrets' }
         ];
-
         for (const res of k8sResources) {
           const treeItem = new TreeItemBase(
             res.kind,
@@ -357,9 +337,10 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       }
 
       if (this.treeFilter) {
-        return items.filter(item => item.label.toString().toLowerCase().includes(this.treeFilter));
+        return items.filter(item =>
+          item.label.toString().toLowerCase().includes(this.treeFilter)
+        );
       }
-
       if (items.length === 0) {
         const treeItem = new TreeItemBase(
           `No ${category} resources found`,
@@ -369,11 +350,9 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
         treeItem.iconPath = new vscode.ThemeIcon('info');
         return [treeItem];
       }
-
       return items;
     } catch (error) {
       log(`Error getting resource types for category ${category}: ${error}`, LogLevel.ERROR);
-
       const treeItem = new TreeItemBase(
         'Error loading resources',
         vscode.TreeItemCollapsibleState.None,
@@ -393,123 +372,112 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
    * @param crdInfo CRD information
    * @returns Array of resource instance tree items
    */
-
-    private getResourceInstances(
-      namespace: string,
-      resourceType: string,
-      category: string,
-      crdInfo: any
-    ): TreeItemBase[] {
-      try {
-        let instances: any[] = [];
-
-        if (crdInfo) {
-          // Use cached resources
-          const allResources = this.resourceService.getAllResourceInstances();
-
-          const { group, version, plural, namespaced } = crdInfo;
-
-          for (const resourceResult of allResources) {
-            const resource = resourceResult.resource;
-
-            if ((resource.apiGroup === group || (!resource.apiGroup && !group)) &&
-                (resource.plural === plural || resource.kind?.toLowerCase() === resourceType)) {
-
-              instances = resourceResult.instances;
-
-              if (namespaced) {
-                instances = instances.filter(inst => inst.metadata?.namespace === namespace);
-              }
-
-              break;
+  private getResourceInstances(
+    namespace: string,
+    resourceType: string,
+    category: string,
+    crdInfo: any
+  ): TreeItemBase[] {
+    try {
+      let instances: any[] = [];
+      if (crdInfo) {
+        const allResources = this.resourceService.getAllResourceInstances();
+        const { group, version, plural, namespaced } = crdInfo;
+        for (const resourceResult of allResources) {
+          const resource = resourceResult.resource;
+          if (
+            (resource.apiGroup === group || (!resource.apiGroup && !group)) &&
+            (resource.plural === plural || resource.kind?.toLowerCase() === resourceType)
+          ) {
+            instances = resourceResult.instances;
+            if (namespaced) {
+              instances = instances.filter(inst => inst.metadata?.namespace === namespace);
             }
+            break;
           }
-
-          if (instances.length === 0 && group === '' && category === 'k8s') {
-            // For standard K8s resources, we might need placeholder data
-            instances = [
-              {
-                metadata: {
-                  name: `sample-${resourceType}-1`,
-                  namespace: namespace,
-                  uid: `uid-${resourceType}-1`
-                }
-              },
-              {
-                metadata: {
-                  name: `sample-${resourceType}-2`,
-                  namespace: namespace,
-                  uid: `uid-${resourceType}-2`
-                }
+        }
+        // For demonstration, if we didn't find any real ones (k8s built-ins):
+        if (instances.length === 0 && group === '' && category === 'k8s') {
+          instances = [
+            {
+              metadata: {
+                name: `sample-${resourceType}-1`,
+                namespace: namespace,
+                uid: `uid-${resourceType}-1`
               }
-            ];
-          }
+            },
+            {
+              metadata: {
+                name: `sample-${resourceType}-2`,
+                namespace: namespace,
+                uid: `uid-${resourceType}-2`
+              }
+            }
+          ];
         }
+      }
 
-        if (instances.length === 0) {
-          const treeItem = new TreeItemBase(
-            `No ${resourceType} resources found`,
-            vscode.TreeItemCollapsibleState.None,
-            'message'
-          );
-          treeItem.iconPath = new vscode.ThemeIcon('info');
-          return [treeItem];
+      if (instances.length === 0) {
+        const treeItem = new TreeItemBase(
+          `No ${resourceType} resources found`,
+          vscode.TreeItemCollapsibleState.None,
+          'message'
+        );
+        treeItem.iconPath = new vscode.ThemeIcon('info');
+        return [treeItem];
+      }
+
+      const items = instances.map(instance => {
+        const name = instance.metadata?.name || 'unnamed';
+        const contextValue = resourceType === 'pod' ? 'pod' : 'crd-instance';
+        const treeItem = new TreeItemBase(
+          name,
+          vscode.TreeItemCollapsibleState.None,
+          contextValue,
+          instance
+        );
+        if (resourceType === 'pod') {
+          treeItem.iconPath = new vscode.ThemeIcon('vm');
+        } else {
+          treeItem.iconPath = new vscode.ThemeIcon('symbol-variable');
         }
-
-        const items = instances.map(instance => {
-          const name = instance.metadata?.name || 'unnamed';
-          const contextValue = resourceType === 'pod' ? 'pod' : 'crd-instance';
-
-          const treeItem = new TreeItemBase(
-            name,
-            vscode.TreeItemCollapsibleState.None,
-            contextValue,
-            instance
-          );
-
-          if (resourceType === 'pod') {
-            treeItem.iconPath = new vscode.ThemeIcon('vm');
-          } else {
-            treeItem.iconPath = new vscode.ThemeIcon('symbol-variable');
-          }
-
-          treeItem.namespace = namespace;
-          treeItem.resourceType = resourceType;
-
-          // FIX: Avoid circular reference by passing only the necessary data
-          // instead of the entire treeItem
-          treeItem.command = {
-            command: resourceType === 'pod' ? 'vscode-eda.describePod' : 'vscode-eda.showCRDDefinition',
-            title: 'View Resource Details',
-            arguments: [{
+        treeItem.namespace = namespace;
+        treeItem.resourceType = resourceType;
+        treeItem.command = {
+          command:
+            resourceType === 'pod'
+              ? 'vscode-eda.describePod'
+              : 'vscode-eda.showCRDDefinition',
+          title: 'View Resource Details',
+          arguments: [
+            {
               name: name,
               namespace: namespace,
               resourceType: resourceType,
               kind: instance.kind || resourceType,
-              uid: instance.metadata?.uid,
-              resource: instance // Include just the resource data
-            }]
-          };
+              uid: instance.metadata?.uid
+            }
+          ]
+        };
+        return treeItem;
+      });
 
-          return treeItem;
-        });
-
-        if (this.treeFilter) {
-          return items.filter(item => item.label.toString().toLowerCase().includes(this.treeFilter));
-        }
-
-        return items;
-      } catch (error) {
-        log(`Error getting instances for ${resourceType}: ${error}`, LogLevel.ERROR);
-
-        const treeItem = new TreeItemBase(
-          `Error loading ${resourceType} resources`,
-          vscode.TreeItemCollapsibleState.None,
-          'error'
+      if (this.treeFilter) {
+        return items.filter(item =>
+          item.label.toString().toLowerCase().includes(this.treeFilter)
         );
-        treeItem.iconPath = new vscode.ThemeIcon('error');
-        treeItem.tooltip = `${error}`;
-        return [treeItem];
       }
+      return items;
+    } catch (error) {
+      log(`Error getting instances for ${resourceType}: ${error}`, LogLevel.ERROR);
+      const treeItem = new TreeItemBase(
+        `Error loading ${resourceType} resources`,
+        vscode.TreeItemCollapsibleState.None,
+        'error'
+      );
+      treeItem.iconPath = new vscode.ThemeIcon('error');
+      treeItem.tooltip = `${error}`;
+      return [treeItem];
     }
+  }
 }

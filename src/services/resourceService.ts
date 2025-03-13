@@ -22,7 +22,6 @@ interface ResourceResult {
  */
 export class ResourceService extends CoreService {
   private k8sClient: KubernetesClient;
-  private ALLOWED_NAMESPACES = ['default', 'eda-system', 'eda', 'clab-eda-st'];
   private namespaceCache: string[] = [];
   private _onDidChangeResources = new vscode.EventEmitter<void>();
   readonly onDidChangeResources = this._onDidChangeResources.event;
@@ -77,9 +76,10 @@ export class ResourceService extends CoreService {
 
     try {
       // Get namespaces
-      this.namespaceCache = this.ALLOWED_NAMESPACES.filter(ns =>
-        this.k8sClient.getCachedNamespaces().some(n => n.metadata?.name === ns)
-      );
+      this.namespaceCache = this.k8sClient
+        .getCachedNamespaces()
+        .map(n => n.metadata?.name)
+        .filter(name => !!name) as string[]; // remove duplicates if needed
 
       // Get CRDs from cache
       const crds = this.k8sClient.getCachedCrds().filter(crd => {

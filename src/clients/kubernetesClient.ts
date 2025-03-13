@@ -174,6 +174,9 @@ export class KubernetesClient {
       if (this.edactlClient) {
         await this.refreshEdaNamespaces(); // re-check if EDA ns changed
       }
+      setTimeout(() => {
+        this._onResourceChanged.fire();
+      }, 50);
     });
 
     this.namespacesInformer.on('update', async (obj: V1Namespace) => {
@@ -187,6 +190,9 @@ export class KubernetesClient {
       if (this.edactlClient) {
         await this.refreshEdaNamespaces();
       }
+      setTimeout(() => {
+        this._onResourceChanged.fire();
+      }, 50);
     });
 
     this.namespacesInformer.on('delete', async (obj: V1Namespace) => {
@@ -197,6 +203,9 @@ export class KubernetesClient {
       if (this.edactlClient) {
         await this.refreshEdaNamespaces();
       }
+      setTimeout(() => {
+        this._onResourceChanged.fire();
+      }, 50);
     });
 
     this.namespacesInformer.on('error', (err: any) => {
