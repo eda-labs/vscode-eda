@@ -38,19 +38,17 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       log('Resource change detected, refreshing tree view', LogLevel.DEBUG);
       await this.fetchNamespaces();
       this.refresh();
+      this.validateTreeState();
     });
     this.resourceService.onDidChangeNamespace((namespace) => {
       log(`Namespace changed to: ${namespace}, refreshing tree view`, LogLevel.DEBUG);
       this.refresh();
-    });
-    vscode.window.onDidChangeActiveTextEditor(() => {
       this.validateTreeState();
     });
   }
 
   /**
-   * Periodically validate tree state to ensure it's consistent with resource cache.
-   * (This is not a timer, just a check when the user switches editors.)
+   * Validate tree state to ensure it's consistent with resource cache.
    */
   private validateTreeState(): void {
     try {
