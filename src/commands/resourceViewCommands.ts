@@ -18,6 +18,46 @@ function isEdaGroup(apiVersion: string | undefined): boolean {
   return group.endsWith('.eda.nokia.com');
 }
 
+/**
+ * Get API version based on resource kind using a pattern
+ */
+function getApiVersionForKind(kind: string): string {
+  // Standard Kubernetes resources need specific handling
+  const k8sResources: Record<string, string> = {
+    'Pod': 'v1',
+    'Service': 'v1',
+    'Deployment': 'apps/v1',
+    'ConfigMap': 'v1',
+    'Secret': 'v1',
+    'Node': 'v1'
+  };
+
+  // Check if it's a standard K8s resource
+  if (k8sResources[kind]) {
+    return k8sResources[kind];
+  }
+  const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
+  const crds = k8sClient.getCachedCrds();
+
+  // Case-insensitive matching
+  const matchingCrd = crds.find(crd =>
+    crd.spec?.names?.kind.toLowerCase() === kind.toLowerCase()
+  );
+
+  if (matchingCrd) {
+    // Get actual group and version from CRD
+    const group = matchingCrd.spec?.group || '';
+    const version = matchingCrd.spec?.versions?.find(v => v.served)?.name ||
+                    matchingCrd.spec?.versions?.[0]?.name || 'v1alpha1';
+    return `${group}/${version}`;
+  }
+
+  // Fallback to original behavior if nothing found
+  let plural = kind.toLowerCase();
+  // Plural generation logic...
+  return `${plural}.eda.nokia.com/v1alpha1`;
+}
+
 export function registerResourceViewCommands(
   context: vscode.ExtensionContext,
   resourceViewProvider: ResourceViewDocumentProvider
@@ -103,7 +143,17 @@ export function registerResourceViewCommands(
 
           const edaYaml = await edactlClient.getEdaResourceYaml(resourceKind, resourceName, resourceNamespace);
           if (edaYaml) {
-            finalYaml = edaYaml;
+            // Check if the YAML has apiVersion (might be missing in edactl output)
+            const hasApiVersion = edaYaml.includes('apiVersion:');
+
+            if (!hasApiVersion) {
+              // Add the appropriate apiVersion based on the kind
+              const apiVersion = getApiVersionForKind(resourceKind);
+              log(`Adding missing apiVersion: ${apiVersion} to EDA YAML`, LogLevel.INFO);
+              finalYaml = `apiVersion: ${apiVersion}\n${edaYaml}`;
+            } else {
+              finalYaml = edaYaml;
+            }
           } else {
             // If edactl returned empty, fallback to kubectl
             log(`edactl returned no YAML, falling back to kubectl get -o yaml...`, LogLevel.DEBUG);

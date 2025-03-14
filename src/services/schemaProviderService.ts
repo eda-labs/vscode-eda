@@ -45,7 +45,7 @@ export class SchemaProviderService extends CoreService {
 
     // Initially update schemas
     await this.updateSchemas();
-    
+
     // Apply schemas to all currently open documents
     vscode.workspace.textDocuments.forEach(this.handleDocument.bind(this));
 
@@ -79,7 +79,10 @@ export class SchemaProviderService extends CoreService {
       try {
         const parsed = yaml.load(content) as any;
         if (parsed && parsed.kind) {
+          log(`Found kind ${parsed.kind} in document ${document.uri.toString()}`, LogLevel.DEBUG);
           await this.associateSchemaWithKind(document, parsed.kind);
+        } else {
+          log(`No 'kind' field found in document ${document.uri.toString()}`, LogLevel.DEBUG);
         }
       } catch (e) {
         // Silently ignore YAML parsing errors
@@ -150,6 +153,7 @@ export class SchemaProviderService extends CoreService {
         `# yaml-language-server: $schema=${schemaUri}\n`
       );
       await vscode.workspace.applyEdit(edit);
+      log(`Added schema comment to ${document.uri.toString()}`, LogLevel.DEBUG);
     } catch (error) {
       log(`Error adding schema comment: ${error}`, LogLevel.ERROR);
     }
@@ -168,11 +172,22 @@ export class SchemaProviderService extends CoreService {
       // Get schema by finding CRD with matching kind
       const schema = this.getCrdSchemaForKind(kind);
       if (!schema) {
+        log(`Could not find schema for kind ${kind}`, LogLevel.WARN);
+        return null;
+      }
+
+      // Find the matching CRD to pass to convertToJsonSchema
+      const crd = this.k8sClient.getCachedCrds().find(crd => 
+        crd.spec?.names?.kind.toLowerCase() === kind.toLowerCase()
+      );
+
+      if (!crd) {
+        log(`Could not find CRD for kind ${kind}`, LogLevel.WARN);
         return null;
       }
 
       // Convert to proper JSON Schema
-      const jsonSchema = this.convertToJsonSchema(schema, kind);
+      const jsonSchema = this.convertToJsonSchema(schema, kind, crd);
 
       // Save to file
       const schemaFileName = `${kind.toLowerCase()}.json`;
@@ -182,6 +197,7 @@ export class SchemaProviderService extends CoreService {
 
       // Cache the schema file path
       this.schemaCache.set(kind, schemaFilePath);
+      log(`Created schema for kind ${kind} at ${schemaFilePath}`, LogLevel.INFO);
 
       return schemaFilePath;
     } catch (error) {
@@ -196,20 +212,32 @@ export class SchemaProviderService extends CoreService {
   private getCrdSchemaForKind(kind: string): any {
     // Find CRD with matching kind
     const crds = this.k8sClient.getCachedCrds();
-    const matchingCrd = crds.find(crd => crd.spec?.names?.kind === kind);
-    
+    const matchingCrd = crds.find(crd => 
+      crd.spec?.names?.kind.toLowerCase() === kind.toLowerCase()
+    );
+
     if (!matchingCrd) {
+      log(`No CRD found for kind ${kind}`, LogLevel.WARN);
       return null;
     }
 
+    log(`Found CRD for kind ${kind}: ${matchingCrd.metadata?.name}`, LogLevel.DEBUG);
+
     // Extract schema from CRD
-    return this.extractSchemaFromCRD(matchingCrd);
+    const schema = this.extractSchemaFromCRD(matchingCrd);
+    if (!schema) {
+      log(`Could not extract schema from CRD for kind ${kind}`, LogLevel.WARN);
+    }
+
+    return schema;
   }
 
   /**
    * Convert CRD schema to proper JSON Schema
    */
-  private convertToJsonSchema(crdSchema: any, kind: string): any {
+  private convertToJsonSchema(crdSchema: any, kind: string, crd: any): any {
+
+    const originalKind = crd.spec?.names?.kind || kind;
     // Create a proper JSON Schema
     const jsonSchema = {
       "$schema": "http://json-schema.org/draft-07/schema#",
@@ -225,7 +253,7 @@ export class SchemaProviderService extends CoreService {
         },
         "kind": {
           "type": "string",
-          "enum": [kind],
+          "enum": [originalKind],
           "description": "The resource kind"
         },
         "metadata": {
@@ -326,6 +354,7 @@ export class SchemaProviderService extends CoreService {
       }
 
       log(`Found ${crds.length} CRDs in the cluster`, LogLevel.INFO);
+      this.schemaCache.clear(); // Clear cache to force regeneration
 
       // Process each CRD
       for (const crd of crds) {
@@ -338,11 +367,12 @@ export class SchemaProviderService extends CoreService {
           // Extract schema
           const schema = this.extractSchemaFromCRD(crd);
           if (!schema) {
+            log(`Could not extract schema for CRD ${crd.metadata?.name} (kind: ${kind})`, LogLevel.WARN);
             continue;
           }
 
-          // Convert to JSON Schema
-          const jsonSchema = this.convertToJsonSchema(schema, kind);
+          // Convert to JSON Schema - pass the CRD as third argument
+          const jsonSchema = this.convertToJsonSchema(schema, kind, crd);
 
           // Save to file
           const schemaFileName = `${kind.toLowerCase()}.json`;
@@ -375,22 +405,70 @@ export class SchemaProviderService extends CoreService {
     try {
       // Find the schema
       let schema = null;
+      const crdName = crd.metadata?.name || 'unknown';
+      const kind = crd.spec?.names?.kind || 'unknown';
 
+      log(`Extracting schema from CRD: ${crdName} (kind: ${kind})`, LogLevel.DEBUG);
+
+      // Approach 1: Current K8s API format (v1)
       if (crd.spec?.versions && Array.isArray(crd.spec.versions)) {
         // Find the version marked as storage or the first one
         const version = crd.spec.versions.find((v: any) => v.storage === true) ||
                         crd.spec.versions[0];
 
         if (version?.schema?.openAPIV3Schema) {
+          log(`Found schema in version.schema.openAPIV3Schema for ${crdName}`, LogLevel.DEBUG);
           schema = version.schema.openAPIV3Schema;
+        } else if (version?.openAPIV3Schema) {
+          // Some CRDs have openAPIV3Schema directly in the version
+          log(`Found schema in version.openAPIV3Schema for ${crdName}`, LogLevel.DEBUG);
+          schema = version.openAPIV3Schema;
         }
       }
 
+      // Approach 2: Legacy format
+      if (!schema && crd.spec?.validation?.openAPIV3Schema) {
+        log(`Found schema in spec.validation.openAPIV3Schema for ${crdName}`, LogLevel.DEBUG);
+        schema = crd.spec.validation.openAPIV3Schema;
+      }
+
+      // Approach 3: Sometimes schemas are directly in the spec
+      if (!schema && crd.spec?.openAPIV3Schema) {
+        log(`Found schema in spec.openAPIV3Schema for ${crdName}`, LogLevel.DEBUG);
+        schema = crd.spec.openAPIV3Schema;
+      }
+
+      // Generate minimal schema if one wasn't found
       if (!schema) {
-        // Legacy format
-        if (crd.spec?.validation?.openAPIV3Schema) {
-          schema = crd.spec.validation.openAPIV3Schema;
-        }
+        log(`No schema found for CRD ${crdName}, generating minimal schema`, LogLevel.WARN);
+
+        // Create a minimal schema with just basic structure
+        schema = {
+          type: "object",
+          description: `Auto-generated schema for ${kind}`,
+          properties: {
+            apiVersion: {
+              type: "string",
+              description: `API version (${crd.spec?.group}/v1)`
+            },
+            kind: {
+              type: "string",
+              description: `Kind (${kind})`
+            },
+            metadata: {
+              type: "object",
+              description: "Standard Kubernetes metadata",
+              properties: {
+                name: { type: "string" },
+                namespace: { type: "string" }
+              }
+            },
+            spec: {
+              type: "object",
+              description: `Specification for ${kind}`
+            }
+          }
+        };
       }
 
       return schema;
@@ -398,6 +476,14 @@ export class SchemaProviderService extends CoreService {
       log(`Error extracting schema from CRD: ${error}`, LogLevel.ERROR);
       return null;
     }
+  }
+
+  /**
+   * Public method to associate schema with a document for a specific kind
+   * This can be called manually via command
+   */
+  public async associateSchemaWithDocument(document: vscode.TextDocument, kind: string): Promise<void> {
+    return this.associateSchemaWithKind(document, kind);
   }
 
   /**
