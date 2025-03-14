@@ -64,24 +64,15 @@ export function registerResourceEditCommands(
         resourceEditProvider.setResourceContent(editorUri, readOnlyYaml);
 
         // 7) Open the new "k8s:" doc in the editor
+        await closeAllEditorsWithUri(viewDocumentUri);
+
+        // 8) Only then open the new "k8s:" doc in the editor
         const editDoc = await vscode.workspace.openTextDocument(editorUri);
         await vscode.languages.setTextDocumentLanguage(editDoc, 'yaml');
         await vscode.window.showTextDocument(editDoc, { preview: false });
 
-        // 8) Locate the old read-only (k8s-view:) editor by its URI and explicitly close it if open
-        //    (Do NOT use "workbench.action.closeActiveEditor" here, or you may close the new doc.)
-        const oldEditor = vscode.window.visibleTextEditors.find(
-          ed => ed.document.uri.toString() === viewDocumentUri.toString()
-        );
-        if (oldEditor) {
-          // Temporarily switch focus to the old (read-only) editor
-          await vscode.window.showTextDocument(oldEditor.document, { preview: true });
-          // Then close the active editor (which is now the read-only one)
-          await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
-          // Finally, switch focus back to the new editable document
-          await vscode.window.showTextDocument(editDoc, { preview: false });
-        }
-
+        // 9) Now show the editable document
+        await vscode.window.showTextDocument(editDoc, { preview: false });
         // 9) Optionally track this doc so you can clean it up on close
         openResourceEditors.add(editorUri.toString());
 
@@ -628,19 +619,8 @@ async function applyResource(
       // Close any open diff editors
       await closeDiffEditor();
 
-      // If the resource isn't open anymore, reopen it
-      const isResourceOpen = vscode.window.visibleTextEditors.some(
-        editor => editor.document.uri.toString() === resourceUri?.toString()
-      );
-
-      if (!isResourceOpen && resourceUri) {
-        try {
-          const document = await vscode.workspace.openTextDocument(resourceUri);
-          await vscode.window.showTextDocument(document, { preview: false });
-        } catch (err) {
-          log(`Failed to reopen resource: ${err}`, LogLevel.ERROR);
-        }
-      }
+      // Switch back to read-only view with fresh content
+      await switchToReadOnlyView(resource);
     }
 
     // Always show results in output channel
@@ -687,6 +667,90 @@ async function applyResource(
     }
 
     return false;
+  }
+}
+
+/**
+ * Helper function to switch from editable to read-only view
+ */
+async function switchToReadOnlyView(resource: any): Promise<void> {
+  try {
+    const namespace = resource.metadata.namespace || 'default';
+    const kind = resource.kind;
+    const name = resource.metadata.name;
+
+    // Create URI for the editable document
+    const editableUri = ResourceEditDocumentProvider.createUri(namespace, kind, name);
+
+    // Close all instances of the editable document
+    await closeAllEditorsWithUri(editableUri);
+
+    // Create a fake tree item that the viewResource command expects
+    const treeItem = {
+      namespace: namespace,
+      resourceType: kind.toLowerCase(),
+      label: name,
+      contextValue: 'crd-instance',
+      resource: {
+        name: name,
+        kind: kind,
+        raw: {
+          apiVersion: resource.apiVersion,
+          kind: resource.kind,
+          metadata: {
+            name: name,
+            namespace: namespace
+          }
+        }
+      }
+    };
+
+    // Now open a fresh read-only view using the viewResource command
+    log(`Opening fresh read-only view for ${kind}/${name}`, LogLevel.DEBUG);
+    await vscode.commands.executeCommand('vscode-eda.viewResource', treeItem);
+
+  } catch (error) {
+    log(`Error switching to read-only view: ${error}`, LogLevel.ERROR);
+  }
+}
+
+/**
+ * Helper function to close all editors displaying a document with the given URI
+ */
+async function closeAllEditorsWithUri(uri: vscode.Uri): Promise<void> {
+  try {
+    // Find all editors displaying the document
+    const editors = vscode.window.visibleTextEditors.filter(
+      editor => editor.document.uri.toString() === uri.toString()
+    );
+
+    // No editors to close
+    if (editors.length === 0) {
+      return;
+    }
+
+    log(`Closing ${editors.length} editors for URI: ${uri}`, LogLevel.DEBUG);
+
+    // Save the currently active editor to restore focus after closing
+    let activeEditor = vscode.window.activeTextEditor;
+
+    // For each editor showing the document
+    for (const editor of editors) {
+      // First make this editor active
+      await vscode.window.showTextDocument(editor.document, { preserveFocus: false });
+      // Close the active editor (which is now our target)
+      await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+    }
+
+    // Add a small delay to ensure VSCode UI updates
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // If we had an active editor before and it's not one we closed, restore focus to it
+    if (activeEditor && !editors.includes(activeEditor)) {
+      await vscode.window.showTextDocument(activeEditor.document, { preserveFocus: false });
+    }
+  } catch (error) {
+    log(`Error closing editors: ${error}`, LogLevel.ERROR);
   }
 }
 
