@@ -15,9 +15,15 @@ export function registerPodCommands(
       vscode.window.showErrorMessage('No pod available to delete.');
       return;
     }
-    const pod = treeItem.resource;
-    const ns = pod.metadata.namespace;
-    const name = pod.metadata.name;
+
+    // Get namespace from treeItem directly, and name from resource
+    const ns = treeItem.namespace;
+    const name = treeItem.resource.name;
+
+    if (!ns || !name) {
+      vscode.window.showErrorMessage('Pod namespace or name is missing.');
+      return;
+    }
 
     const confirmed = await vscode.window.showWarningMessage(
       `Delete Pod '${name}' in namespace '${ns}'? This action is irreversible.`,
@@ -41,9 +47,15 @@ export function registerPodCommands(
       vscode.window.showErrorMessage('No pod available for terminal.');
       return;
     }
-    const pod = treeItem.resource;
-    const ns = pod.metadata.namespace;
-    const name = pod.metadata.name;
+
+    // Get namespace from treeItem directly, and name from resource
+    const ns = treeItem.namespace;
+    const name = treeItem.resource.name;
+
+    if (!ns || !name) {
+      vscode.window.showErrorMessage('Pod namespace or name is missing.');
+      return;
+    }
 
     // Create a new VS Code Terminal that runs `kubectl exec -it`
     const term = vscode.window.createTerminal({
@@ -60,12 +72,18 @@ export function registerPodCommands(
       vscode.window.showErrorMessage('No pod available for logs.');
       return;
     }
-    const pod = treeItem.resource;
-    const ns = pod.metadata.namespace;
-    const name = pod.metadata.name;
 
-  // Create a new Terminal that runs `kubectl logs` with follow mode (-f)
-  const term = vscode.window.createTerminal({
+    // Get namespace from treeItem directly, and name from resource
+    const ns = treeItem.namespace;
+    const name = treeItem.resource.name;
+
+    if (!ns || !name) {
+      vscode.window.showErrorMessage('Pod namespace or name is missing.');
+      return;
+    }
+
+    // Create a new Terminal that runs `kubectl logs` with follow mode (-f)
+    const term = vscode.window.createTerminal({
       name: `Logs: ${name}`,
       shellPath: 'kubectl',
       shellArgs: ['logs', '-f', '--tail=100', '-n', ns, name]
@@ -79,9 +97,15 @@ export function registerPodCommands(
       vscode.window.showErrorMessage('No pod available to describe.');
       return;
     }
-    const pod = treeItem.resource;
-    const ns = pod.metadata.namespace;
-    const name = pod.metadata.name;
+
+    // Get namespace from treeItem directly, and name from resource
+    const ns = treeItem.namespace;
+    const name = treeItem.resource.name;
+
+    if (!ns || !name) {
+      vscode.window.showErrorMessage('Pod namespace or name is missing.');
+      return;
+    }
 
     try {
       // 1) Get "describe" text via kubectl

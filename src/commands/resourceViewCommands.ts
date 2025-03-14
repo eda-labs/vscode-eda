@@ -32,7 +32,7 @@ export function registerResourceViewCommands(
     async (treeItem: any) => {
       try {
         log(`Processing resource view command`, LogLevel.DEBUG);
-        
+
         // Debug log key properties without circular references
         if (treeItem) {
           log(`Tree item label: ${treeItem.label}`, LogLevel.DEBUG);
@@ -52,36 +52,36 @@ export function registerResourceViewCommands(
           // First try direct properties - these are most reliable
           resourceName = typeof treeItem.label === 'string' ? treeItem.label : undefined;
           resourceNamespace = treeItem.namespace;
-          
+
           // For pod, use 'Pod' as kind
           if (treeItem.contextValue === 'pod') {
             resourceKind = 'Pod';
-          } 
+          }
           // For other resources, use resourceType
           else if (treeItem.resourceType) {
             resourceKind = treeItem.resourceType.charAt(0).toUpperCase() + treeItem.resourceType.slice(1);
           }
-          
+
           // If we have raw resource data, try to extract apiVersion and any missing info
           if (treeItem.resource?.raw) {
             possibleApiVersion = treeItem.resource.raw.apiVersion;
-            
+
             // If we couldn't get kind from context or resourceType, try from raw
             if (!resourceKind && treeItem.resource.raw.kind) {
               resourceKind = treeItem.resource.raw.kind;
             }
-            
+
             // If we couldn't get name from label, try from raw
             if (!resourceName && treeItem.resource.raw.metadata?.name) {
               resourceName = treeItem.resource.raw.metadata.name;
             }
-            
+
             // If we couldn't get namespace, try from raw
             if (!resourceNamespace && treeItem.resource.raw.metadata?.namespace) {
               resourceNamespace = treeItem.resource.raw.metadata.namespace;
             }
           }
-          
+
           log(`Resource info: ${resourceKind}/${resourceName} in ${resourceNamespace}`, LogLevel.DEBUG);
         }
 
