@@ -518,18 +518,9 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
           command:
             resourceType === 'pod'
               ? 'vscode-eda.describePod'
-              : 'vscode-eda.showCRDDefinition',
+              : 'vscode-eda.viewResource',
           title: 'View Resource Details',
-          arguments: [
-            {
-              name: name,
-              namespace: namespace,
-              resourceType: resourceType,
-              kind: instance.kind || resourceType,
-              uid: instance.metadata?.uid,
-              raw: instance
-            }
-          ]
+          arguments: [treeItem]
         };
 
         return treeItem;

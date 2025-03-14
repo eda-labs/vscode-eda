@@ -1356,7 +1356,7 @@ export class KubernetesClient {
       }
     }
 
-    log(`Found ${results.length} cached ${plural} resources in ${namespace || 'all namespaces'}`, LogLevel.DEBUG);
+    //log(`Found ${results.length} cached ${plural} resources in ${namespace || 'all namespaces'}`, LogLevel.DEBUG);
     return results;
   }
 

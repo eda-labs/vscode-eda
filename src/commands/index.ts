@@ -4,4 +4,4 @@ export * from './viewCommands';
 // export * from './resourceCreateCommand';
 export * from './deviationCommands';
 export * from './transactionCommands';
-// export * from './resourceViewCommands';
+export * from './resourceViewCommands';

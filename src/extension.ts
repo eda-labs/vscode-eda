@@ -12,10 +12,16 @@ import { EdaTransactionProvider } from './providers/views/transactionProvider';
 import { AlarmDetailsDocumentProvider } from './providers/documents/alarmDetailsProvider';
 import { DeviationDetailsDocumentProvider } from './providers/documents/deviationDetailsProvider';
 import { TransactionDetailsDocumentProvider } from './providers/documents/transactionDetailsProvider';
+
 import { registerDeviationCommands } from './commands/deviationCommands';
 import { registerTransactionCommands } from './commands/transactionCommands';
 import { registerViewCommands } from './commands/viewCommands';
 import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
+import { PodDescribeDocumentProvider } from './providers/documents/podDescribeProvider';
+import { ResourceViewDocumentProvider } from './providers/documents/resourceViewProvider';
+import { registerPodCommands } from './commands/podCommands';
+import { registerResourceViewCommands } from './commands/resourceViewCommands';
+
 
 export enum LogLevel {
   DEBUG = 0,
@@ -98,8 +104,9 @@ export async function activate(context: vscode.ExtensionContext) {
     log('Initializing service architecture...', LogLevel.INFO, true);
 
     // 1) Create the clients independently
-    const edactlClient = new EdactlClient(/* no K8sClient needed here */);
+    
     const k8sClient = new KubernetesClient();
+    const edactlClient = new EdactlClient(k8sClient);
     const currentContext = k8sClient.getCurrentContext();
     contextStatusBarItem.text = `$(kubernetes) EDA: ${currentContext}`;
 
@@ -174,6 +181,20 @@ export async function activate(context: vscode.ExtensionContext) {
       treeDataProvider: edaTransactionProvider,
       showCollapseAll: true
     });
+
+    // Initialize document providers
+    const podDescribeProvider = new PodDescribeDocumentProvider();
+    const resourceViewProvider = new ResourceViewDocumentProvider();
+
+    // Register document providers
+    context.subscriptions.push(
+      vscode.workspace.registerFileSystemProvider('k8s-describe', podDescribeProvider, { isCaseSensitive: true }),
+      vscode.workspace.registerFileSystemProvider('k8s-view', resourceViewProvider, { isCaseSensitive: true })
+    );
+
+    // Register commands - add these after the other registerXXXCommands calls
+    registerPodCommands(context, podDescribeProvider);
+    registerResourceViewCommands(context, resourceViewProvider);
 
     const crdFsProvider = new CrdDefinitionFileSystemProvider();
     context.subscriptions.push(

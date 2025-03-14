@@ -64,7 +64,7 @@ export class ResourceService extends CoreService {
    * Refresh cached resources (called by watchers when resources change)
    */
   private async refreshCachedResources(): Promise<void> {
-    log('Refreshing cached resources...', LogLevel.DEBUG);
+    //log('Refreshing cached resources...', LogLevel.DEBUG);
     const now = Date.now();
 
     // Rate limiting to prevent too frequent refreshes
@@ -133,7 +133,7 @@ export class ResourceService extends CoreService {
           instances = this.k8sClient.getCachedResources(group, version, plural);
         }
 
-        log(`Found ${instances.length} instances of ${kind} (${group}/${version})`, LogLevel.DEBUG);
+        //log(`Found ${instances.length} instances of ${kind} (${group}/${version})`, LogLevel.DEBUG);
         newResults.push({ resource: rd, instances });
       }
 
@@ -146,7 +146,7 @@ export class ResourceService extends CoreService {
         this.lastRefreshTime = now;
         this._onDidChangeResources.fire();
       } else {
-        log(`No resource changes detected, keeping existing cache`, LogLevel.DEBUG);
+        //log(`No resource changes detected, keeping existing cache`, LogLevel.DEBUG);
         this.lastRefreshTime = now;
       }
     } catch (error) {
