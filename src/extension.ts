@@ -4,6 +4,7 @@ import { EdactlClient } from './clients/edactlClient';
 import { serviceManager } from './services/serviceManager';
 import { ResourceService } from './services/resourceService';
 import { ResourceStatusService } from './services/resourceStatusService';
+import { SchemaProviderService } from './services/schemaProviderService';
 import { EdaNamespaceProvider } from './providers/views/namespaceProvider';
 import { EdaAlarmProvider } from './providers/views/alarmProvider';
 
@@ -127,6 +128,11 @@ export async function activate(context: vscode.ExtensionContext) {
     const resourceStatusService = new ResourceStatusService(k8sClient);
     serviceManager.registerService('resource-status', resourceStatusService);
     await resourceStatusService.initialize(context);
+
+    const schemaProviderService = new SchemaProviderService(k8sClient);
+    serviceManager.registerService('schema-provider', schemaProviderService);
+    await schemaProviderService.initialize(context);
+    log('Schema provider service initialized successfully', LogLevel.INFO);
 
     // Show EDA namespaces after activation
     const edaNamespaces = await edactlClient.getEdaNamespaces();

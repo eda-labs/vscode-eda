@@ -52,6 +52,11 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "vscode-eda.refreshSchemas",
+        "title": "Refresh CRD Schemas",
+        "icon": "$(symbol-enum)"
+      },
+      {
         "command": "vscode-eda.showTransactionDetails",
         "title": "Show Transaction Details"
       },
