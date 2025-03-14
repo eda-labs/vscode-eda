@@ -188,7 +188,7 @@ export function registerResourceViewCommands(
         // 6) Show the doc in an editor with YAML highlighting
         const doc = await vscode.workspace.openTextDocument(viewUri);
         await vscode.languages.setTextDocumentLanguage(doc, 'yaml');
-        await vscode.window.showTextDocument(doc, { preview: false });
+        await vscode.window.showTextDocument(doc, { preview: true });
 
       } catch (error: any) {
         log(`Failed to open resource in YAML view: ${error}`, LogLevel.ERROR, true);

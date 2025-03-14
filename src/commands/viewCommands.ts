@@ -47,7 +47,7 @@ export function registerViewCommands(
         // Force syntax highlighting to "log" format
         await vscode.languages.setTextDocumentLanguage(doc, 'log');
 
-        await vscode.window.showTextDocument(doc, { preview: false });
+        await vscode.window.showTextDocument(doc, { preview: true });
       } catch (err: any) {
         const msg = `Failed to load transaction details for ID ${transactionId}: ${err.message}`;
         vscode.window.showErrorMessage(msg);
@@ -91,7 +91,7 @@ export function registerViewCommands(
         // Force YAML highlighting
         await vscode.languages.setTextDocumentLanguage(doc, 'yaml');
 
-        await vscode.window.showTextDocument(doc, { preview: false });
+        await vscode.window.showTextDocument(doc, { preview: true });
       } catch (error: any) {
         vscode.window.showErrorMessage(`Failed to show CRD definition: ${error.message || error}`);
         edaOutputChannel.appendLine(`Error showing CRD definition: ${error}`);

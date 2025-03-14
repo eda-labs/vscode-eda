@@ -13,10 +13,12 @@ import { EdaTransactionProvider } from './providers/views/transactionProvider';
 import { AlarmDetailsDocumentProvider } from './providers/documents/alarmDetailsProvider';
 import { DeviationDetailsDocumentProvider } from './providers/documents/deviationDetailsProvider';
 import { TransactionDetailsDocumentProvider } from './providers/documents/transactionDetailsProvider';
+import { ResourceEditDocumentProvider } from './providers/documents/resourceEditProvider';
 
 import { registerDeviationCommands } from './commands/deviationCommands';
 import { registerTransactionCommands } from './commands/transactionCommands';
 import { registerViewCommands } from './commands/viewCommands';
+import { registerResourceEditCommands } from './commands/resourceEditCommands';
 import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 import { PodDescribeDocumentProvider } from './providers/documents/podDescribeProvider';
 import { ResourceViewDocumentProvider } from './providers/documents/resourceViewProvider';
@@ -197,6 +199,13 @@ export async function activate(context: vscode.ExtensionContext) {
       vscode.workspace.registerFileSystemProvider('k8s-describe', podDescribeProvider, { isCaseSensitive: true }),
       vscode.workspace.registerFileSystemProvider('k8s-view', resourceViewProvider, { isCaseSensitive: true })
     );
+
+    // Register edit provider
+    const resourceEditProvider = new ResourceEditDocumentProvider();
+    context.subscriptions.push(
+      vscode.workspace.registerFileSystemProvider('k8s', resourceEditProvider, { isCaseSensitive: true })
+    );
+    registerResourceEditCommands(context, resourceEditProvider);
 
     // Register commands - add these after the other registerXXXCommands calls
     registerPodCommands(context, podDescribeProvider);
