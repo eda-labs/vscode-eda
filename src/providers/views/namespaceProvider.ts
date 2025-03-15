@@ -1,3 +1,5 @@
+// src/providers/views/namespaceProvider.ts
+
 import * as vscode from 'vscode';
 import { TreeItemBase } from './treeItem';
 import { serviceManager } from '../../services/serviceManager';
@@ -13,11 +15,15 @@ import { log, LogLevel } from '../../extension';
 export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBase> {
   private _onDidChangeTreeData = new vscode.EventEmitter<TreeItemBase | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
   private k8sClient: KubernetesClient;
   private resourceService: ResourceService;
   private statusService: ResourceStatusService;
   private edactlClient: EdactlClient;
+
+  // The current filter text (if any).
   private treeFilter: string = '';
+
   private _refreshDebounceTimer: NodeJS.Timeout | undefined;
   private cachedNamespaces: string[] = [];
 
@@ -26,70 +32,30 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
     this.resourceService = serviceManager.getService<ResourceService>('kubernetes-resources');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
     this.edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+
     this.setupEventListeners();
     this.fetchNamespaces();
   }
 
   /**
-   * Set up event listeners for resource changes
+   * Listen for changes in resources so we can refresh
    */
   private setupEventListeners(): void {
     this.resourceService.onDidChangeResources(async () => {
       log('Resource change detected, refreshing tree view', LogLevel.DEBUG);
       await this.fetchNamespaces();
       this.refresh();
-      this.validateTreeState();
-    });
-    this.resourceService.onDidChangeNamespace((namespace) => {
-      log(`Namespace changed to: ${namespace}, refreshing tree view`, LogLevel.DEBUG);
-      this.refresh();
-      this.validateTreeState();
     });
   }
 
   /**
-   * Validate tree state to ensure it's consistent with resource cache.
-   */
-  private validateTreeState(): void {
-    try {
-      this.edactlClient.getEdaNamespaces().then(namespaces => {
-        if (
-          this.cachedNamespaces.length !== namespaces.length ||
-          !this.cachedNamespaces.every(ns => namespaces.includes(ns))
-        ) {
-          log(
-            `Namespace cache mismatch, updating
-             (cached=${this.cachedNamespaces.join(',')}
-              new=${namespaces.join(',')})`,
-            LogLevel.DEBUG
-          );
-          this.cachedNamespaces = namespaces;
-          this.refresh();
-        }
-      }).catch(err => {
-        log(`Error validating namespace cache: ${err}`, LogLevel.ERROR);
-      });
-    } catch (error) {
-      log(`Error in validateTreeState: ${error}`, LogLevel.ERROR);
-    }
-  }
-
-  /**
-   * Fetch namespaces once (from edactl) and cache them.
-   * Watchers will trigger more updates if anything changes.
+   * Get EDA namespaces from edactl, store in cache if changed
    */
   private async fetchNamespaces(): Promise<void> {
     try {
       const namespaces = await this.edactlClient.getEdaNamespaces();
-      const currentNsStr = JSON.stringify(this.cachedNamespaces.sort());
-      const newNsStr = JSON.stringify(namespaces.sort());
-      if (currentNsStr !== newNsStr) {
-        log(
-          `Namespace changes detected.
-           Old: [${this.cachedNamespaces.join(', ')}],
-           New: [${namespaces.join(', ')}]`,
-          LogLevel.DEBUG
-        );
+      if (!arraysEqual(this.cachedNamespaces, namespaces)) {
+        log(`Namespaces changed from [${this.cachedNamespaces.join(', ')}] to [${namespaces.join(', ')}]`, LogLevel.DEBUG);
         this.cachedNamespaces = namespaces;
         this.refresh();
       }
@@ -99,54 +65,49 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   }
 
   /**
-   * Refresh the entire tree.
+   * Trigger a debounced refresh
    */
   public refresh(): void {
-    log('Refreshing EDA namespaces tree view...', LogLevel.DEBUG);
     if (this._refreshDebounceTimer) {
       clearTimeout(this._refreshDebounceTimer);
     }
     this._refreshDebounceTimer = setTimeout(() => {
       this._onDidChangeTreeData.fire(undefined);
       this._refreshDebounceTimer = undefined;
-    }, 100);
+    }, 120);
   }
 
   /**
-   * Filter the tree by text
-   * @param filterText Text to filter by
+   * Set filter text for searching categories/types/instances
    */
   public setTreeFilter(filterText: string): void {
-    this.treeFilter = filterText.toLowerCase();
-    log(`Setting tree filter to: "${filterText}"`, LogLevel.INFO);
+    this.treeFilter = filterText.toLowerCase(); // <-- CHANGED
+    log(`Tree filter set to: "${filterText}"`, LogLevel.INFO);
     this.refresh();
   }
 
   /**
-   * Clear the current tree filter
+   * Clear the filter text
    */
   public clearTreeFilter(): void {
-    this.treeFilter = '';
+    this.treeFilter = ''; // <-- CHANGED
     log(`Clearing tree filter`, LogLevel.INFO);
     this.refresh();
   }
 
   /**
-   * Get the TreeItem representation of an element
-   * @param element The tree item
-   * @returns The TreeItem
+   * Implementation of TreeDataProvider: get a tree item
    */
   getTreeItem(element: TreeItemBase): vscode.TreeItem {
     return element;
   }
 
   /**
-   * Get children of the provided element
-   * @param element The parent element
-   * @returns Array of child elements
+   * Implementation of TreeDataProvider: get children
    */
   async getChildren(element?: TreeItemBase): Promise<TreeItemBase[]> {
     if (!element) {
+      // Root level: list EDA namespaces (unfiltered)
       return this.getNamespaces();
     } else if (element.contextValue === 'namespace') {
       return this.getResourceCategories(element.label as string);
@@ -164,253 +125,271 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   }
 
   /**
-   * Get namespaces as tree items - use cached values
-   * @returns Array of namespace tree items
+   * Build the list of namespaces - never hidden by filter
    */
   private getNamespaces(): TreeItemBase[] {
-    try {
-      const namespaces = this.cachedNamespaces;
-      if (namespaces.length === 0) {
-        const treeItem = new TreeItemBase(
-          'No EDA namespaces found',
-          vscode.TreeItemCollapsibleState.None,
-          'message'
-        );
-        treeItem.iconPath = new vscode.ThemeIcon('warning');
-        return [treeItem];
-      }
-      const items = namespaces.map(ns => {
-        const treeItem = new TreeItemBase(
-          ns,
-          vscode.TreeItemCollapsibleState.Collapsed,
-          'namespace'
-        );
-        treeItem.iconPath = new vscode.ThemeIcon('package');
-        treeItem.namespace = ns;
-        return treeItem;
-      });
-      if (this.treeFilter) {
-        return items.filter(item =>
-          item.label.toString().toLowerCase().includes(this.treeFilter)
-        );
-      }
-      return items;
-    } catch (error) {
-      log(`Error getting namespaces for tree view: ${error}`, LogLevel.ERROR);
-      const treeItem = new TreeItemBase(
-        'Error loading namespaces',
+    if (this.cachedNamespaces.length === 0) {
+      const msgItem = new TreeItemBase(
+        'No EDA namespaces found',
         vscode.TreeItemCollapsibleState.None,
-        'error'
+        'message'
       );
-      treeItem.iconPath = new vscode.ThemeIcon('error');
-      treeItem.tooltip = `${error}`;
-      return [treeItem];
+      msgItem.iconPath = new vscode.ThemeIcon('warning');
+      return [msgItem];
     }
+
+    return this.cachedNamespaces.map(ns => {
+      const treeItem = new TreeItemBase(
+        ns,
+        vscode.TreeItemCollapsibleState.Collapsed,
+        'namespace'
+      );
+      treeItem.iconPath = new vscode.ThemeIcon('package');
+      treeItem.namespace = ns;
+      return treeItem;
+    });
   }
 
   /**
-   * Check if the namespace has any Kubernetes resources
-   * @param namespace Namespace name
-   * @returns boolean indicating if namespace has any K8s resources
-   */
-  private hasKubernetesResources(namespace: string): boolean {
-    const pods = this.k8sClient.getCachedPods(namespace);
-    if (pods && pods.length > 0) {
-      return true;
-    }
-    const deployments = this.k8sClient.getCachedDeployments(namespace);
-    if (deployments && deployments.length > 0) {
-      return true;
-    }
-    const services = this.k8sClient.getCachedServices(namespace);
-    if (services && services.length > 0) {
-      return true;
-    }
-    const configMaps = this.k8sClient.getCachedConfigMaps(namespace);
-    if (configMaps && configMaps.length > 0) {
-      return true;
-    }
-    const secrets = this.k8sClient.getCachedSecrets(namespace);
-    if (secrets && secrets.length > 0) {
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * Get resource categories as tree items - use cached resources
-   * @param namespace Namespace name
-   * @returns Array of resource category tree items
+   * Resource categories under each namespace: "EDA Resources" and "Kubernetes Resources"
    */
   private getResourceCategories(namespace: string): TreeItemBase[] {
     const categories = [
       { id: 'eda', label: 'EDA Resources', icon: 'zap' },
       { id: 'k8s', label: 'Kubernetes Resources', icon: 'symbol-namespace' }
     ];
+
+    // Build items, but filter them if no match
     const result: TreeItemBase[] = [];
-    const allResources = this.resourceService.getAllResourceInstances();
-    for (const category of categories) {
-      let hasResources = false;
-      if (category.id === 'eda') {
-        hasResources = allResources.some(res => {
-          const group = (res.resource.apiGroup || '');
-          return (
-            !group.endsWith('k8s.io') &&
-            res.instances.some(inst => !res.resource.namespaced || inst.metadata?.namespace === namespace)
-          );
-        });
-      } else if (category.id === 'k8s') {
-        hasResources = this.hasKubernetesResources(namespace);
-      }
-      if (hasResources) {
-        const treeItem = new TreeItemBase(
-          category.label,
-          vscode.TreeItemCollapsibleState.Collapsed,
-          'resource-category'
-        );
-        treeItem.iconPath = new vscode.ThemeIcon(category.icon);
-        treeItem.namespace = namespace;
-        treeItem.resourceCategory = category.id;
-        result.push(treeItem);
-      }
-    }
-    if (this.treeFilter) {
-      return result.filter(item =>
-        item.label.toString().toLowerCase().includes(this.treeFilter)
+
+    for (const cat of categories) {
+      const catLabel = cat.label.toLowerCase();
+      const catMatches = this.treeFilter && catLabel.includes(this.treeFilter); // <-- NEW
+
+      // Make a node for the category
+      const treeItem = new TreeItemBase(
+        cat.label,
+        vscode.TreeItemCollapsibleState.Collapsed,
+        'resource-category'
       );
+      treeItem.iconPath = new vscode.ThemeIcon(cat.icon);
+      treeItem.namespace = namespace;
+      treeItem.resourceCategory = cat.id;
+
+      if (!this.treeFilter) {
+        // No filter => keep all categories
+        result.push(treeItem);
+      } else {
+        if (catMatches) {
+          // Category label matched => show entire category
+          result.push(treeItem);
+        } else {
+          // Otherwise, only show if the sub-resources have some match
+          const resourceTypes = this.getResourcesForCategory(namespace, cat.id, /* skipFilter */ false);
+          if (resourceTypes.length > 0) {
+            result.push(treeItem);
+          }
+        }
+      }
     }
+
+    // If after filtering we have none, show a "no matches" item
+    if (result.length === 0 && this.treeFilter) {
+      const noMatchItem = new TreeItemBase(
+        `No categories match "${this.treeFilter}"`,
+        vscode.TreeItemCollapsibleState.None,
+        'message'
+      );
+      noMatchItem.iconPath = new vscode.ThemeIcon('info');
+      return [noMatchItem];
+    }
+
     return result;
   }
 
   /**
-   * Get resource types for a specific category - use cached data
-   * @param namespace Namespace name
-   * @param category Resource category ID
-   * @returns Array of resource type tree items
+   * EDA vs. k8s resource "types" under the category
    */
-  private getResourcesForCategory(namespace: string, category: string): TreeItemBase[] {
+  private getResourcesForCategory(namespace: string, category: string, bypassFiltering = false): TreeItemBase[] {
     try {
-      const items: TreeItemBase[] = [];
-      const allResources = this.resourceService.getAllResourceInstances();
       if (category === 'eda') {
-        for (const resourceResult of allResources) {
-          const resource = resourceResult.resource;
-          const instances = resourceResult.instances;
-          const group = resource.apiGroup || '';
-          if (!group || group.endsWith('k8s.io')) continue;
-          const namespaceInstances = instances.filter(inst =>
-            !resource.namespaced || inst.metadata?.namespace === namespace
-          );
-          if (namespaceInstances.length === 0) continue;
-          const kind = resource.kind || '';
-          if (!kind) continue;
-          const treeItem = new TreeItemBase(
-            kind,
-            vscode.TreeItemCollapsibleState.Collapsed,
-            'resource-type'
-          );
-          treeItem.iconPath = new vscode.ThemeIcon('symbol-class');
-          treeItem.namespace = namespace;
-          treeItem.resourceType = kind.toLowerCase();
-          treeItem.resourceCategory = category;
-          treeItem.crdInfo = {
-            group: group,
-            version: resource.apiVersion || 'v1',
-            plural: resource.plural || kind.toLowerCase() + 's',
-            namespaced: resource.namespaced
-          };
-          items.push(treeItem);
-        }
+        return this.getEdaResourceTypes(namespace);
       } else if (category === 'k8s') {
-        const k8sResourceTypes = [
-          {
-            kind: 'Pod',
-            icon: 'vm',
-            plural: 'pods',
-            getResources: () => this.k8sClient.getCachedPods(namespace)
-          },
-          {
-            kind: 'Deployment',
-            icon: 'rocket',
-            plural: 'deployments',
-            getResources: () => this.k8sClient.getCachedDeployments(namespace)
-          },
-          {
-            kind: 'Service',
-            icon: 'globe',
-            plural: 'services',
-            getResources: () => this.k8sClient.getCachedServices(namespace)
-          },
-          {
-            kind: 'ConfigMap',
-            icon: 'file-binary',
-            plural: 'configmaps',
-            getResources: () => this.k8sClient.getCachedConfigMaps(namespace)
-          },
-          {
-            kind: 'Secret',
-            icon: 'lock',
-            plural: 'secrets',
-            getResources: () => this.k8sClient.getCachedSecrets(namespace)
-          }
-        ];
-        for (const resourceType of k8sResourceTypes) {
-          const resources = resourceType.getResources();
-          if (resources && resources.length > 0) {
-            const treeItem = new TreeItemBase(
-              resourceType.kind,
-              vscode.TreeItemCollapsibleState.Collapsed,
-              'resource-type'
-            );
-            treeItem.iconPath = new vscode.ThemeIcon(resourceType.icon);
-            treeItem.namespace = namespace;
-            treeItem.resourceType = resourceType.kind.toLowerCase();
-            treeItem.resourceCategory = category;
-            treeItem.crdInfo = {
-              group: '',
-              version: 'v1',
-              plural: resourceType.plural,
-              namespaced: true
-            };
-            items.push(treeItem);
-          }
-        }
+        return this.getK8sResourceTypes(namespace);
       }
-      if (this.treeFilter) {
-        return items.filter(item =>
-          item.label.toString().toLowerCase().includes(this.treeFilter)
-        );
-      }
-      if (items.length === 0) {
-        const treeItem = new TreeItemBase(
-          `No ${category} resources found`,
-          vscode.TreeItemCollapsibleState.None,
-          'message'
-        );
-        treeItem.iconPath = new vscode.ThemeIcon('info');
-        return [treeItem];
-      }
-      return items;
+      return [];
     } catch (error) {
       log(`Error getting resource types for category ${category}: ${error}`, LogLevel.ERROR);
-      const treeItem = new TreeItemBase(
+      const errorItem = new TreeItemBase(
         'Error loading resources',
         vscode.TreeItemCollapsibleState.None,
         'error'
       );
-      treeItem.iconPath = new vscode.ThemeIcon('error');
-      treeItem.tooltip = `${error}`;
-      return [treeItem];
+      errorItem.iconPath = new vscode.ThemeIcon('error');
+      errorItem.tooltip = String(error);
+      return [errorItem];
     }
   }
 
   /**
-   * Get resource instances for a specific type - use cached data and add status
-   * @param namespace Namespace name
-   * @param resourceType Resource type name
-   * @param category Resource category ID
-   * @param crdInfo CRD information
-   * @returns Array of resource instance tree items
+   * Build EDA resource type nodes (CRD kinds)
+   */
+  private getEdaResourceTypes(namespace: string): TreeItemBase[] {
+    const allResources = this.resourceService.getAllResourceInstances(); // from ResourceService
+    // We only want CRDs that are not standard k8s (i.e. group doesn't end with k8s.io)
+    const edaRes = allResources.filter(r => {
+      const group = r.resource.apiGroup || '';
+      return !group.endsWith('k8s.io');
+    });
+
+    const items: TreeItemBase[] = [];
+
+    for (const r of edaRes) {
+      const { kind, apiGroup, apiVersion, plural, namespaced } = r.resource;
+      if (!kind) continue;
+
+      // Filter to ensure there's at least one instance in this namespace
+      let inst = r.instances;
+      if (namespaced) {
+        inst = inst.filter(i => i.metadata?.namespace === namespace);
+      }
+      if (inst.length === 0) continue;
+
+      const label = kind;
+      const labelMatches = label.toLowerCase().includes(this.treeFilter); // <-- NEW
+
+      // If no filter or label matches => keep all child
+      // Otherwise, keep only children that pass the filter by name
+      // We'll finalize that logic in getResourceInstances. Here we simply create the node.
+      const treeItem = new TreeItemBase(
+        label,
+        vscode.TreeItemCollapsibleState.Collapsed,
+        'resource-type'
+      );
+      treeItem.iconPath = new vscode.ThemeIcon('symbol-class');
+      treeItem.namespace = namespace;
+      treeItem.resourceType = kind.toLowerCase();
+      treeItem.resourceCategory = 'eda';
+      treeItem.crdInfo = {
+        group: apiGroup,
+        version: apiVersion,
+        plural: plural,
+        namespaced: namespaced
+      };
+
+      items.push(treeItem);
+    }
+
+    // If there's a filter, remove resource types that end up with zero matching children
+    if (this.treeFilter) {
+      const filteredItems = items.filter(typeItem => {
+        // if resource-type label matches => keep it
+        const typeLabel = typeItem.label.toString().toLowerCase();
+        if (typeLabel.includes(this.treeFilter)) return true;
+
+        // otherwise see if at least one child instance name matches
+        const children = this.getResourceInstances(
+          typeItem.namespace!,
+          typeItem.resourceType!,
+          typeItem.resourceCategory!,
+          typeItem.crdInfo
+        );
+        return (children.length > 0);
+      });
+      return filteredItems;
+    }
+
+    return items;
+  }
+
+  /**
+   * Build standard K8s resource type nodes
+   */
+  private getK8sResourceTypes(namespace: string): TreeItemBase[] {
+    const k8sResourceTypes = [
+      {
+        kind: 'Pod',
+        icon: 'vm',
+        plural: 'pods',
+        getResources: () => this.k8sClient.getCachedPods(namespace)
+      },
+      {
+        kind: 'Deployment',
+        icon: 'rocket',
+        plural: 'deployments',
+        getResources: () => this.k8sClient.getCachedDeployments(namespace)
+      },
+      {
+        kind: 'Service',
+        icon: 'globe',
+        plural: 'services',
+        getResources: () => this.k8sClient.getCachedServices(namespace)
+      },
+      {
+        kind: 'ConfigMap',
+        icon: 'file-binary',
+        plural: 'configmaps',
+        getResources: () => this.k8sClient.getCachedConfigMaps(namespace)
+      },
+      {
+        kind: 'Secret',
+        icon: 'lock',
+        plural: 'secrets',
+        getResources: () => this.k8sClient.getCachedSecrets(namespace)
+      }
+    ];
+
+    const items: TreeItemBase[] = [];
+
+    for (const rt of k8sResourceTypes) {
+      const resources = rt.getResources() || [];
+      if (resources.length === 0) continue;
+
+      const label = rt.kind;
+      const treeItem = new TreeItemBase(
+        label,
+        vscode.TreeItemCollapsibleState.Collapsed,
+        'resource-type'
+      );
+      treeItem.iconPath = new vscode.ThemeIcon(rt.icon);
+      treeItem.namespace = namespace;
+      treeItem.resourceType = rt.kind.toLowerCase();
+      treeItem.resourceCategory = 'k8s';
+      treeItem.crdInfo = {
+        group: '',
+        version: 'v1',
+        plural: rt.plural,
+        namespaced: true
+      };
+
+      items.push(treeItem);
+    }
+
+    // Apply a filter if set
+    if (this.treeFilter) {
+      const filteredItems = items.filter(typeItem => {
+        const lbl = typeItem.label.toString().toLowerCase();
+        if (lbl.includes(this.treeFilter)) {
+          return true;
+        } else {
+          // see if any child matches the filter by name
+          const childInstances = this.getResourceInstances(
+            typeItem.namespace!,
+            typeItem.resourceType!,
+            'k8s',
+            typeItem.crdInfo
+          );
+          return childInstances.length > 0;
+        }
+      });
+      return filteredItems;
+    }
+
+    return items;
+  }
+
+  /**
+   * Build resource instance items for the chosen resource-type
    */
   private getResourceInstances(
     namespace: string,
@@ -418,129 +397,116 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
     category: string,
     crdInfo: any
   ): TreeItemBase[] {
-    try {
-      let instances: any[] = [];
-      if (crdInfo) {
-        if (category === 'eda') {
-          const allResources = this.resourceService.getAllResourceInstances();
-          const { group, version, plural, namespaced } = crdInfo;
-          for (const resourceResult of allResources) {
-            const resource = resourceResult.resource;
-            if (
-              (resource.apiGroup === group || (!resource.apiGroup && !group)) &&
-              (resource.plural === plural || resource.kind?.toLowerCase() === resourceType)
-            ) {
-              instances = resourceResult.instances;
-              if (namespaced) {
-                instances = instances.filter(inst => inst.metadata?.namespace === namespace);
-              }
-              break;
-            }
+    let instances: any[] = [];
+
+    // EDA CRDs
+    if (category === 'eda' && crdInfo) {
+      // find the matching CRD in the ResourceService
+      const all = this.resourceService.getAllResourceInstances();
+      for (const r of all) {
+        const rd = r.resource;
+        if (
+          rd.kind?.toLowerCase() === resourceType &&
+          rd.apiGroup === crdInfo.group &&
+          rd.plural === crdInfo.plural
+        ) {
+          instances = r.instances;
+          if (rd.namespaced) {
+            instances = instances.filter(i => i.metadata?.namespace === namespace);
           }
-        } else if (category === 'k8s') {
-          switch (resourceType) {
-            case 'pod':
-              instances = this.k8sClient.getCachedPods(namespace);
-              break;
-            case 'deployment':
-              instances = this.k8sClient.getCachedDeployments(namespace);
-              break;
-            case 'service':
-              instances = this.k8sClient.getCachedServices(namespace);
-              break;
-            case 'configmap':
-              instances = this.k8sClient.getCachedConfigMaps(namespace);
-              break;
-            case 'secret':
-              instances = this.k8sClient.getCachedSecrets(namespace);
-              break;
-            default:
-              break;
-          }
+          break;
         }
       }
-
-      if (instances.length === 0) {
-        const treeItem = new TreeItemBase(
-          `No ${resourceType} resources found`,
-          vscode.TreeItemCollapsibleState.None,
-          'message'
-        );
-        treeItem.iconPath = new vscode.ThemeIcon('info');
-        return [treeItem];
-      }
-
-      const items = instances.map(instance => {
-        const name = instance.metadata?.name || 'unnamed';
-        const contextValue = resourceType === 'pod' ? 'pod' : 'crd-instance';
-        const treeItem = new TreeItemBase(
-          name,
-          vscode.TreeItemCollapsibleState.None,
-          contextValue,
-          instance
-        );
-
-        // Get status information for this resource instance
-        const statusIndicator = this.statusService.getResourceStatusIndicator(instance);
-        const statusDescription = this.statusService.getStatusDescription(instance);
-
-        // Apply status to the tree item
-        treeItem.setStatus(statusIndicator, statusDescription);
-
-        // Set iconPath based on status - either use ThemeIcon or custom status icon if available
-        if (this.context && this.statusService.getStatusIcon) {
-          try {
-            // Try to use custom status icon
-            treeItem.iconPath = this.statusService.getStatusIcon(statusIndicator);
-          } catch (error) {
-            // Fall back to theme icon if custom icons aren't available
-            treeItem.iconPath = this.statusService.getThemeStatusIcon(statusIndicator);
-          }
-        } else {
-          // Default icons for resource types if status icons not available
-          if (resourceType === 'pod') {
-            treeItem.iconPath = new vscode.ThemeIcon('vm');
-          } else {
-            treeItem.iconPath = new vscode.ThemeIcon('symbol-variable');
-          }
-        }
-
-        treeItem.namespace = namespace;
-        treeItem.resourceType = resourceType;
-
-        // Set tooltip to include detailed resource information
-        treeItem.tooltip = this.statusService.getResourceTooltip(instance);
-
-        // Set command for when the item is clicked
-        treeItem.command = {
-          command:
-            resourceType === 'pod'
-              ? 'vscode-eda.describePod'
-              : 'vscode-eda.viewResource',
-          title: 'View Resource Details',
-          arguments: [treeItem]
-        };
-
-        return treeItem;
-      });
-
-      if (this.treeFilter) {
-        return items.filter(item =>
-          item.label.toString().toLowerCase().includes(this.treeFilter)
-        );
-      }
-
-      return items;
-    } catch (error) {
-      log(`Error getting instances for ${resourceType}: ${error}`, LogLevel.ERROR);
-      const treeItem = new TreeItemBase(
-        `Error loading ${resourceType} resources`,
-        vscode.TreeItemCollapsibleState.None,
-        'error'
-      );
-      treeItem.iconPath = new vscode.ThemeIcon('error');
-      treeItem.tooltip = `${error}`;
-      return [treeItem];
     }
+    // K8s resources
+    else if (category === 'k8s') {
+      switch (resourceType) {
+        case 'pod':
+          instances = this.k8sClient.getCachedPods(namespace);
+          break;
+        case 'deployment':
+          instances = this.k8sClient.getCachedDeployments(namespace);
+          break;
+        case 'service':
+          instances = this.k8sClient.getCachedServices(namespace);
+          break;
+        case 'configmap':
+          instances = this.k8sClient.getCachedConfigMaps(namespace);
+          break;
+        case 'secret':
+          instances = this.k8sClient.getCachedSecrets(namespace);
+          break;
+      }
+    }
+
+    if (!instances || instances.length === 0) {
+      return [];
+    }
+
+    const items = instances.map(inst => {
+      const name = inst.metadata?.name || 'unnamed';
+      const contextValue = (resourceType === 'pod') ? 'pod' : 'crd-instance';
+
+      const treeItem = new TreeItemBase(
+        name,
+        vscode.TreeItemCollapsibleState.None,
+        contextValue,
+        inst
+      );
+
+      // Get status
+      const statusIndicator = this.statusService.getResourceStatusIndicator(inst);
+      const statusDescription = this.statusService.getStatusDescription(inst);
+      treeItem.setStatus(statusIndicator, statusDescription);
+
+      try {
+        // Custom status icon if available
+        treeItem.iconPath = this.statusService.getStatusIcon(statusIndicator);
+      } catch {
+        // fallback if not found
+        treeItem.iconPath = this.statusService.getThemeStatusIcon(statusIndicator);
+      }
+
+      treeItem.namespace = namespace;
+      treeItem.resourceType = resourceType;
+      treeItem.tooltip = this.statusService.getResourceTooltip(inst);
+
+      // Command
+      treeItem.command = {
+        command: resourceType === 'pod'
+          ? 'vscode-eda.describePod'
+          : 'vscode-eda.viewResource',
+        title: 'View Resource Details',
+        arguments: [treeItem]
+      };
+
+      return treeItem;
+    });
+
+    // If parent's label didn't match, we filter instances by name
+    if (this.treeFilter) {
+      // We have to check if the parent's resource-type name matched already.
+      // We'll just do a direct re-check here:
+      const parentTypeMatches = resourceType.toLowerCase().includes(this.treeFilter);
+
+      if (!parentTypeMatches) {
+        return items.filter(it =>
+          it.label.toLowerCase().includes(this.treeFilter)
+        );
+      }
+    }
+
+    return items;
   }
+}
+
+/**
+ * Simple helper for array equality (shallow).
+ */
+function arraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }
