@@ -10,8 +10,19 @@ import { ResourceViewDocumentProvider } from '../providers/documents/resourceVie
 import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
 import { log, LogLevel, edaOutputChannel } from '../extension';
 
-// Keep track of open resource editors
-const openResourceEditors = new Set<string>();
+// Keep track of resource URI pairs (view and edit versions of the same resource)
+interface ResourceURIPair {
+  viewUri: vscode.Uri;
+  editUri: vscode.Uri;
+  originalResource: any;
+}
+
+const resourcePairs = new Map<string, ResourceURIPair>();
+
+// Map resource identifier to URI pair
+function getResourceKey(namespace: string, kind: string, name: string): string {
+  return `${namespace}/${kind}/${name}`;
+}
 
 // Store last command execution timestamp to prevent rapid multiple executions
 let lastCommandTime = 0;
@@ -24,7 +35,8 @@ interface ActionQuickPickItem extends vscode.QuickPickItem {
 
 export function registerResourceEditCommands(
   context: vscode.ExtensionContext,
-  resourceEditProvider: ResourceEditDocumentProvider
+  resourceEditProvider: ResourceEditDocumentProvider,
+  resourceViewProvider: ResourceViewDocumentProvider
 ) {
   const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
   const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
@@ -35,6 +47,15 @@ export function registerResourceEditCommands(
     'vscode-eda.switchToEditResource',
     async (viewDocumentUri: vscode.Uri) => {
       try {
+        // If no URI is provided, use the active editor
+        if (!viewDocumentUri) {
+          const activeEditor = vscode.window.activeTextEditor;
+          if (!activeEditor || activeEditor.document.uri.scheme !== 'k8s-view') {
+            throw new Error('No Kubernetes resource view document is active');
+          }
+          viewDocumentUri = activeEditor.document.uri;
+        }
+
         // 1) Ensure this is a k8s-view document
         if (viewDocumentUri.scheme !== 'k8s-view') {
           throw new Error('Not a Kubernetes resource read-only view');
@@ -42,55 +63,173 @@ export function registerResourceEditCommands(
 
         // 2) Parse the read-only URI to get resource info (namespace/kind/name)
         const { namespace, kind, name } = ResourceViewDocumentProvider.parseUri(viewDocumentUri);
+        const resourceKey = getResourceKey(namespace, kind, name);
 
-        // 3) Create the new "k8s:" (editable) URI
-        const editorUri = ResourceEditDocumentProvider.createUri(namespace, kind, name);
+        // 3) Check if we already have an edit URI for this resource
+        let editUri: vscode.Uri;
+        let pair = resourcePairs.get(resourceKey);
 
-        // 4) Open the *existing* (read-only) doc so we can read its text
-        const readOnlyDoc = await vscode.workspace.openTextDocument(viewDocumentUri);
-        const readOnlyYaml = readOnlyDoc.getText();
+        if (pair) {
+          // We already have both URIs, just use the existing edit URI
+          editUri = pair.editUri;
+          log(`Using existing edit URI for ${resourceKey}`, LogLevel.DEBUG);
+        } else {
+          // Create a new edit URI and track the pair
+          editUri = ResourceEditDocumentProvider.createUri(namespace, kind, name);
 
-        // 5) Parse the YAML to verify it's valid
-        let resourceObject: any;
-        try {
-          resourceObject = yaml.load(readOnlyYaml);
-        } catch (parseErr) {
-          throw new Error(`Invalid YAML in read-only view: ${parseErr}`);
+          // Open the *existing* (read-only) doc so we can read its text
+          const readOnlyDoc = await vscode.workspace.openTextDocument(viewDocumentUri);
+          const readOnlyYaml = readOnlyDoc.getText();
+
+          // Parse the YAML to verify it's valid
+          let resourceObject: any;
+          try {
+            resourceObject = yaml.load(readOnlyYaml);
+          } catch (parseErr) {
+            throw new Error(`Invalid YAML in read-only view: ${parseErr}`);
+          }
+
+          // Store the resource in your editable file system provider
+          resourceEditProvider.setOriginalResource(editUri, resourceObject);
+          resourceEditProvider.setResourceContent(editUri, readOnlyYaml);
+
+          // Store the pair for future switches
+          resourcePairs.set(resourceKey, {
+            viewUri: viewDocumentUri,
+            editUri: editUri,
+            originalResource: resourceObject
+          });
         }
 
-        // 6) Store the resource in your editable file system provider
-        //    so that changes can be tracked, diffs are possible, etc.
-        resourceEditProvider.setOriginalResource(editorUri, resourceObject);
-        resourceEditProvider.setResourceContent(editorUri, readOnlyYaml);
-
-        // 7) Open the new "k8s:" doc in the editor
-        await closeAllEditorsWithUri(viewDocumentUri);
-
-        // 8) Only then open the new "k8s:" doc in the editor
-        const editDoc = await vscode.workspace.openTextDocument(editorUri);
+        // 4) Open the edit document WITHOUT closing the view document
+        const editDoc = await vscode.workspace.openTextDocument(editUri);
         await vscode.languages.setTextDocumentLanguage(editDoc, 'yaml');
-        await vscode.window.showTextDocument(editDoc, { preview: false });
 
-        // 9) Now show the editable document
-        await vscode.window.showTextDocument(editDoc, { preview: false });
-        // 9) Optionally track this doc so you can clean it up on close
-        openResourceEditors.add(editorUri.toString());
+        // Use showTextDocument with preserveFocus: false to ensure focus
+        await vscode.window.showTextDocument(editDoc, {
+          preserveFocus: false,
+          preview: false
+        });
 
-        // 10) Register a handler so that when this new doc closes, we remove it from tracking and clean up
-        const closeDisposable = vscode.workspace.onDidCloseTextDocument((closedDoc) => {
-          if (closedDoc.uri.toString() === editorUri.toString()) {
-            resourceEditProvider.cleanupDocument(editorUri);
-            openResourceEditors.delete(editorUri.toString());
-            closeDisposable.dispose();
+        // 5) Add status bar item to switch back to view mode
+        const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+        statusBarItem.text = "$(eye) View Mode";
+        statusBarItem.tooltip = "Switch back to read-only view";
+        statusBarItem.command = {
+          title: "Switch to edit mode",
+          command: "vscode-eda.switchToViewResource",
+          arguments: [editUri]
+        };
+        statusBarItem.show();
+
+        // Dispose the status bar item when this document is no longer active
+        const disposable = vscode.window.onDidChangeActiveTextEditor(editor => {
+          if (!editor || editor.document.uri.toString() !== editUri.toString()) {
+            statusBarItem.dispose();
+            disposable.dispose();
           }
         });
 
-        // Keep the close handler in your extension context’s subscriptions so it’s disposed automatically.
-        context.subscriptions.push(closeDisposable);
+        context.subscriptions.push(disposable);
 
       } catch (error) {
         vscode.window.showErrorMessage(`Failed to switch to edit mode: ${error}`);
         log(`Error in switchToEditResource: ${error}`, LogLevel.ERROR, true);
+      }
+    }
+  );
+
+  // Switch from edit mode back to read-only view
+  const switchToViewCommand = vscode.commands.registerCommand(
+    'vscode-eda.switchToViewResource',
+    async (editDocumentUri: vscode.Uri) => {
+      try {
+        // If no URI is provided, use the active editor
+        if (!editDocumentUri) {
+          const activeEditor = vscode.window.activeTextEditor;
+          if (!activeEditor || activeEditor.document.uri.scheme !== 'k8s') {
+            throw new Error('No Kubernetes resource edit document is active');
+          }
+          editDocumentUri = activeEditor.document.uri;
+        }
+
+        // 1) Ensure this is a k8s document
+        if (editDocumentUri.scheme !== 'k8s') {
+          throw new Error('Not a Kubernetes resource edit view');
+        }
+
+        // 2) Parse the edit URI to get resource info
+        const { namespace, kind, name } = ResourceEditDocumentProvider.parseUri(editDocumentUri);
+        const resourceKey = getResourceKey(namespace, kind, name);
+
+        // 3) Get the corresponding view URI
+        const pair = resourcePairs.get(resourceKey);
+        if (!pair) {
+          throw new Error(`No view document found for ${resourceKey}`);
+        }
+
+        // 4) If the edit document has unsaved changes, ask if user wants to save
+        const editDoc = await vscode.workspace.openTextDocument(editDocumentUri);
+        if (editDoc.isDirty) {
+          const answer = await vscode.window.showWarningMessage(
+            `Save changes to ${kind}/${name}?`,
+            'Save', 'Discard', 'Cancel'
+          );
+
+          if (answer === 'Cancel') {
+            return;
+          }
+
+          if (answer === 'Save') {
+            // Use your existing apply changes command
+            await vscode.commands.executeCommand(
+              'vscode-eda.applyResourceChanges',
+              editDocumentUri,
+              { skipPrompt: true }
+            );
+          }
+        }
+
+        // 5) Get the current content of the edit document and update the view document
+        // Only do this if the document isn't dirty or user chose to discard changes
+        if (!editDoc.isDirty) {
+          const editYaml = editDoc.getText();
+          resourceViewProvider.setResourceContent(pair.viewUri, editYaml);
+        }
+
+        // 6) Open the view document WITHOUT closing the edit document
+        const viewDoc = await vscode.workspace.openTextDocument(pair.viewUri);
+        await vscode.languages.setTextDocumentLanguage(viewDoc, 'yaml');
+
+        await vscode.window.showTextDocument(viewDoc, {
+          preserveFocus: false,
+          preview: false
+        });
+
+        // 7) Add status bar item to switch back to edit mode
+        const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+        statusBarItem.text = "$(edit) Edit Mode";
+        statusBarItem.tooltip = "Switch to edit mode";
+        statusBarItem.command = {
+          title: "Switch to edit mode",
+          command: "vscode-eda.switchToEditResource",
+          arguments: [pair.viewUri]
+        };
+        statusBarItem.show();
+
+        // Dispose the status bar item when this document is no longer active
+        const disposable = vscode.window.onDidChangeActiveTextEditor(editor => {
+          if (!editor || editor.document.uri.toString() !== pair.viewUri.toString()) {
+            statusBarItem.dispose();
+            disposable.dispose();
+          }
+        });
+
+        context.subscriptions.push(disposable);
+
+      } catch (error) {
+        vscode.window.showErrorMessage(`Failed to switch to view mode: ${error}`);
+        log(`Error in switchToViewResource: ${error}`, LogLevel.ERROR, true);
       }
     }
   );
@@ -156,7 +295,7 @@ export function registerResourceEditCommands(
         // If we have an explicit option (dry run or direct apply), skip the initial prompt
         if (options.skipPrompt) {
           if (options.dryRun) {
-            return await validateAndPromptForApply(k8sClient, edactlClient, resourceEditProvider, documentUri, resource);
+            return await validateAndPromptForApply(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
           } else {
             // Direct apply - still show diff first
             const shouldContinue = await showResourceDiff(resourceEditProvider, documentUri);
@@ -167,9 +306,25 @@ export function registerResourceEditCommands(
             // Confirm and apply
             const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
             if (confirmed) {
-              const result = await applyResource(k8sClient, edactlClient, resource, { dryRun: false });
+              const result = await applyResource(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
               if (result) {
+                // Update both providers with the applied resource
                 resourceEditProvider.setOriginalResource(documentUri, resource);
+
+                // Update the view document if we have a pair
+                const resourceKey = getResourceKey(
+                  resource.metadata.namespace || 'default',
+                  resource.kind,
+                  resource.metadata.name
+                );
+                const pair = resourcePairs.get(resourceKey);
+                if (pair) {
+                  // Update the view URI's content
+                  const updatedYaml = yaml.dump(resource, { indent: 2 });
+                  resourceViewProvider.setResourceContent(pair.viewUri, updatedYaml);
+                  pair.originalResource = resource;
+                }
+
                 vscode.window.showInformationMessage(`Successfully applied ${resource.kind} "${resource.metadata?.name}"`,
                   'View Details').then(selection => {
                     if (selection === 'View Details') {
@@ -204,14 +359,29 @@ export function registerResourceEditCommands(
 
           if (nextAction === 'validate') {
             // Validate and then ask for apply
-            return await validateAndPromptForApply(k8sClient, edactlClient, resourceEditProvider, documentUri, resource);
+            return await validateAndPromptForApply(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
           } else {
             // Direct apply after diff
             const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
             if (confirmed) {
-              const result = await applyResource(k8sClient, edactlClient, resource, { dryRun: false });
+              const result = await applyResource(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
               if (result) {
+                // Update both providers
                 resourceEditProvider.setOriginalResource(documentUri, resource);
+
+                // Update the view document if we have a pair
+                const resourceKey = getResourceKey(
+                  resource.metadata.namespace || 'default',
+                  resource.kind,
+                  resource.metadata.name
+                );
+                const pair = resourcePairs.get(resourceKey);
+                if (pair) {
+                  const updatedYaml = yaml.dump(resource, { indent: 2 });
+                  resourceViewProvider.setResourceContent(pair.viewUri, updatedYaml);
+                  pair.originalResource = resource;
+                }
+
                 vscode.window.showInformationMessage(`Successfully applied ${resource.kind} "${resource.metadata?.name}"`,
                   'View Details').then(selection => {
                     if (selection === 'View Details') {
@@ -223,7 +393,7 @@ export function registerResourceEditCommands(
           }
         } else if (action === 'validate') {
           // Validate and then ask for apply
-          return await validateAndPromptForApply(k8sClient, edactlClient, resourceEditProvider, documentUri, resource);
+          return await validateAndPromptForApply(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
         } else {
           // Direct apply - still show diff first as a safeguard
           const shouldContinue = await showResourceDiff(resourceEditProvider, documentUri);
@@ -234,9 +404,24 @@ export function registerResourceEditCommands(
           // Confirm and apply
           const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
           if (confirmed) {
-            const result = await applyResource(k8sClient, edactlClient, resource, { dryRun: false });
+            const result = await applyResource(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
             if (result) {
+              // Update both providers
               resourceEditProvider.setOriginalResource(documentUri, resource);
+
+              // Update the view document if we have a pair
+              const resourceKey = getResourceKey(
+                resource.metadata.namespace || 'default',
+                resource.kind,
+                resource.metadata.name
+              );
+              const pair = resourcePairs.get(resourceKey);
+              if (pair) {
+                const updatedYaml = yaml.dump(resource, { indent: 2 });
+                resourceViewProvider.setResourceContent(pair.viewUri, updatedYaml);
+                pair.originalResource = resource;
+              }
+
               vscode.window.showInformationMessage(`Successfully applied ${resource.kind} "${resource.metadata?.name}"`,
                 'View Details').then(selection => {
                   if (selection === 'View Details') {
@@ -289,12 +474,48 @@ export function registerResourceEditCommands(
     }
   });
 
+  // Clean up resourcePairs when documents are closed
+  const onDidCloseTextDocument = vscode.workspace.onDidCloseTextDocument(document => {
+    // If a k8s or k8s-view document is closed, check if we need to clean up pairs
+    if (document.uri.scheme === 'k8s' || document.uri.scheme === 'k8s-view') {
+      let scheme = document.uri.scheme;
+      let otherScheme = scheme === 'k8s' ? 'k8s-view' : 'k8s';
+
+      // Find any matching pairs
+      for (const [key, pair] of resourcePairs.entries()) {
+        const uriToCheck = scheme === 'k8s' ? pair.editUri : pair.viewUri;
+
+        if (uriToCheck.toString() === document.uri.toString()) {
+          // Check if the other document in the pair is still open
+          const otherUri = scheme === 'k8s' ? pair.viewUri : pair.editUri;
+          const isOtherOpen = vscode.workspace.textDocuments.some(
+            doc => doc.uri.toString() === otherUri.toString()
+          );
+
+          // If other document is not open, remove the pair
+          if (!isOtherOpen) {
+            resourcePairs.delete(key);
+            log(`Removed resource pair for ${key}`, LogLevel.DEBUG);
+
+            // If this was a k8s document being closed, clean up the provider
+            if (scheme === 'k8s') {
+              resourceEditProvider.cleanupDocument(uriToCheck);
+            }
+          }
+          break;
+        }
+      }
+    }
+  });
+
   context.subscriptions.push(
     switchToEditCommand,
+    switchToViewCommand,
     applyChangesCommand,
     applyDryRunCommand,
     showDiffCommand,
-    onWillSaveTextDocument
+    onWillSaveTextDocument,
+    onDidCloseTextDocument
   );
 }
 
@@ -346,12 +567,13 @@ async function promptForNextAction(resource: any, currentStep: string): Promise<
 async function validateAndPromptForApply(
   k8sClient: KubernetesClient,
   edactlClient: EdactlClient,
-  resourceProvider: ResourceEditDocumentProvider,
+  resourceEditProvider: ResourceEditDocumentProvider,
+  resourceViewProvider: ResourceViewDocumentProvider,
   documentUri: vscode.Uri,
   resource: any
 ): Promise<void> {
   // Always show diff first
-  const shouldContinue = await showResourceDiff(resourceProvider, documentUri);
+  const shouldContinue = await showResourceDiff(resourceEditProvider, documentUri);
   if (!shouldContinue) {
     return;
   }
@@ -363,7 +585,7 @@ async function validateAndPromptForApply(
   }
 
   // Perform validation (dry run)
-  const validationResult = await applyResource(k8sClient, edactlClient, resource, { dryRun: true });
+  const validationResult = await applyResource(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: true });
 
   if (validationResult) {
     // Show success message for validation
@@ -374,9 +596,23 @@ async function validateAndPromptForApply(
 
     if (validationAction === 'Apply Changes') {
       // Now apply the changes
-      const applyResult = await applyResource(k8sClient, edactlClient, resource, { dryRun: false });
+      const applyResult = await applyResource(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
       if (applyResult) {
-        resourceProvider.setOriginalResource(documentUri, resource);
+        resourceEditProvider.setOriginalResource(documentUri, resource);
+
+        // Update the view document if we have a pair
+        const resourceKey = getResourceKey(
+          resource.metadata.namespace || 'default',
+          resource.kind,
+          resource.metadata.name
+        );
+        const pair = resourcePairs.get(resourceKey);
+        if (pair) {
+          const updatedYaml = yaml.dump(resource, { indent: 2 });
+          resourceViewProvider.setResourceContent(pair.viewUri, updatedYaml);
+          pair.originalResource = resource;
+        }
+
         vscode.window.showInformationMessage(`Successfully applied ${resource.kind} "${resource.metadata?.name}"`,
           'View Details').then(selection => {
             if (selection === 'View Details') {
@@ -543,23 +779,20 @@ async function confirmResourceUpdate(kind: string, name: string, dryRun: boolean
 async function applyResource(
   k8sClient: KubernetesClient,
   edactlClient: EdactlClient,
+  resourceEditProvider: ResourceEditDocumentProvider,
+  resourceViewProvider: ResourceViewDocumentProvider,
   resource: any,
   options: { dryRun?: boolean }
 ): Promise<boolean> {
   const isDryRun = options.dryRun || false;
-
-  // Store URI so we can reopen it if needed
-  let resourceUri: vscode.Uri | undefined;
+  const resourceKey = getResourceKey(
+    resource.metadata.namespace || 'default',
+    resource.kind,
+    resource.metadata.name
+  );
 
   try {
     log(`${isDryRun ? 'Validating' : 'Applying'} resource ${resource.kind}/${resource.metadata.name}...`, LogLevel.INFO, true);
-
-    // Create a URI for this resource to use later if needed
-    resourceUri = ResourceEditDocumentProvider.createUri(
-      resource.metadata.namespace || 'default',
-      resource.kind,
-      resource.metadata.name
-    );
 
     // Determine if this is an EDA resource
     const isEdaResource = resource.apiVersion?.endsWith('.eda.nokia.com');
@@ -616,11 +849,11 @@ async function applyResource(
       // Notify resource service of changes
       serviceManager.getService<ResourceService>('kubernetes-resources').forceRefresh();
 
-      // Close any open diff editors
-      await closeDiffEditor();
-
-      // Switch back to read-only view with fresh content
-      await switchToReadOnlyView(resource);
+      // Update the resource pair with the newest resource
+      const pair = resourcePairs.get(resourceKey);
+      if (pair) {
+        pair.originalResource = resource;
+      }
     }
 
     // Always show results in output channel
@@ -650,143 +883,6 @@ async function applyResource(
     // Always show the output channel
     edaOutputChannel.show();
 
-    // If the resource isn't open anymore, try to reopen it
-    if (resourceUri) {
-      try {
-        const isResourceOpen = vscode.window.visibleTextEditors.some(
-          editor => editor.document.uri.toString() === resourceUri?.toString()
-        );
-
-        if (!isResourceOpen) {
-          const document = await vscode.workspace.openTextDocument(resourceUri);
-          await vscode.window.showTextDocument(document, { preview: false });
-        }
-      } catch (reopenErr) {
-        log(`Failed to reopen resource after error: ${reopenErr}`, LogLevel.ERROR);
-      }
-    }
-
     return false;
-  }
-}
-
-/**
- * Helper function to switch from editable to read-only view
- */
-async function switchToReadOnlyView(resource: any): Promise<void> {
-  try {
-    const namespace = resource.metadata.namespace || 'default';
-    const kind = resource.kind;
-    const name = resource.metadata.name;
-
-    // Create URI for the editable document
-    const editableUri = ResourceEditDocumentProvider.createUri(namespace, kind, name);
-
-    // Close all instances of the editable document
-    await closeAllEditorsWithUri(editableUri);
-
-    // Create a fake tree item that the viewResource command expects
-    const treeItem = {
-      namespace: namespace,
-      resourceType: kind.toLowerCase(),
-      label: name,
-      contextValue: 'crd-instance',
-      resource: {
-        name: name,
-        kind: kind,
-        raw: {
-          apiVersion: resource.apiVersion,
-          kind: resource.kind,
-          metadata: {
-            name: name,
-            namespace: namespace
-          }
-        }
-      }
-    };
-
-    // Now open a fresh read-only view using the viewResource command
-    log(`Opening fresh read-only view for ${kind}/${name}`, LogLevel.DEBUG);
-    await vscode.commands.executeCommand('vscode-eda.viewResource', treeItem);
-
-  } catch (error) {
-    log(`Error switching to read-only view: ${error}`, LogLevel.ERROR);
-  }
-}
-
-/**
- * Helper function to close all editors displaying a document with the given URI
- */
-async function closeAllEditorsWithUri(uri: vscode.Uri): Promise<void> {
-  try {
-    // Find all editors displaying the document
-    const editors = vscode.window.visibleTextEditors.filter(
-      editor => editor.document.uri.toString() === uri.toString()
-    );
-
-    // No editors to close
-    if (editors.length === 0) {
-      return;
-    }
-
-    log(`Closing ${editors.length} editors for URI: ${uri}`, LogLevel.DEBUG);
-
-    // Save the currently active editor to restore focus after closing
-    let activeEditor = vscode.window.activeTextEditor;
-
-    // For each editor showing the document
-    for (const editor of editors) {
-      // First make this editor active
-      await vscode.window.showTextDocument(editor.document, { preserveFocus: false });
-      // Close the active editor (which is now our target)
-      await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
-    }
-
-    // Add a small delay to ensure VSCode UI updates
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    // If we had an active editor before and it's not one we closed, restore focus to it
-    if (activeEditor && !editors.includes(activeEditor)) {
-      await vscode.window.showTextDocument(activeEditor.document, { preserveFocus: false });
-    }
-  } catch (error) {
-    log(`Error closing editors: ${error}`, LogLevel.ERROR);
-  }
-}
-
-// Helper function to close diff editors and then reopen the resource
-async function closeDiffEditor(): Promise<void> {
-  try {
-    // First, identify if there's a k8s resource open that we'll need to reopen
-    let resourceUri: vscode.Uri | undefined;
-    const resourceEditor = vscode.window.visibleTextEditors.find(
-      editor => editor.document.uri.scheme === 'k8s'
-    );
-
-    if (resourceEditor) {
-      resourceUri = resourceEditor.document.uri;
-      log(`Found resource to reopen: ${resourceUri.toString()}`, LogLevel.DEBUG);
-    }
-
-    // Find if there's a diff editor open
-    const hasDiffEditor = vscode.window.visibleTextEditors.some(
-      editor => editor.document.uri.scheme === 'k8s-diff'
-    );
-
-    if (hasDiffEditor) {
-      // Close the active editor (which should be the diff)
-      await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
-
-      // If we had a resource open, reopen it
-      if (resourceUri) {
-        log(`Reopening resource: ${resourceUri.toString()}`, LogLevel.DEBUG);
-        // Small delay to ensure the editor has closed
-        await new Promise(resolve => setTimeout(resolve, 100));
-        const document = await vscode.workspace.openTextDocument(resourceUri);
-        await vscode.window.showTextDocument(document, { preview: false });
-      }
-    }
-  } catch (error) {
-    log(`Error in closeDiffEditor: ${error}`, LogLevel.ERROR);
   }
 }

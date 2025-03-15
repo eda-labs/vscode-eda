@@ -205,7 +205,7 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
       vscode.workspace.registerFileSystemProvider('k8s', resourceEditProvider, { isCaseSensitive: true })
     );
-    registerResourceEditCommands(context, resourceEditProvider);
+    registerResourceEditCommands(context, resourceEditProvider, resourceViewProvider);
 
     // Register commands - add these after the other registerXXXCommands calls
     registerPodCommands(context, podDescribeProvider);
