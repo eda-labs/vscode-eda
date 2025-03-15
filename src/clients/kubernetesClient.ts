@@ -56,6 +56,9 @@ export class KubernetesClient {
   private _onDeviationChanged = new vscode.EventEmitter<void>();
   public readonly onDeviationChanged: vscode.Event<void> = this._onDeviationChanged.event;
 
+  private _onTransactionChanged = new vscode.EventEmitter<void>();
+  public readonly onTransactionChanged: vscode.Event<void> = this._onTransactionChanged.event;
+
   private kc: KubeConfig;
   private apiExtensionsV1Api: ApiextensionsV1Api;
   private customObjectsApi: CustomObjectsApi;
@@ -74,47 +77,47 @@ export class KubernetesClient {
   // CoreV1 resource watchers
   private podInformers: Map<string, any> = new Map();
   private podsCache: Map<string, V1Pod[]> = new Map();
-  
+
   private serviceInformers: Map<string, any> = new Map();
   private servicesCache: Map<string, V1Service[]> = new Map();
-  
+
   private configMapInformers: Map<string, any> = new Map();
   private configMapsCache: Map<string, V1ConfigMap[]> = new Map();
-  
+
   private secretInformers: Map<string, any> = new Map();
   private secretsCache: Map<string, V1Secret[]> = new Map();
-  
+
   private pvcInformers: Map<string, any> = new Map();
   private pvcsCache: Map<string, V1PersistentVolumeClaim[]> = new Map();
-  
+
   private endpointsInformers: Map<string, any> = new Map();
   private endpointsCache: Map<string, V1Endpoints[]> = new Map();
-  
-  
+
+
   // Cluster-scoped resources
   private pvInformer: any;
   private pvsCache: V1PersistentVolume[] = [];
-  
+
   // AppsV1 resource watchers
   private deploymentInformers: Map<string, any> = new Map();
   private deploymentsCache: Map<string, V1Deployment[]> = new Map();
-  
+
   private replicaSetInformers: Map<string, any> = new Map();
   private replicaSetsCache: Map<string, V1ReplicaSet[]> = new Map();
-  
+
   private statefulSetInformers: Map<string, any> = new Map();
   private statefulSetsCache: Map<string, V1StatefulSet[]> = new Map();
-  
+
   private daemonSetInformers: Map<string, any> = new Map();
   private daemonSetsCache: Map<string, V1DaemonSet[]> = new Map();
-  
+
   // BatchV1 resource watchers
   private jobInformers: Map<string, any> = new Map();
   private jobsCache: Map<string, V1Job[]> = new Map();
-  
+
   private cronJobInformers: Map<string, any> = new Map();
   private cronJobsCache: Map<string, V1CronJob[]> = new Map();
-  
+
   // NetworkingV1 resource watchers
   private ingressInformers: Map<string, any> = new Map();
   private ingressesCache: Map<string, V1Ingress[]> = new Map();
@@ -255,17 +258,17 @@ export class KubernetesClient {
     this.stopInformers(this.secretInformers);
     this.stopInformers(this.pvcInformers);
     this.stopInformers(this.endpointsInformers);
-    
+
     // AppsV1 resources
     this.stopInformers(this.deploymentInformers);
     this.stopInformers(this.replicaSetInformers);
     this.stopInformers(this.statefulSetInformers);
     this.stopInformers(this.daemonSetInformers);
-    
+
     // BatchV1 resources
     this.stopInformers(this.jobInformers);
     this.stopInformers(this.cronJobInformers);
-    
+
     // NetworkingV1 resources
     this.stopInformers(this.ingressInformers);
   }
@@ -290,7 +293,7 @@ export class KubernetesClient {
   private clearAllCaches(): void {
     this.resourceInformers.clear();
     this.resourceCache.clear();
-    
+
     // Clear CoreV1 caches
     this.podInformers.clear();
     this.podsCache.clear();
@@ -304,10 +307,10 @@ export class KubernetesClient {
     this.pvcsCache.clear();
     this.endpointsInformers.clear();
     this.endpointsCache.clear();
-    
+
     // Clear cluster-scoped caches
     this.pvsCache = [];
-    
+
     // Clear AppsV1 caches
     this.deploymentInformers.clear();
     this.deploymentsCache.clear();
@@ -317,17 +320,17 @@ export class KubernetesClient {
     this.statefulSetsCache.clear();
     this.daemonSetInformers.clear();
     this.daemonSetsCache.clear();
-    
+
     // Clear BatchV1 caches
     this.jobInformers.clear();
     this.jobsCache.clear();
     this.cronJobInformers.clear();
     this.cronJobsCache.clear();
-    
+
     // Clear NetworkingV1 caches
     this.ingressInformers.clear();
     this.ingressesCache.clear();
-    
+
     // Clear main caches
     this.crdsCache = [];
     this.namespacesCache = [];
@@ -1129,6 +1132,9 @@ export class KubernetesClient {
         if (crd.spec?.names?.kind === 'Deviation') {
           this._onDeviationChanged.fire();
         }
+        if (crd.spec?.names?.kind === 'TransactionResult') {
+          this._onTransactionChanged.fire();
+        }
         // Fire the event with a slight delay to ensure consistent state
         setTimeout(() => {
           this._onResourceChanged.fire();
@@ -1151,6 +1157,9 @@ export class KubernetesClient {
       if (crd.spec?.names?.kind === 'Deviation') {
         this._onDeviationChanged.fire();
       }
+      if (crd.spec?.names?.kind === 'TransactionResult') {
+        this._onTransactionChanged.fire();
+      }
       // Fire the event with a slight delay
         this.debouncedFireResourceChanged();
     });
@@ -1163,6 +1172,9 @@ export class KubernetesClient {
       log(`Watcher detected deletion of ${crd.spec?.names?.kind || 'resource'}: ${resourceName}`, LogLevel.INFO);
       if (crd.spec?.names?.kind === 'Deviation') {
         this._onDeviationChanged.fire();
+      }
+      if (crd.spec?.names?.kind === 'TransactionResult') {
+        this._onTransactionChanged.fire();
       }
       // Fire the event with a slight delay
         this.debouncedFireResourceChanged();
@@ -1309,17 +1321,17 @@ export class KubernetesClient {
   }
 
   /**
-   * Debounced method to fire resource change events 
+   * Debounced method to fire resource change events
    */
   private debouncedFireResourceChanged(): void {
     // Cancel any pending timer
     if (this.resourceChangeDebounceTimer) {
       clearTimeout(this.resourceChangeDebounceTimer);
     }
-    
+
     // Set a flag that changes are pending
     this.resourceChangesPending = true;
-    
+
     // Schedule a single event after 100ms
     this.resourceChangeDebounceTimer = setTimeout(() => {
       if (this.resourceChangesPending) {
@@ -1384,8 +1396,10 @@ export class KubernetesClient {
     this.crdsInformer?.stop();
     this.namespacesInformer?.stop();
     this.pvInformer?.stop();
-    
+
     this._onResourceChanged.dispose();
+    this._onDeviationChanged.dispose();
+    this._onTransactionChanged.dispose();
 
     // Clear all caches
     this.clearAllCaches();

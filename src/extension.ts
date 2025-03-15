@@ -164,6 +164,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
     edaTransactionProvider = new EdaTransactionProvider(context);
 
+    k8sClient.onTransactionChanged(() => {
+      edaTransactionProvider.refresh();  // Only refreshes the Transaction tree
+      log('Transaction change detected, refreshing transaction view', LogLevel.DEBUG);
+    });
+
     // Initialize document providers
     alarmDetailsProvider = new AlarmDetailsDocumentProvider();
     deviationDetailsProvider = new DeviationDetailsDocumentProvider();
