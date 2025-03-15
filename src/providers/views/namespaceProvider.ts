@@ -16,6 +16,8 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   private _onDidChangeTreeData = new vscode.EventEmitter<TreeItemBase | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
+  private expandAll: boolean = false;
+
   private k8sClient: KubernetesClient;
   private resourceService: ResourceService;
   private statusService: ResourceStatusService;
@@ -78,6 +80,14 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   }
 
   /**
+   * Set whether all tree items should be expanded
+   */
+  public setExpandAll(expand: boolean): void {
+    this.expandAll = expand;
+    this.refresh();
+  }
+
+  /**
    * Set filter text for searching categories/types/instances
    */
   public setTreeFilter(filterText: string): void {
@@ -125,13 +135,70 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   }
 
   /**
+   * Implementation of TreeDataProvider: gets the parent of a tree item
+   */
+  getParent(element: TreeItemBase): vscode.ProviderResult<TreeItemBase> {
+    // If element is namespace or a message, it's a root element, so no parent
+    if (element.contextValue === 'namespace' || element.contextValue === 'message') {
+      return null;
+    }
+    // If element is a resource category, its parent is the namespace
+    else if (element.contextValue === 'resource-category') {
+      // Find the namespace item that matches this element's namespace
+      const namespaces = this.getNamespaces();
+      return namespaces.find(ns => ns.label === element.namespace);
+    }
+    // If element is a resource type, its parent is the resource category
+    else if (element.contextValue === 'resource-type') {
+      // Find the category that contains this resource type
+      const categories = this.getResourceCategories(element.namespace || '');
+      return categories.find(cat => cat.resourceCategory === element.resourceCategory);
+    }
+    // If element is a resource instance (pod, crd-instance, etc), its parent is the resource type
+    else if (element.contextValue === 'pod' || element.contextValue === 'crd-instance') {
+      const namespace = element.namespace || '';
+      const resourceType = element.resourceType || '';
+      const resourceCategory = element.resourceCategory || '';
+
+      // Find the appropriate parent resource type
+      if (resourceCategory === 'eda') {
+        const edaTypes = this.getEdaResourceTypes(namespace);
+        return edaTypes.find(type => type.resourceType === resourceType);
+      } else if (resourceCategory === 'k8s') {
+        const k8sTypes = this.getK8sResourceTypes(namespace);
+        return k8sTypes.find(type => type.resourceType === resourceType);
+      }
+    }
+
+    return null;
+  }
+
+  public async expandAllNamespaces(treeView: vscode.TreeView<TreeItemBase>): Promise<void> {
+    // Get namespaces
+    const namespaces = await this.getChildren();
+
+    // First reveal all namespaces
+    for (const namespace of namespaces) {
+      if (namespace.contextValue === 'namespace') {
+        await treeView.reveal(namespace, { expand: 1 });
+
+        // Then reveal categories under each namespace
+        const categories = await this.getChildren(namespace);
+        for (const category of categories) {
+          await treeView.reveal(category, { expand: 2 });
+        }
+      }
+    }
+  }
+
+  /**
    * Build the list of namespaces - never hidden by filter
    */
   private getNamespaces(): TreeItemBase[] {
     if (this.cachedNamespaces.length === 0) {
       const msgItem = new TreeItemBase(
         'No EDA namespaces found',
-        vscode.TreeItemCollapsibleState.None,
+        this.expandAll ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
         'message'
       );
       msgItem.iconPath = new vscode.ThemeIcon('warning');
@@ -141,7 +208,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
     return this.cachedNamespaces.map(ns => {
       const treeItem = new TreeItemBase(
         ns,
-        vscode.TreeItemCollapsibleState.Collapsed,
+        this.expandAll ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
         'namespace'
       );
       treeItem.iconPath = new vscode.ThemeIcon('package');
@@ -169,7 +236,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       // Make a node for the category
       const treeItem = new TreeItemBase(
         cat.label,
-        vscode.TreeItemCollapsibleState.Collapsed,
+        this.expandAll ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
         'resource-category'
       );
       treeItem.iconPath = new vscode.ThemeIcon(cat.icon);
@@ -197,7 +264,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
     if (result.length === 0 && this.treeFilter) {
       const noMatchItem = new TreeItemBase(
         `No categories match "${this.treeFilter}"`,
-        vscode.TreeItemCollapsibleState.None,
+        this.expandAll ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
         'message'
       );
       noMatchItem.iconPath = new vscode.ThemeIcon('info');
@@ -222,7 +289,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       log(`Error getting resource types for category ${category}: ${error}`, LogLevel.ERROR);
       const errorItem = new TreeItemBase(
         'Error loading resources',
-        vscode.TreeItemCollapsibleState.None,
+        this.expandAll ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
         'error'
       );
       errorItem.iconPath = new vscode.ThemeIcon('error');
@@ -263,7 +330,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       // We'll finalize that logic in getResourceInstances. Here we simply create the node.
       const treeItem = new TreeItemBase(
         label,
-        vscode.TreeItemCollapsibleState.Collapsed,
+        this.expandAll ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
         'resource-type'
       );
       treeItem.iconPath = new vscode.ThemeIcon('symbol-class');
@@ -348,7 +415,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       const label = rt.kind;
       const treeItem = new TreeItemBase(
         label,
-        vscode.TreeItemCollapsibleState.Collapsed,
+        this.expandAll ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
         'resource-type'
       );
       treeItem.iconPath = new vscode.ThemeIcon(rt.icon);
@@ -449,7 +516,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
 
       const treeItem = new TreeItemBase(
         name,
-        vscode.TreeItemCollapsibleState.None,
+        this.expandAll ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
         contextValue,
         inst
       );

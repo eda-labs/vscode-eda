@@ -116,6 +116,11 @@
         "icon": "$(filter)"
       },
       {
+        "command": "vscode-eda.expandAllNamespaces",
+        "title": "Expand All",
+        "icon": "$(expand-all)"
+      },
+      {
         "command": "vscode-eda.createResource",
         "title": "Create Resource",
         "icon": "$(add)"
@@ -160,24 +165,24 @@
     "menus": {
       "view/title": [
         {
-          "command": "vscode-eda.refreshResources",
+          "command": "vscode-eda.filterTree",
           "when": "view == edaNamespaces",
           "group": "navigation@1"
         },
         {
-          "command": "vscode-eda.filterTree",
-          "when": "view == edaNamespaces",
-          "group": "navigation@2"
-        },
-        {
           "command": "vscode-eda.clearFilter",
           "when": "view == edaNamespaces || view == edaSystem",
-          "group": "navigation@4"
+          "group": "navigation@2"
         },
         {
           "command": "vscode-eda.createResource",
           "when": "view == edaNamespaces || view == edaSystem",
-          "group": "navigation@5"
+          "group": "navigation@3"
+        },
+        {
+          "command": "vscode-eda.expandAllNamespaces",
+          "when": "view == edaNamespaces",
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [

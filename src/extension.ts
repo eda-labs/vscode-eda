@@ -262,6 +262,14 @@ export async function activate(context: vscode.ExtensionContext) {
       })
     );
 
+
+  // Register your "Expand All" command
+  context.subscriptions.push(
+    vscode.commands.registerCommand('vscode-eda.expandAllNamespaces', async () => {
+      await namespaceProvider.expandAllNamespaces(namespaceTreeView);
+    })
+  );
+
     context.subscriptions.push(
       vscode.commands.registerCommand('vscode-eda.clearFilter', () => {
         namespaceProvider.clearTreeFilter();
