@@ -19,6 +19,7 @@ import { registerDeviationCommands } from './commands/deviationCommands';
 import { registerTransactionCommands } from './commands/transactionCommands';
 import { registerViewCommands } from './commands/viewCommands';
 import { registerResourceEditCommands } from './commands/resourceEditCommands';
+import { registerResourceCreateCommand } from './commands/resourceCreateCommand';
 import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 import { PodDescribeDocumentProvider } from './providers/documents/podDescribeProvider';
 import { ResourceViewDocumentProvider } from './providers/documents/resourceViewProvider';
@@ -107,7 +108,7 @@ export async function activate(context: vscode.ExtensionContext) {
     log('Initializing service architecture...', LogLevel.INFO, true);
 
     // 1) Create the clients independently
-    
+
     const k8sClient = new KubernetesClient();
     const edactlClient = new EdactlClient(k8sClient);
     const currentContext = k8sClient.getCurrentContext();
@@ -211,6 +212,8 @@ export async function activate(context: vscode.ExtensionContext) {
       vscode.workspace.registerFileSystemProvider('k8s', resourceEditProvider, { isCaseSensitive: true })
     );
     registerResourceEditCommands(context, resourceEditProvider, resourceViewProvider);
+
+    registerResourceCreateCommand(context, resourceEditProvider);
 
     // Register commands - add these after the other registerXXXCommands calls
     registerPodCommands(context, podDescribeProvider);

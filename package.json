@@ -168,6 +168,16 @@
           "command": "vscode-eda.filterTree",
           "when": "view == edaNamespaces",
           "group": "navigation@2"
+        },
+        {
+          "command": "vscode-eda.clearFilter",
+          "when": "view == edaNamespaces || view == edaSystem",
+          "group": "navigation@4"
+        },
+        {
+          "command": "vscode-eda.createResource",
+          "when": "view == edaNamespaces || view == edaSystem",
+          "group": "navigation@5"
         }
       ],
       "view/item/context": [
