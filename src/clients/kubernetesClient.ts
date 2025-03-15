@@ -129,6 +129,9 @@ export class KubernetesClient {
   private resourceInformers: Map<string, any> = new Map();
   private resourceCache: Map<string, KubernetesObject[]> = new Map();
 
+  private resourceChangeDebounceTimer: NodeJS.Timeout | null = null;
+  private resourceChangesPending: boolean = false;
+
   constructor() {
     this.kc = new KubeConfig();
     try {
@@ -377,7 +380,7 @@ export class KubernetesClient {
     this.crdsInformer = makeInformer<V1CustomResourceDefinition>(
       this.kc,
       '/apis/apiextensions.k8s.io/v1/customresourcedefinitions',
-      listCrds
+      listCrds,
     );
 
     this.crdsInformer.on('add', (obj: V1CustomResourceDefinition) => {
@@ -449,9 +452,7 @@ export class KubernetesClient {
       if (this.edactlClient) {
         await this.refreshEdaNamespaces(); // re-check if EDA ns changed
       }
-      setTimeout(() => {
-        this._onResourceChanged.fire();
-      }, 50);
+        this.debouncedFireResourceChanged();
     });
 
     this.namespacesInformer.on('update', async (obj: V1Namespace) => {
@@ -465,9 +466,7 @@ export class KubernetesClient {
       if (this.edactlClient) {
         await this.refreshEdaNamespaces();
       }
-      setTimeout(() => {
-        this._onResourceChanged.fire();
-      }, 50);
+        this.debouncedFireResourceChanged();
     });
 
     this.namespacesInformer.on('delete', async (obj: V1Namespace) => {
@@ -478,9 +477,7 @@ export class KubernetesClient {
       if (this.edactlClient) {
         await this.refreshEdaNamespaces();
       }
-      setTimeout(() => {
-        this._onResourceChanged.fire();
-      }, 50);
+        this.debouncedFireResourceChanged();
     });
 
     this.namespacesInformer.on('error', (err: any) => {
@@ -512,7 +509,7 @@ export class KubernetesClient {
     this.pvInformer = makeInformer<V1PersistentVolume>(
       this.kc,
       '/api/v1/persistentvolumes',
-      listPVs
+      listPVs,
     );
 
     this.pvInformer.on('add', (obj: V1PersistentVolume) => {
@@ -520,9 +517,7 @@ export class KubernetesClient {
         this.pvsCache.push(obj);
         log(`Watcher detected new PersistentVolume: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO);
       }
-      setTimeout(() => {
-        this._onResourceChanged.fire();
-      }, 50);
+        this.debouncedFireResourceChanged();
     });
 
     this.pvInformer.on('update', (obj: V1PersistentVolume) => {
@@ -533,17 +528,13 @@ export class KubernetesClient {
         this.pvsCache.push(obj);
       }
       log(`Watcher detected update to PersistentVolume: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO);
-      setTimeout(() => {
-        this._onResourceChanged.fire();
-      }, 50);
+        this.debouncedFireResourceChanged();
     });
 
     this.pvInformer.on('delete', (obj: V1PersistentVolume) => {
       this.pvsCache = this.pvsCache.filter((o) => o.metadata?.uid !== obj.metadata?.uid);
       log(`Watcher detected deletion of PersistentVolume: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO);
-      setTimeout(() => {
-        this._onResourceChanged.fire();
-      }, 50);
+        this.debouncedFireResourceChanged();
     });
 
     this.pvInformer.on('error', (err: any) => {
@@ -961,9 +952,7 @@ export class KubernetesClient {
       log(`Watcher detected update to ${resourceKind}: ${obj.metadata?.name || 'unknown'} in namespace ${namespace}`, LogLevel.INFO);
 
       // Fire the event with a slight delay
-      setTimeout(() => {
-        this._onResourceChanged.fire();
-      }, 50);
+        this.debouncedFireResourceChanged();
     });
 
     informer.on('delete', (obj: any) => {
@@ -973,9 +962,7 @@ export class KubernetesClient {
       log(`Watcher detected deletion of ${resourceKind}: ${obj.metadata?.name || 'unknown'} in namespace ${namespace}`, LogLevel.INFO);
 
       // Fire the event with a slight delay
-      setTimeout(() => {
-        this._onResourceChanged.fire();
-      }, 50);
+        this.debouncedFireResourceChanged();
     });
 
     informer.on('error', (err: any) => {
@@ -1165,9 +1152,7 @@ export class KubernetesClient {
         this._onDeviationChanged.fire();
       }
       // Fire the event with a slight delay
-      setTimeout(() => {
-        this._onResourceChanged.fire();
-      }, 50);
+        this.debouncedFireResourceChanged();
     });
 
     informer.on('delete', (obj: KubernetesObject) => {
@@ -1180,9 +1165,7 @@ export class KubernetesClient {
         this._onDeviationChanged.fire();
       }
       // Fire the event with a slight delay
-      setTimeout(() => {
-        this._onResourceChanged.fire();
-      }, 50);
+        this.debouncedFireResourceChanged();
     });
 
     informer.on('error', (err: any) => {
@@ -1325,6 +1308,29 @@ export class KubernetesClient {
     return results;
   }
 
+  /**
+   * Debounced method to fire resource change events 
+   */
+  private debouncedFireResourceChanged(): void {
+    // Cancel any pending timer
+    if (this.resourceChangeDebounceTimer) {
+      clearTimeout(this.resourceChangeDebounceTimer);
+    }
+    
+    // Set a flag that changes are pending
+    this.resourceChangesPending = true;
+    
+    // Schedule a single event after 100ms
+    this.resourceChangeDebounceTimer = setTimeout(() => {
+      if (this.resourceChangesPending) {
+        log(`Firing debounced resource changed event`, LogLevel.DEBUG);
+        this._onResourceChanged.fire();
+        this.resourceChangesPending = false;
+      }
+      this.resourceChangeDebounceTimer = null;
+    }, 100); // Adjust timeout as needed
+  }
+
   public getCachedResources(group: string, version: string, plural: string, namespace?: string): KubernetesObject[] {
     let results: KubernetesObject[] = [];
 
@@ -1356,7 +1362,7 @@ export class KubernetesClient {
       }
     }
 
-    //log(`Found ${results.length} cached ${plural} resources in ${namespace || 'all namespaces'}`, LogLevel.DEBUG);
+    log(`Found ${results.length} cached ${plural} resources in ${namespace || 'all namespaces'}`, LogLevel.DEBUG);
     return results;
   }
 
