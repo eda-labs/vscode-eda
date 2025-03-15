@@ -14,12 +14,21 @@ export function registerTransactionCommands(
   const revertTransactionCmd = vscode.commands.registerCommand(
     'vscode-eda.revertTransaction',
     async (treeItem) => {
-      if (!treeItem?.resource?.id) {
-        vscode.window.showErrorMessage('No transaction ID available.');
-        return;
+      if (!treeItem?.resource?.raw?.id) {
+        // Also try alternative access path
+        if (!treeItem?.label) {
+          vscode.window.showErrorMessage('No transaction ID available.');
+          return;
+        }
+        
+        // The label format is "ID - Username", so extract the ID
+        const transactionId = treeItem.label.toString().split(' - ')[0];
+        if (!transactionId) {
+          vscode.window.showErrorMessage('Could not extract transaction ID from label.');
+          return;
+        }
       }
-
-      const transactionId = treeItem.resource.id;
+      const transactionId = treeItem?.resource?.raw?.id || treeItem.label.toString().split(' - ')[0];
       const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
 
       // Fetch transaction details to get commit hash
@@ -48,7 +57,7 @@ export function registerTransactionCommands(
             log(`Executing revert for transaction ${transactionId} (${commitHash})`, LogLevel.INFO, true);
 
             // Execute revert command via edactl
-            const output = await edactlClient.executeEdactl(`transaction revert ${commitHash}`);
+            const output = await edactlClient.executeEdactl(`git revert ${commitHash}`);
 
             vscode.window.showInformationMessage(`Transaction ${transactionId} reverted successfully.`);
             edaOutputChannel.appendLine(`Revert Transaction ${transactionId} (${commitHash}) output:\n${output}`);
@@ -71,12 +80,21 @@ export function registerTransactionCommands(
   const restoreTransactionCmd = vscode.commands.registerCommand(
     'vscode-eda.restoreTransaction',
     async (treeItem) => {
-      if (!treeItem?.resource?.id) {
-        vscode.window.showErrorMessage('No transaction ID available.');
-        return;
+      if (!treeItem?.resource?.raw?.id) {
+        // Also try alternative access path
+        if (!treeItem?.label) {
+          vscode.window.showErrorMessage('No transaction ID available.');
+          return;
+        }
+        
+        // The label format is "ID - Username", so extract the ID
+        const transactionId = treeItem.label.toString().split(' - ')[0];
+        if (!transactionId) {
+          vscode.window.showErrorMessage('Could not extract transaction ID from label.');
+          return;
+        }
       }
-
-      const transactionId = treeItem.resource.id;
+      const transactionId = treeItem?.resource?.raw?.id || treeItem.label.toString().split(' - ')[0];
       const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
 
       // Fetch transaction details to get commit hash
@@ -105,7 +123,7 @@ export function registerTransactionCommands(
             log(`Executing restore for transaction ${transactionId} (${commitHash})`, LogLevel.INFO, true);
 
             // Execute restore command via edactl
-            const output = await edactlClient.executeEdactl(`transaction restore ${commitHash}`);
+            const output = await edactlClient.executeEdactl(`git restore ${commitHash}`);
 
             vscode.window.showInformationMessage(`Transaction ${transactionId} restored successfully.`);
             edaOutputChannel.appendLine(`Restore Transaction ${transactionId} (${commitHash}) output:\n${output}`);
