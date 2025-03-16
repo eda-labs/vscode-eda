@@ -8,7 +8,7 @@ import { log, LogLevel } from '../../extension';
 export class EdaTransactionProvider implements vscode.TreeDataProvider<TransactionTreeItem> {
   private _onDidChangeTreeData: vscode.EventEmitter<TransactionTreeItem | undefined | null | void> = new vscode.EventEmitter<TransactionTreeItem | undefined | null | void>();
   readonly onDidChangeTreeData: vscode.Event<TransactionTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
-  
+
   private edactlClient: EdactlClient;
   private statusService: ResourceStatusService;
 

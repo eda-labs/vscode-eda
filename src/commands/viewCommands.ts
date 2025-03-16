@@ -29,7 +29,7 @@ export function registerViewCommands(
       try {
         // Get EdactlClient from service manager
         const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
-        
+
         // Retrieve text from "edactl transaction <id>"
         const detailsText = await edactlClient.getTransactionDetails(transactionId);
 
@@ -58,7 +58,7 @@ export function registerViewCommands(
 
   // Show CRD Definition command
   const showCRDDefinitionCommand = vscode.commands.registerCommand(
-    'vscode-eda.showCRDDefinition', 
+    'vscode-eda.showCRDDefinition',
     async (treeItem: any) => {
       try {
         if (!treeItem?.resource?.kind) {
@@ -71,12 +71,12 @@ export function registerViewCommands(
         // Get CRD YAML
         const matchingCrds = k8sClient.getCachedCrds()
           .filter((crd: any) => crd.spec?.names?.kind === kind);
-        
+
         if (!matchingCrds || matchingCrds.length === 0) {
           vscode.window.showErrorMessage(`Could not find CRD for kind "${kind}"`);
           return;
         }
-        
+
         const crdYaml = JSON.stringify(matchingCrds[0], null, 2);
 
         // Create a unique crd: URI
@@ -201,6 +201,6 @@ export function registerViewCommands(
       vscode.window.showErrorMessage(`Failed to load deviation details: ${error.message || error}`);
     }
   });
-  
+
   context.subscriptions.push(showTransactionDetailsCommand, showCRDDefinitionCommand);
 }

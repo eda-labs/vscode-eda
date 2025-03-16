@@ -20,7 +20,7 @@ export function registerTransactionCommands(
           vscode.window.showErrorMessage('No transaction ID available.');
           return;
         }
-        
+
         // The label format is "ID - Username", so extract the ID
         const transactionId = treeItem.label.toString().split(' - ')[0];
         if (!transactionId) {
@@ -43,7 +43,7 @@ export function registerTransactionCommands(
         }
 
         const commitHash = match[1];
-        log(`Found commit hash ${commitHash} for transaction ${transactionId}`, LogLevel.INFO);
+        log(`Found commit hash ${commitHash} for transaction ${transactionId}`, LogLevel.DEBUG);
 
         // Confirm with user
         const confirmed = await vscode.window.showWarningMessage(
@@ -86,7 +86,7 @@ export function registerTransactionCommands(
           vscode.window.showErrorMessage('No transaction ID available.');
           return;
         }
-        
+
         // The label format is "ID - Username", so extract the ID
         const transactionId = treeItem.label.toString().split(' - ')[0];
         if (!transactionId) {

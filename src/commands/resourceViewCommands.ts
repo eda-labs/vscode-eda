@@ -1,7 +1,5 @@
 // src/commands/resourceViewCommands.ts
-
 import * as vscode from 'vscode';
-import * as yaml from 'js-yaml';
 import { log, LogLevel } from '../extension';
 import { serviceManager } from '../services/serviceManager';
 import { KubernetesClient } from '../clients/kubernetesClient';

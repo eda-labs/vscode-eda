@@ -400,7 +400,7 @@ export class ResourceStatusService extends CoreService {
   private extractStatusFields(status: any, kind: string): { label: string, value: string }[] {
     const fields: { label: string, value: string }[] = [];
     if (!status) return fields;
-  
+
     // Handle standard resource kinds as before
     switch (kind) {
       case 'Pod':
@@ -419,7 +419,7 @@ export class ResourceStatusService extends CoreService {
           }
         }
         break;
-  
+
       case 'Deployment':
         if (status.replicas !== undefined) fields.push({ label: 'Replicas', value: `${status.replicas}` });
         if (status.readyReplicas !== undefined) fields.push({ label: 'Ready', value: `${status.readyReplicas}` });
@@ -434,7 +434,7 @@ export class ResourceStatusService extends CoreService {
           }
         }
         break;
-  
+
       case 'Service':
         if (status.loadBalancer?.ingress && Array.isArray(status.loadBalancer.ingress)) {
           for (const ingress of status.loadBalancer.ingress) {
@@ -447,7 +447,7 @@ export class ResourceStatusService extends CoreService {
           }
         }
         break;
-  
+
       default:
         // For custom resources, we extract only the actual status values
         // We only add fields if the value is a primitive type (or a very simple object)
@@ -565,7 +565,7 @@ export class ResourceStatusService extends CoreService {
    */
   private getCustomResourceStatus(resource: any): string {
     if (!resource || !resource.status) return 'gray';
-  
+
     // Explicit checks for common operational indicators
     if (resource.status.operational === true) {
       return 'green';
@@ -576,7 +576,7 @@ export class ResourceStatusService extends CoreService {
     if (resource.status.error === "" && resource.status.reachable === true) {
       return 'green';
     }
-  
+
     // Check common status fields
     if (resource.status.operationalState) {
       const state = resource.status.operationalState.toLowerCase();
@@ -584,31 +584,31 @@ export class ResourceStatusService extends CoreService {
       if (['down', 'failed', 'error'].includes(state)) return 'red';
       if (['degraded', 'warning'].includes(state)) return 'yellow';
     }
-  
+
     if (resource.status.health !== undefined) {
       const health = Number(resource.status.health);
       if (health > 90) return 'green';
       if (health > 50) return 'yellow';
       return 'red';
     }
-  
+
     if (resource.status.state) {
       const state = resource.status.state.toLowerCase();
       if (['up', 'running', 'active', 'ready'].includes(state)) return 'green';
       if (['down', 'failed', 'error'].includes(state)) return 'red';
       if (['degraded', 'warning', 'pending'].includes(state)) return 'yellow';
     }
-  
+
     if (resource.status.phase) {
       const phase = resource.status.phase.toLowerCase();
       if (['active', 'succeeded', 'ready', 'running', 'available'].includes(phase)) return 'green';
       if (['pending', 'initializing', 'provisioning'].includes(phase)) return 'yellow';
       if (['failed', 'error', 'terminating'].includes(phase)) return 'red';
     }
-  
+
     if (resource.status.ready === true) return 'green';
     if (resource.status.ready === false) return 'red';
-  
+
     // Check conditions array if present
     if (resource.status.conditions && Array.isArray(resource.status.conditions)) {
       const readyCondition = resource.status.conditions.find((c: any) =>
@@ -624,7 +624,7 @@ export class ResourceStatusService extends CoreService {
       );
       if (errorCondition) return 'red';
     }
-  
+
     // Generic check: scan for keys containing "status" or "state"
     const genericIndicators: string[] = [];
     for (const key in resource.status) {
@@ -637,7 +637,7 @@ export class ResourceStatusService extends CoreService {
         genericIndicators.push(this.mapStatusTextToIndicator(resource.status[key]));
       }
     }
-  
+
     if (genericIndicators.length > 0) {
       // Prioritize explicit failures or warnings
       if (genericIndicators.includes('red')) {
@@ -649,7 +649,7 @@ export class ResourceStatusService extends CoreService {
         return 'green';
       }
     }
-  
+
     // If a status exists but none of the keys provided an indicator, default to green
     return 'green';
   }
@@ -666,8 +666,8 @@ export class ResourceStatusService extends CoreService {
       t.includes('active') ||
       t.includes('success') ||
       t.includes('available') ||
-      t.includes('synced') ||      
-      t.includes('connected')       
+      t.includes('synced') ||
+      t.includes('connected')
     ) {
       return 'green';
     }

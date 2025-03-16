@@ -1,7 +1,5 @@
 // src/services/serviceManager.ts
-import * as vscode from 'vscode';
 import { LogLevel, log } from '../extension';
-import { KubernetesClient } from '../clients/kubernetesClient';
 import { CoreService } from './coreService';
 
 /**

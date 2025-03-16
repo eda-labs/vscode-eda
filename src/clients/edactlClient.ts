@@ -73,8 +73,6 @@ export class EdactlClient {
       const podName = await this.findToolboxPod();
       log(`Executing command in toolbox pod ${podName}: ${command}`, LogLevel.DEBUG);
 
-      // Use execInPod directly with the correct syntax
-      // The problem was likely that we were using 'sh -c' which might affect how the command runs
       const output = execInPod(
         this.kubectlPath,
         podName,
@@ -218,9 +216,7 @@ export class EdactlClient {
       if (!output || output.trim().length === 0) {
         return [];
       }
-
       const alarms = JSON.parse(output);
-      //log(`Found ${alarms.length} alarms from edactl output`, LogLevel.DEBUG);
       return alarms;
     } catch (error) {
       log(`Failed to get EDA alarms: ${error}`, LogLevel.ERROR, true);
@@ -265,20 +261,6 @@ export class EdactlClient {
     }
   }
 
-  // public isEdaResource(kind: string): boolean {
-  //   // Grab all CRDs from the KubernetesClient
-  //   const allCrds = this.k8sClient.getCachedCrds();
-  //   for (const crd of allCrds) {
-  //     const crdGroup = crd.spec?.group || '';
-  //     const crdKind = crd.spec?.names?.kind || '';
-  //     // If the kind matches AND group ends with .eda.nokia.com => EDA
-  //     if (crdKind === kind && crdGroup.endsWith('.eda.nokia.com')) {
-  //       return true;
-  //     }
-  //   }
-  //   return false;
-  // }
-
   /**
      * Attempt to retrieve the resource YAML via edactl if it's an EDA CRD.
      * If not EDA or if it fails, return '' (so caller can fallback to kubectl).
@@ -290,15 +272,9 @@ export class EdactlClient {
      */
   public async getEdaResourceYaml(kind: string, name: string, namespace: string): Promise<string> {
     try {
-      // if (!this.isEdaResource(kind)) {
-      //   log(`Skipping edactl fetch — kind '${kind}' is not recognized as an EDA CRD.`, LogLevel.DEBUG);
-      //   return '';
-      // }
-
       log(`Using edactl to fetch YAML for EDA CRD: ${kind}/${name} in ns '${namespace}'`, LogLevel.INFO);
 
       // Construct `edactl get <lowercaseKind> <name> -n <namespace> -o yaml`
-      // If your EDA resource subcommand is spelled differently, adapt:
       const edaResource = kind.charAt(0).toLowerCase() + kind.slice(1); // e.g., "Deviation" -> "deviation"
       const command = `get ${edaResource} ${name} -n ${namespace} -o yaml`;
 

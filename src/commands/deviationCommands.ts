@@ -106,7 +106,7 @@ export function registerDeviationCommands(
       const actionName = `accept-${name}`;
 
       log(`Accepting deviation ${name} in namespace ${namespace}`, LogLevel.INFO, true);
-      
+
       // Get the YAML content for the deviation
       let yamlContent;
       try {
@@ -116,7 +116,7 @@ export function registerDeviationCommands(
       } catch (error) {
         throw new Error(`Failed to get deviation details: ${error}`);
       }
-      
+
       const fullDeviation = yaml.load(yamlContent) as DeviationResource;
 
       if (!fullDeviation || !fullDeviation.spec) {
@@ -154,7 +154,7 @@ export function registerDeviationCommands(
       // Apply the resource using kubectl
       const yamlData = yaml.dump(acceptResource);
       execSync(`kubectl apply -f - <<EOF\n${yamlData}\nEOF`, { encoding: 'utf8' });
-      
+
       vscode.window.showInformationMessage(`Deviation ${name} accepted successfully`);
       edaDeviationProvider.updateDeviation(name, namespace, "Processing...");
 
@@ -181,7 +181,7 @@ export function registerDeviationCommands(
       const actionName = `reject-${name}`;
 
       log(`Rejecting deviation ${name} in namespace ${namespace}`, LogLevel.INFO, true);
-      
+
       // Get the YAML content for the deviation
       let yamlContent;
       try {
@@ -191,7 +191,7 @@ export function registerDeviationCommands(
       } catch (error) {
         throw new Error(`Failed to get deviation details: ${error}`);
       }
-      
+
       const fullDeviation = yaml.load(yamlContent) as DeviationResource;
 
       if (!fullDeviation || !fullDeviation.spec) {
@@ -229,7 +229,7 @@ export function registerDeviationCommands(
       // Apply the resource using kubectl
       const yamlData = yaml.dump(rejectResource);
       execSync(`kubectl apply -f - <<EOF\n${yamlData}\nEOF`, { encoding: 'utf8' });
-      
+
       vscode.window.showInformationMessage(`Deviation ${name} rejected successfully`);
       edaDeviationProvider.updateDeviation(name, namespace, "Processing...");
 

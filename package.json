@@ -1,18 +1,34 @@
 {
-  "name": "k8stest",
+  "name": "vscode-eda",
   "publisher": "eda-labs",
-  "displayName": "Event Driven Automation",
-  "description": "Manage and monitor Event-Driven Architecture resources in Kubernetes",
-  "version": "0.1.0",
+  "displayName": "Event Driven Automation (Nokia)",
+  "icon": "resources/eda.png",
+  "description": "Manage and monitor EDA (Event Driven Automation by Nokai) resources in Kubernetes",
+  "author": "EDA Labs",
+  "homepage": "https://docs.eda.dev/",
+  "version": "0.2.0",
   "engines": {
     "vscode": "^1.70.0"
   },
   "repository": {
-    "type": "git"
+    "type": "git",
+    "url": "https://github.com/eda-labs/vscode-eda"
   },
   "categories": [
     "Other"
   ],
+  "keywords": [
+    "eda",
+    "Event Driven Automation",
+    "Nokia",
+    "Kubernetes",
+    "containers",
+    "automation",
+    "event-driven",
+    "srlinux",
+    "sros"
+  ],
+  "license": "Apache-2.0",
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
@@ -305,11 +321,6 @@
     "configuration": {
       "title": "EDA Explorer",
       "properties": {
-        "vscode-eda.refreshInterval": {
-          "type": "number",
-          "default": 30000,
-          "description": "Auto-refresh interval in milliseconds (default: 10000 ms = 30 seconds)"
-        },
         "vscode-eda.logLevel": {
           "type": "number",
           "default": 1,

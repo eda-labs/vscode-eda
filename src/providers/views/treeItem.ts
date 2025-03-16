@@ -78,7 +78,7 @@ export class TreeItemBase extends vscode.TreeItem {
    */
   public setStatus(indicator: string, description: string) {
     this.status = { indicator, description };
-    
+
     // Update the tooltip to include status information
     let tooltip = this.label.toString();
     if (description) {

@@ -44,7 +44,7 @@ import {
 } from '@kubernetes/client-node';
 import * as http from 'http';
 import { log, LogLevel } from '../extension';
-import { EdactlClient } from './edactlClient'; // Only for the type reference
+import { EdactlClient } from './edactlClient';
 import { EdaDeviationProvider } from '../providers/views/deviationProvider';
 import * as vscode from 'vscode';
 
@@ -74,7 +74,6 @@ export class KubernetesClient {
   private namespacesInformer: any;
   private namespacesCache: V1Namespace[] = [];
 
-  // CoreV1 resource watchers
   private podInformers: Map<string, any> = new Map();
   private podsCache: Map<string, V1Pod[]> = new Map();
 
@@ -93,12 +92,9 @@ export class KubernetesClient {
   private endpointsInformers: Map<string, any> = new Map();
   private endpointsCache: Map<string, V1Endpoints[]> = new Map();
 
-
-  // Cluster-scoped resources
   private pvInformer: any;
   private pvsCache: V1PersistentVolume[] = [];
 
-  // AppsV1 resource watchers
   private deploymentInformers: Map<string, any> = new Map();
   private deploymentsCache: Map<string, V1Deployment[]> = new Map();
 
@@ -111,24 +107,18 @@ export class KubernetesClient {
   private daemonSetInformers: Map<string, any> = new Map();
   private daemonSetsCache: Map<string, V1DaemonSet[]> = new Map();
 
-  // BatchV1 resource watchers
   private jobInformers: Map<string, any> = new Map();
   private jobsCache: Map<string, V1Job[]> = new Map();
 
   private cronJobInformers: Map<string, any> = new Map();
   private cronJobsCache: Map<string, V1CronJob[]> = new Map();
 
-  // NetworkingV1 resource watchers
   private ingressInformers: Map<string, any> = new Map();
   private ingressesCache: Map<string, V1Ingress[]> = new Map();
 
-  // We store EDA namespaces here, updated whenever refreshEdaNamespaces() is called
   private edaNamespaces: string[] = [];
-
-  // This is initially undefined. We set it once from extension.ts or serviceManager
   private edactlClient?: EdactlClient;
 
-  // Resource watchers:
   private resourceInformers: Map<string, any> = new Map();
   private resourceCache: Map<string, KubernetesObject[]> = new Map();
 
@@ -140,7 +130,7 @@ export class KubernetesClient {
     try {
       this.kc.loadFromDefault();
     } catch (error) {
-      log(`Failed to load Kubernetes configuration: ${error}`, LogLevel.INFO);
+      log(`Failed to load Kubernetes configuration: ${error}`, LogLevel.ERROR);
     }
     this.apiExtensionsV1Api = this.kc.makeApiClient(ApiextensionsV1Api);
     this.customObjectsApi = this.kc.makeApiClient(CustomObjectsApi);
@@ -150,8 +140,6 @@ export class KubernetesClient {
     this.batchV1Api = this.kc.makeApiClient(BatchV1Api);
     this.networkingV1Api = this.kc.makeApiClient(NetworkingV1Api);
   }
-
-
 
   /**
    * Get the name of the current context from KubeConfig
@@ -174,25 +162,20 @@ export class KubernetesClient {
   public async switchContext(contextName: string): Promise<void> {
     log(`Switching Kubernetes context to "${contextName}"...`, LogLevel.INFO, true);
 
-    // Set the current context in memory
     this.kc.setCurrentContext(contextName);
 
-    // Update the kubeconfig file
     try {
       const { execSync } = require('child_process');
       execSync(`kubectl config use-context ${contextName}`, { encoding: 'utf-8' });
       log(`Updated kubeconfig file to use context "${contextName}"`, LogLevel.INFO);
     } catch (error) {
       log(`Warning: Failed to update kubeconfig file: ${error}`, LogLevel.WARN);
-      // Continue anyway since we've updated the in-memory context
     }
 
-    // Clear EdactlClient cache if it exists
     if (this.edactlClient) {
       this.edactlClient.clearCache();
     }
 
-    // Dispose and recreate any client instances that might be context-dependent
     if (this.crdsInformer) {
       try {
         this.crdsInformer.stop();
@@ -209,7 +192,6 @@ export class KubernetesClient {
       }
     }
 
-    // Stop cluster-scoped resource informers
     if (this.pvInformer) {
       try {
         this.pvInformer.stop();
@@ -218,10 +200,8 @@ export class KubernetesClient {
       }
     }
 
-    // Stop all namespaced resource informers
     this.stopAllNamespacedInformers();
 
-    // Stop all resource informers
     for (const [key, informer] of this.resourceInformers.entries()) {
       try {
         informer.stop();
@@ -230,10 +210,8 @@ export class KubernetesClient {
       }
     }
 
-    // Clear caches
     this.clearAllCaches();
 
-    // Re-create API clients with the new context
     this.apiExtensionsV1Api = this.kc.makeApiClient(ApiextensionsV1Api);
     this.customObjectsApi = this.kc.makeApiClient(CustomObjectsApi);
     this.apisApi = this.kc.makeApiClient(ApisApi);
@@ -242,7 +220,6 @@ export class KubernetesClient {
     this.batchV1Api = this.kc.makeApiClient(BatchV1Api);
     this.networkingV1Api = this.kc.makeApiClient(NetworkingV1Api);
 
-    // Restart the watchers
     await this.startWatchers();
     log(`Switched Kubernetes context to "${contextName}".`, LogLevel.INFO, true);
   }
@@ -251,25 +228,18 @@ export class KubernetesClient {
    * Stop all namespaced informers
    */
   private stopAllNamespacedInformers(): void {
-    // CoreV1 resources
     this.stopInformers(this.podInformers);
     this.stopInformers(this.serviceInformers);
     this.stopInformers(this.configMapInformers);
     this.stopInformers(this.secretInformers);
     this.stopInformers(this.pvcInformers);
     this.stopInformers(this.endpointsInformers);
-
-    // AppsV1 resources
     this.stopInformers(this.deploymentInformers);
     this.stopInformers(this.replicaSetInformers);
     this.stopInformers(this.statefulSetInformers);
     this.stopInformers(this.daemonSetInformers);
-
-    // BatchV1 resources
     this.stopInformers(this.jobInformers);
     this.stopInformers(this.cronJobInformers);
-
-    // NetworkingV1 resources
     this.stopInformers(this.ingressInformers);
   }
 
@@ -294,7 +264,6 @@ export class KubernetesClient {
     this.resourceInformers.clear();
     this.resourceCache.clear();
 
-    // Clear CoreV1 caches
     this.podInformers.clear();
     this.podsCache.clear();
     this.serviceInformers.clear();
@@ -308,10 +277,8 @@ export class KubernetesClient {
     this.endpointsInformers.clear();
     this.endpointsCache.clear();
 
-    // Clear cluster-scoped caches
     this.pvsCache = [];
 
-    // Clear AppsV1 caches
     this.deploymentInformers.clear();
     this.deploymentsCache.clear();
     this.replicaSetInformers.clear();
@@ -321,17 +288,14 @@ export class KubernetesClient {
     this.daemonSetInformers.clear();
     this.daemonSetsCache.clear();
 
-    // Clear BatchV1 caches
     this.jobInformers.clear();
     this.jobsCache.clear();
     this.cronJobInformers.clear();
     this.cronJobsCache.clear();
 
-    // Clear NetworkingV1 caches
     this.ingressInformers.clear();
     this.ingressesCache.clear();
 
-    // Clear main caches
     this.crdsCache = [];
     this.namespacesCache = [];
   }
@@ -349,16 +313,10 @@ export class KubernetesClient {
   public async startWatchers(): Promise<void> {
     log('Starting watchers (CRDs, Namespaces, and CRD-based resources)...', LogLevel.INFO);
 
-    // 1) CRDs
     await this.startCrdWatcher();
-
-    // 2) Namespaces
     await this.startNamespaceWatcher();
-
-    // 3) PersistentVolumes (cluster-scoped)
     await this.startPersistentVolumeWatcher();
 
-    // 4) If we have an edactlClient, do an initial EDA namespace load
     if (this.edactlClient) {
       await this.refreshEdaNamespaces();
     }
@@ -389,9 +347,9 @@ export class KubernetesClient {
     this.crdsInformer.on('add', (obj: V1CustomResourceDefinition) => {
       if (!this.crdsCache.find((o) => o.metadata?.name === obj.metadata?.name)) {
         this.crdsCache.push(obj);
-        log(`Watcher detected new CRD: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO);
+        log(`Watcher detected new CRD: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
         this.startResourceWatcher(obj).catch((err) =>
-          log(`Error starting resource watcher: ${err}`, LogLevel.INFO)
+          log(`Error starting resource watcher: ${err}`, LogLevel.ERROR)
         );
       }
     });
@@ -403,23 +361,22 @@ export class KubernetesClient {
       } else {
         this.crdsCache.push(obj);
       }
-      log(`Watcher detected update CRD: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO);
+      log(`Watcher detected update CRD: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
       this.startResourceWatcher(obj).catch((err) =>
-        log(`Error starting resource watcher: ${err}`, LogLevel.INFO)
+        log(`Error starting resource watcher: ${err}`, LogLevel.ERROR)
       );
     });
 
     this.crdsInformer.on('delete', (obj: V1CustomResourceDefinition) => {
       this.crdsCache = this.crdsCache.filter((o) => o.metadata?.name !== obj.metadata?.name);
-      log(`Watcher detected delete CRD: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO);
-      // optionally stop watchers for that CRD
+      log(`Watcher detected delete CRD: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
     });
 
     this.crdsInformer.on('error', (err: any) => {
-      log(`CRD informer error: ${err}`, LogLevel.INFO);
+      log(`CRD informer error: ${err}`, LogLevel.ERROR);
       setTimeout(() => {
         this.crdsInformer.start().catch((e: any) => {
-          log(`Failed to restart CRD informer: ${e}`, LogLevel.INFO);
+          log(`Failed to restart CRD informer: ${e}`, LogLevel.ERROR);
         });
       }, 5000);
     });
@@ -428,7 +385,7 @@ export class KubernetesClient {
   }
 
   /**
-   * Watch all namespaces as you originally wanted
+   * Watch all namespaces
    */
   private async startNamespaceWatcher(): Promise<void> {
     log('Starting Namespace watcher...', LogLevel.INFO);
@@ -450,10 +407,10 @@ export class KubernetesClient {
     this.namespacesInformer.on('add', async (obj: V1Namespace) => {
       if (!this.namespacesCache.find((o) => o.metadata?.name === obj.metadata?.name)) {
         this.namespacesCache.push(obj);
-        log(`Watcher detected new Namespace: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO);
+        log(`Watcher detected new Namespace: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
       }
       if (this.edactlClient) {
-        await this.refreshEdaNamespaces(); // re-check if EDA ns changed
+        await this.refreshEdaNamespaces();
       }
         this.debouncedFireResourceChanged();
     });
@@ -465,7 +422,7 @@ export class KubernetesClient {
       } else {
         this.namespacesCache.push(obj);
       }
-      log(`Watcher detected update Namespace: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO);
+      log(`Watcher detected update Namespace: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
       if (this.edactlClient) {
         await this.refreshEdaNamespaces();
       }
@@ -476,7 +433,7 @@ export class KubernetesClient {
       this.namespacesCache = this.namespacesCache.filter(
         (o) => o.metadata?.name !== obj.metadata?.name
       );
-      log(`Watcher detected delete Namespace: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO);
+      log(`Watcher detected delete Namespace: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
       if (this.edactlClient) {
         await this.refreshEdaNamespaces();
       }
@@ -484,10 +441,10 @@ export class KubernetesClient {
     });
 
     this.namespacesInformer.on('error', (err: any) => {
-      log(`Namespace informer error: ${err}`, LogLevel.INFO);
+      log(`Namespace informer error: ${err}`, LogLevel.ERROR);
       setTimeout(() => {
         this.namespacesInformer.start().catch((startErr: any) => {
-          log(`Failed to restart Namespace informer: ${startErr}`, LogLevel.INFO);
+          log(`Failed to restart Namespace informer: ${startErr}`, LogLevel.ERROR);
         });
       }, 5000);
     });
@@ -518,7 +475,7 @@ export class KubernetesClient {
     this.pvInformer.on('add', (obj: V1PersistentVolume) => {
       if (!this.pvsCache.find((o) => o.metadata?.uid === obj.metadata?.uid)) {
         this.pvsCache.push(obj);
-        log(`Watcher detected new PersistentVolume: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO);
+        log(`Watcher detected new PersistentVolume: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
       }
         this.debouncedFireResourceChanged();
     });
@@ -530,21 +487,21 @@ export class KubernetesClient {
       } else {
         this.pvsCache.push(obj);
       }
-      log(`Watcher detected update to PersistentVolume: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO);
+      log(`Watcher detected update to PersistentVolume: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
         this.debouncedFireResourceChanged();
     });
 
     this.pvInformer.on('delete', (obj: V1PersistentVolume) => {
       this.pvsCache = this.pvsCache.filter((o) => o.metadata?.uid !== obj.metadata?.uid);
-      log(`Watcher detected deletion of PersistentVolume: ${obj.metadata?.name || 'unknown'}`, LogLevel.INFO);
+      log(`Watcher detected deletion of PersistentVolume: ${obj.metadata?.name || 'unknown'}`, LogLevel.DEBUG);
         this.debouncedFireResourceChanged();
     });
 
     this.pvInformer.on('error', (err: any) => {
-      log(`PersistentVolume watcher error: ${err}`, LogLevel.INFO);
+      log(`PersistentVolume watcher error: ${err}`, LogLevel.ERROR);
       setTimeout(() => {
         this.pvInformer.start().catch((startErr: any) => {
-          log(`Failed to restart PersistentVolume watcher: ${startErr}`, LogLevel.INFO);
+          log(`Failed to restart PersistentVolume watcher: ${startErr}`, LogLevel.ERROR);
         });
       }, 5000);
     });
@@ -558,14 +515,12 @@ export class KubernetesClient {
   private async setupPodWatchers(): Promise<void> {
     log(`Setting up Pod watchers for EDA namespaces: ${this.edaNamespaces.join(', ')}`, LogLevel.INFO);
 
-    // Start watchers for each namespace that doesn't already have one
     for (const ns of this.edaNamespaces) {
       const nsKey = `pods_${ns}`;
       if (this.podInformers.has(nsKey)) {
-        // already watching
         continue;
       }
-      log(`Starting Pod watcher for namespace: ${ns}`, LogLevel.INFO);
+      log(`Starting Pod watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/api/v1/namespaces/${ns}/pods`;
       const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1PodList }> => {
@@ -579,7 +534,6 @@ export class KubernetesClient {
       await informer.start();
     }
 
-    // Stop watchers for namespaces that are no longer in EDA set
     this.cleanupStaleWatchers(this.podInformers, 'pods_');
   }
 
@@ -594,7 +548,7 @@ export class KubernetesClient {
       if (this.serviceInformers.has(nsKey)) {
         continue;
       }
-      log(`Starting Service watcher for namespace: ${ns}`, LogLevel.INFO);
+      log(`Starting Service watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/api/v1/namespaces/${ns}/services`;
       const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1ServiceList }> => {
@@ -622,7 +576,7 @@ export class KubernetesClient {
       if (this.configMapInformers.has(nsKey)) {
         continue;
       }
-      log(`Starting ConfigMap watcher for namespace: ${ns}`, LogLevel.INFO);
+      log(`Starting ConfigMap watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/api/v1/namespaces/${ns}/configmaps`;
       const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1ConfigMapList }> => {
@@ -650,7 +604,7 @@ export class KubernetesClient {
       if (this.secretInformers.has(nsKey)) {
         continue;
       }
-      log(`Starting Secret watcher for namespace: ${ns}`, LogLevel.INFO);
+      log(`Starting Secret watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/api/v1/namespaces/${ns}/secrets`;
       const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1SecretList }> => {
@@ -678,7 +632,7 @@ export class KubernetesClient {
       if (this.pvcInformers.has(nsKey)) {
         continue;
       }
-      log(`Starting PVC watcher for namespace: ${ns}`, LogLevel.INFO);
+      log(`Starting PVC watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/api/v1/namespaces/${ns}/persistentvolumeclaims`;
       const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1PersistentVolumeClaimList }> => {
@@ -706,7 +660,7 @@ export class KubernetesClient {
       if (this.endpointsInformers.has(nsKey)) {
         continue;
       }
-      log(`Starting Endpoints watcher for namespace: ${ns}`, LogLevel.INFO);
+      log(`Starting Endpoints watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/api/v1/namespaces/${ns}/endpoints`;
       const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1EndpointsList }> => {
@@ -734,7 +688,7 @@ export class KubernetesClient {
       if (this.deploymentInformers.has(nsKey)) {
         continue;
       }
-      log(`Starting Deployment watcher for namespace: ${ns}`, LogLevel.INFO);
+      log(`Starting Deployment watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/apis/apps/v1/namespaces/${ns}/deployments`;
       const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1DeploymentList }> => {
@@ -762,7 +716,7 @@ export class KubernetesClient {
       if (this.replicaSetInformers.has(nsKey)) {
         continue;
       }
-      log(`Starting ReplicaSet watcher for namespace: ${ns}`, LogLevel.INFO);
+      log(`Starting ReplicaSet watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/apis/apps/v1/namespaces/${ns}/replicasets`;
       const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1ReplicaSetList }> => {
@@ -790,7 +744,7 @@ export class KubernetesClient {
       if (this.statefulSetInformers.has(nsKey)) {
         continue;
       }
-      log(`Starting StatefulSet watcher for namespace: ${ns}`, LogLevel.INFO);
+      log(`Starting StatefulSet watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/apis/apps/v1/namespaces/${ns}/statefulsets`;
       const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1StatefulSetList }> => {
@@ -818,7 +772,7 @@ export class KubernetesClient {
       if (this.daemonSetInformers.has(nsKey)) {
         continue;
       }
-      log(`Starting DaemonSet watcher for namespace: ${ns}`, LogLevel.INFO);
+      log(`Starting DaemonSet watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/apis/apps/v1/namespaces/${ns}/daemonsets`;
       const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1DaemonSetList }> => {
@@ -846,7 +800,7 @@ export class KubernetesClient {
       if (this.jobInformers.has(nsKey)) {
         continue;
       }
-      log(`Starting Job watcher for namespace: ${ns}`, LogLevel.INFO);
+      log(`Starting Job watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/apis/batch/v1/namespaces/${ns}/jobs`;
       const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1JobList }> => {
@@ -874,7 +828,7 @@ export class KubernetesClient {
       if (this.cronJobInformers.has(nsKey)) {
         continue;
       }
-      log(`Starting CronJob watcher for namespace: ${ns}`, LogLevel.INFO);
+      log(`Starting CronJob watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/apis/batch/v1/namespaces/${ns}/cronjobs`;
       const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1CronJobList }> => {
@@ -902,7 +856,7 @@ export class KubernetesClient {
       if (this.ingressInformers.has(nsKey)) {
         continue;
       }
-      log(`Starting Ingress watcher for namespace: ${ns}`, LogLevel.INFO);
+      log(`Starting Ingress watcher for namespace: ${ns}`, LogLevel.DEBUG);
 
       const path = `/apis/networking.k8s.io/v1/namespaces/${ns}/ingresses`;
       const listFn = async (): Promise<{ response: http.IncomingMessage; body: V1IngressList }> => {
@@ -934,9 +888,8 @@ export class KubernetesClient {
       if (!arr.find((o: any) => o.metadata?.uid === obj.metadata?.uid)) {
         arr.push(obj);
         cache.set(key, arr);
-        log(`Watcher detected new ${resourceKind}: ${obj.metadata?.name || 'unknown'} in namespace ${namespace}`, LogLevel.INFO);
+        log(`Watcher detected new ${resourceKind}: ${obj.metadata?.name || 'unknown'} in namespace ${namespace}`, LogLevel.DEBUG);
 
-        // Fire the event with a slight delay
         setTimeout(() => {
           this._onResourceChanged.fire();
         }, 50);
@@ -952,27 +905,25 @@ export class KubernetesClient {
         arr.push(obj);
       }
       cache.set(key, arr);
-      log(`Watcher detected update to ${resourceKind}: ${obj.metadata?.name || 'unknown'} in namespace ${namespace}`, LogLevel.INFO);
+      log(`Watcher detected update to ${resourceKind}: ${obj.metadata?.name || 'unknown'} in namespace ${namespace}`, LogLevel.DEBUG);
 
-      // Fire the event with a slight delay
-        this.debouncedFireResourceChanged();
+      this.debouncedFireResourceChanged();
     });
 
     informer.on('delete', (obj: any) => {
       let arr = cache.get(key) || [];
       arr = arr.filter((o: any) => o.metadata?.uid !== obj.metadata?.uid);
       cache.set(key, arr);
-      log(`Watcher detected deletion of ${resourceKind}: ${obj.metadata?.name || 'unknown'} in namespace ${namespace}`, LogLevel.INFO);
+      log(`Watcher detected deletion of ${resourceKind}: ${obj.metadata?.name || 'unknown'} in namespace ${namespace}`, LogLevel.DEBUG);
 
-      // Fire the event with a slight delay
-        this.debouncedFireResourceChanged();
+      this.debouncedFireResourceChanged();
     });
 
     informer.on('error', (err: any) => {
-      log(`${resourceKind} watcher error for ${namespace}: ${err}`, LogLevel.INFO);
+      log(`${resourceKind} watcher error for ${namespace}: ${err}`, LogLevel.ERROR);
       setTimeout(() => {
         informer.start().catch((startErr: any) => {
-          log(`Failed to restart ${resourceKind} watcher for ${namespace}: ${startErr}`, LogLevel.INFO);
+          log(`Failed to restart ${resourceKind} watcher for ${namespace}: ${startErr}`, LogLevel.ERROR);
         });
       }, 5000);
     });
@@ -986,7 +937,7 @@ export class KubernetesClient {
       if (infKey.startsWith(prefix)) {
         const nsPart = infKey.substring(prefix.length);
         if (!this.edaNamespaces.includes(nsPart)) {
-          log(`Stopping stale watcher for namespace: ${nsPart}`, LogLevel.INFO);
+          log(`Stopping stale watcher for namespace: ${nsPart}`, LogLevel.DEBUG);
           try {
             infVal.stop();
           } catch (err) {
@@ -1003,14 +954,13 @@ export class KubernetesClient {
    */
   private async refreshEdaNamespaces() {
     if (!this.edactlClient) {
-      return; // in case it's never set
+      return;
     }
     try {
       const ns = await this.edactlClient.getEdaNamespaces();
       this.edaNamespaces = ns || [];
       log(`Refreshed EDA namespaces: ${this.edaNamespaces.join(', ')}`, LogLevel.INFO);
 
-      // Setup all k8s resource watchers for these namespaces
       await this.setupPodWatchers();
       await this.setupServiceWatchers();
       await this.setupConfigMapWatchers();
@@ -1025,7 +975,6 @@ export class KubernetesClient {
       await this.setupCronJobWatchers();
       await this.setupIngressWatchers();
 
-      // For all known CRDs, if they are "Namespaced", watch them in these EDA namespaces only
       for (const crd of this.crdsCache) {
         if (crd.spec.scope === 'Namespaced') {
           await this.startResourceWatcher(crd);
@@ -1042,7 +991,7 @@ export class KubernetesClient {
   private async startResourceWatcher(crd: V1CustomResourceDefinition): Promise<void> {
     const group = crd.spec?.group || '';
     if (!group || group.endsWith('k8s.io')) {
-      return; // ignore standard k8s.io
+      return;
     }
     const versionObj = crd.spec?.versions?.find((v) => v.served) || crd.spec?.versions?.[0];
     if (!versionObj) {
@@ -1057,7 +1006,6 @@ export class KubernetesClient {
     if (crd.spec.scope === 'Cluster') {
       const key = `${group}_${version}_${plural}`;
       if (this.resourceInformers.has(key)) {
-        // already have a cluster-wide informer
         return;
       }
       log(`Starting cluster-wide resource watcher for CRD: ${key}`, LogLevel.INFO);
@@ -1073,17 +1021,14 @@ export class KubernetesClient {
       this.resourceInformers.set(key, informer);
       await informer.start();
     } else {
-      // "Namespaced" CRD => watchers only in this.edaNamespaces
       const baseKey = `${group}_${version}_${plural}`;
 
-      // create watchers for each EDA namespace that doesn't already have one
       for (const ns of this.edaNamespaces) {
         const nsKey = `${baseKey}_${ns}`;
         if (this.resourceInformers.has(nsKey)) {
-          // already watching
           continue;
         }
-        log(`Starting namespaced resource watcher for CRD: ${baseKey} in namespace: ${ns}`, LogLevel.INFO);
+        log(`Starting namespaced resource watcher for CRD: ${baseKey} in namespace: ${ns}`, LogLevel.DEBUG);
 
         const path = `/apis/${group}/${version}/namespaces/${ns}/${plural}`;
         const listFn = async (): Promise<{ response: http.IncomingMessage; body: { items: KubernetesObject[] } }> => {
@@ -1097,14 +1042,12 @@ export class KubernetesClient {
         await informer.start();
       }
 
-      // OPTIONAL: Stop watchers for namespaces that are no longer in EDA set:
       for (const [infKey, infVal] of this.resourceInformers.entries()) {
         if (infKey.startsWith(`${baseKey}_`)) {
-          // e.g. "group_ver_plural_myns"
           const parts = infKey.split('_');
           const nsPart = parts[3];
           if (!this.edaNamespaces.includes(nsPart)) {
-            log(`Stopping stale watcher for CRD: ${baseKey} in old namespace: ${nsPart}`, LogLevel.INFO);
+            log(`Stopping stale watcher for CRD: ${baseKey} in old namespace: ${nsPart}`, LogLevel.DEBUG);
             try {
               infVal.stop();
             } catch (err) {
@@ -1128,14 +1071,13 @@ export class KubernetesClient {
         arr.push(obj);
         this.resourceCache.set(key, arr);
         const resourceName = obj.metadata?.name || 'unknown';
-        log(`Watcher detected new ${crd.spec?.names?.kind || 'resource'}: ${resourceName}`, LogLevel.INFO);
+        log(`Watcher detected new ${crd.spec?.names?.kind || 'resource'}: ${resourceName}`, LogLevel.DEBUG);
         if (crd.spec?.names?.kind === 'Deviation') {
           this._onDeviationChanged.fire();
         }
         if (crd.spec?.names?.kind === 'TransactionResult') {
           this._onTransactionChanged.fire();
         }
-        // Fire the event with a slight delay to ensure consistent state
         setTimeout(() => {
           this._onResourceChanged.fire();
         }, 50);
@@ -1148,20 +1090,18 @@ export class KubernetesClient {
       if (idx >= 0) {
         arr[idx] = obj;
       } else {
-        // If not found by UID, this is actually a new object we missed somehow
         arr.push(obj);
       }
       this.resourceCache.set(key, arr);
       const resourceName = obj.metadata?.name || 'unknown';
-      log(`Watcher detected update to ${crd.spec?.names?.kind || 'resource'}: ${resourceName}`, LogLevel.INFO);
+      log(`Watcher detected update to ${crd.spec?.names?.kind || 'resource'}: ${resourceName}`, LogLevel.DEBUG);
       if (crd.spec?.names?.kind === 'Deviation') {
         this._onDeviationChanged.fire();
       }
       if (crd.spec?.names?.kind === 'TransactionResult') {
         this._onTransactionChanged.fire();
       }
-      // Fire the event with a slight delay
-        this.debouncedFireResourceChanged();
+      this.debouncedFireResourceChanged();
     });
 
     informer.on('delete', (obj: KubernetesObject) => {
@@ -1169,28 +1109,26 @@ export class KubernetesClient {
       arr = arr.filter((o) => o.metadata?.uid !== obj.metadata?.uid);
       this.resourceCache.set(key, arr);
       const resourceName = obj.metadata?.name || 'unknown';
-      log(`Watcher detected deletion of ${crd.spec?.names?.kind || 'resource'}: ${resourceName}`, LogLevel.INFO);
+      log(`Watcher detected deletion of ${crd.spec?.names?.kind || 'resource'}: ${resourceName}`, LogLevel.DEBUG);
       if (crd.spec?.names?.kind === 'Deviation') {
         this._onDeviationChanged.fire();
       }
       if (crd.spec?.names?.kind === 'TransactionResult') {
         this._onTransactionChanged.fire();
       }
-      // Fire the event with a slight delay
-        this.debouncedFireResourceChanged();
+      this.debouncedFireResourceChanged();
     });
 
     informer.on('error', (err: any) => {
-      log(`Resource watcher error for ${key}: ${err}`, LogLevel.INFO);
+      log(`Resource watcher error for ${key}: ${err}`, LogLevel.ERROR);
       setTimeout(() => {
         informer.start().catch((startErr: any) => {
-          log(`Failed to restart resource watcher (${key}): ${startErr}`, LogLevel.INFO);
+          log(`Failed to restart resource watcher (${key}): ${startErr}`, LogLevel.ERROR);
         });
       }, 5000);
     });
   }
 
-  // Public getters for cached resources
   public getCachedCrds(): V1CustomResourceDefinition[] {
     return this.crdsCache;
   }
@@ -1304,14 +1242,12 @@ export class KubernetesClient {
     let results: T[] = [];
 
     if (namespace) {
-      // Look for a specific namespace
       const key = cache.keys().next().value?.split('_')[0] + '_' + namespace;
       const items = cache.get(key);
       if (items) {
         results = [...items];
       }
     } else {
-      // No namespace filter, include all cached resources
       for (const items of cache.values()) {
         results.push(...items);
       }
@@ -1324,15 +1260,12 @@ export class KubernetesClient {
    * Debounced method to fire resource change events
    */
   private debouncedFireResourceChanged(): void {
-    // Cancel any pending timer
     if (this.resourceChangeDebounceTimer) {
       clearTimeout(this.resourceChangeDebounceTimer);
     }
 
-    // Set a flag that changes are pending
     this.resourceChangesPending = true;
 
-    // Schedule a single event after 100ms
     this.resourceChangeDebounceTimer = setTimeout(() => {
       if (this.resourceChangesPending) {
         log(`Firing debounced resource changed event`, LogLevel.DEBUG);
@@ -1340,35 +1273,29 @@ export class KubernetesClient {
         this.resourceChangesPending = false;
       }
       this.resourceChangeDebounceTimer = null;
-    }, 100); // Adjust timeout as needed
+    }, 100);
   }
 
   public getCachedResources(group: string, version: string, plural: string, namespace?: string): KubernetesObject[] {
     let results: KubernetesObject[] = [];
 
-    // Collect all matching resources
     for (const [key, resources] of this.resourceCache.entries()) {
-      // Parse the key to get components
       const keyParts = key.split('_');
       const keyGroup = keyParts[0];
       const keyVersion = keyParts[1];
       const keyPlural = keyParts[2];
       const keyNamespace = keyParts.length > 3 ? keyParts[3] : undefined;
 
-      // Check if this cache entry matches our request
       if (keyGroup === group && keyVersion === version && keyPlural === plural) {
-        // If namespace is specified, only include resources from that namespace
         if (namespace) {
           if (keyNamespace === namespace) {
             results = [...results, ...resources];
           } else {
-            // For resources without explicit namespace key, filter by metadata
             const filteredResources = resources.filter(r =>
               r.metadata?.namespace === namespace);
             results = [...results, ...filteredResources];
           }
         } else {
-          // No namespace filter, include all resources
           results = [...results, ...resources];
         }
       }
@@ -1378,9 +1305,7 @@ export class KubernetesClient {
     return results;
   }
 
-
   public dispose(): void {
-    // Stop all informers
     for (const informer of this.resourceInformers.values()) {
       try {
         informer.stop();
@@ -1389,10 +1314,8 @@ export class KubernetesClient {
       }
     }
 
-    // Stop all namespaced informers
     this.stopAllNamespacedInformers();
 
-    // Stop cluster-scoped informers
     this.crdsInformer?.stop();
     this.namespacesInformer?.stop();
     this.pvInformer?.stop();
@@ -1401,17 +1324,15 @@ export class KubernetesClient {
     this._onDeviationChanged.dispose();
     this._onTransactionChanged.dispose();
 
-    // Clear all caches
     this.clearAllCaches();
   }
 
-  // Direct listing methods are the same:
   public async listCustomResourceDefinitions(): Promise<V1CustomResourceDefinition[]> {
     try {
       const resp = await this.apiExtensionsV1Api.listCustomResourceDefinition();
       return resp.body.items || [];
     } catch (error) {
-      log(`Error listing CRDs: ${error}`, LogLevel.INFO);
+      log(`Error listing CRDs: ${error}`, LogLevel.ERROR);
       return [];
     }
   }

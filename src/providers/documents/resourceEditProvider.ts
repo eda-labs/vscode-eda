@@ -22,7 +22,6 @@ export class ResourceEditDocumentProvider extends BaseDocumentProvider {
       ctime: 0,
       mtime: 0,
       size: data.byteLength,
-      // no 'permissions' field here, or set permissions = 0
     };
   }
 
@@ -61,7 +60,7 @@ export class ResourceEditDocumentProvider extends BaseDocumentProvider {
       // Get the current content
       const currentContent = this.readFile(uri);
       const currentYaml = Buffer.from(currentContent).toString('utf8');
-      
+
       // Parse the YAML
       const currentResource = yaml.load(currentYaml);
 

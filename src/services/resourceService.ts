@@ -68,19 +68,19 @@ export class ResourceService extends CoreService {
    */
   private async refreshCachedResources(): Promise<void> {
     const now = Date.now();
-  
+
     // If already refreshing, don't start another refresh
     if (this.isRefreshing) {
       return;
     }
-  
+
     // Rate limiting to prevent too frequent refreshes
     if (now - this.lastRefreshTime < 500) {
       // Cancel any existing pending refresh
       if (this.pendingRefreshTimeout) {
         clearTimeout(this.pendingRefreshTimeout);
       }
-      
+
       // Schedule a single refresh for later
       this.pendingRefreshTimeout = setTimeout(() => {
         this.pendingRefreshTimeout = null;
@@ -88,45 +88,45 @@ export class ResourceService extends CoreService {
       }, 500);
       return;
     }
-  
+
     try {
       this.isRefreshing = true;
       log('Refreshing cached resources...', LogLevel.DEBUG);
-  
+
       // Get namespaces
       this.namespaceCache = this.k8sClient
         .getCachedNamespaces()
         .map(n => n.metadata?.name)
         .filter(name => !!name) as string[]; // remove duplicates if needed
-  
+
       // Get CRDs from cache
       const crds = this.k8sClient.getCachedCrds().filter(crd => {
         const group = crd.spec?.group || '';
         return !group.endsWith('k8s.io');
       });
-  
+
       // Process CRDs to build resource results
       const newResults: ResourceResult[] = [];
-  
+
       for (const crd of crds) {
         const group = crd.spec?.group || '';
         if (!group || group.endsWith('k8s.io')) {
           continue;
         }
-  
+
         const versionObj = crd.spec?.versions?.find((v: any) => v.served) || crd.spec?.versions?.[0];
         if (!versionObj) {
           continue;
         }
-  
+
         const version = versionObj.name;
         const plural = crd.spec?.names?.plural || '';
         const kind = crd.spec?.names?.kind || '';
-  
+
         if (!plural || !kind) {
           continue;
         }
-  
+
         // Create resource definition
         const rd: ResourceDefinition = {
           name: crd.metadata?.name || '',
@@ -136,10 +136,10 @@ export class ResourceService extends CoreService {
           apiGroup: group,
           apiVersion: version
         };
-  
+
         // Get instances from cache
         let instances: any[] = [];
-  
+
         if (rd.namespaced) {
           // For namespaced resources, get instances from each namespace
           for (const ns of this.namespaceCache) {
@@ -150,13 +150,13 @@ export class ResourceService extends CoreService {
           // For cluster-wide resources, get all instances
           instances = this.k8sClient.getCachedResources(group, version, plural);
         }
-  
+
         newResults.push({ resource: rd, instances });
       }
-  
+
       // Check if anything has changed before updating
       const hasChanges = this.hasResourceResultsChanged(this.cachedResourceResults, newResults);
-  
+
       if (hasChanges) {
         log(`Resource changes detected, updating cache and notifying listeners`, LogLevel.DEBUG);
         this.cachedResourceResults = newResults;
