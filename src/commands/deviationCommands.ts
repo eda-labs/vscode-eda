@@ -1,17 +1,36 @@
 import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
 import { execSync } from 'child_process';
-import { KubernetesService } from '../services/kubernetes/kubernetes';
-import { log, LogLevel, edaDeviationProvider, edaOutputChannel } from '../extension';
-import { DeviationResource } from '../services/types';
+import { serviceManager } from '../services/serviceManager';
+import { KubernetesClient } from '../clients/kubernetesClient';
+import { EdactlClient } from '../clients/edactlClient';
+import { log, LogLevel, edaOutputChannel } from '../extension';
+
+// Define interface for DeviationResource if not imported
+interface DeviationResource {
+  apiVersion: string;
+  kind: string;
+  metadata: {
+    name: string;
+    namespace: string;
+    [key: string]: any;
+  };
+  spec: {
+    nodeEndpoint?: string;
+    path?: string;
+    [key: string]: any;
+  };
+  [key: string]: any;
+}
 
 /**
  * Check if a deviation still exists
  */
-async function checkDeviationExists(k8sService: KubernetesService, name: string, namespace: string): Promise<boolean> {
+async function checkDeviationExists(name: string, namespace: string): Promise<boolean> {
   try {
-    const deviations = await k8sService.getEdaDeviations();
-    return deviations.some(dev => dev.name === name && dev["namespace.name"] === namespace);
+    const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+    const deviations = await edactlClient.getEdaDeviations();
+    return deviations.some((dev: any) => dev.name === name && dev["namespace.name"] === namespace);
   } catch (error) {
     log(`Error checking if deviation exists: ${error}`, LogLevel.ERROR);
     return true;
@@ -21,10 +40,11 @@ async function checkDeviationExists(k8sService: KubernetesService, name: string,
 /**
  * Delete a DeviationAction resource
  */
-async function deleteDeviationAction(k8sService: KubernetesService, name: string, namespace: string): Promise<void> {
+async function deleteDeviationAction(name: string, namespace: string): Promise<void> {
   try {
     log(`Deleting DeviationAction ${name} in namespace ${namespace}`, LogLevel.INFO);
-    const kubectlPath = k8sService.getKubectlPath();
+    const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
+    const kubectlPath = 'kubectl'; // Default, or you could get this from a config
     execSync(`${kubectlPath} delete deviationaction ${name} -n ${namespace}`, { encoding: 'utf-8' });
     log(`Successfully deleted DeviationAction ${name}`, LogLevel.INFO);
   } catch (error) {
@@ -37,8 +57,9 @@ async function deleteDeviationAction(k8sService: KubernetesService, name: string
  */
 export function registerDeviationCommands(
   context: vscode.ExtensionContext,
-  k8sService: KubernetesService
+  edaDeviationProvider: any  // Add this parameter
 ) {
+
   // Helper function to repeatedly try deleting the deviation action
   async function attemptCleanup(
     name: string,
@@ -51,10 +72,10 @@ export function registerDeviationCommands(
 
     async function cleanupLoop() {
       try {
-        const deviationExists = await checkDeviationExists(k8sService, name, namespace);
+        const deviationExists = await checkDeviationExists(name, namespace);
         if (!deviationExists) {
           log(`Deviation ${name} has been successfully handled, deleting DeviationAction...`, LogLevel.INFO);
-          await deleteDeviationAction(k8sService, actionName, namespace);
+          await deleteDeviationAction(actionName, namespace);
           edaDeviationProvider.removeDeviation(name, namespace);
         } else if (Date.now() - startTime < maxWaitTime) {
           setTimeout(cleanupLoop, pollInterval);
@@ -78,13 +99,24 @@ export function registerDeviationCommands(
     }
 
     try {
+      const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
       const deviation = treeItem.deviation;
       const name = deviation.name;
       const namespace = deviation["namespace.name"];
       const actionName = `accept-${name}`;
 
       log(`Accepting deviation ${name} in namespace ${namespace}`, LogLevel.INFO, true);
-      const yamlContent = await k8sService.getResourceYaml('Deviation', name, namespace);
+
+      // Get the YAML content for the deviation
+      let yamlContent;
+      try {
+        // Using edactl directly instead of k8sService.getResourceYaml
+        const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+        yamlContent = await edactlClient.executeEdactl(`get deviation ${name} -n ${namespace} -o yaml`);
+      } catch (error) {
+        throw new Error(`Failed to get deviation details: ${error}`);
+      }
+
       const fullDeviation = yaml.load(yamlContent) as DeviationResource;
 
       if (!fullDeviation || !fullDeviation.spec) {
@@ -119,7 +151,10 @@ export function registerDeviationCommands(
         }
       };
 
-      await k8sService.applyResource(acceptResource);
+      // Apply the resource using kubectl
+      const yamlData = yaml.dump(acceptResource);
+      execSync(`kubectl apply -f - <<EOF\n${yamlData}\nEOF`, { encoding: 'utf8' });
+
       vscode.window.showInformationMessage(`Deviation ${name} accepted successfully`);
       edaDeviationProvider.updateDeviation(name, namespace, "Processing...");
 
@@ -146,7 +181,17 @@ export function registerDeviationCommands(
       const actionName = `reject-${name}`;
 
       log(`Rejecting deviation ${name} in namespace ${namespace}`, LogLevel.INFO, true);
-      const yamlContent = await k8sService.getResourceYaml('Deviation', name, namespace);
+
+      // Get the YAML content for the deviation
+      let yamlContent;
+      try {
+        // Using edactl directly instead of k8sService.getResourceYaml
+        const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+        yamlContent = await edactlClient.executeEdactl(`get deviation ${name} -n ${namespace} -o yaml`);
+      } catch (error) {
+        throw new Error(`Failed to get deviation details: ${error}`);
+      }
+
       const fullDeviation = yaml.load(yamlContent) as DeviationResource;
 
       if (!fullDeviation || !fullDeviation.spec) {
@@ -181,7 +226,10 @@ export function registerDeviationCommands(
         }
       };
 
-      await k8sService.applyResource(rejectResource);
+      // Apply the resource using kubectl
+      const yamlData = yaml.dump(rejectResource);
+      execSync(`kubectl apply -f - <<EOF\n${yamlData}\nEOF`, { encoding: 'utf8' });
+
       vscode.window.showInformationMessage(`Deviation ${name} rejected successfully`);
       edaDeviationProvider.updateDeviation(name, namespace, "Processing...");
 

@@ -1,17 +1,22 @@
 import * as vscode from 'vscode';
-import { KubernetesService } from '../../services/kubernetes/kubernetes';
-import { edaOutputChannel, LogLevel, log } from '../../extension';
-import { TreeItemBase } from './common/treeItem';
-import { resourceStatusService } from '../../extension';
+import { TreeItemBase } from './treeItem';
+import { serviceManager } from '../../services/serviceManager';
+import { EdactlClient } from '../../clients/edactlClient';
+import { ResourceStatusService } from '../../services/resourceStatusService';
+import { log, LogLevel } from '../../extension';
 
 export class EdaTransactionProvider implements vscode.TreeDataProvider<TransactionTreeItem> {
   private _onDidChangeTreeData: vscode.EventEmitter<TransactionTreeItem | undefined | null | void> = new vscode.EventEmitter<TransactionTreeItem | undefined | null | void>();
   readonly onDidChangeTreeData: vscode.Event<TransactionTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
+  private edactlClient: EdactlClient;
+  private statusService: ResourceStatusService;
+
   constructor(
-    private context: vscode.ExtensionContext,
-    private k8sService: KubernetesService
+    private context: vscode.ExtensionContext
   ) {
+    this.edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+    this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
   }
 
   refresh(): void {
@@ -31,7 +36,7 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
 
   private async getTransactionItems(): Promise<TransactionTreeItem[]> {
     log(`Loading transactions for the transaction tree...`, LogLevel.DEBUG);
-    const transactions = await this.k8sService.getEdaTransactions();
+    const transactions = await this.edactlClient.getEdaTransactions();
 
     // Sort transactions by ID (assuming higher ID = newer transaction)
     // This will display the newest transactions at the top
@@ -72,8 +77,8 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
 
       const success = t.result === 'OK';
 
-      // Use transaction icon from statusUtils
-      item.iconPath = resourceStatusService.getTransactionIcon(success);
+      // Use transaction icon from statusService
+      item.iconPath = this.statusService.getTransactionIcon(success);
 
       item.command = {
         command: 'vscode-eda.showTransactionDetails',
@@ -85,4 +90,13 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
   }
 }
 
-export class TransactionTreeItem extends TreeItemBase {}
+export class TransactionTreeItem extends TreeItemBase {
+  constructor(
+    label: string,
+    collapsibleState: vscode.TreeItemCollapsibleState,
+    contextValue: string,
+    resource?: any
+  ) {
+    super(label, collapsibleState, contextValue, resource);
+  }
+}

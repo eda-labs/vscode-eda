@@ -1,15 +1,13 @@
-// src/services/resourceStatusService.ts
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { CoreService } from './coreService';
+import { KubernetesClient } from '../clients/kubernetesClient';
 import { LogLevel, log } from '../extension';
-import { KubernetesService } from './kubernetes/kubernetes';
 
 /**
  * Service for handling resource status information, icons, and tooltips
- * This centralizes all status-related functionality across the extension
- * Incorporates and replaces functionality from statusUtils
  */
-export class ResourceStatusService {
+export class ResourceStatusService extends CoreService {
   // Maps for caching status icons
   private statusIconCache: Map<string, vscode.Uri> = new Map();
   private transactionIconCache: Map<string, vscode.Uri> = new Map();
@@ -20,8 +18,13 @@ export class ResourceStatusService {
 
   // Extension context for resource loading
   private extensionContext?: vscode.ExtensionContext;
+  private k8sClient: KubernetesClient;
 
-  constructor(private k8sService: KubernetesService) {}
+  constructor(k8sClient: KubernetesClient) {
+    super();
+    this.k8sClient = k8sClient;
+    log('Initializing ResourceStatusService', LogLevel.INFO);
+  }
 
   /**
    * Initialize the service with extension context and loading CRD status schemas
@@ -45,7 +48,7 @@ export class ResourceStatusService {
    */
   private async loadCrdStatusSchemas(): Promise<void> {
     try {
-      const crds = await this.k8sService.getCRDs();
+      const crds = this.k8sClient.getCachedCrds();
       log(`Loading status schemas for ${crds.length} CRDs...`, LogLevel.INFO);
 
       for (const crd of crds) {
@@ -108,7 +111,7 @@ export class ResourceStatusService {
     }
   }
 
-  // --- Status Icon Methods (from statusUtils) ---
+  // --- Status Icon Methods ---
 
   /**
    * Get status icon based on indicator color (green, red, yellow, gray)
@@ -397,7 +400,7 @@ export class ResourceStatusService {
   private extractStatusFields(status: any, kind: string): { label: string, value: string }[] {
     const fields: { label: string, value: string }[] = [];
     if (!status) return fields;
-  
+
     // Handle standard resource kinds as before
     switch (kind) {
       case 'Pod':
@@ -416,7 +419,7 @@ export class ResourceStatusService {
           }
         }
         break;
-  
+
       case 'Deployment':
         if (status.replicas !== undefined) fields.push({ label: 'Replicas', value: `${status.replicas}` });
         if (status.readyReplicas !== undefined) fields.push({ label: 'Ready', value: `${status.readyReplicas}` });
@@ -431,7 +434,7 @@ export class ResourceStatusService {
           }
         }
         break;
-  
+
       case 'Service':
         if (status.loadBalancer?.ingress && Array.isArray(status.loadBalancer.ingress)) {
           for (const ingress of status.loadBalancer.ingress) {
@@ -444,25 +447,25 @@ export class ResourceStatusService {
           }
         }
         break;
-  
+
       default:
-        // For custom resources, we ignore the schema and extract only the actual status values.
-        // We only add fields if the value is a primitive type (or a very simple object).
+        // For custom resources, we extract only the actual status values
+        // We only add fields if the value is a primitive type (or a very simple object)
         for (const [key, value] of Object.entries(status)) {
           if (value === undefined || value === null) {
             continue;
           }
-          // If the value is a primitive, use it directly.
+          // If the value is a primitive, use it directly
           if (['string', 'number', 'boolean'].includes(typeof value)) {
             fields.push({ label: this.formatFieldName(key), value: String(value) });
           }
-          // If the value is an object, try to extract a simple value.
+          // If the value is an object, try to extract a simple value
           else if (typeof value === 'object') {
-            // If it has a 'value' property that is primitive, use that.
+            // If it has a 'value' property that is primitive, use that
             if ('value' in value && ['string', 'number', 'boolean'].includes(typeof value.value)) {
               fields.push({ label: this.formatFieldName(key), value: String(value.value) });
             }
-            // Otherwise, if the object has only one key, use that single property.
+            // Otherwise, if the object has only one key, use that single property
             else if (Object.keys(value).length === 1) {
               const innerKey = Object.keys(value)[0];
               const innerVal = (value as Record<string, any>)[innerKey];
@@ -470,14 +473,13 @@ export class ResourceStatusService {
                 fields.push({ label: this.formatFieldName(key), value: String(innerVal) });
               }
             }
-            // Otherwise, skip complex objects.
+            // Otherwise, skip complex objects
           }
         }
         break;
     }
     return fields;
   }
-  
 
   /**
    * Format a camelCase or snake_case field name to Title Case with spaces
@@ -559,12 +561,12 @@ export class ResourceStatusService {
   }
 
   /**
-   * Get status indicator for custom resources, with generic support for keys containing "status" or "state"
+   * Get status indicator for custom resources
    */
   private getCustomResourceStatus(resource: any): string {
     if (!resource || !resource.status) return 'gray';
-  
-    // Explicit checks for new conditions
+
+    // Explicit checks for common operational indicators
     if (resource.status.operational === true) {
       return 'green';
     }
@@ -574,39 +576,40 @@ export class ResourceStatusService {
     if (resource.status.error === "" && resource.status.reachable === true) {
       return 'green';
     }
-  
-    // Existing specific checks
+
+    // Check common status fields
     if (resource.status.operationalState) {
       const state = resource.status.operationalState.toLowerCase();
       if (['up', 'running', 'active'].includes(state)) return 'green';
       if (['down', 'failed', 'error'].includes(state)) return 'red';
       if (['degraded', 'warning'].includes(state)) return 'yellow';
     }
-  
+
     if (resource.status.health !== undefined) {
       const health = Number(resource.status.health);
       if (health > 90) return 'green';
       if (health > 50) return 'yellow';
       return 'red';
     }
-  
+
     if (resource.status.state) {
       const state = resource.status.state.toLowerCase();
       if (['up', 'running', 'active', 'ready'].includes(state)) return 'green';
       if (['down', 'failed', 'error'].includes(state)) return 'red';
       if (['degraded', 'warning', 'pending'].includes(state)) return 'yellow';
     }
-  
+
     if (resource.status.phase) {
       const phase = resource.status.phase.toLowerCase();
       if (['active', 'succeeded', 'ready', 'running', 'available'].includes(phase)) return 'green';
       if (['pending', 'initializing', 'provisioning'].includes(phase)) return 'yellow';
       if (['failed', 'error', 'terminating'].includes(phase)) return 'red';
     }
-  
+
     if (resource.status.ready === true) return 'green';
     if (resource.status.ready === false) return 'red';
-  
+
+    // Check conditions array if present
     if (resource.status.conditions && Array.isArray(resource.status.conditions)) {
       const readyCondition = resource.status.conditions.find((c: any) =>
         c.type === 'Ready' || c.type === 'Available' || c.type === 'Healthy'
@@ -621,8 +624,8 @@ export class ResourceStatusService {
       );
       if (errorCondition) return 'red';
     }
-  
-    // Generic check: scan for keys containing "status" or "state" (skip keys like "details")
+
+    // Generic check: scan for keys containing "status" or "state"
     const genericIndicators: string[] = [];
     for (const key in resource.status) {
       const keyLower = key.toLowerCase();
@@ -634,7 +637,7 @@ export class ResourceStatusService {
         genericIndicators.push(this.mapStatusTextToIndicator(resource.status[key]));
       }
     }
-  
+
     if (genericIndicators.length > 0) {
       // Prioritize explicit failures or warnings
       if (genericIndicators.includes('red')) {
@@ -646,15 +649,13 @@ export class ResourceStatusService {
         return 'green';
       }
     }
-  
-    // If a status exists but none of the keys provided an indicator, default to green.
+
+    // If a status exists but none of the keys provided an indicator, default to green
     return 'green';
   }
-  
-  
 
   /**
-   * Helper function that maps a status string to a standard indicator color.
+   * Helper function that maps a status string to a standard indicator color
    */
   private mapStatusTextToIndicator(text: string): string {
     const t = text.toLowerCase();
@@ -665,8 +666,8 @@ export class ResourceStatusService {
       t.includes('active') ||
       t.includes('success') ||
       t.includes('available') ||
-      t.includes('synced') ||      // added for "node-state": "Synced"
-      t.includes('connected')       // added for "npp-state": "Connected"
+      t.includes('synced') ||
+      t.includes('connected')
     ) {
       return 'green';
     }

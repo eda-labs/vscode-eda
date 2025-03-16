@@ -1,9 +1,18 @@
 import * as vscode from 'vscode';
-import { EdaDeviation } from '../../services/types';
-import { KubernetesService } from '../../services/kubernetes/kubernetes';
-import { log, LogLevel, globalTreeFilter } from '../../extension';
-import { TreeItemBase } from './common/treeItem';
-import { resourceStatusService } from '../../extension';
+import { TreeItemBase } from './treeItem';
+import { serviceManager } from '../../services/serviceManager';
+import { EdactlClient } from '../../clients/edactlClient';
+import { ResourceStatusService } from '../../services/resourceStatusService';
+import { log, LogLevel } from '../../extension';
+
+// Define interface for Deviation data structure
+interface EdaDeviation {
+  name: string;
+  "namespace.name": string;
+  kind?: string;
+  apiVersion?: string;
+  [key: string]: any;
+}
 
 /**
  * EdaDeviationProvider displays the list of deviations from
@@ -15,11 +24,16 @@ export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTr
 
   // Cache of currently displayed deviations
   private deviations: EdaDeviation[] = [];
+  private edactlClient: EdactlClient;
+  private statusService: ResourceStatusService;
+  private treeFilter: string = '';
 
   constructor(
-    private context: vscode.ExtensionContext,
-    private k8sService: KubernetesService
-  ) {}
+    private context: vscode.ExtensionContext
+  ) {
+    this.edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+    this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
+  }
 
   /**
    * Refresh method, to be called from our extension-level refresh
@@ -64,6 +78,22 @@ export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTr
     this._onDidChangeTreeData.fire();
   }
 
+  /**
+   * Set tree filter text
+   */
+  setTreeFilter(filter: string): void {
+    this.treeFilter = filter.toLowerCase();
+    this.refresh();
+  }
+
+  /**
+   * Clear tree filter
+   */
+  clearTreeFilter(): void {
+    this.treeFilter = '';
+    this.refresh();
+  }
+
   getTreeItem(element: DeviationTreeItem): vscode.TreeItem {
     return element;
   }
@@ -74,11 +104,11 @@ export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTr
       return [];
     }
 
-    // If there's a global filter, do filtering. Otherwise, list all.
-    if (!globalTreeFilter) {
+    // If there's a filter, do filtering. Otherwise, list all.
+    if (!this.treeFilter) {
       return this.getAllDeviationItems();
     } else {
-      return this.getFilteredDeviationItems(globalTreeFilter);
+      return this.getFilteredDeviationItems(this.treeFilter);
     }
   }
 
@@ -86,7 +116,7 @@ export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTr
    * Load all deviations (no filter).
    */
   private async getAllDeviationItems(): Promise<DeviationTreeItem[]> {
-    const deviations = await this.k8sService.getEdaDeviations();
+    const deviations = await this.edactlClient.getEdaDeviations();
 
     // Update our cache
     this.deviations = deviations;
@@ -108,7 +138,7 @@ export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTr
     }
 
     const lowerFilter = filter.toLowerCase();
-    const all = await this.k8sService.getEdaDeviations();
+    const all = await this.edactlClient.getEdaDeviations();
 
     // Update our cache
     this.deviations = all;
@@ -152,8 +182,8 @@ export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTr
       `API Version: ${deviation.apiVersion || 'v1'}`
     ].join('\n');
 
-    // Use theme icon from statusUtils
-    item.iconPath = resourceStatusService.getStatusIcon('blue');
+    // Use status icon from statusService
+    item.iconPath = this.statusService.getStatusIcon('blue');
 
     item.command = {
       command: 'vscode-eda.showDeviationDetails',
@@ -168,8 +198,8 @@ export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTr
     const label = extraText ? `No Deviations Found ${extraText}` : `No Deviations Found`;
     const item = new DeviationTreeItem(label, vscode.TreeItemCollapsibleState.None, 'info');
 
-    // Use standard status icon from statusUtils
-    item.iconPath = resourceStatusService.getStatusIcon('gray');
+    // Use standard status icon from statusService
+    item.iconPath = this.statusService.getStatusIcon('gray');
 
     return item;
   }

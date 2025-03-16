@@ -1,10 +1,13 @@
 // src/commands/resourceCreateCommand.ts
 import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
-import { KubernetesService } from '../services/kubernetes/kubernetes';
-import { K8sFileSystemProvider } from '../providers/documents/resourceProvider';
+import { serviceManager } from '../services/serviceManager';
+import { KubernetesClient } from '../clients/kubernetesClient';
+import { EdactlClient } from '../clients/edactlClient';
+import { ResourceService } from '../services/resourceService';
+import { SchemaProviderService } from '../services/schemaProviderService';
+import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
 import { log, LogLevel } from '../extension';
-import { CrdVersion } from '../services/types';
 
 /**
  * Generate a spec object based on a JSON schema
@@ -75,7 +78,6 @@ function generateOptionalComments(schema: any, prefix: string = ''): Record<stri
 
   return result;
 }
-
 
 /**
  * Generate a comprehensive spec object based on a JSON schema,
@@ -190,221 +192,6 @@ function generateArrayExampleItem(itemSchema: any): any {
 }
 
 /**
- * Register the command to create a new Kubernetes resource from a CRD definition
- */
-export function registerResourceCreateCommand(
-  context: vscode.ExtensionContext,
-  k8sService: KubernetesService,
-  fileSystemProvider: K8sFileSystemProvider
-): void {
-  const createResourceCommand = vscode.commands.registerCommand(
-    'vscode-eda.createResource',
-    async () => {
-      try {
-        log('Creating new resource from CRD...', LogLevel.INFO, true);
-
-        // 1. Get all available CRDs
-        const crds = await k8sService.getCRDs();
-        if (!crds || crds.length === 0) {
-          vscode.window.showErrorMessage('No Custom Resource Definitions found in the cluster');
-          return;
-        }
-
-        // 2. Create quick pick items with proper grouping and formatting
-        const crdItems = crds
-          .filter(crd => crd.spec?.names?.kind)
-          .map(crd => {
-            const group = crd.spec?.group || '';
-            const kind = crd.spec?.names?.kind || '';
-            const version = crd.spec?.versions?.find((v: CrdVersion) =>
-              v.storage === true || v.served === true)?.name || '';
-
-            // Extract a meaningful description from the CRD
-            let detailInfo = '';
-
-            // Try to get schema from the active version
-            const activeVersion = crd.spec?.versions?.find((v: CrdVersion) =>
-              v.storage === true || v.served === true);
-            const schema = activeVersion?.schema?.openAPIV3Schema ||
-                          (crd.spec as any)?.validation?.openAPIV3Schema;
-
-            // First check if spec property has a detailed description - this is often the most informative
-            if (schema?.properties?.spec?.description) {
-              const specDesc = schema.properties.spec.description;
-              // If the description is very long, extract just the first sentence or truncate it
-              const firstSentence = specDesc.split(/\.(?:\s|$)/)[0]; // Get first sentence
-              detailInfo = firstSentence.length > 100 ?
-                          `${firstSentence.substring(0, 97)}...` :
-                          `${firstSentence}.`;
-            }
-            // Then try the schema top-level description
-            else if (schema?.description) {
-              const desc = schema.description;
-              detailInfo = desc.length > 100 ? `${desc.substring(0, 97)}...` : desc;
-            }
-            // Look for annotations
-            else if (crd.metadata?.annotations?.['description']) {
-              detailInfo = crd.metadata.annotations['description'];
-            }
-            // Last resort: show the resource scope and some additional info
-            else {
-              const scope = crd.spec?.scope || 'Namespaced';
-              const shortNames = crd.spec?.names?.shortNames?.join(', ') || '';
-              detailInfo = `${scope} resource${shortNames ? `, Aliases: ${shortNames}` : ''}`;
-            }
-
-            return {
-              label: kind,
-              description: `${group}/${version}`,
-              detail: detailInfo,
-              group: group.split('.')[0], // Group by first part of the API group
-              crd
-            };
-          })
-
-        // 3. Show quick pick with nice grouping by API group
-        const selected = await vscode.window.showQuickPick(crdItems, {
-          placeHolder: 'Select a Custom Resource Definition',
-          matchOnDescription: true,
-          matchOnDetail: true
-        });
-
-        if (!selected) {
-          return; // User cancelled
-        }
-
-        // 4. Get a namespace to create the resource in
-        const namespaces = await k8sService.getEdaNamespaces();
-        const namespace = await vscode.window.showQuickPick(namespaces, {
-          placeHolder: 'Select a namespace for the new resource',
-        });
-
-        if (!namespace) {
-          return; // User cancelled
-        }
-
-        // 5. Ask for a name for the new resource
-        const name = await vscode.window.showInputBox({
-          placeHolder: 'Enter a name for the new resource',
-          validateInput: text => {
-            if (!text) {
-              return 'Name is required';
-            }
-            if (!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(text)) {
-              return 'Name must consist of lowercase alphanumeric characters or "-", and must start and end with an alphanumeric character';
-            }
-            return null;
-          }
-        });
-
-        if (!name) {
-          return; // User cancelled
-        }
-
-        // 6. Generate a skeleton resource based on the schema
-        let schema: any = null;
-        try {
-          schema = await k8sService.getCrdSchemaForKind(selected.label);
-        } catch (error) {
-          log(`Error getting schema for ${selected.label}: ${error}`, LogLevel.WARN);
-          // Continue without schema, we'll create a minimal skeleton
-        }
-
-        const kind = selected.label;
-        const apiGroup = selected.crd.spec?.group;
-        const version = selected.crd.spec?.versions?.find((v: {name: string, storage?: boolean, served?: boolean}) => v.storage === true || v.served === true)?.name || 'v1';
-        const apiVersion = `${apiGroup}/${version}`;
-
-        // Create a resource skeleton
-        let skeleton = {
-          apiVersion,
-          kind,
-          metadata: {
-            name,
-            namespace
-          },
-          spec: {}
-        };
-
-        // Generate a comprehensive skeleton with all fields from the schema
-        if (schema && schema.properties?.spec) {
-          skeleton.spec = generateDetailedSpecFromSchema(schema.properties.spec);
-        }
-
-        // Add YAML comments for enum fields where applicable
-        let yamlContent = yaml.dump(skeleton, { indent: 2 });
-
-        // Add schema comment at the top for schema validation
-        yamlContent = `# yaml-language-server: $schema=/tmp/vscode-k8s-schemas/${kind.toLowerCase()}.json\n${yamlContent}`;
-
-        // Enhance YAML with comments for enum values
-        if (schema && schema.properties?.spec) {
-          const enumComments = generateEnumComments(schema.properties.spec);
-          for (const [path, options] of Object.entries(enumComments)) {
-            // Find the line containing the path
-            const lines = yamlContent.split('\n');
-            for (let i = 0; i < lines.length; i++) {
-              if (lines[i].trim().startsWith(path + ':')) {
-                // Add comment about available options
-                lines[i] = lines[i] + '  # Options: ' + options.join(', ');
-                break;
-              }
-            }
-            yamlContent = lines.join('\n');
-          }
-        }
-
-        if (schema && schema.properties?.spec) {
-          const optionalComments = generateOptionalComments(schema.properties.spec);
-          for (const [path, comment] of Object.entries(optionalComments)) {
-            // Split YAML content into lines.
-            const lines = yamlContent.split('\n');
-            for (let i = 0; i < lines.length; i++) {
-              if (lines[i].trim().startsWith(path + ':')) {
-                // Append the optional comment.
-                lines[i] = lines[i] + '  # ' + comment;
-                break;
-              }
-            }
-            yamlContent = lines.join('\n');
-          }
-        }
-
-        log(`Created skeleton for ${kind}/${name} in namespace ${namespace}`, LogLevel.INFO);
-
-        // 7. Create a URI for this resource
-        const uri = K8sFileSystemProvider.createUri(namespace, kind, name);
-
-        // 8. Store the skeleton resource
-        fileSystemProvider.setOriginalResource(uri, skeleton);
-
-        // 9. Convert to YAML and store the content
-        fileSystemProvider.setFileContent(uri, Buffer.from(yamlContent, 'utf8'));
-
-        // 10. Open the document and register it
-        const document = await vscode.workspace.openTextDocument(uri);
-        await vscode.languages.setTextDocumentLanguage(document, 'yaml');
-        const editor = await vscode.window.showTextDocument(document);
-
-        // 11. Register close handler for this document
-        const closeDisposable = vscode.workspace.onDidCloseTextDocument(doc => {
-          if (doc.uri.toString() === uri.toString()) {
-            fileSystemProvider.cleanupDocument(uri);
-            closeDisposable.dispose();
-          }
-        });
-
-        // Add to disposables
-        context.subscriptions.push(closeDisposable);
-
-      } catch (error) {
-        vscode.window.showErrorMessage(`Failed to create resource: ${error}`);
-        log(`Error in createResource: ${error}`, LogLevel.ERROR, true);
-      }
-    }
-  );
-
-  /**
  * Generate a mapping of property paths to their enum options
  * for adding comments to the YAML output
  */
@@ -449,6 +236,245 @@ function generateEnumComments(schema: any, prefix: string = ''): Record<string, 
 
   return result;
 }
+
+/**
+ * Register the command to create a new Kubernetes resource from a CRD definition
+ */
+/**
+ * Register the command to create a new Kubernetes resource from a CRD definition
+ * @param context The extension context
+ * @param resourceEditProvider The provider for editing resources
+ */
+export function registerResourceCreateCommand(
+  context: vscode.ExtensionContext,
+  resourceEditProvider: ResourceEditDocumentProvider
+): void {
+  const createResourceCommand = vscode.commands.registerCommand(
+    'vscode-eda.createResource',
+    async () => {
+      try {
+        log('Creating new resource from CRD...', LogLevel.INFO, true);
+
+        // Get required services
+        const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
+        const resourceService = serviceManager.getService<ResourceService>('kubernetes-resources');
+        const schemaProvider = serviceManager.getService<SchemaProviderService>('schema-provider');
+
+        // 1. Get all available CRDs
+        const crds = k8sClient.getCachedCrds();
+        if (!crds || crds.length === 0) {
+          vscode.window.showErrorMessage('No Custom Resource Definitions found in the cluster');
+          return;
+        }
+
+        // 2. Create quick pick items with proper grouping and formatting
+        const crdItems = crds
+          .filter(crd => crd.spec?.names?.kind)
+          .map(crd => {
+            const group = crd.spec?.group || '';
+            const kind = crd.spec?.names?.kind || '';
+            const version = crd.spec?.versions?.find((v: any) =>
+              v.storage === true || v.served === true)?.name || '';
+
+            // Extract a meaningful description from the CRD
+            let detailInfo = '';
+
+            // Try to get schema from the active version
+            const activeVersion = crd.spec?.versions?.find((v: any) =>
+              v.storage === true || v.served === true);
+            const schema = activeVersion?.schema?.openAPIV3Schema ||
+                          (crd.spec as any)?.validation?.openAPIV3Schema;
+
+            // First check if spec property has a detailed description - this is often the most informative
+            if (schema?.properties?.spec?.description) {
+              const specDesc = schema.properties.spec.description;
+              // If the description is very long, extract just the first sentence or truncate it
+              const firstSentence = specDesc.split(/\.(?:\s|$)/)[0]; // Get first sentence
+              detailInfo = firstSentence.length > 100 ?
+                          `${firstSentence.substring(0, 97)}...` :
+                          `${firstSentence}.`;
+            }
+            // Then try the schema top-level description
+            else if (schema?.description) {
+              const desc = schema.description;
+              detailInfo = desc.length > 100 ? `${desc.substring(0, 97)}...` : desc;
+            }
+            // Look for annotations
+            else if (crd.metadata?.annotations?.['description']) {
+              detailInfo = crd.metadata.annotations['description'];
+            }
+            // Last resort: show the resource scope and some additional info
+            else {
+              const scope = crd.spec?.scope || 'Namespaced';
+              const shortNames = crd.spec?.names?.shortNames?.join(', ') || '';
+              detailInfo = `${scope} resource${shortNames ? `, Aliases: ${shortNames}` : ''}`;
+            }
+
+            return {
+              label: kind,
+              description: `${group}/${version}`,
+              detail: detailInfo,
+              group: group.split('.')[0], // Group by first part of the API group
+              crd
+            };
+          });
+
+        // 3. Show quick pick with nice grouping by API group
+        const selected = await vscode.window.showQuickPick(crdItems, {
+          placeHolder: 'Select a Custom Resource Definition',
+          matchOnDescription: true,
+          matchOnDetail: true
+        });
+
+        if (!selected) {
+          return; // User cancelled
+        }
+
+        // 4. Get an EDA namespace to create the resource in
+        const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+        const edaNamespaces = await edactlClient.getEdaNamespaces();
+
+        if (!edaNamespaces || edaNamespaces.length === 0) {
+          vscode.window.showErrorMessage('No EDA namespaces found in the cluster');
+          return;
+        }
+
+        const namespace = await vscode.window.showQuickPick(edaNamespaces, {
+          placeHolder: 'Select an EDA namespace for the new resource',
+        });
+
+        if (!namespace) {
+          return; // User cancelled
+        }
+
+        // 5. Ask for a name for the new resource
+        const name = await vscode.window.showInputBox({
+          placeHolder: 'Enter a name for the new resource',
+          validateInput: text => {
+            if (!text) {
+              return 'Name is required';
+            }
+            if (!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(text)) {
+              return 'Name must consist of lowercase alphanumeric characters or "-", and must start and end with an alphanumeric character';
+            }
+            return null;
+          }
+        });
+
+        if (!name) {
+          return; // User cancelled
+        }
+
+        // 6. Generate a skeleton resource based on the schema
+        const kind = selected.label;
+        const apiGroup = selected.crd.spec?.group;
+        const version = selected.crd.spec?.versions?.find((v: any) => v.storage === true || v.served === true)?.name || 'v1';
+        const apiVersion = `${apiGroup}/${version}`;
+
+        // Create a resource skeleton
+        let skeleton = {
+          apiVersion,
+          kind,
+          metadata: {
+            name,
+            namespace
+          },
+          spec: {}
+        };
+
+        // Try to get the schema for this CRD kind
+        let schema = null;
+        try {
+          // The schema might be directly in the CRD or we might need to extract it
+          const activeVersion = selected.crd.spec?.versions?.find((v: any) =>
+            v.storage === true || v.served === true);
+
+          if (activeVersion?.schema?.openAPIV3Schema) {
+            schema = activeVersion.schema.openAPIV3Schema;
+          } else if ((selected.crd.spec as any)?.validation?.openAPIV3Schema) {
+            schema = (selected.crd.spec as any).validation.openAPIV3Schema;
+          }
+        } catch (error) {
+          log(`Error getting schema for ${kind}: ${error}`, LogLevel.WARN);
+          // Continue without schema, we'll create a minimal skeleton
+        }
+
+        // Generate a comprehensive skeleton with all fields from the schema
+        if (schema && schema.properties?.spec) {
+          skeleton.spec = generateDetailedSpecFromSchema(schema.properties.spec);
+        }
+
+        // Convert to YAML
+        let yamlContent = yaml.dump(skeleton, { indent: 2 });
+
+        // Add schema comment at the top for schema validation
+        // Use the schema provider's path if possible
+        yamlContent = `# yaml-language-server: $schema=/tmp/vscode-eda-schemas/${kind.toLowerCase()}.json\n${yamlContent}`;
+
+        // Enhance YAML with comments for enum values
+        if (schema && schema.properties?.spec) {
+          const enumComments = generateEnumComments(schema.properties.spec);
+          for (const [path, options] of Object.entries(enumComments)) {
+            // Find the line containing the path
+            const lines = yamlContent.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+              if (lines[i].trim().startsWith(path + ':')) {
+                // Add comment about available options
+                lines[i] = lines[i] + '  # Options: ' + options.join(', ');
+                break;
+              }
+            }
+            yamlContent = lines.join('\n');
+          }
+        }
+
+        // Add optional field comments
+        if (schema && schema.properties?.spec) {
+          const optionalComments = generateOptionalComments(schema.properties.spec);
+          for (const [path, comment] of Object.entries(optionalComments)) {
+            // Split YAML content into lines.
+            const lines = yamlContent.split('\n');
+            for (let i = 0; i < lines.length; i++) {
+              if (lines[i].trim().startsWith(path + ':')) {
+                // Append the optional comment.
+                lines[i] = lines[i] + '  # ' + comment;
+                break;
+              }
+            }
+            yamlContent = lines.join('\n');
+          }
+        }
+
+        log(`Created skeleton for ${kind}/${name} in namespace ${namespace}`, LogLevel.INFO);
+
+        // 7. Create a URI for this resource using ResourceEditDocumentProvider's format
+        const uri = ResourceEditDocumentProvider.createUri(namespace, kind, name);
+
+        // 8. Store the skeleton resource in the edit provider
+        resourceEditProvider.setOriginalResource(uri, skeleton);
+        resourceEditProvider.setResourceContent(uri, yamlContent);
+
+        // 9. Open the document and set language
+        const document = await vscode.workspace.openTextDocument(uri);
+        await vscode.languages.setTextDocumentLanguage(document, 'yaml');
+        await vscode.window.showTextDocument(document);
+
+        // 10. Apply schema to the document if the schema provider has it
+        if (schemaProvider) {
+          try {
+            await schemaProvider.associateSchemaWithDocument(document, kind);
+          } catch (error) {
+            log(`Error associating schema: ${error}`, LogLevel.WARN);
+            // Continue without schema association
+          }
+        }
+
+      } catch (error) {
+        vscode.window.showErrorMessage(`Failed to create resource: ${error}`);
+        log(`Error in createResource: ${error}`, LogLevel.ERROR, true);
+      }
+    }
+  );
 
   context.subscriptions.push(createResourceCommand);
 }

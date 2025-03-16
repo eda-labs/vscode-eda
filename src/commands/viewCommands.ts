@@ -1,19 +1,23 @@
-// src/commands/viewCommands.ts (using improved template loader)
+// src/commands/viewCommands.ts
 import * as vscode from 'vscode';
-import { KubernetesService } from '../services/kubernetes/kubernetes';
+import { serviceManager } from '../services/serviceManager';
+import { EdactlClient } from '../clients/edactlClient';
+import { KubernetesClient } from '../clients/kubernetesClient';
 import { edaOutputChannel } from '../extension';
 import { CrdDefinitionFileSystemProvider } from '../providers/documents/crdDefinitionProvider';
 import { TransactionDetailsDocumentProvider } from '../providers/documents/transactionDetailsProvider';
-import { alarmDetailsProvider, deviationDetailsProvider } from '../extension';
+import { AlarmDetailsDocumentProvider } from '../providers/documents/alarmDetailsProvider';
+import { DeviationDetailsDocumentProvider } from '../providers/documents/deviationDetailsProvider';
 import { loadTemplate } from '../utils/templateLoader';
 
 export function registerViewCommands(
   context: vscode.ExtensionContext,
-  k8sService: KubernetesService,
   crdFsProvider: CrdDefinitionFileSystemProvider,
-  transactionDetailsProvider?: TransactionDetailsDocumentProvider
+  transactionDetailsProvider: TransactionDetailsDocumentProvider,
+  alarmDetailsProvider: AlarmDetailsDocumentProvider,
+  deviationDetailsProvider: DeviationDetailsDocumentProvider
 ) {
-  // Show transaction details command (unchanged)
+  // Show transaction details command
   const showTransactionDetailsCommand = vscode.commands.registerCommand(
     'vscode-eda.showTransactionDetails',
     async (transactionId: string) => {
@@ -23,37 +27,27 @@ export function registerViewCommands(
       }
 
       try {
-        // 1) Retrieve text from "edactl transaction <id>" (or your existing method)
-        const detailsText = await k8sService.getEdaTransactionDetails(transactionId);
+        // Get EdactlClient from service manager
+        const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
 
-        // If no read-only provider was given, fallback to older approach
-        if (!transactionDetailsProvider) {
-          // fallback: open ephemeral doc
-          const doc = await vscode.workspace.openTextDocument({
-            content: detailsText,
-            language: 'yaml'
-          });
-          await vscode.window.showTextDocument(doc, { preview: false });
-          return;
-        }
+        // Retrieve text from "edactl transaction <id>"
+        const detailsText = await edactlClient.getTransactionDetails(transactionId);
 
-        // 2) Create a "eda-transaction:" URI for read-only
+        // Create a "eda-transaction:" URI for read-only
         const docUri = vscode.Uri.parse(
           `eda-transaction:/${transactionId}?ts=${Date.now()}`
         );
 
-        // 3) Store the text in the read-only provider
+        // Store the text in the read-only provider
         transactionDetailsProvider.setTransactionContent(docUri, detailsText);
 
-        // 4) Open the doc
+        // Open the doc
         const doc = await vscode.workspace.openTextDocument(docUri);
 
-        // 5) Optionally force syntax highlighting:
-        // "log" is a good approximation for this multiline text
-        // or "plaintext" if you prefer
+        // Force syntax highlighting to "log" format
         await vscode.languages.setTextDocumentLanguage(doc, 'log');
 
-        await vscode.window.showTextDocument(doc, { preview: false });
+        await vscode.window.showTextDocument(doc, { preview: true });
       } catch (err: any) {
         const msg = `Failed to load transaction details for ID ${transactionId}: ${err.message}`;
         vscode.window.showErrorMessage(msg);
@@ -62,38 +56,48 @@ export function registerViewCommands(
     }
   );
 
-  // Show CRD Definition command (unchanged)
-  const showCRDDefinitionCommand = vscode.commands.registerCommand('vscode-eda.showCRDDefinition', async (treeItem: any) => {
-    try {
-      if (!treeItem?.resource?.kind) {
-        vscode.window.showErrorMessage('No CRD instance or missing kind.');
-        return;
+  // Show CRD Definition command
+  const showCRDDefinitionCommand = vscode.commands.registerCommand(
+    'vscode-eda.showCRDDefinition',
+    async (treeItem: any) => {
+      try {
+        if (!treeItem?.resource?.kind) {
+          vscode.window.showErrorMessage('No CRD instance or missing kind.');
+          return;
+        }
+        const { kind } = treeItem.resource;
+        const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
+
+        // Get CRD YAML
+        const matchingCrds = k8sClient.getCachedCrds()
+          .filter((crd: any) => crd.spec?.names?.kind === kind);
+
+        if (!matchingCrds || matchingCrds.length === 0) {
+          vscode.window.showErrorMessage(`Could not find CRD for kind "${kind}"`);
+          return;
+        }
+
+        const crdYaml = JSON.stringify(matchingCrds[0], null, 2);
+
+        // Create a unique crd: URI
+        const crdUri = vscode.Uri.parse(`crd:/${kind}?ts=${Date.now()}`);
+
+        // Store the YAML in the read-only FS
+        crdFsProvider.setCrdYaml(crdUri, crdYaml);
+
+        // Open the doc
+        const doc = await vscode.workspace.openTextDocument(crdUri);
+
+        // Force YAML highlighting
+        await vscode.languages.setTextDocumentLanguage(doc, 'yaml');
+
+        await vscode.window.showTextDocument(doc, { preview: true });
+      } catch (error: any) {
+        vscode.window.showErrorMessage(`Failed to show CRD definition: ${error.message || error}`);
+        edaOutputChannel.appendLine(`Error showing CRD definition: ${error}`);
       }
-      const { kind } = treeItem.resource;
-
-      // 1) Get the YAML from k8sService (using --show-managed-fields=false)
-      const crdYaml = await k8sService.getCrdYamlForKind(kind);
-
-      // 2) Create a unique crd: URI
-      //    e.g. crd:/Interface?random=...
-      //    If multiple CRDs share the same kind, we can add a random query param
-      const crdUri = vscode.Uri.parse(`crd:/${kind}?ts=${Date.now()}`);
-
-      // 3) Store the YAML in the read-only FS
-      crdFsProvider.setCrdYaml(crdUri, crdYaml);
-
-      // 4) Open the doc
-      const doc = await vscode.workspace.openTextDocument(crdUri);
-
-      // 5) Force YAML highlighting (in case VS Code doesn't auto-detect)
-      await vscode.languages.setTextDocumentLanguage(doc, 'yaml');
-
-      await vscode.window.showTextDocument(doc, { preview: false });
-    } catch (error: any) {
-      vscode.window.showErrorMessage(`Failed to show CRD definition: ${error.message || error}`);
-      edaOutputChannel.appendLine(`Error showing CRD definition: ${error}`);
     }
-  });
+  );
 
   // Show alarm details using Handlebars template
   vscode.commands.registerCommand('vscode-eda.showAlarmDetails', async (arg: any) => {
@@ -154,7 +158,6 @@ export function registerViewCommands(
     }
   });
 
-
   // Show deviation details using markdown template
   vscode.commands.registerCommand('vscode-eda.showDeviationDetails', async (deviation: any) => {
     if (!deviation) {
@@ -166,6 +169,7 @@ export function registerViewCommands(
       const name = deviation.name;
       const kind = deviation.kind || 'Deviation';
       const namespace = deviation["namespace.name"];
+      const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
 
       // Prepare base template variables
       const templateVars: Record<string, any> = {
@@ -177,7 +181,7 @@ export function registerViewCommands(
 
       try {
         // Fetch the YAML for the deviation
-        const resourceYaml = await k8sService.getResourceYaml(kind, name, namespace);
+        const resourceYaml = await edactlClient.executeEdactl(`get deviation ${name} -n ${namespace} -o yaml`);
         templateVars.resourceYaml = resourceYaml;
       } catch (error) {
         // Add error message if we couldn't get the YAML
@@ -197,4 +201,6 @@ export function registerViewCommands(
       vscode.window.showErrorMessage(`Failed to load deviation details: ${error.message || error}`);
     }
   });
+
+  context.subscriptions.push(showTransactionDetailsCommand, showCRDDefinitionCommand);
 }

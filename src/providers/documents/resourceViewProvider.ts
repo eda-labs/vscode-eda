@@ -12,7 +12,7 @@ export class ResourceViewDocumentProvider extends BaseDocumentProvider {
   public setResourceContent(uri: vscode.Uri, yamlContent: string): void {
     this.setContent(uri, yamlContent);
   }
-  
+
   /**
    * Parse a k8s-view URI to get namespace, kind, and name
    */

@@ -1,173 +1,199 @@
-// Updated src/commands/resourceViewCommand.ts with read-only enforcement
+// src/commands/resourceViewCommands.ts
 import * as vscode from 'vscode';
-import * as yaml from 'js-yaml';
-import { KubernetesService } from '../services/kubernetes/kubernetes';
-import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
 import { log, LogLevel } from '../extension';
+import { serviceManager } from '../services/serviceManager';
+import { KubernetesClient } from '../clients/kubernetesClient';
+import { EdactlClient } from '../clients/edactlClient';
+import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
+import { runKubectl } from '../utils/kubectlRunner';
 
 /**
- * Registers the "viewResource" command that opens a read-only YAML view (k8s-view:)
+ * Decide if the given apiVersion is an EDA group (ends with ".eda.nokia.com")
  */
+function isEdaGroup(apiVersion: string | undefined): boolean {
+  if (!apiVersion) return false;
+  const group = apiVersion.split('/')[0];
+  return group.endsWith('.eda.nokia.com');
+}
+
+/**
+ * Get API version based on resource kind using a pattern
+ */
+function getApiVersionForKind(kind: string): string {
+  // Standard Kubernetes resources need specific handling
+  const k8sResources: Record<string, string> = {
+    'Pod': 'v1',
+    'Service': 'v1',
+    'Deployment': 'apps/v1',
+    'ConfigMap': 'v1',
+    'Secret': 'v1',
+    'Node': 'v1'
+  };
+
+  // Check if it's a standard K8s resource
+  if (k8sResources[kind]) {
+    return k8sResources[kind];
+  }
+  const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
+  const crds = k8sClient.getCachedCrds();
+
+  // Case-insensitive matching
+  const matchingCrd = crds.find(crd =>
+    crd.spec?.names?.kind.toLowerCase() === kind.toLowerCase()
+  );
+
+  if (matchingCrd) {
+    // Get actual group and version from CRD
+    const group = matchingCrd.spec?.group || '';
+    const version = matchingCrd.spec?.versions?.find(v => v.served)?.name ||
+                    matchingCrd.spec?.versions?.[0]?.name || 'v1alpha1';
+    return `${group}/${version}`;
+  }
+
+  // Fallback to original behavior if nothing found
+  let plural = kind.toLowerCase();
+  // Plural generation logic...
+  return `${plural}.eda.nokia.com/v1alpha1`;
+}
+
 export function registerResourceViewCommands(
   context: vscode.ExtensionContext,
-  k8sService: KubernetesService,
-  viewProvider: ResourceViewDocumentProvider
+  resourceViewProvider: ResourceViewDocumentProvider
 ) {
-  const viewResourceCommand = vscode.commands.registerCommand(
+  /**
+   * Main command: opens a resource in read-only YAML view.
+   *  - If apiVersion ends with ".eda.nokia.com", we try `edactl get ... -o yaml`.
+   *  - Otherwise we do `kubectl get ... -o yaml`.
+   */
+  const viewResourceCmd = vscode.commands.registerCommand(
     'vscode-eda.viewResource',
-    async (treeItemOrResourceInfo: any) => {
+    async (treeItem: any) => {
       try {
-        let kind, name, namespace;
+        log(`Processing resource view command`, LogLevel.DEBUG);
 
-        // If called from a tree item:
-        if (treeItemOrResourceInfo?.resource) {
-          const resource = treeItemOrResourceInfo.resource;
-          kind = resource.kind;
-          name = resource.metadata?.name;
-          namespace = resource.metadata?.namespace || treeItemOrResourceInfo.namespace || 'default';
+        // Debug log key properties without circular references
+        if (treeItem) {
+          log(`Tree item label: ${treeItem.label}`, LogLevel.DEBUG);
+          log(`Tree item namespace: ${treeItem.namespace}`, LogLevel.DEBUG);
+          log(`Tree item resourceType: ${treeItem.resourceType}`, LogLevel.DEBUG);
+          log(`Tree item contextValue: ${treeItem.contextValue}`, LogLevel.DEBUG);
         }
-        // Or if called programmatically with { kind, name, namespace }:
-        else if (treeItemOrResourceInfo?.kind && treeItemOrResourceInfo?.name) {
-          kind = treeItemOrResourceInfo.kind;
-          name = treeItemOrResourceInfo.name;
-          namespace = treeItemOrResourceInfo.namespace || 'default';
-        } else {
-          vscode.window.showErrorMessage('Invalid resource to view.');
+
+        // Extract resource information safely - improved approach
+        let resourceKind: string | undefined;
+        let resourceName: string | undefined;
+        let resourceNamespace: string | undefined;
+        let possibleApiVersion: string | undefined;
+
+        // Try multiple ways to extract resource information
+        if (treeItem) {
+          // First try direct properties - these are most reliable
+          resourceName = typeof treeItem.label === 'string' ? treeItem.label : undefined;
+          resourceNamespace = treeItem.namespace;
+
+          // For pod, use 'Pod' as kind
+          if (treeItem.contextValue === 'pod') {
+            resourceKind = 'Pod';
+          }
+          // For other resources, use resourceType
+          else if (treeItem.resourceType) {
+            resourceKind = treeItem.resourceType.charAt(0).toUpperCase() + treeItem.resourceType.slice(1);
+          }
+
+          // If we have raw resource data, try to extract apiVersion and any missing info
+          if (treeItem.resource?.raw) {
+            possibleApiVersion = treeItem.resource.raw.apiVersion;
+
+            // If we couldn't get kind from context or resourceType, try from raw
+            if (!resourceKind && treeItem.resource.raw.kind) {
+              resourceKind = treeItem.resource.raw.kind;
+            }
+
+            // If we couldn't get name from label, try from raw
+            if (!resourceName && treeItem.resource.raw.metadata?.name) {
+              resourceName = treeItem.resource.raw.metadata.name;
+            }
+
+            // If we couldn't get namespace, try from raw
+            if (!resourceNamespace && treeItem.resource.raw.metadata?.namespace) {
+              resourceNamespace = treeItem.resource.raw.metadata.namespace;
+            }
+          }
+
+          log(`Resource info: ${resourceKind}/${resourceName} in ${resourceNamespace}`, LogLevel.DEBUG);
+        }
+
+        // Validate we have the minimum required information
+        if (!resourceKind || !resourceName || !resourceNamespace) {
+          vscode.window.showErrorMessage(`Invalid resource: missing kind, name, or namespace.
+            Kind: ${resourceKind}, Name: ${resourceName}, Namespace: ${resourceNamespace}`);
           return;
         }
 
-        // 1) Fetch resource YAML
-        let yamlContent = await k8sService.getResourceYaml(kind, name, namespace);
-        try {
-          const resource = yaml.load(yamlContent) as any;
-          if (!resource.apiVersion) {
-            // Compute the appropriate apiVersion (as you already do)
-            let computedApiVersion = '';
-            const isEdaCrd = await k8sService.isEdaCrd(kind);
-            if (isEdaCrd) {
-              try {
-                const crdDef = await k8sService.getCrdDefinitionForKind(kind);
-                if (crdDef && crdDef.spec?.group) {
-                  const version = crdDef.spec.versions?.find(v => v.storage === true) ||
-                                  crdDef.spec.versions?.find(v => v.served === true) ||
-                                  crdDef.spec.versions?.[0];
-                  computedApiVersion = version?.name ? `${crdDef.spec.group}/${version.name}` : `${crdDef.spec.group}/v1alpha1`;
-                }
-              } catch (error) {
-                // Fallback for EDA CRDs
-                let plural = kind.toLowerCase();
-                if (plural.endsWith('f')) {
-                  plural = plural.slice(0, -1) + 'ves';
-                } else if (plural.endsWith('y')) {
-                  plural = plural.slice(0, -1) + 'ies';
-                } else if (!plural.endsWith('s')) {
-                  plural += 's';
-                }
-                computedApiVersion = `${plural}.eda.nokia.com/v1alpha1`;
-              }
+        // 2) If we have an apiVersion and it looks EDA, try edactl first
+        let finalYaml = '';
+        const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+
+        if (possibleApiVersion && isEdaGroup(possibleApiVersion)) {
+          // If recognized as EDA, attempt an edactl fetch:
+          log(`Detected EDA group from apiVersion=${possibleApiVersion}. Trying edactl...`,
+              LogLevel.DEBUG);
+
+          const edaYaml = await edactlClient.getEdaResourceYaml(resourceKind, resourceName, resourceNamespace);
+          if (edaYaml) {
+            // Check if the YAML has apiVersion (might be missing in edactl output)
+            const hasApiVersion = edaYaml.includes('apiVersion:');
+
+            if (!hasApiVersion) {
+              // Add the appropriate apiVersion based on the kind
+              const apiVersion = getApiVersionForKind(resourceKind);
+              log(`Adding missing apiVersion: ${apiVersion} to EDA YAML`, LogLevel.INFO);
+              finalYaml = `apiVersion: ${apiVersion}\n${edaYaml}`;
             } else {
-              const k8sResources: Record<string, string> = {
-                'Pod': 'v1',
-                'Service': 'v1',
-                'Deployment': 'apps/v1',
-                'ConfigMap': 'v1',
-                'Secret': 'v1',
-                'Node': 'v1'
-              };
-              computedApiVersion = k8sResources[kind] || '';
+              finalYaml = edaYaml;
             }
-            resource.apiVersion = computedApiVersion;
-            // Instead of dumping the entire object (which reorders keys),
-            // manually prepend the apiVersion line to the original YAML.
-            // You might want to remove any old apiVersion line from yamlContent first.
-            yamlContent = yamlContent.replace(/^apiVersion:.*\n/, '');
-            yamlContent = `apiVersion: ${resource.apiVersion}\n${yamlContent}`;
+          } else {
+            // If edactl returned empty, fallback to kubectl
+            log(`edactl returned no YAML, falling back to kubectl get -o yaml...`, LogLevel.DEBUG);
+            finalYaml = runKubectl(
+              'kubectl',
+              ['get', resourceKind.toLowerCase(), resourceName, '-o', 'yaml'],
+              { namespace: resourceNamespace }
+            );
           }
-        } catch (error) {
-          log(`Error processing YAML for view: ${error}`, LogLevel.WARN);
-          // Proceed with original yamlContent if parsing fails
+        }
+        else {
+          // 3) For standard K8s resources, just use kubectl
+          log(`Using kubectl get -o yaml for ${resourceKind}/${resourceName}...`, LogLevel.DEBUG);
+          finalYaml = runKubectl(
+            'kubectl',
+            ['get', resourceKind.toLowerCase(), resourceName, '-o', 'yaml'],
+            { namespace: resourceNamespace }
+          );
         }
 
-        // 3) Build a read-only URI
+        if (!finalYaml) {
+          finalYaml = `# No data found for ${resourceKind}/${resourceName} in namespace ${resourceNamespace}`;
+        }
+
+        // 5) Create a read-only k8s-view URI to hold the text
         const viewUri = vscode.Uri.parse(
-          `k8s-view:/${namespace}/${kind}/${name}?ts=${Date.now()}`
+          `k8s-view:/${resourceNamespace}/${resourceKind}/${resourceName}?ts=${Date.now()}`
         );
+        // Store the content in the ResourceViewDocumentProvider
+        resourceViewProvider.setResourceContent(viewUri, finalYaml);
 
-        // 4) Store the YAML content in your read-only provider
-        viewProvider.setResourceContent(viewUri, yamlContent);
-
-        // 5) Open the doc & set language to 'yaml'
+        // 6) Show the doc in an editor with YAML highlighting
         const doc = await vscode.workspace.openTextDocument(viewUri);
         await vscode.languages.setTextDocumentLanguage(doc, 'yaml');
+        await vscode.window.showTextDocument(doc, { preview: true });
 
-        // 6) Open the document as read-only
-        await vscode.window.showTextDocument(doc, {
-          preview: true,
-          preserveFocus: false,
-          viewColumn: vscode.ViewColumn.Active
-        });
-
-        // 7) Add a status bar item to easily switch to edit mode
-        const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-        statusBarItem.text = "$(edit) Edit Resource";
-        statusBarItem.tooltip = "Switch to editable mode";
-        statusBarItem.command = "vscode-eda.switchToEditResource";
-        statusBarItem.show();
-
-        // Dispose the status bar item when the document is closed
-        const disposable = vscode.workspace.onDidCloseTextDocument(closedDoc => {
-          if (closedDoc.uri.toString() === viewUri.toString()) {
-            statusBarItem.dispose();
-            disposable.dispose();
-          }
-        });
-
-        context.subscriptions.push(disposable);
-
-      } catch (error) {
-        log(`Failed to view resource: ${error}`, LogLevel.ERROR, true);
-        vscode.window.showErrorMessage(`Failed to view resource: ${error}`);
+      } catch (error: any) {
+        log(`Failed to open resource in YAML view: ${error}`, LogLevel.ERROR, true);
+        vscode.window.showErrorMessage(`Error viewing resource: ${error}`);
       }
     }
   );
 
-  context.subscriptions.push(viewResourceCommand);
-}
-
-export function registerSwitchToEditCommand(context: vscode.ExtensionContext) {
-  const switchToEditCommand = vscode.commands.registerCommand(
-    'vscode-eda.switchToEditResource',
-    async () => {
-      // We'll get the "activeTextEditor", parse the URI to figure out the resource
-      const editor = vscode.window.activeTextEditor;
-      if (!editor) {
-        vscode.window.showErrorMessage('No active editor to switch to edit mode.');
-        return;
-      }
-
-      const docUri = editor.document.uri;
-      if (docUri.scheme !== 'k8s-view') {
-        vscode.window.showErrorMessage('This document is not in read-only view mode.');
-        return;
-      }
-
-      // Parse the URI to get namespace, kind, name
-      const parts = docUri.path.split('/').filter(p => p.length > 0); // e.g. /my-namespace/Pod/my-resource
-      if (parts.length !== 3) {
-        vscode.window.showErrorMessage(`Invalid k8s-view URI: ${docUri}`);
-        return;
-      }
-
-      const [namespace, kind, resourceName] = parts;
-
-      // Now we can simply call your "editResource" command with the same data
-      await vscode.commands.executeCommand('vscode-eda.editResource', {
-        kind,
-        name: resourceName,
-        namespace
-      });
-    }
-  );
-
-  context.subscriptions.push(switchToEditCommand);
+  context.subscriptions.push(viewResourceCmd);
 }
