@@ -20,11 +20,13 @@ import { registerTransactionCommands } from './commands/transactionCommands';
 import { registerViewCommands } from './commands/viewCommands';
 import { registerResourceEditCommands } from './commands/resourceEditCommands';
 import { registerResourceCreateCommand } from './commands/resourceCreateCommand';
+import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand';
+import { registerResourceViewCommands } from './commands/resourceViewCommands';
 import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 import { PodDescribeDocumentProvider } from './providers/documents/podDescribeProvider';
 import { ResourceViewDocumentProvider } from './providers/documents/resourceViewProvider';
 import { registerPodCommands } from './commands/podCommands';
-import { registerResourceViewCommands } from './commands/resourceViewCommands';
+
 
 
 export enum LogLevel {
@@ -214,6 +216,8 @@ export async function activate(context: vscode.ExtensionContext) {
     registerResourceEditCommands(context, resourceEditProvider, resourceViewProvider);
 
     registerResourceCreateCommand(context, resourceEditProvider);
+
+    registerResourceDeleteCommand(context);
 
     // Register commands - add these after the other registerXXXCommands calls
     registerPodCommands(context, podDescribeProvider);
