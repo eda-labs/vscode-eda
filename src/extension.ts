@@ -22,6 +22,7 @@ import { registerResourceEditCommands } from './commands/resourceEditCommands';
 import { registerResourceCreateCommand } from './commands/resourceCreateCommand';
 import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand';
 import { registerResourceViewCommands } from './commands/resourceViewCommands';
+import { registerDeploymentCommands } from './commands/deploymentCommands';
 import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 import { PodDescribeDocumentProvider } from './providers/documents/podDescribeProvider';
 import { ResourceViewDocumentProvider } from './providers/documents/resourceViewProvider';
@@ -218,6 +219,8 @@ export async function activate(context: vscode.ExtensionContext) {
     registerResourceCreateCommand(context, resourceEditProvider);
 
     registerResourceDeleteCommand(context);
+
+    registerDeploymentCommands(context);
 
     // Register commands - add these after the other registerXXXCommands calls
     registerPodCommands(context, podDescribeProvider);
