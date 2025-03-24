@@ -136,11 +136,20 @@ export function registerResourceViewCommands(
 
         if (possibleApiVersion && isEdaGroup(possibleApiVersion)) {
           // If recognized as EDA, attempt an edactl fetch:
-          log(`Detected EDA group from apiVersion=${possibleApiVersion}. Trying edactl...`,
-              LogLevel.DEBUG);
+          log(`Detected EDA group from apiVersion=${possibleApiVersion}. Trying edactl...`, LogLevel.DEBUG);
 
-          const edaYaml = await edactlClient.getEdaResourceYaml(resourceKind, resourceName, resourceNamespace);
-          if (edaYaml) {
+          let edaYaml = '';
+          try {
+            edaYaml = await edactlClient.getEdaResourceYaml(resourceKind, resourceName, resourceNamespace);
+          } catch (error) {
+            log(`Error while fetching with edactl, will fall back to kubectl: ${error}`, LogLevel.WARN);
+            edaYaml = ''; // Ensure we fallback
+          }
+
+          // Check if the result from edactl is valid and not containing error messages
+          if (edaYaml && edaYaml.trim().length > 0 &&
+              !edaYaml.includes('NotFound') && !edaYaml.includes('error:')) {
+
             // Check if the YAML has apiVersion (might be missing in edactl output)
             const hasApiVersion = edaYaml.includes('apiVersion:');
 
@@ -153,26 +162,37 @@ export function registerResourceViewCommands(
               finalYaml = edaYaml;
             }
           } else {
-            // If edactl returned empty, fallback to kubectl
-            log(`edactl returned no YAML, falling back to kubectl get -o yaml...`, LogLevel.DEBUG);
-            finalYaml = runKubectl(
-              'kubectl',
-              ['get', resourceKind.toLowerCase(), resourceName, '-o', 'yaml'],
-              { namespace: resourceNamespace }
-            );
+            // If edactl returned empty or error message, fallback to kubectl
+            log(`edactl failed for ${resourceKind}/${resourceName}, falling back to kubectl get -o yaml...`, LogLevel.INFO);
+            try {
+              finalYaml = runKubectl(
+                'kubectl',
+                ['get', resourceKind.toLowerCase(), resourceName, '-o', 'yaml'],
+                { namespace: resourceNamespace }
+              );
+              log(`Successfully fetched ${resourceKind}/${resourceName} via kubectl fallback`, LogLevel.INFO);
+            } catch (kubectlError) {
+              log(`Both edactl and kubectl failed for ${resourceKind}/${resourceName}: ${kubectlError}`, LogLevel.ERROR);
+              finalYaml = `# Error fetching ${resourceKind}/${resourceName}:\n# ${kubectlError}\n# Original edactl error: ${edaYaml}`;
+            }
           }
         }
         else {
           // 3) For standard K8s resources, just use kubectl
           log(`Using kubectl get -o yaml for ${resourceKind}/${resourceName}...`, LogLevel.DEBUG);
-          finalYaml = runKubectl(
-            'kubectl',
-            ['get', resourceKind.toLowerCase(), resourceName, '-o', 'yaml'],
-            { namespace: resourceNamespace }
-          );
+          try {
+            finalYaml = runKubectl(
+              'kubectl',
+              ['get', resourceKind.toLowerCase(), resourceName, '-o', 'yaml'],
+              { namespace: resourceNamespace }
+            );
+          } catch (error) {
+            log(`Error fetching resource with kubectl: ${error}`, LogLevel.ERROR);
+            finalYaml = `# Error fetching ${resourceKind}/${resourceName}:\n# ${error}`;
+          }
         }
 
-        if (!finalYaml) {
+        if (!finalYaml || finalYaml.trim().length === 0) {
           finalYaml = `# No data found for ${resourceKind}/${resourceName} in namespace ${resourceNamespace}`;
         }
 

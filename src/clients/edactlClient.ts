@@ -280,7 +280,19 @@ export class EdactlClient {
 
       // Reuse the "executeEdactl" method from EdactlClient
       const edaOutput = await this.executeEdactl(command, true); // ignoring "No resources found" if second arg = true
+
+      // Check for error indicators in the output
       if (edaOutput && edaOutput.trim().length > 0) {
+        // If the output contains error indicators, log and return empty to trigger fallback
+        if (edaOutput.includes('NotFound') ||
+            edaOutput.includes('(NotFound)') ||
+            edaOutput.includes('error:') ||
+            edaOutput.includes('Error:')) {
+
+          log(`Error in edactl output for ${kind}/${name}: ${edaOutput.trim()}`, LogLevel.WARN);
+          return ''; // Empty string will trigger fallback to kubectl
+        }
+
         log(`Successfully fetched EDA resource YAML for ${kind}/${name}`, LogLevel.DEBUG);
         return edaOutput;
       }
@@ -288,8 +300,18 @@ export class EdactlClient {
       log(`edactl returned no output for ${kind}/${name}. Possibly resource doesn't exist.`, LogLevel.DEBUG);
       return '';
     } catch (error: any) {
-      log(`Error getting EDA resource YAML: ${error}`, LogLevel.ERROR);
-      return '';
+      // More detailed error logging to help diagnose issues
+      log(`Error getting EDA resource YAML with edactl: ${error}`, LogLevel.ERROR);
+      if (error.message) {
+        log(`Error message: ${error.message}`, LogLevel.ERROR);
+      }
+      if (error.stdout) {
+        log(`Error stdout: ${error.stdout}`, LogLevel.ERROR);
+      }
+      if (error.stderr) {
+        log(`Error stderr: ${error.stderr}`, LogLevel.ERROR);
+      }
+      return ''; // Empty string will trigger fallback to kubectl
     }
   }
 
