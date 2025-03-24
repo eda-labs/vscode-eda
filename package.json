@@ -6,7 +6,7 @@
   "description": "Manage and monitor EDA (Event Driven Automation by Nokai) resources in Kubernetes",
   "author": "EDA Labs",
   "homepage": "https://docs.eda.dev/",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "engines": {
     "vscode": "^1.70.0"
   },
@@ -66,6 +66,16 @@
         "command": "vscode-eda.refreshResources",
         "title": "Refresh Resources",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "vscode-eda.patchEngineConfig",
+        "title": "EDA: Patch Engine Config (Enable ETCD Dumps)",
+        "icon": "$(database)"
+      },
+      {
+        "command": "vscode-eda.undoPatchEngineConfig",
+        "title": "EDA: Undo Patch Engine Config",
+        "icon": "$(database-stop)"
       },
       {
         "command": "vscode-eda.refreshSchemas",
@@ -189,6 +199,16 @@
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "vscode-eda.patchEngineConfig",
+          "when": "true"
+        },
+        {
+          "command": "vscode-eda.undoPatchEngineConfig",
+          "when": "true"
+        }
+      ],
       "view/title": [
         {
           "command": "vscode-eda.filterTree",
@@ -209,6 +229,16 @@
           "command": "vscode-eda.expandAllNamespaces",
           "when": "view == edaNamespaces",
           "group": "navigation@4"
+        },
+        {
+          "command": "vscode-eda.patchEngineConfig",
+          "when": "view == edaNamespaces",
+          "group": "management@1"
+        },
+        {
+          "command": "vscode-eda.undoPatchEngineConfig",
+          "when": "view == edaNamespaces",
+          "group": "management@2"
         }
       ],
       "view/item/context": [
