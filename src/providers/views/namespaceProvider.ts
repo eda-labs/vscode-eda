@@ -512,7 +512,9 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
 
     const items = instances.map(inst => {
       const name = inst.metadata?.name || 'unnamed';
-      const contextValue = (resourceType === 'pod') ? 'pod' : 'crd-instance';
+      const contextValue = (resourceType === 'pod') ? 'pod' :
+                    (resourceType === 'deployment' && category === 'k8s') ?
+                    'k8s-deployment-instance' : 'crd-instance';
 
       const treeItem = new TreeItemBase(
         name,

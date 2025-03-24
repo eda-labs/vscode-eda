@@ -6,7 +6,7 @@
   "description": "Manage and monitor EDA (Event Driven Automation by Nokai) resources in Kubernetes",
   "author": "EDA Labs",
   "homepage": "https://docs.eda.dev/",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "engines": {
     "vscode": "^1.70.0"
   },
@@ -279,12 +279,12 @@
         },
         {
           "command": "vscode-eda.restartDeployment",
-          "when": "viewItem == crd-instance && view == edaNamespaces",
+          "when": "viewItem == k8s-deployment-instance && view == edaNamespaces",
           "group": "inline@5"
         },
         {
           "command": "vscode-eda.restartDeployment",
-          "when": "viewItem == crd-instance && view == edaNamespaces",
+          "when": "viewItem == k8s-deployment-instance && view == edaNamespaces",
           "group": "navigation"
         },
         {
