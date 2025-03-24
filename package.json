@@ -6,7 +6,7 @@
   "description": "Manage and monitor EDA (Event Driven Automation by Nokai) resources in Kubernetes",
   "author": "EDA Labs",
   "homepage": "https://docs.eda.dev/",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "engines": {
     "vscode": "^1.70.0"
   },
@@ -142,6 +142,11 @@
         "icon": "$(add)"
       },
       {
+        "command": "vscode-eda.deleteResource",
+        "title": "Delete Resource",
+        "icon": "$(trash)"
+      },
+      {
         "command": "vscode-eda.showAlarmDetails",
         "title": "Show Alarm Details"
       },
@@ -254,6 +259,16 @@
         },
         {
           "command": "vscode-eda.showCRDDefinition",
+          "when": "viewItem == crd-instance",
+          "group": "navigation"
+        },
+        {
+          "command": "vscode-eda.deleteResource",
+          "when": "viewItem == crd-instance",
+          "group": "inline"
+        },
+        {
+          "command": "vscode-eda.deleteResource",
           "when": "viewItem == crd-instance",
           "group": "navigation"
         },
