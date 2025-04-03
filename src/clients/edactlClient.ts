@@ -210,9 +210,16 @@ export class EdactlClient {
    * @returns List of EDA alarms
    */
   public async getEdaAlarms(): Promise<any[]> {
-    log(`Fetching EDA alarms via 'edactl query .namespace.alarms.current-alarm -f json'...`, LogLevel.DEBUG);
+    log(`Fetching EDA alarms...`, LogLevel.DEBUG);
     try {
-      const output = await this.executeEdactl('query .namespace.alarms.current-alarm -f json');
+      // Add timeout handling
+      const output = await Promise.race([
+        this.executeEdactl('query .namespace.alarms.current-alarm -f json'),
+        new Promise<string>((_, reject) =>
+          setTimeout(() => reject(new Error('Query timed out after 20 seconds')), 20000)
+        )
+      ]);
+
       if (!output || output.trim().length === 0) {
         return [];
       }
@@ -220,7 +227,7 @@ export class EdactlClient {
       return alarms;
     } catch (error) {
       log(`Failed to get EDA alarms: ${error}`, LogLevel.ERROR, true);
-      return [];
+      return []; // Return empty array instead of hanging
     }
   }
 
@@ -247,10 +254,13 @@ export class EdactlClient {
   public async getEdaDeviations(): Promise<any[]> {
     log(`Fetching EDA deviations via 'edactl query .namespace.resources.cr.core_eda_nokia_com.v1.deviation -f json'...`, LogLevel.DEBUG);
     try {
-      const output = await this.executeEdactl('query .namespace.resources.cr.core_eda_nokia_com.v1.deviation -f json', true);
-      if (!output || output.trim().length === 0) {
-        return [];
-      }
+      // Add timeout handling
+      const output = await Promise.race([
+        this.executeEdactl('query .namespace.resources.cr.core_eda_nokia_com.v1.deviation -f json', true),
+        new Promise<string>((_, reject) =>
+          setTimeout(() => reject(new Error('Query timed out after 20 seconds')), 20000)
+        )
+      ]);
 
       const deviations = JSON.parse(output);
       log(`Found ${deviations.length} deviations from edactl output`, LogLevel.DEBUG);

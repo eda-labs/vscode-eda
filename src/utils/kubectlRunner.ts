@@ -40,6 +40,7 @@ export function runKubectl(
 
     const cmdOutput = execSync(cmdLine, {
       encoding: 'utf-8',
+      timeout: 30000, // 30 seconds timeout
       ...options
     });
 
