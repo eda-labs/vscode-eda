@@ -6,7 +6,7 @@
   "description": "Manage and monitor EDA (Event Driven Automation by Nokai) resources in Kubernetes",
   "author": "EDA Labs",
   "homepage": "https://docs.eda.dev/",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "engines": {
     "vscode": "^1.70.0"
   },

@@ -214,7 +214,7 @@ export class EdactlClient {
     try {
       // Add timeout handling
       const output = await Promise.race([
-        this.executeEdactl('query .namespace.alarms.current-alarm -f json'),
+        this.executeEdactl('query .namespace.alarms.v1.current-alarm -f json'),
         new Promise<string>((_, reject) =>
           setTimeout(() => reject(new Error('Query timed out after 20 seconds')), 20000)
         )
@@ -239,7 +239,7 @@ export class EdactlClient {
   public async getAlarmDetails(id: string): Promise<string> {
     log(`Fetching EDA alarm details for '${id}'...`, LogLevel.INFO);
     try {
-      const output = await this.executeEdactl(`query .namespace.alarms.current-alarm[${id}]`, true);
+      const output = await this.executeEdactl(`query .namespace.alarms.v1.current-alarm[${id}]`, true);
       return output || `No details available for this alarm`;
     } catch (error) {
       log(`Failed to get alarm details for ID ${id}: ${error}`, LogLevel.ERROR, true);
