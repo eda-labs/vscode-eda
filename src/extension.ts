@@ -148,7 +148,7 @@ export async function activate(context: vscode.ExtensionContext) {
     log(`EDA namespaces: ${edaNamespaces.join(', ')}`, LogLevel.INFO, true);
 
     // Initialize the namespace tree provider
-    const namespaceProvider = new EdaNamespaceProvider(context);
+    const namespaceProvider = new EdaNamespaceProvider();
 
     // Register the tree view
     const namespaceTreeView = vscode.window.createTreeView('edaNamespaces', {
@@ -156,14 +156,14 @@ export async function activate(context: vscode.ExtensionContext) {
       showCollapseAll: true
     });
 
-    const alarmProvider = new EdaAlarmProvider(context);
+    const alarmProvider = new EdaAlarmProvider();
     const alarmTreeView = vscode.window.createTreeView('edaAlarms', {
       treeDataProvider: alarmProvider,
       showCollapseAll: true
     });
 
     // Initialize tree view providers
-    edaDeviationProvider = new EdaDeviationProvider(context);
+    edaDeviationProvider = new EdaDeviationProvider();
     // Listen for Deviation changes specifically
     k8sClient.onDeviationChanged(() => {
       edaDeviationProvider.refresh();  // Only refreshes the Deviation tree

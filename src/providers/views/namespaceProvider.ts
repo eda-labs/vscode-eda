@@ -26,10 +26,10 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   // The current filter text (if any).
   private treeFilter: string = '';
 
-  private _refreshDebounceTimer: NodeJS.Timeout | undefined;
+  private _refreshDebounceTimer: ReturnType<typeof setTimeout> | undefined;
   private cachedNamespaces: string[] = [];
 
-  constructor(private context: vscode.ExtensionContext) {
+  constructor() {
     this.k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
     this.resourceService = serviceManager.getService<ResourceService>('kubernetes-resources');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
@@ -252,7 +252,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
           result.push(treeItem);
         } else {
           // Otherwise, only show if the sub-resources have some match
-          const resourceTypes = this.getResourcesForCategory(namespace, cat.id, /* skipFilter */ false);
+          const resourceTypes = this.getResourcesForCategory(namespace, cat.id);
           if (resourceTypes.length > 0) {
             result.push(treeItem);
           }
@@ -277,7 +277,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   /**
    * EDA vs. k8s resource "types" under the category
    */
-  private getResourcesForCategory(namespace: string, category: string, bypassFiltering = false): TreeItemBase[] {
+  private getResourcesForCategory(namespace: string, category: string): TreeItemBase[] {
     try {
       if (category === 'eda') {
         return this.getEdaResourceTypes(namespace);
@@ -323,11 +323,9 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       if (inst.length === 0) continue;
 
       const label = kind;
-      const labelMatches = label.toLowerCase().includes(this.treeFilter); // <-- NEW
 
-      // If no filter or label matches => keep all child
-      // Otherwise, keep only children that pass the filter by name
-      // We'll finalize that logic in getResourceInstances. Here we simply create the node.
+      // We handle name-based filtering of children in getResourceInstances,
+      // so the resource type nodes are always created here.
       const treeItem = new TreeItemBase(
         label,
         this.expandAll ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
