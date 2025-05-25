@@ -439,7 +439,9 @@
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.32.1",
     "webpack": "^5.99.7",
-    "webpack-cli": "^6.0.1"
+    "webpack-cli": "^6.0.1",
+    "bufferutil": "^4.0.9",
+    "utf-8-validate": "^6.0.5"
   },
   "dependencies": {
     "@kubernetes/client-node": "^0.22.3",
