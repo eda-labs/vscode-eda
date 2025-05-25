@@ -19,6 +19,9 @@ const config = {
   externals: {
     vscode: 'commonjs vscode',
   },
+  ignoreWarnings: [{
+    module: /node_modules\/handlebars/
+  }],
   plugins: [
       new webpack.IgnorePlugin({ resourceRegExp: /^electron$/ }),
       // https://webpack.js.org/plugins/ignore-plugin/#example-of-ignoring-moment-locales
