@@ -31,7 +31,7 @@ export class ResourceService extends CoreService {
   private lastRefreshTime: number = 0;
   private resourcesInitialized: boolean = false;
 
-  private pendingRefreshTimeout: NodeJS.Timeout | null = null;
+  private pendingRefreshTimeout: ReturnType<typeof setTimeout> | null = null;
   private isRefreshing: boolean = false;
 
   constructor(k8sClient: KubernetesClient) {

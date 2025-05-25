@@ -169,7 +169,7 @@ export async function activate(context: vscode.ExtensionContext) {
       edaDeviationProvider.refresh();  // Only refreshes the Deviation tree
     });
 
-    edaTransactionProvider = new EdaTransactionProvider(context);
+    edaTransactionProvider = new EdaTransactionProvider();
 
     k8sClient.onTransactionChanged(() => {
       edaTransactionProvider.refresh();  // Only refreshes the Transaction tree

@@ -12,9 +12,7 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
   private edactlClient: EdactlClient;
   private statusService: ResourceStatusService;
 
-  constructor(
-    private context: vscode.ExtensionContext
-  ) {
+  constructor() {
     this.edactlClient = serviceManager.getClient<EdactlClient>('edactl');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
   }

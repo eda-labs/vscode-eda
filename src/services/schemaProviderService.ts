@@ -17,8 +17,11 @@ export class SchemaProviderService extends CoreService {
   private disposables: vscode.Disposable[] = [];
   private schemaCache = new Map<string, string>(); // Maps kind to schema file path
 
-  constructor(private k8sClient: KubernetesClient) {
+  private k8sClient: KubernetesClient;
+
+  constructor(k8sClient: KubernetesClient) {
     super();
+    this.k8sClient = k8sClient;
     // Create a directory for storing CRD schemas
     this.schemaCacheDir = path.join(os.tmpdir(), 'vscode-eda-schemas');
     if (!fs.existsSync(this.schemaCacheDir)) {
@@ -84,7 +87,7 @@ export class SchemaProviderService extends CoreService {
         } else {
           log(`No 'kind' field found in document ${document.uri.toString()}`, LogLevel.DEBUG);
         }
-      } catch (e) {
+      } catch {
         // Silently ignore YAML parsing errors
       }
     } catch (error) {
