@@ -121,7 +121,7 @@ export class KubernetesClient {
   private resourceInformers: Map<string, any> = new Map();
   private resourceCache: Map<string, KubernetesObject[]> = new Map();
 
-  private resourceChangeDebounceTimer: NodeJS.Timeout | null = null;
+  private resourceChangeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private resourceChangesPending: boolean = false;
 
   constructor() {

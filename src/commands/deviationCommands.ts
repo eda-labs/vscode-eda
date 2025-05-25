@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
 import { execSync } from 'child_process';
 import { serviceManager } from '../services/serviceManager';
-import { KubernetesClient } from '../clients/kubernetesClient';
 import { EdactlClient } from '../clients/edactlClient';
 import { log, LogLevel, edaOutputChannel } from '../extension';
 
