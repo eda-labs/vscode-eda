@@ -45,7 +45,6 @@ import {
 import * as http from 'http';
 import { log, LogLevel } from '../extension';
 import { EdactlClient } from './edactlClient';
-import { EdaDeviationProvider } from '../providers/views/deviationProvider';
 import * as vscode from 'vscode';
 
 export class KubernetesClient {

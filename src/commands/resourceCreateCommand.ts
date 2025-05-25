@@ -4,43 +4,10 @@ import * as yaml from 'js-yaml';
 import { serviceManager } from '../services/serviceManager';
 import { KubernetesClient } from '../clients/kubernetesClient';
 import { EdactlClient } from '../clients/edactlClient';
-import { ResourceService } from '../services/resourceService';
 import { SchemaProviderService } from '../services/schemaProviderService';
 import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
 import { log, LogLevel } from '../extension';
 
-/**
- * Generate a spec object based on a JSON schema
- */
-function generateSpecFromSchema(schema: any): any {
-  if (!schema || typeof schema !== 'object') {
-    return {};
-  }
-
-  const result: any = {};
-
-  // If it's an object schema with properties
-  if (schema.type === 'object' && schema.properties) {
-    for (const [key, prop] of Object.entries<any>(schema.properties)) {
-      // For required properties, add a template value
-      if (schema.required?.includes(key)) {
-        if (prop.type === 'object') {
-          result[key] = generateSpecFromSchema(prop);
-        } else if (prop.type === 'array') {
-          result[key] = [];
-        } else if (prop.type === 'string') {
-          result[key] = prop.default || '';
-        } else if (prop.type === 'number' || prop.type === 'integer') {
-          result[key] = prop.default || 0;
-        } else if (prop.type === 'boolean') {
-          result[key] = prop.default || false;
-        }
-      }
-    }
-  }
-
-  return result;
-}
 
 /**
  * Generate a mapping of property paths to a comment for optional fields.
@@ -257,7 +224,6 @@ export function registerResourceCreateCommand(
 
         // Get required services
         const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
-        const resourceService = serviceManager.getService<ResourceService>('kubernetes-resources');
         const schemaProvider = serviceManager.getService<SchemaProviderService>('schema-provider');
 
         // 1. Get all available CRDs

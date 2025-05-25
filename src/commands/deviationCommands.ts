@@ -43,7 +43,6 @@ async function checkDeviationExists(name: string, namespace: string): Promise<bo
 async function deleteDeviationAction(name: string, namespace: string): Promise<void> {
   try {
     log(`Deleting DeviationAction ${name} in namespace ${namespace}`, LogLevel.INFO);
-    const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
     const kubectlPath = 'kubectl'; // Default, or you could get this from a config
     execSync(`${kubectlPath} delete deviationaction ${name} -n ${namespace}`, { encoding: 'utf-8' });
     log(`Successfully deleted DeviationAction ${name}`, LogLevel.INFO);
@@ -99,7 +98,6 @@ export function registerDeviationCommands(
     }
 
     try {
-      const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
       const deviation = treeItem.deviation;
       const name = deviation.name;
       const namespace = deviation["namespace.name"];

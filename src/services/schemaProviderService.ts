@@ -177,7 +177,7 @@ export class SchemaProviderService extends CoreService {
       }
 
       // Find the matching CRD to pass to convertToJsonSchema
-      const crd = this.k8sClient.getCachedCrds().find(crd => 
+      const crd = this.k8sClient.getCachedCrds().find(crd =>
         crd.spec?.names?.kind.toLowerCase() === kind.toLowerCase()
       );
 
@@ -212,7 +212,7 @@ export class SchemaProviderService extends CoreService {
   private getCrdSchemaForKind(kind: string): any {
     // Find CRD with matching kind
     const crds = this.k8sClient.getCachedCrds();
-    const matchingCrd = crds.find(crd => 
+    const matchingCrd = crds.find(crd =>
       crd.spec?.names?.kind.toLowerCase() === kind.toLowerCase()
     );
 
