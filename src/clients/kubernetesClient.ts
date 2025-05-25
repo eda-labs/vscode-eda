@@ -876,7 +876,7 @@ export class KubernetesClient {
   /**
    * Generic method to attach handlers to a namespaced informer
    */
-  private attachNamespacedInformerHandlers<T>(
+  private attachNamespacedInformerHandlers<T extends KubernetesObject>(
     informer: ReturnType<typeof makeInformer<T>>,
     namespace: string,
     key: string,
