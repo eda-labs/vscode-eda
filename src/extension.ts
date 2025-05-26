@@ -127,25 +127,42 @@ export async function activate(context: vscode.ExtensionContext) {
     // 3) Let k8sClient know about edactlClient so it can call it
     k8sClient.setEdactlClient(edactlClient);
 
-    // 4) Start watchers
-    await k8sClient.startWatchers();
+    // 4) Kick off watchers immediately so caches warm while we continue
+    void k8sClient.startWatchers().catch(err => {
+      log(`Watcher startup failed: ${err}`, LogLevel.ERROR, true);
+    });
 
-    // 5) Example: create ResourceService, etc.
+    // 5) Create core services
     const resourceService = new ResourceService(k8sClient);
     serviceManager.registerService('kubernetes-resources', resourceService);
 
     const resourceStatusService = new ResourceStatusService(k8sClient);
     serviceManager.registerService('resource-status', resourceStatusService);
-    await resourceStatusService.initialize(context);
 
     const schemaProviderService = new SchemaProviderService(k8sClient);
     serviceManager.registerService('schema-provider', schemaProviderService);
-    await schemaProviderService.initialize(context);
-    log('Schema provider service initialized successfully', LogLevel.INFO);
 
-    // Show EDA namespaces after activation
-    const edaNamespaces = await edactlClient.getEdaNamespaces();
-    log(`EDA namespaces: ${edaNamespaces.join(', ')}`, LogLevel.INFO, true);
+    // Heavy initialization continues in the background
+    void Promise.all([
+      resourceStatusService.initialize(context),
+      schemaProviderService.initialize(context)
+    ])
+      .then(() => {
+        log('Background initialization finished', LogLevel.INFO);
+      })
+      .catch(err => {
+        log(`Background initialization failed: ${err}`, LogLevel.ERROR, true);
+      });
+
+    // Show EDA namespaces after activation without blocking startup
+    void edactlClient
+      .getEdaNamespaces()
+      .then(ns => {
+        log(`EDA namespaces: ${ns.join(', ')}`, LogLevel.INFO, true);
+      })
+      .catch(err => {
+        log(`Failed to fetch EDA namespaces: ${err}`, LogLevel.WARN);
+      });
 
     // Initialize the namespace tree provider
     const namespaceProvider = new EdaNamespaceProvider();
