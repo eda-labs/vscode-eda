@@ -156,19 +156,49 @@ export class KubernetesClient {
   }
 
   private startGlobalPoller(fn: () => Promise<void>): void {
+    let errorCount = 0;
+    let t: NodeJS.Timeout;
+
+    const run = async () => {
+      try {
+        await fn();
+        errorCount = 0;
+      } catch (err) {
+        errorCount += 1;
+        log(`${err}`, LogLevel.ERROR);
+        if (errorCount >= 5) {
+          clearInterval(t);
+          log('Stopping global poller due to repeated errors', LogLevel.ERROR);
+        }
+      }
+    };
+
     // Immediately run then poll
-    fn().catch(err => log(`${err}`, LogLevel.ERROR));
-    const t = setInterval(() => {
-      fn().catch(err => log(`${err}`, LogLevel.ERROR));
-    }, 30000);
+    run();
+    t = setInterval(run, 30000);
     this.timers.push(t);
   }
 
   private startNamespacePoller(namespace: string, fn: () => Promise<void>): void {
-    fn().catch(err => log(`${err}`, LogLevel.ERROR));
-    const t = setInterval(() => {
-      fn().catch(err => log(`${err}`, LogLevel.ERROR));
-    }, 30000);
+    let errorCount = 0;
+    let t: NodeJS.Timeout;
+
+    const run = async () => {
+      try {
+        await fn();
+        errorCount = 0;
+      } catch (err) {
+        errorCount += 1;
+        log(`${err}`, LogLevel.ERROR);
+        if (errorCount >= 5) {
+          clearInterval(t);
+          log(`Stopping poller for namespace ${namespace} due to repeated errors`, LogLevel.ERROR);
+        }
+      }
+    };
+
+    run();
+    t = setInterval(run, 30000);
     const arr = this.namespaceTimers.get(namespace) || [];
     arr.push(t);
     this.namespaceTimers.set(namespace, arr);

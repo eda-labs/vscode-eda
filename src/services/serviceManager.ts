@@ -99,6 +99,17 @@ export class ServiceManager {
       }
     }
 
+    for (const [name, client] of this.clients.entries()) {
+      try {
+        if (client && typeof (client as any).dispose === 'function') {
+          (client as any).dispose();
+          log(`Client ${name} disposed`, LogLevel.DEBUG);
+        }
+      } catch (error) {
+        log(`Error disposing client ${name}: ${error}`, LogLevel.ERROR);
+      }
+    }
+
     this.services.clear();
     this.clients.clear();
     this.isInitialized = false;
