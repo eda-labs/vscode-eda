@@ -435,7 +435,9 @@
   "dependencies": {
     "@kubernetes/client-node": "^0.22.3",
     "handlebars": "^4.7.8",
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^4.1.0",
+    "undici": "^7.10.0",
+    "undici-types": "^7.10.0"
   },
   "overrides": {
     "tough-cookie": "^4.1.3",
