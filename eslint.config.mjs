@@ -54,5 +54,19 @@ export default [
       }]
 
     }
+  },
+  {
+    files: ["test/**/*.ts"],
+    languageOptions: {
+      globals: {
+        describe: "readonly",
+        it: "readonly",
+        before: "readonly",
+        after: "readonly",
+        beforeEach: "readonly",
+        afterEach: "readonly",
+        __dirname: "readonly"
+      }
+    }
   }
 ];
