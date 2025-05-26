@@ -167,7 +167,6 @@ export function registerViewCommands(
 
     try {
       const name = deviation.name;
-      const kind = deviation.kind || 'Deviation';
       const namespace = deviation["namespace.name"];
       const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
 

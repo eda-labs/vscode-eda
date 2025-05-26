@@ -1,0 +1,14 @@
+# Exclude development directories and config
+src/**
+!src/templates/**
+test/**
+javascript/**
+vscode-kubernetes-tools/**
+node_modules/**
+webpack.config.js
+tsconfig.json
+patch.sh
+.vscode/**
+.gitignore
+package-lock.json
+**/*.map
