@@ -14,12 +14,22 @@ interface KubeConfigContext {
 
 interface KubeConfigCluster {
   name: string;
-  cluster: { server: string; 'certificate-authority-data'?: string };
+  cluster: {
+    server: string;
+    'certificate-authority-data'?: string;
+    'certificate-authority'?: string;
+  };
 }
 
 interface KubeConfigUser {
   name: string;
-  user: { token?: string };
+  user: {
+    token?: string;
+    'client-certificate-data'?: string;
+    'client-key-data'?: string;
+    'client-certificate'?: string;
+    'client-key'?: string;
+  };
 }
 
 interface KubeConfigFile {
@@ -84,11 +94,28 @@ export class KubernetesClient {
       this.server = cluster?.server || '';
       this.token = user?.token;
       const caData = cluster?.['certificate-authority-data'];
+      const caPath = cluster?.['certificate-authority'];
+      const certData = user?.['client-certificate-data'];
+      const certPath = user?.['client-certificate'];
+      const keyData = user?.['client-key-data'];
+      const keyPath = user?.['client-key'];
+
+      const connect: Record<string, string> = {};
       if (caData) {
-        this.agent = new Agent({ connect: { ca: Buffer.from(caData, 'base64').toString('utf8') } });
-      } else {
-        this.agent = undefined;
+        connect.ca = Buffer.from(caData, 'base64').toString('utf8');
+      } else if (caPath && fs.existsSync(caPath)) {
+        connect.ca = fs.readFileSync(caPath, 'utf8');
       }
+
+      if (certData && keyData) {
+        connect.cert = Buffer.from(certData, 'base64').toString('utf8');
+        connect.key = Buffer.from(keyData, 'base64').toString('utf8');
+      } else if (certPath && keyPath && fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+        connect.cert = fs.readFileSync(certPath, 'utf8');
+        connect.key = fs.readFileSync(keyPath, 'utf8');
+      }
+
+      this.agent = Object.keys(connect).length > 0 ? new Agent({ connect }) : undefined;
     } catch (err) {
       log(`Failed to load kubeconfig: ${err}`, LogLevel.ERROR);
     }
