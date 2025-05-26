@@ -40,8 +40,10 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
    * Listen for changes in resources so we can refresh
    */
   private setupEventListeners(): void {
-    this.resourceService.onDidChangeResources(async () => {
-      log('Resource change detected, refreshing tree view', LogLevel.DEBUG);
+    this.resourceService.onDidChangeResources(async summary => {
+      const msg = summary ? `Resource change detected (${summary}), refreshing tree view` :
+        'Resource change detected, refreshing tree view';
+      log(msg, LogLevel.DEBUG);
       this.refresh();
     });
     this.k8sClient.onNamespacesChanged(() => {

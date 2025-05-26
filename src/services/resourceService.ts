@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import { CoreService } from './coreService';
 import { KubernetesClient } from '../clients/kubernetesClient';
 import { log, LogLevel } from '../extension';
+import { serviceManager } from './serviceManager';
+import { ResourceStatusService } from './resourceStatusService';
 
 interface ResourceDefinition {
   namespaced?: boolean;
@@ -23,13 +25,14 @@ interface ResourceResult {
 export class ResourceService extends CoreService {
   private k8sClient: KubernetesClient;
   private namespaceCache: string[] = [];
-  private _onDidChangeResources = new vscode.EventEmitter<void>();
+  private _onDidChangeResources = new vscode.EventEmitter<string | undefined>();
   readonly onDidChangeResources = this._onDidChangeResources.event;
 
   // In-memory cached results to avoid fetching on tree builds
   private cachedResourceResults: ResourceResult[] = [];
   private lastRefreshTime: number = 0;
   private resourcesInitialized: boolean = false;
+  private lastCrdCount: number = 0;
 
   private pendingRefreshTimeout: ReturnType<typeof setTimeout> | null = null;
   private isRefreshing: boolean = false;
@@ -105,6 +108,13 @@ export class ResourceService extends CoreService {
         return !group.endsWith('k8s.io');
       });
 
+      // Reload status schemas only if CRD count changed
+      const statusService = serviceManager.getService<ResourceStatusService>('resource-status');
+      if (crds.length !== this.lastCrdCount) {
+        await statusService.refreshStatusSchemas();
+        this.lastCrdCount = crds.length;
+      }
+
       // Process CRDs to build resource results
       const newResults: ResourceResult[] = [];
 
@@ -155,13 +165,19 @@ export class ResourceService extends CoreService {
       }
 
       // Check if anything has changed before updating
-      const hasChanges = this.hasResourceResultsChanged(this.cachedResourceResults, newResults);
+      const summary = this.getResourceChangeSummary(
+        this.cachedResourceResults,
+        newResults
+      );
 
-      if (hasChanges) {
-        log(`Resource changes detected, updating cache and notifying listeners`, LogLevel.DEBUG);
+      if (summary) {
+        log(
+          `Resource changes detected${summary ? ` (${summary})` : ''}, updating cache and notifying listeners`,
+          LogLevel.DEBUG
+        );
         this.cachedResourceResults = newResults;
         this.lastRefreshTime = now;
-        this._onDidChangeResources.fire();
+        this._onDidChangeResources.fire(summary);
       } else {
         log(`No resource changes detected, keeping existing cache`, LogLevel.DEBUG);
         this.lastRefreshTime = now;
@@ -225,6 +241,61 @@ export class ResourceService extends CoreService {
     }
 
     return false;
+  }
+
+  /**
+   * Generate a short summary of changes between old and new resource results
+   */
+  private getResourceChangeSummary(
+    oldResults: ResourceResult[],
+    newResults: ResourceResult[]
+  ): string | undefined {
+    if (this.hasResourceResultsChanged(oldResults, newResults) === false) {
+      return undefined;
+    }
+
+    const oldMap = new Map<string, string | undefined>();
+    for (const r of oldResults) {
+      for (const inst of r.instances) {
+        const uid = inst.metadata?.uid;
+        if (uid) {
+          oldMap.set(uid, inst.metadata?.resourceVersion);
+        }
+      }
+    }
+
+    let added = 0;
+    let removed = 0;
+    let updated = 0;
+
+    const newMap = new Map<string, string | undefined>();
+    for (const r of newResults) {
+      for (const inst of r.instances) {
+        const uid = inst.metadata?.uid;
+        if (uid) {
+          const version = inst.metadata?.resourceVersion;
+          newMap.set(uid, version);
+          if (!oldMap.has(uid)) {
+            added++;
+          } else if (oldMap.get(uid) !== version) {
+            updated++;
+          }
+        }
+      }
+    }
+
+    for (const uid of oldMap.keys()) {
+      if (!newMap.has(uid)) {
+        removed++;
+      }
+    }
+
+    const parts: string[] = [];
+    if (added) parts.push(`${added} added`);
+    if (updated) parts.push(`${updated} updated`);
+    if (removed) parts.push(`${removed} removed`);
+
+    return parts.join(', ');
   }
 
   /**
