@@ -1,5 +1,6 @@
 /* global NodeJS */
 import { fetch, Agent } from 'undici';
+import { isDeepStrictEqual } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -174,6 +175,9 @@ export class KubernetesClient {
   }
 
   private async refreshCustomResources(): Promise<void> {
+    let resourceChanged = false;
+    let deviationChanged = false;
+    let transactionChanged = false;
     for (const crd of this.crdCache) {
       const group = crd.spec?.group || '';
       const version = crd.spec?.versions?.find((v: any) => v.served)?.name || crd.spec?.versions?.[0]?.name || 'v1';
@@ -189,7 +193,18 @@ export class KubernetesClient {
           const key = `${group}|${version}|${plural}|${ns}`;
           try {
             const res = await this.fetchJSON(`/apis/${group}/${version}/namespaces/${ns}/${plural}`);
-            this.resourceCache.set(key, res.items || []);
+            const items = res.items || [];
+            const prev = this.resourceCache.get(key) || [];
+            if (!isDeepStrictEqual(prev, items)) {
+              this.resourceCache.set(key, items);
+              resourceChanged = true;
+              const kind = crd.spec?.names?.kind;
+              if (kind === 'Deviation') {
+                deviationChanged = true;
+              } else if (kind === 'TransactionResult') {
+                transactionChanged = true;
+              }
+            }
           } catch (err) {
             log(`Failed to refresh ${plural} in namespace ${ns}: ${err}`, LogLevel.ERROR);
           }
@@ -198,11 +213,31 @@ export class KubernetesClient {
         const key = `${group}|${version}|${plural}|`;
         try {
           const res = await this.fetchJSON(`/apis/${group}/${version}/${plural}`);
-          this.resourceCache.set(key, res.items || []);
+          const items = res.items || [];
+          const prev = this.resourceCache.get(key) || [];
+          if (!isDeepStrictEqual(prev, items)) {
+            this.resourceCache.set(key, items);
+            resourceChanged = true;
+            const kind = crd.spec?.names?.kind;
+            if (kind === 'Deviation') {
+              deviationChanged = true;
+            } else if (kind === 'TransactionResult') {
+              transactionChanged = true;
+            }
+          }
         } catch (err) {
           log(`Failed to refresh ${plural}: ${err}`, LogLevel.ERROR);
         }
       }
+    }
+    if (resourceChanged) {
+      this._onResourceChanged.fire();
+    }
+    if (deviationChanged) {
+      this._onDeviationChanged.fire();
+    }
+    if (transactionChanged) {
+      this._onTransactionChanged.fire();
     }
   }
 
