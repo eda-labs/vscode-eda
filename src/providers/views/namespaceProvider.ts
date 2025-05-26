@@ -224,8 +224,18 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
    * Resource categories under each namespace: "EDA Resources" and "Kubernetes Resources"
    */
   private getResourceCategories(namespace: string): TreeItemBase[] {
+    const allResources = this.resourceService.getAllResourceInstances();
+    const hasEdaResources = allResources.some(r => {
+      const group = r.resource.apiGroup || '';
+      return !group.endsWith('k8s.io');
+    });
+
     const categories = [
-      { id: 'eda', label: 'EDA Resources', icon: 'zap' },
+      {
+        id: 'eda',
+        label: hasEdaResources ? 'EDA Resources' : 'EDA Resources (init)',
+        icon: 'zap'
+      },
       { id: 'k8s', label: 'Kubernetes Resources', icon: 'symbol-namespace' }
     ];
 
@@ -311,6 +321,16 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       const group = r.resource.apiGroup || '';
       return !group.endsWith('k8s.io');
     });
+
+    if (edaRes.length === 0 && !this.treeFilter) {
+      const msgItem = new TreeItemBase(
+        'No EDA CRDs found',
+        vscode.TreeItemCollapsibleState.None,
+        'message'
+      );
+      msgItem.iconPath = new vscode.ThemeIcon('info');
+      return [msgItem];
+    }
 
     const items: TreeItemBase[] = [];
 
