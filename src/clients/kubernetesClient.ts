@@ -1,4 +1,5 @@
-import { fetch } from 'undici';
+/* global NodeJS */
+import { fetch, Agent } from 'undici';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -31,6 +32,7 @@ interface KubeConfigFile {
 export class KubernetesClient {
   private server: string = '';
   private token: string | undefined;
+  private agent: Agent | undefined;
   private currentContext: string = '';
   private contexts: string[] = [];
 
@@ -62,8 +64,9 @@ export class KubernetesClient {
   }
 
   // Placeholder for compatibility
+  // eslint-disable-next-line no-unused-vars
   public setEdactlClient(_client: any): void {
-    // no-op
+    // no-op - kept for compatibility
   }
 
   private loadKubeConfig(): void {
@@ -80,6 +83,12 @@ export class KubernetesClient {
       const user = (kc.users || []).find(u => u.name === userName)?.user;
       this.server = cluster?.server || '';
       this.token = user?.token;
+      const caData = cluster?.['certificate-authority-data'];
+      if (caData) {
+        this.agent = new Agent({ connect: { ca: Buffer.from(caData, 'base64').toString('utf8') } });
+      } else {
+        this.agent = undefined;
+      }
     } catch (err) {
       log(`Failed to load kubeconfig: ${err}`, LogLevel.ERROR);
     }
@@ -106,11 +115,16 @@ export class KubernetesClient {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
     const url = `${this.server}${pathname}`;
-    const res = await fetch(url, { headers });
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
+    try {
+      const res = await fetch(url, { headers, dispatcher: this.agent });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      return res.json();
+    } catch (err) {
+      log(`Fetch failed for ${url}: ${err}`, LogLevel.ERROR);
+      throw err;
     }
-    return res.json();
   }
 
   private startGlobalPoller(fn: () => Promise<void>): void {
