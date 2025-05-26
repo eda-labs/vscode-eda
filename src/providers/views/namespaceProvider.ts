@@ -6,7 +6,6 @@ import { serviceManager } from '../../services/serviceManager';
 import { KubernetesClient } from '../../clients/kubernetesClient';
 import { ResourceService } from '../../services/resourceService';
 import { ResourceStatusService } from '../../services/resourceStatusService';
-import { EdactlClient } from '../../clients/edactlClient';
 import { log, LogLevel } from '../../extension';
 
 /**
@@ -21,7 +20,6 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   private k8sClient: KubernetesClient;
   private resourceService: ResourceService;
   private statusService: ResourceStatusService;
-  private edactlClient: EdactlClient;
 
   // The current filter text (if any).
   private treeFilter: string = '';
@@ -33,10 +31,9 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
     this.k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
     this.resourceService = serviceManager.getService<ResourceService>('kubernetes-resources');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
-    this.edactlClient = serviceManager.getClient<EdactlClient>('edactl');
 
     this.setupEventListeners();
-    this.fetchNamespaces();
+    this.updateNamespaces();
   }
 
   /**
@@ -45,24 +42,28 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   private setupEventListeners(): void {
     this.resourceService.onDidChangeResources(async () => {
       log('Resource change detected, refreshing tree view', LogLevel.DEBUG);
-      await this.fetchNamespaces();
+      this.refresh();
+    });
+    this.k8sClient.onNamespacesChanged(() => {
+      this.updateNamespaces();
       this.refresh();
     });
   }
 
   /**
-   * Get EDA namespaces from edactl, store in cache if changed
+   * Update cached namespaces from the Kubernetes client
    */
-  private async fetchNamespaces(): Promise<void> {
-    try {
-      const namespaces = await this.edactlClient.getEdaNamespaces();
-      if (!arraysEqual(this.cachedNamespaces, namespaces)) {
-        log(`Namespaces changed from [${this.cachedNamespaces.join(', ')}] to [${namespaces.join(', ')}]`, LogLevel.DEBUG);
-        this.cachedNamespaces = namespaces;
-        this.refresh();
-      }
-    } catch (error) {
-      log(`Error fetching namespaces: ${error}`, LogLevel.ERROR);
+  private updateNamespaces(): void {
+    const namespaces = this.k8sClient
+      .getCachedNamespaces()
+      .map(ns => ns.metadata?.name)
+      .filter((n): n is string => !!n);
+    if (!arraysEqual(this.cachedNamespaces, namespaces)) {
+      log(
+        `Namespaces changed from [${this.cachedNamespaces.join(', ')}] to [${namespaces.join(', ')}]`,
+        LogLevel.DEBUG
+      );
+      this.cachedNamespaces = namespaces;
     }
   }
 

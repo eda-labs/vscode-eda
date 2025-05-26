@@ -81,6 +81,9 @@ export class KubernetesClient {
   private _onTransactionChanged = new vscode.EventEmitter<void>();
   readonly onTransactionChanged = this._onTransactionChanged.event;
 
+  private _onNamespacesChanged = new vscode.EventEmitter<void>();
+  readonly onNamespacesChanged = this._onNamespacesChanged.event;
+
   constructor() {
     const envInterval = Number(process.env.EDA_POLL_INTERVAL_MS);
     if (!Number.isNaN(envInterval) && envInterval > 0) {
@@ -410,6 +413,116 @@ export class KubernetesClient {
     }
   }
 
+  private async refreshNamespaces(): Promise<void> {
+    const allNamespaces = await this.listNamespaces();
+    const allNames = allNamespaces.map((n: any) => n.metadata?.name).filter((n: any) => !!n);
+    let edaNames: string[] | undefined;
+    if (this.edactlClient) {
+      try {
+        edaNames = await this.edactlClient.getEdaNamespaces();
+      } catch (err) {
+        log(`Failed to fetch EDA namespaces: ${err}`, LogLevel.WARN);
+      }
+    }
+    const names = edaNames ? allNames.filter(n => edaNames!.includes(n)) : allNames;
+    const namespaces = edaNames
+      ? allNamespaces.filter(n => edaNames!.includes(n.metadata?.name))
+      : allNamespaces;
+    const old = this.namespaceCache.map((n: any) => n.metadata?.name).filter((n: any) => !!n);
+    this.namespaceCache = namespaces;
+    for (const ns of names) {
+      if (!this.namespaceTimers.has(ns)) {
+        this.startNamespacePoller(ns, async () => {
+          this.podCache.set(ns, await this.fetchJSON(`/api/v1/namespaces/${ns}/pods`).then(d => d.items || []));
+          this.deploymentCache.set(ns, await this.fetchJSON(`/apis/apps/v1/namespaces/${ns}/deployments`).then(d => d.items || []));
+          this.serviceCache.set(ns, await this.fetchJSON(`/api/v1/namespaces/${ns}/services`).then(d => d.items || []));
+          this.configMapCache.set(ns, await this.fetchJSON(`/api/v1/namespaces/${ns}/configmaps`).then(d => d.items || []));
+          this.secretCache.set(ns, await this.fetchJSON(`/api/v1/namespaces/${ns}/secrets`).then(d => d.items || []));
+        });
+      }
+    }
+    for (const ns of Array.from(this.namespaceTimers.keys())) {
+      if (!names.includes(ns)) {
+        const timers = this.namespaceTimers.get(ns) || [];
+        timers.forEach(t => clearInterval(t));
+        this.namespaceTimers.delete(ns);
+        this.podCache.delete(ns);
+        this.deploymentCache.delete(ns);
+        this.serviceCache.delete(ns);
+        this.configMapCache.delete(ns);
+        this.secretCache.delete(ns);
+      }
+    }
+    if (JSON.stringify(names) !== JSON.stringify(old)) {
+      this._onNamespacesChanged.fire();
+      this._onResourceChanged.fire();
+      this.startResourceWatchers();
+    }
+  }
+
+  private startNamespaceWatcher(): void {
+    const controller = new AbortController();
+    this.watchControllers.push(controller);
+
+    const run = async () => {
+      let resourceVersion = '';
+      while (!controller.signal.aborted) {
+        try {
+          let url = `${this.server}/api/v1/namespaces?watch=true&allowWatchBookmarks=true`;
+          if (resourceVersion) {
+            url += `&resourceVersion=${resourceVersion}`;
+          }
+
+          const headers: Record<string, string> = { Accept: 'application/json' };
+          if (this.token) {
+            headers['Authorization'] = `Bearer ${this.token}`;
+          }
+
+          const res = await fetch(url, {
+            headers,
+            dispatcher: this.agent,
+            signal: controller.signal
+          });
+
+          if (!res.ok || !res.body) {
+            throw new Error(`HTTP ${res.status}`);
+          }
+
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          while (!controller.signal.aborted) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const parts = buffer.split('\n');
+            buffer = parts.pop() || '';
+            for (const part of parts) {
+              if (!part.trim()) continue;
+              try {
+                const evt = JSON.parse(part);
+                resourceVersion = evt.object?.metadata?.resourceVersion || resourceVersion;
+                if (['ADDED', 'DELETED', 'MODIFIED'].includes(evt.type)) {
+                  await this.refreshNamespaces();
+                }
+              } catch (err) {
+                log(`Error processing namespace watch event: ${err}`, LogLevel.ERROR);
+              }
+            }
+          }
+        } catch (err) {
+          if (!controller.signal.aborted) {
+            log(`Watch failed for namespaces: ${err}`, LogLevel.ERROR);
+            await new Promise(res => setTimeout(res, this.pollInterval));
+          }
+        }
+      }
+    };
+
+    void run();
+  }
+
   public async startWatchers(): Promise<void> {
     try {
       this.startGlobalPoller(async () => {
@@ -417,54 +530,8 @@ export class KubernetesClient {
         await this.refreshCustomResources();
         this.startResourceWatchers();
       });
-
-      this.startGlobalPoller(async () => {
-        const allNamespaces = await this.listNamespaces();
-        const allNames = allNamespaces.map((n: any) => n.metadata?.name).filter((n: any) => !!n);
-        let edaNames: string[] | undefined;
-        if (this.edactlClient) {
-          try {
-            edaNames = await this.edactlClient.getEdaNamespaces();
-          } catch (err) {
-            log(`Failed to fetch EDA namespaces: ${err}`, LogLevel.WARN);
-          }
-        }
-        const names = edaNames ? allNames.filter(n => edaNames!.includes(n)) : allNames;
-        const namespaces = edaNames
-          ? allNamespaces.filter(n => edaNames!.includes(n.metadata?.name))
-          : allNamespaces;
-        const old = this.namespaceCache.map((n: any) => n.metadata?.name).filter((n: any) => !!n);
-        this.namespaceCache = namespaces;
-        // start pollers for new namespaces
-        for (const ns of names) {
-          if (!this.namespaceTimers.has(ns)) {
-            this.startNamespacePoller(ns, async () => {
-              this.podCache.set(ns, await this.fetchJSON(`/api/v1/namespaces/${ns}/pods`).then(d => d.items || []));
-              this.deploymentCache.set(ns, await this.fetchJSON(`/apis/apps/v1/namespaces/${ns}/deployments`).then(d => d.items || []));
-              this.serviceCache.set(ns, await this.fetchJSON(`/api/v1/namespaces/${ns}/services`).then(d => d.items || []));
-              this.configMapCache.set(ns, await this.fetchJSON(`/api/v1/namespaces/${ns}/configmaps`).then(d => d.items || []));
-              this.secretCache.set(ns, await this.fetchJSON(`/api/v1/namespaces/${ns}/secrets`).then(d => d.items || []));
-            });
-          }
-        }
-        // cleanup removed namespaces
-        for (const ns of Array.from(this.namespaceTimers.keys())) {
-          if (!names.includes(ns)) {
-            const timers = this.namespaceTimers.get(ns) || [];
-            timers.forEach(t => clearInterval(t));
-            this.namespaceTimers.delete(ns);
-            this.podCache.delete(ns);
-            this.deploymentCache.delete(ns);
-            this.serviceCache.delete(ns);
-            this.configMapCache.delete(ns);
-            this.secretCache.delete(ns);
-          }
-        }
-        if (JSON.stringify(names) !== JSON.stringify(old)) {
-          this._onResourceChanged.fire();
-          this.startResourceWatchers();
-        }
-      });
+      await this.refreshNamespaces();
+      this.startNamespaceWatcher();
     } catch (err) {
       log(`Failed to start watchers: ${err}`, LogLevel.ERROR);
     }
@@ -535,5 +602,6 @@ export class KubernetesClient {
     this._onResourceChanged.dispose();
     this._onDeviationChanged.dispose();
     this._onTransactionChanged.dispose();
+    this._onNamespacesChanged.dispose();
   }
 }
