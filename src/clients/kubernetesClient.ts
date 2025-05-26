@@ -57,6 +57,9 @@ export class KubernetesClient {
   private configMapCache: Map<string, any[]> = new Map();
   private secretCache: Map<string, any[]> = new Map();
 
+  // Poll interval in milliseconds
+  private pollInterval: number = 5000;
+
   // Polling timers
   private timers: NodeJS.Timeout[] = [];
   private namespaceTimers: Map<string, NodeJS.Timeout[]> = new Map();
@@ -71,6 +74,10 @@ export class KubernetesClient {
   readonly onTransactionChanged = this._onTransactionChanged.event;
 
   constructor() {
+    const envInterval = Number(process.env.EDA_POLL_INTERVAL_MS);
+    if (!Number.isNaN(envInterval) && envInterval > 0) {
+      this.pollInterval = envInterval;
+    }
     this.loadKubeConfig();
   }
 
@@ -175,7 +182,7 @@ export class KubernetesClient {
 
     // Immediately run then poll
     run();
-    t = setInterval(run, 30000);
+    t = setInterval(run, this.pollInterval);
     this.timers.push(t);
   }
 
@@ -198,7 +205,7 @@ export class KubernetesClient {
     };
 
     run();
-    t = setInterval(run, 30000);
+    t = setInterval(run, this.pollInterval);
     const arr = this.namespaceTimers.get(namespace) || [];
     arr.push(t);
     this.namespaceTimers.set(namespace, arr);
