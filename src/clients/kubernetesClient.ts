@@ -1,5 +1,6 @@
 /* global NodeJS */
 import { fetch, Agent } from 'undici';
+/* global AbortController, TextDecoder */
 import { isDeepStrictEqual } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -57,6 +58,13 @@ export class KubernetesClient {
   private configMapCache: Map<string, any[]> = new Map();
   private secretCache: Map<string, any[]> = new Map();
 
+  // Optional edactl client for fetching EDA namespaces
+  private edactlClient: { getEdaNamespaces: () => Promise<string[]> } | undefined;
+
+  // Active resource watchers
+  private activeWatchKeys: Set<string> = new Set();
+  private watchControllers: AbortController[] = [];
+
   // Poll interval in milliseconds
   private pollInterval: number = 5000;
 
@@ -81,10 +89,11 @@ export class KubernetesClient {
     this.loadKubeConfig();
   }
 
-  // Placeholder for compatibility
-  // eslint-disable-next-line no-unused-vars
-  public setEdactlClient(_client: any): void {
-    // no-op - kept for compatibility
+  // Store reference to edactl client
+  public setEdactlClient(client: any): void {
+    if (client && typeof client.getEdaNamespaces === 'function') {
+      this.edactlClient = client;
+    }
   }
 
   private loadKubeConfig(): void {
@@ -139,8 +148,18 @@ export class KubernetesClient {
 
   public async switchContext(contextName: string): Promise<void> {
     if (this.contexts.includes(contextName)) {
+      this.dispose();
+      this.crdCache = [];
+      this.namespaceCache = [];
+      this.resourceCache.clear();
+      this.podCache.clear();
+      this.deploymentCache.clear();
+      this.serviceCache.clear();
+      this.configMapCache.clear();
+      this.secretCache.clear();
       this.currentContext = contextName;
       this.loadKubeConfig();
+      await this.startWatchers();
     }
   }
 
@@ -209,6 +228,119 @@ export class KubernetesClient {
     const arr = this.namespaceTimers.get(namespace) || [];
     arr.push(t);
     this.namespaceTimers.set(namespace, arr);
+  }
+
+  private startResourceWatchers(): void {
+    for (const crd of this.crdCache) {
+      const group = crd.spec?.group || '';
+      const version = crd.spec?.versions?.find((v: any) => v.served)?.name || crd.spec?.versions?.[0]?.name || 'v1';
+      const plural = crd.spec?.names?.plural || '';
+      const namespaced = crd.spec?.scope === 'Namespaced';
+      const kind = crd.spec?.names?.kind || '';
+
+      if (!group || !version || !plural) {
+        continue;
+      }
+
+      if (namespaced) {
+        for (const nsObj of this.namespaceCache) {
+          const ns = nsObj.metadata?.name;
+          if (!ns) continue;
+          const key = `${group}|${version}|${plural}|${ns}`;
+          const path = `/apis/${group}/${version}/namespaces/${ns}/${plural}`;
+          this.startResourceWatcher(path, key, kind);
+        }
+      } else {
+        const key = `${group}|${version}|${plural}|`;
+        const path = `/apis/${group}/${version}/${plural}`;
+        this.startResourceWatcher(path, key, kind);
+      }
+    }
+  }
+
+  private startResourceWatcher(
+    path: string,
+    key: string,
+    kind: string
+  ): void {
+    if (this.activeWatchKeys.has(key)) {
+      return;
+    }
+    this.activeWatchKeys.add(key);
+    const controller = new AbortController();
+    this.watchControllers.push(controller);
+
+    const run = async () => {
+      let resourceVersion = '';
+      while (!controller.signal.aborted) {
+        try {
+          let url = `${this.server}${path}?watch=true&allowWatchBookmarks=true`;
+          if (resourceVersion) {
+            url += `&resourceVersion=${resourceVersion}`;
+          }
+
+          const headers: Record<string, string> = { Accept: 'application/json' };
+          if (this.token) {
+            headers['Authorization'] = `Bearer ${this.token}`;
+          }
+
+          const res = await fetch(url, {
+            headers,
+            dispatcher: this.agent,
+            signal: controller.signal
+          });
+
+          if (!res.ok || !res.body) {
+            throw new Error(`HTTP ${res.status}`);
+          }
+
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          while (!controller.signal.aborted) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const parts = buffer.split('\n');
+            buffer = parts.pop() || '';
+            for (const part of parts) {
+              if (!part.trim()) continue;
+              try {
+                const evt = JSON.parse(part);
+                resourceVersion = evt.object?.metadata?.resourceVersion || resourceVersion;
+                const items = this.resourceCache.get(key) || [];
+                const uid = evt.object?.metadata?.uid;
+                if (!uid) continue;
+                const idx = items.findIndex(i => i.metadata?.uid === uid);
+                if (evt.type === 'DELETED') {
+                  if (idx >= 0) items.splice(idx, 1);
+                } else {
+                  if (idx >= 0) items[idx] = evt.object;
+                  else items.push(evt.object);
+                }
+                this.resourceCache.set(key, items);
+                this._onResourceChanged.fire();
+                if (kind === 'Deviation') {
+                  this._onDeviationChanged.fire();
+                } else if (kind === 'TransactionResult') {
+                  this._onTransactionChanged.fire();
+                }
+              } catch (err) {
+                log(`Error processing watch event for ${path}: ${err}`, LogLevel.ERROR);
+              }
+            }
+          }
+        } catch (err) {
+          if (!controller.signal.aborted) {
+            log(`Watch failed for ${path}: ${err}`, LogLevel.ERROR);
+            await new Promise(res => setTimeout(res, this.pollInterval));
+          }
+        }
+      }
+    };
+
+    void run();
   }
 
   private async refreshCustomResources(): Promise<void> {
@@ -283,11 +415,24 @@ export class KubernetesClient {
       this.startGlobalPoller(async () => {
         this.crdCache = await this.listCustomResourceDefinitions();
         await this.refreshCustomResources();
+        this.startResourceWatchers();
       });
 
       this.startGlobalPoller(async () => {
-        const namespaces = await this.listNamespaces();
-        const names = namespaces.map((n: any) => n.metadata?.name).filter((n: any) => !!n);
+        const allNamespaces = await this.listNamespaces();
+        const allNames = allNamespaces.map((n: any) => n.metadata?.name).filter((n: any) => !!n);
+        let edaNames: string[] | undefined;
+        if (this.edactlClient) {
+          try {
+            edaNames = await this.edactlClient.getEdaNamespaces();
+          } catch (err) {
+            log(`Failed to fetch EDA namespaces: ${err}`, LogLevel.WARN);
+          }
+        }
+        const names = edaNames ? allNames.filter(n => edaNames!.includes(n)) : allNames;
+        const namespaces = edaNames
+          ? allNamespaces.filter(n => edaNames!.includes(n.metadata?.name))
+          : allNamespaces;
         const old = this.namespaceCache.map((n: any) => n.metadata?.name).filter((n: any) => !!n);
         this.namespaceCache = namespaces;
         // start pollers for new namespaces
@@ -317,6 +462,7 @@ export class KubernetesClient {
         }
         if (JSON.stringify(names) !== JSON.stringify(old)) {
           this._onResourceChanged.fire();
+          this.startResourceWatchers();
         }
       });
     } catch (err) {
@@ -381,6 +527,11 @@ export class KubernetesClient {
       arr.forEach(t => clearInterval(t));
     }
     this.namespaceTimers.clear();
+    for (const c of this.watchControllers) {
+      c.abort();
+    }
+    this.watchControllers = [];
+    this.activeWatchKeys.clear();
     this._onResourceChanged.dispose();
     this._onDeviationChanged.dispose();
     this._onTransactionChanged.dispose();
