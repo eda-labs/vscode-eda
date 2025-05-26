@@ -28,9 +28,7 @@ export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTr
   private statusService: ResourceStatusService;
   private treeFilter: string = '';
 
-  constructor(
-    private context: vscode.ExtensionContext
-  ) {
+  constructor() {
     this.edactlClient = serviceManager.getClient<EdactlClient>('edactl');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
   }

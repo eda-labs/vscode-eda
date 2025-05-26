@@ -45,7 +45,6 @@ import {
 import * as http from 'http';
 import { log, LogLevel } from '../extension';
 import { EdactlClient } from './edactlClient';
-import { EdaDeviationProvider } from '../providers/views/deviationProvider';
 import * as vscode from 'vscode';
 
 export class KubernetesClient {
@@ -122,7 +121,7 @@ export class KubernetesClient {
   private resourceInformers: Map<string, any> = new Map();
   private resourceCache: Map<string, KubernetesObject[]> = new Map();
 
-  private resourceChangeDebounceTimer: NodeJS.Timeout | null = null;
+  private resourceChangeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   private resourceChangesPending: boolean = false;
 
   constructor() {
@@ -876,7 +875,7 @@ export class KubernetesClient {
   /**
    * Generic method to attach handlers to a namespaced informer
    */
-  private attachNamespacedInformerHandlers<T>(
+  private attachNamespacedInformerHandlers<T extends KubernetesObject>(
     informer: ReturnType<typeof makeInformer<T>>,
     namespace: string,
     key: string,

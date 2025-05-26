@@ -20,6 +20,8 @@ export abstract class BaseDocumentProvider implements vscode.FileSystemProvider 
    * Required by FileSystemProvider, but not needed for read-only providers
    */
   watch(_uri: vscode.Uri, _options: { recursive: boolean; excludes: string[] }): vscode.Disposable {
+    void _uri;
+    void _options;
     return new vscode.Disposable(() => {});
   }
 
@@ -44,6 +46,7 @@ export abstract class BaseDocumentProvider implements vscode.FileSystemProvider 
    * Not supporting directory listing
    */
   readDirectory(_uri: vscode.Uri): [string, vscode.FileType][] {
+    void _uri;
     return [];
   }
 
@@ -51,6 +54,7 @@ export abstract class BaseDocumentProvider implements vscode.FileSystemProvider 
    * Not supporting directory creation (read-only)
    */
   createDirectory(_uri: vscode.Uri): void {
+    void _uri;
     throw vscode.FileSystemError.NoPermissions('Read-only: cannot create directory');
   }
 
@@ -69,6 +73,9 @@ export abstract class BaseDocumentProvider implements vscode.FileSystemProvider 
    * Not supporting write operations (read-only)
    */
   writeFile(_uri: vscode.Uri, _content: Uint8Array, _options: { create: boolean; overwrite: boolean }): void {
+    void _uri;
+    void _content;
+    void _options;
     throw vscode.FileSystemError.NoPermissions('This document is read-only. Use "Switch to Edit" to modify.');
   }
 
@@ -76,6 +83,8 @@ export abstract class BaseDocumentProvider implements vscode.FileSystemProvider 
    * Not supporting delete operations (read-only)
    */
   delete(_uri: vscode.Uri, _options: { recursive: boolean }): void {
+    void _uri;
+    void _options;
     throw vscode.FileSystemError.NoPermissions('Read-only: delete not supported');
   }
 
@@ -83,6 +92,9 @@ export abstract class BaseDocumentProvider implements vscode.FileSystemProvider 
    * Not supporting rename operations (read-only)
    */
   rename(_oldUri: vscode.Uri, _newUri: vscode.Uri, _options: { overwrite: boolean }): void {
+    void _oldUri;
+    void _newUri;
+    void _options;
     throw vscode.FileSystemError.NoPermissions('Read-only: rename not supported');
   }
 }

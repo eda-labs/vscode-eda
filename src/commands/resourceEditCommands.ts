@@ -5,7 +5,7 @@ import { execSync } from 'child_process';
 import { serviceManager } from '../services/serviceManager';
 import { KubernetesClient } from '../clients/kubernetesClient';
 import { EdactlClient } from '../clients/edactlClient';
-import { ResourceService } from '../services/resourceService';
+import type { ResourceService } from '../services/resourceService';
 import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
 import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
 import { log, LogLevel, edaOutputChannel } from '../extension';
@@ -40,7 +40,6 @@ export function registerResourceEditCommands(
 ) {
   const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
   const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
-  const resourceService = serviceManager.getService<ResourceService>('kubernetes-resources');
 
   // Switch from read-only view to editable
   const switchToEditCommand = vscode.commands.registerCommand(
@@ -479,7 +478,6 @@ export function registerResourceEditCommands(
     // If a k8s or k8s-view document is closed, check if we need to clean up pairs
     if (document.uri.scheme === 'k8s' || document.uri.scheme === 'k8s-view') {
       let scheme = document.uri.scheme;
-      let otherScheme = scheme === 'k8s' ? 'k8s-view' : 'k8s';
 
       // Find any matching pairs
       for (const [key, pair] of resourcePairs.entries()) {

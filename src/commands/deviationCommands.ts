@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
 import { execSync } from 'child_process';
 import { serviceManager } from '../services/serviceManager';
-import { KubernetesClient } from '../clients/kubernetesClient';
 import { EdactlClient } from '../clients/edactlClient';
 import { log, LogLevel, edaOutputChannel } from '../extension';
 
@@ -43,7 +42,6 @@ async function checkDeviationExists(name: string, namespace: string): Promise<bo
 async function deleteDeviationAction(name: string, namespace: string): Promise<void> {
   try {
     log(`Deleting DeviationAction ${name} in namespace ${namespace}`, LogLevel.INFO);
-    const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
     const kubectlPath = 'kubectl'; // Default, or you could get this from a config
     execSync(`${kubectlPath} delete deviationaction ${name} -n ${namespace}`, { encoding: 'utf-8' });
     log(`Successfully deleted DeviationAction ${name}`, LogLevel.INFO);
@@ -99,7 +97,6 @@ export function registerDeviationCommands(
     }
 
     try {
-      const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
       const deviation = treeItem.deviation;
       const name = deviation.name;
       const namespace = deviation["namespace.name"];

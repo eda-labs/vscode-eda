@@ -294,25 +294,27 @@ export class ResourceStatusService extends CoreService {
 
     const kind = resource.kind;
 
-    switch (kind) {
-      case 'Pod':
-        return resource.status?.phase || '';
+      switch (kind) {
+        case 'Pod':
+          return resource.status?.phase || '';
 
-      case 'Deployment':
-        const ready = resource.status?.readyReplicas || 0;
-        const desired = resource.spec?.replicas || 0;
-        return `${ready}/${desired}`;
+        case 'Deployment': {
+          const ready = resource.status?.readyReplicas || 0;
+          const desired = resource.spec?.replicas || 0;
+          return `${ready}/${desired}`;
+        }
 
-      case 'Service':
-        return resource.spec?.type || 'ClusterIP';
+        case 'Service':
+          return resource.spec?.type || 'ClusterIP';
 
-      case 'ConfigMap':
-        const dataCount = Object.keys(resource.data || {}).length;
-        return `${dataCount} items`;
+        case 'ConfigMap': {
+          const dataCount = Object.keys(resource.data || {}).length;
+          return `${dataCount} items`;
+        }
 
-      case 'Secret':
-        return resource.type || 'Opaque';
-    }
+        case 'Secret':
+          return resource.type || 'Opaque';
+      }
 
     // For custom resources
     if (resource.status) {
@@ -523,14 +525,15 @@ export class ResourceStatusService extends CoreService {
     if (!status) return 'gray';
 
     switch (kind) {
-      case 'Pod':
+      case 'Pod': {
         const phase = status.phase?.toLowerCase();
         if (phase === 'running') return 'green';
         if (phase === 'pending') return 'yellow';
         if (['failed', 'unknown', 'error'].includes(phase)) return 'red';
         break;
+      }
 
-      case 'Deployment':
+      case 'Deployment': {
         const desired = resource.spec?.replicas || 0;
         const ready = status.readyReplicas || 0;
 
@@ -538,18 +541,20 @@ export class ResourceStatusService extends CoreService {
         if (ready === desired) return 'green';
         if (ready > 0) return 'yellow';
         return 'red';
+      }
 
       case 'Service':
         // Services are typically always "green" if they exist
         return 'green';
 
-      case 'Node':
+      case 'Node': {
         // Check node conditions
         const conditions = status.conditions || [];
         const readyCondition = conditions.find((c: any) => c.type === 'Ready');
 
         if (readyCondition && readyCondition.status === 'True') return 'green';
         return 'red';
+      }
 
       case 'ConfigMap':
       case 'Secret':

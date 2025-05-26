@@ -16,10 +16,10 @@ export class EdaAlarmProvider implements vscode.TreeDataProvider<TreeItemBase> {
   private statusService: ResourceStatusService;
   private refreshInterval: number;
   private treeFilter: string = '';
-  private refreshTimer?: NodeJS.Timeout;
-  private _refreshDebounceTimer: NodeJS.Timeout | undefined;
+  private refreshTimer?: ReturnType<typeof setInterval>;
+  private _refreshDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
-  constructor(private context: vscode.ExtensionContext, refreshIntervalMs: number = 10000) {
+  constructor(refreshIntervalMs: number = 10000) {
     this.edactlClient = serviceManager.getClient<EdactlClient>('edactl');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
     this.refreshInterval = refreshIntervalMs;

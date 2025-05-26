@@ -26,10 +26,11 @@ export class TreeItemBase extends vscode.TreeItem {
   constructor(
     public readonly label: string,
     public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-    public readonly contextValue: string,
+    contextValue: string,
     resource?: any
   ) {
     super(label, collapsibleState);
+    this.contextValue = contextValue;
     this.tooltip = label;
     if (resource) {
       this._resourceData = {
