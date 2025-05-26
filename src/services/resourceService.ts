@@ -169,12 +169,19 @@ export class ResourceService extends CoreService {
         this.cachedResourceResults,
         newResults
       );
+      const details = this.getResourceChangeDetails(
+        this.cachedResourceResults,
+        newResults
+      );
 
       if (summary) {
         log(
           `Resource changes detected${summary ? ` (${summary})` : ''}, updating cache and notifying listeners`,
           LogLevel.DEBUG
         );
+        if (details) {
+          log(`Changed resources: ${details}`, LogLevel.DEBUG);
+        }
         this.cachedResourceResults = newResults;
         this.lastRefreshTime = now;
         this._onDidChangeResources.fire(summary);
@@ -296,6 +303,85 @@ export class ResourceService extends CoreService {
     if (removed) parts.push(`${removed} removed`);
 
     return parts.join(', ');
+  }
+
+  /**
+   * Generate a detailed list of changed resources between old and new results
+   */
+  private getResourceChangeDetails(
+    oldResults: ResourceResult[],
+    newResults: ResourceResult[]
+  ): string {
+    if (this.hasResourceResultsChanged(oldResults, newResults) === false) {
+      return '';
+    }
+
+    const details: string[] = [];
+
+    const findResult = (
+      results: ResourceResult[],
+      kind: string,
+      apiGroup: string
+    ): ResourceResult | undefined =>
+      results.find(
+        r => r.resource.kind === kind && r.resource.apiGroup === apiGroup
+      );
+
+    for (const newResult of newResults) {
+      const oldResult = findResult(
+        oldResults,
+        newResult.resource.kind || '',
+        newResult.resource.apiGroup || ''
+      );
+
+      const oldInstances = oldResult?.instances || [];
+      const oldMap = new Map<string, any>();
+      for (const inst of oldInstances) {
+        const uid = inst.metadata?.uid;
+        if (uid) {
+          oldMap.set(uid, inst);
+        }
+      }
+
+      for (const inst of newResult.instances) {
+        const uid = inst.metadata?.uid;
+        const name = inst.metadata?.name;
+        if (!uid) continue;
+
+        if (!oldMap.has(uid)) {
+          details.push(`${newResult.resource.kind}/${name} added`);
+        } else if (
+          oldMap.get(uid)?.metadata?.resourceVersion !==
+          inst.metadata?.resourceVersion
+        ) {
+          details.push(`${newResult.resource.kind}/${name} updated`);
+          oldMap.delete(uid);
+        } else {
+          oldMap.delete(uid);
+        }
+      }
+
+      for (const inst of oldMap.values()) {
+        const name = inst.metadata?.name;
+        details.push(`${newResult.resource.kind}/${name} removed`);
+      }
+    }
+
+    for (const oldResult of oldResults) {
+      const newResult = findResult(
+        newResults,
+        oldResult.resource.kind || '',
+        oldResult.resource.apiGroup || ''
+      );
+      if (!newResult) {
+        for (const inst of oldResult.instances) {
+          const name = inst.metadata?.name;
+          details.push(`${oldResult.resource.kind}/${name} removed`);
+        }
+      }
+    }
+
+    return details.slice(0, 10).join(', ');
   }
 
   /**
