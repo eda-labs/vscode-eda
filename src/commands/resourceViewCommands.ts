@@ -45,8 +45,8 @@ function getApiVersionForKind(kind: string): string {
   if (matchingCrd) {
     // Get actual group and version from CRD
     const group = matchingCrd.spec?.group || '';
-    const version = matchingCrd.spec?.versions?.find(v => v.served)?.name ||
-                    matchingCrd.spec?.versions?.[0]?.name || 'v1alpha1';
+  const version = matchingCrd.spec?.versions?.find((v: any) => v.served)?.name ||
+                      matchingCrd.spec?.versions?.[0]?.name || 'v1alpha1';
     return `${group}/${version}`;
   }
 
