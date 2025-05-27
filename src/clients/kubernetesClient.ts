@@ -346,11 +346,15 @@ export class KubernetesClient {
     void run();
   }
 
-  private async refreshCustomResources(): Promise<void> {
+  private async refreshCustomResources(filterKinds?: string[]): Promise<void> {
     let resourceChanged = false;
     let deviationChanged = false;
     let transactionChanged = false;
     for (const crd of this.crdCache) {
+      const kind = crd.spec?.names?.kind;
+      if (filterKinds && (!kind || !filterKinds.includes(kind))) {
+        continue;
+      }
       const group = crd.spec?.group || '';
       const version = crd.spec?.versions?.find((v: any) => v.served)?.name || crd.spec?.versions?.[0]?.name || 'v1';
       const plural = crd.spec?.names?.plural || '';
@@ -460,6 +464,42 @@ export class KubernetesClient {
     }
   }
 
+  private async preloadNamespaceResources(): Promise<void> {
+    const namespaces = this.namespaceCache
+      .map(n => n.metadata?.name)
+      .filter((n): n is string => !!n);
+
+    for (const ns of namespaces) {
+      try {
+        const [pods, deployments, services] = await Promise.all([
+          this.fetchJSON(`/api/v1/namespaces/${ns}/pods`).then(d => d.items || []),
+          this.fetchJSON(`/apis/apps/v1/namespaces/${ns}/deployments`).then(d => d.items || []),
+          this.fetchJSON(`/api/v1/namespaces/${ns}/services`).then(d => d.items || [])
+        ]);
+        this.podCache.set(ns, pods);
+        this.deploymentCache.set(ns, deployments);
+        this.serviceCache.set(ns, services);
+      } catch (err) {
+        log(`Failed to preload resources in namespace ${ns}: ${err}`, LogLevel.WARN);
+      }
+    }
+  }
+
+  private async preloadKnownResources(): Promise<void> {
+    try {
+      if (this.crdCache.length === 0) {
+        this.crdCache = await this.listCustomResourceDefinitions();
+      }
+
+      await Promise.all([
+        this.refreshCustomResources(['Deviation', 'TransactionResult']),
+        this.preloadNamespaceResources()
+      ]);
+    } catch (err) {
+      log(`Failed to preload known resources: ${err}`, LogLevel.WARN);
+    }
+  }
+
   private startNamespaceWatcher(): void {
     const controller = new AbortController();
     this.watchControllers.push(controller);
@@ -530,7 +570,9 @@ export class KubernetesClient {
         await this.refreshCustomResources();
         this.startResourceWatchers();
       });
+
       await this.refreshNamespaces();
+      void this.preloadKnownResources();
       this.startNamespaceWatcher();
     } catch (err) {
       log(`Failed to start watchers: ${err}`, LogLevel.ERROR);
