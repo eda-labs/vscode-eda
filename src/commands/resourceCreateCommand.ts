@@ -373,10 +373,6 @@ export function registerResourceCreateCommand(
         // Convert to YAML
         let yamlContent = yaml.dump(skeleton, { indent: 2 });
 
-        // Add schema comment at the top for schema validation
-        // Use the schema provider's path if possible
-        yamlContent = `# yaml-language-server: $schema=/tmp/vscode-eda-schemas/${kind.toLowerCase()}.json\n${yamlContent}`;
-
         // Enhance YAML with comments for enum values
         if (schema && schema.properties?.spec) {
           const enumComments = generateEnumComments(schema.properties.spec);
