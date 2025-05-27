@@ -413,7 +413,7 @@
     "check-types": "tsc --noEmit",
     "lint": "eslint --ext .ts,.tsx .",
     "lint:fix": "npm run lint -- --fix",
-    "test": "mocha -r ts-node/register test/**/*.test.ts"
+    "test": "mocha -r ts-node/register -r ./test/setup.ts test/**/*.test.ts"
   },
   "devDependencies": {
     "@types/chai": "^5.2.2",
@@ -445,11 +445,12 @@
     "webpack-cli": "^6.0.1"
   },
   "dependencies": {
-    "@kubernetes/client-node": "^0.22.3",
     "@types/sinon": "^17.0.4",
     "@types/sinon-chai": "^4.0.0",
     "@vscode/vsce": "^3.4.2",
     "handlebars": "^4.7.8",
-    "js-yaml": "^4.1.0"
+    "js-yaml": "^4.1.0",
+    "undici": "^7.10.0",
+    "undici-types": "^7.10.0"
   }
 }

@@ -8,6 +8,7 @@ import { CoreService } from './coreService';
 import { KubernetesClient } from '../clients/kubernetesClient';
 import { log, LogLevel } from '../extension';
 import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
+import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
 
 /**
  * Service providing JSON schema support for Kubernetes CRDs
@@ -16,6 +17,8 @@ export class SchemaProviderService extends CoreService {
   private schemaCacheDir: string;
   private disposables: vscode.Disposable[] = [];
   private schemaCache = new Map<string, string>(); // Maps kind to schema file path
+
+  private yamlApi: any | null = null;
 
   private k8sClient: KubernetesClient;
 
@@ -48,6 +51,9 @@ export class SchemaProviderService extends CoreService {
 
     // Initially update schemas
     await this.updateSchemas();
+
+    // Activate YAML extension integration
+    await this.activateYamlExtension();
 
     // Apply schemas to all currently open documents
     vscode.workspace.textDocuments.forEach(this.handleDocument.bind(this));
@@ -115,51 +121,79 @@ export class SchemaProviderService extends CoreService {
       return;
     }
 
-    // Convert to file URI
-    const schemaUri = vscode.Uri.file(schemaPath).toString();
-
-    // Add schema comment to the document - this is the most reliable way
-    await this.addSchemaComment(document, schemaUri);
-
-    log(`Associated schema for ${kind} with document ${document.uri.toString()}`, LogLevel.DEBUG);
+    log(`Cached schema for ${kind} (used by YAML extension)`, LogLevel.DEBUG);
   }
 
-  /**
-   * Add schema comment to document
-   */
-  private async addSchemaComment(document: vscode.TextDocument, schemaUri: string): Promise<void> {
-    try {
-      // Check if already has schema comment
-      const firstLine = document.lineAt(0).text;
-      if (firstLine.includes('# yaml-language-server:')) {
-        // If already has schema comment, check if it needs to be updated
-        if (firstLine.includes(schemaUri)) {
-          return; // Already has correct schema
-        }
 
-        // Update existing schema comment
-        const edit = new vscode.WorkspaceEdit();
-        edit.replace(
-          document.uri,
-          new vscode.Range(0, 0, 0, firstLine.length),
-          `# yaml-language-server: $schema=${schemaUri}`
-        );
-        await vscode.workspace.applyEdit(edit);
+
+  /**
+   * Activate the YAML extension and register schema contributor
+   */
+  private async activateYamlExtension(): Promise<void> {
+    try {
+      const ext = vscode.extensions.getExtension('redhat.vscode-yaml');
+      if (!ext) {
+        log('YAML extension not found; schema validation disabled', LogLevel.WARN);
         return;
       }
 
-      // Add schema comment at the beginning
-      const edit = new vscode.WorkspaceEdit();
-      edit.insert(
-        document.uri,
-        new vscode.Position(0, 0),
-        `# yaml-language-server: $schema=${schemaUri}\n`
+      this.yamlApi = await ext.activate();
+      if (!this.yamlApi?.registerContributor) {
+        log('YAML extension API missing registerContributor', LogLevel.WARN);
+        return;
+      }
+
+      this.yamlApi.registerContributor(
+        'vscode-eda',
+        (resource: string) => this.getSchemaUriForResource(resource),
+        (schemaUri: string) => this.getSchemaContent(schemaUri)
       );
-      await vscode.workspace.applyEdit(edit);
-      log(`Added schema comment to ${document.uri.toString()}`, LogLevel.DEBUG);
+
+      log('Registered YAML schema contributor', LogLevel.INFO);
     } catch (error) {
-      log(`Error adding schema comment: ${error}`, LogLevel.ERROR);
+      log(`Failed to activate YAML extension API: ${error}`, LogLevel.ERROR);
     }
+  }
+
+  private getSchemaUriForResource(resource: string): string | undefined {
+    try {
+      const uri = vscode.Uri.parse(resource);
+      let kind: string | undefined;
+      if (uri.scheme === 'k8s-view') {
+        const parts = ResourceViewDocumentProvider.parseUri(uri);
+        kind = parts.kind;
+      } else if (uri.scheme === 'k8s') {
+        const parts = ResourceEditDocumentProvider.parseUri(uri);
+        kind = parts.kind;
+      } else {
+        const doc = vscode.workspace.textDocuments.find(d => d.uri.toString() === resource);
+        if (doc) {
+          const parsed = yaml.load(doc.getText()) as any;
+          if (parsed?.kind) {
+            kind = parsed.kind;
+          }
+        }
+      }
+
+      if (kind && this.schemaCache.has(kind)) {
+        return vscode.Uri.file(this.schemaCache.get(kind) as string).toString();
+      }
+    } catch (error) {
+      log(`Error determining schema for ${resource}: ${error}`, LogLevel.ERROR);
+    }
+    return undefined;
+  }
+
+  private getSchemaContent(schemaUri: string): string | undefined {
+    try {
+      const filePath = vscode.Uri.parse(schemaUri).fsPath;
+      if (fs.existsSync(filePath)) {
+        return fs.readFileSync(filePath, 'utf8');
+      }
+    } catch (error) {
+      log(`Error loading schema content ${schemaUri}: ${error}`, LogLevel.ERROR);
+    }
+    return undefined;
   }
 
   /**

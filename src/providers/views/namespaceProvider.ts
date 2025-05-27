@@ -6,7 +6,6 @@ import { serviceManager } from '../../services/serviceManager';
 import { KubernetesClient } from '../../clients/kubernetesClient';
 import { ResourceService } from '../../services/resourceService';
 import { ResourceStatusService } from '../../services/resourceStatusService';
-import { EdactlClient } from '../../clients/edactlClient';
 import { log, LogLevel } from '../../extension';
 
 /**
@@ -21,7 +20,6 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   private k8sClient: KubernetesClient;
   private resourceService: ResourceService;
   private statusService: ResourceStatusService;
-  private edactlClient: EdactlClient;
 
   // The current filter text (if any).
   private treeFilter: string = '';
@@ -33,36 +31,41 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
     this.k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
     this.resourceService = serviceManager.getService<ResourceService>('kubernetes-resources');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
-    this.edactlClient = serviceManager.getClient<EdactlClient>('edactl');
 
     this.setupEventListeners();
-    this.fetchNamespaces();
+    this.updateNamespaces();
   }
 
   /**
    * Listen for changes in resources so we can refresh
    */
   private setupEventListeners(): void {
-    this.resourceService.onDidChangeResources(async () => {
-      log('Resource change detected, refreshing tree view', LogLevel.DEBUG);
-      await this.fetchNamespaces();
+    this.resourceService.onDidChangeResources(async summary => {
+      const msg = summary ? `Resource change detected (${summary}), refreshing tree view` :
+        'Resource change detected, refreshing tree view';
+      log(msg, LogLevel.DEBUG);
+      this.refresh();
+    });
+    this.k8sClient.onNamespacesChanged(() => {
+      this.updateNamespaces();
       this.refresh();
     });
   }
 
   /**
-   * Get EDA namespaces from edactl, store in cache if changed
+   * Update cached namespaces from the Kubernetes client
    */
-  private async fetchNamespaces(): Promise<void> {
-    try {
-      const namespaces = await this.edactlClient.getEdaNamespaces();
-      if (!arraysEqual(this.cachedNamespaces, namespaces)) {
-        log(`Namespaces changed from [${this.cachedNamespaces.join(', ')}] to [${namespaces.join(', ')}]`, LogLevel.DEBUG);
-        this.cachedNamespaces = namespaces;
-        this.refresh();
-      }
-    } catch (error) {
-      log(`Error fetching namespaces: ${error}`, LogLevel.ERROR);
+  private updateNamespaces(): void {
+    const namespaces = this.k8sClient
+      .getCachedNamespaces()
+      .map(ns => ns.metadata?.name)
+      .filter((n): n is string => !!n);
+    if (!arraysEqual(this.cachedNamespaces, namespaces)) {
+      log(
+        `Namespaces changed from [${this.cachedNamespaces.join(', ')}] to [${namespaces.join(', ')}]`,
+        LogLevel.DEBUG
+      );
+      this.cachedNamespaces = namespaces;
     }
   }
 
@@ -221,8 +224,18 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
    * Resource categories under each namespace: "EDA Resources" and "Kubernetes Resources"
    */
   private getResourceCategories(namespace: string): TreeItemBase[] {
+    const allResources = this.resourceService.getAllResourceInstances();
+    const hasEdaResources = allResources.some(r => {
+      const group = r.resource.apiGroup || '';
+      return !group.endsWith('k8s.io');
+    });
+
     const categories = [
-      { id: 'eda', label: 'EDA Resources', icon: 'zap' },
+      {
+        id: 'eda',
+        label: hasEdaResources ? 'EDA Resources' : 'EDA Resources (init)',
+        icon: 'zap'
+      },
       { id: 'k8s', label: 'Kubernetes Resources', icon: 'symbol-namespace' }
     ];
 
@@ -308,6 +321,16 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       const group = r.resource.apiGroup || '';
       return !group.endsWith('k8s.io');
     });
+
+    if (edaRes.length === 0 && !this.treeFilter) {
+      const msgItem = new TreeItemBase(
+        'No EDA CRDs found',
+        vscode.TreeItemCollapsibleState.None,
+        'message'
+      );
+      msgItem.iconPath = new vscode.ThemeIcon('info');
+      return [msgItem];
+    }
 
     const items: TreeItemBase[] = [];
 
