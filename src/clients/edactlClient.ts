@@ -36,6 +36,7 @@ export class EdactlClient {
   private clientSecret?: string;
   private agent: Agent | undefined;
   private namespaceSocket: WebSocket | undefined;
+  private alarmSocket: WebSocket | undefined;
 
   constructor(baseUrl: string, opts: EdactlOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
@@ -163,11 +164,20 @@ export class EdactlClient {
     const url = `${this.baseUrl}${path}`;
     log(`GET ${url}`, LogLevel.DEBUG);
     log(`Request headers: ${JSON.stringify(this.headers)}`, LogLevel.DEBUG);
-    const res = await fetch(url, { headers: this.headers, dispatcher: this.agent });
+    let res = await fetch(url, { headers: this.headers, dispatcher: this.agent });
     log(`GET ${url} -> ${res.status}`, LogLevel.DEBUG);
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`HTTP ${res.status}: ${text}`);
+      if (res.status === 401 && text.includes('Access token has expired')) {
+        log('Access token expired, refreshing...', LogLevel.INFO);
+        this.authPromise = this.auth();
+        await this.authPromise;
+        res = await fetch(url, { headers: this.headers, dispatcher: this.agent });
+        log(`GET ${url} retry -> ${res.status}`, LogLevel.DEBUG);
+      }
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${text}`);
+      }
     }
     return (await res.json()) as T;
   }
@@ -212,6 +222,46 @@ export class EdactlClient {
     ws.addEventListener('close', () => {
       log('Namespace WebSocket closed', LogLevel.INFO);
     });
+  }
+
+  /**
+   * Stream alarms over WebSocket.
+   * @param onAlarms Callback invoked with the list of alarms.
+   */
+  // eslint-disable-next-line no-unused-vars
+  public async streamEdaAlarms(onAlarms: (_list: any[]) => void): Promise<void> {
+    await this.authPromise;
+    const url = new URL(this.baseUrl);
+    url.protocol = url.protocol.replace('http', 'ws');
+    url.pathname = '/core/alarm/v2/alarms';
+    url.searchParams.set('stream', 'alarms');
+    url.searchParams.set('eventclient', 'vscode-eda');
+
+    const ws = new WebSocket(url, { headers: this.headers, dispatcher: this.agent });
+    this.alarmSocket = ws;
+
+    ws.addEventListener('message', evt => {
+      try {
+        const alarms = JSON.parse(String(evt.data));
+        onAlarms(Array.isArray(alarms) ? alarms : []);
+      } catch (err) {
+        log(`Failed to parse alarm stream message: ${err}`, LogLevel.ERROR);
+      }
+    });
+
+    ws.addEventListener('error', err => {
+      log(`Alarm WebSocket error: ${err}`, LogLevel.ERROR);
+    });
+
+    ws.addEventListener('close', () => {
+      log('Alarm WebSocket closed', LogLevel.INFO);
+    });
+  }
+
+  /** Close any open alarm stream */
+  public closeAlarmStream(): void {
+    this.alarmSocket?.close();
+    this.alarmSocket = undefined;
   }
 
   /** Get recent transactions */

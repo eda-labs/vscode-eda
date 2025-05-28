@@ -18,12 +18,17 @@ export class EdaAlarmProvider implements vscode.TreeDataProvider<TreeItemBase> {
   private treeFilter: string = '';
   private refreshTimer?: ReturnType<typeof setInterval>;
   private _refreshDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+  private cachedAlarms: any[] = [];
 
   constructor(refreshIntervalMs: number = 10000) {
     this.edactlClient = serviceManager.getClient<EdactlClient>('edactl');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
     this.refreshInterval = refreshIntervalMs;
     this.startRefreshTimer();
+    void this.edactlClient.streamEdaAlarms(alarms => {
+      this.cachedAlarms = alarms;
+      this.refresh();
+    });
   }
 
   /**
@@ -48,6 +53,8 @@ export class EdaAlarmProvider implements vscode.TreeDataProvider<TreeItemBase> {
       this.refreshTimer = undefined;
       log('Alarm polling stopped', LogLevel.INFO);
     }
+
+    this.edactlClient.closeAlarmStream();
 
     if (this._refreshDebounceTimer) {
       clearTimeout(this._refreshDebounceTimer);
@@ -100,7 +107,10 @@ export class EdaAlarmProvider implements vscode.TreeDataProvider<TreeItemBase> {
     }
 
     try {
-      const alarms = await this.edactlClient.getEdaAlarms();
+      if (this.cachedAlarms.length === 0) {
+        this.cachedAlarms = await this.edactlClient.getEdaAlarms();
+      }
+      const alarms = this.cachedAlarms;
 
       if (alarms.length === 0) {
         return [this.createNoAlarmsItem()];
