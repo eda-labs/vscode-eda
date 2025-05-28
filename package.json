@@ -397,6 +397,11 @@
             "Error: Show only errors"
           ],
           "description": "Controls the level of detail in the EDA output logs"
+        },
+        "vscode-eda.edaUrl": {
+          "type": "string",
+          "default": "https://eda-api",
+          "description": "Base URL of the EDA API server"
         }
       }
     },
