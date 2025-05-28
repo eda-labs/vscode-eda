@@ -21,6 +21,7 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
     this.startRefreshTimer();
     void this.edactlClient.streamEdaTransactions(txs => {
+      log(`Transaction stream provided ${txs.length} results`, LogLevel.DEBUG);
       this.cachedTransactions = txs;
       this.refresh();
     });

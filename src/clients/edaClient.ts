@@ -169,7 +169,6 @@ export class EdaClient {
     await this.authPromise;
     const url = `${this.baseUrl}${path}`;
     log(`GET ${url}`, LogLevel.DEBUG);
-    log(`Request headers: ${JSON.stringify(this.headers)}`, LogLevel.DEBUG);
     let res = await fetch(url, { headers: this.headers, dispatcher: this.agent });
     log(`GET ${url} -> ${res.status}`, LogLevel.DEBUG);
     if (!res.ok) {
@@ -210,11 +209,16 @@ export class EdaClient {
     const ws = new WebSocket(url, { headers: this.headers, dispatcher: this.agent });
     this.namespaceSocket = ws;
 
+    ws.addEventListener('open', () => {
+      log('Namespace WebSocket opened', LogLevel.DEBUG);
+    });
+
     ws.addEventListener('message', evt => {
       try {
         const data = JSON.parse(String(evt.data));
         const list = data.namespaces || [];
         const names = list.map((n: any) => n.name || '').filter((n: string) => n);
+        log(`Namespace stream update with ${names.length} namespaces`, LogLevel.DEBUG);
         onNamespaces(names);
       } catch (err) {
         log(`Failed to parse namespace stream message: ${err}`, LogLevel.ERROR);
@@ -222,11 +226,20 @@ export class EdaClient {
     });
 
     ws.addEventListener('error', err => {
-      log(`Namespace WebSocket error: ${err}`, LogLevel.ERROR);
+      const ee = err as any;
+      const message = ee.message || String(err);
+      const detail = ee.error;
+      log(
+        `Namespace WebSocket error: ${message}${detail ? ` (${detail})` : ''}`,
+        LogLevel.ERROR,
+      );
     });
 
-    ws.addEventListener('close', () => {
-      log('Namespace WebSocket closed', LogLevel.INFO);
+    ws.addEventListener('close', evt => {
+      log(
+        `Namespace WebSocket closed (code=${evt.code} reason=${evt.reason})`,
+        LogLevel.INFO,
+      );
     });
   }
 
@@ -246,9 +259,14 @@ export class EdaClient {
     const ws = new WebSocket(url, { headers: this.headers, dispatcher: this.agent });
     this.alarmSocket = ws;
 
+    ws.addEventListener('open', () => {
+      log('Alarm WebSocket opened', LogLevel.DEBUG);
+    });
+
     ws.addEventListener('message', evt => {
       try {
         const alarms = JSON.parse(String(evt.data));
+        log(`Alarm stream update with ${Array.isArray(alarms) ? alarms.length : 0} alarms`, LogLevel.DEBUG);
         onAlarms(Array.isArray(alarms) ? alarms : []);
       } catch (err) {
         log(`Failed to parse alarm stream message: ${err}`, LogLevel.ERROR);
@@ -256,11 +274,20 @@ export class EdaClient {
     });
 
     ws.addEventListener('error', err => {
-      log(`Alarm WebSocket error: ${err}`, LogLevel.ERROR);
+      const ee = err as any;
+      const message = ee.message || String(err);
+      const detail = ee.error;
+      log(
+        `Alarm WebSocket error: ${message}${detail ? ` (${detail})` : ''}`,
+        LogLevel.ERROR,
+      );
     });
 
-    ws.addEventListener('close', () => {
-      log('Alarm WebSocket closed', LogLevel.INFO);
+    ws.addEventListener('close', evt => {
+      log(
+        `Alarm WebSocket closed (code=${evt.code} reason=${evt.reason})`,
+        LogLevel.INFO,
+      );
     });
   }
 
@@ -285,21 +312,36 @@ export class EdaClient {
     const ws = new WebSocket(url, { headers: this.headers, dispatcher: this.agent });
     this.deviationSocket = ws;
 
+    ws.addEventListener('open', () => {
+      log('Deviation WebSocket opened', LogLevel.DEBUG);
+    });
+
     ws.addEventListener('message', evt => {
       try {
         const deviations = JSON.parse(String(evt.data));
-        onDeviations(Array.isArray(deviations.items) ? deviations.items : []);
+        const items = Array.isArray(deviations.items) ? deviations.items : [];
+        log(`Deviation stream update with ${items.length} deviations`, LogLevel.DEBUG);
+        onDeviations(items);
       } catch (err) {
         log(`Failed to parse deviation stream message: ${err}`, LogLevel.ERROR);
       }
     });
 
     ws.addEventListener('error', err => {
-      log(`Deviation WebSocket error: ${err}`, LogLevel.ERROR);
+      const ee = err as any;
+      const message = ee.message || String(err);
+      const detail = ee.error;
+      log(
+        `Deviation WebSocket error: ${message}${detail ? ` (${detail})` : ''}`,
+        LogLevel.ERROR,
+      );
     });
 
-    ws.addEventListener('close', () => {
-      log('Deviation WebSocket closed', LogLevel.INFO);
+    ws.addEventListener('close', evt => {
+      log(
+        `Deviation WebSocket closed (code=${evt.code} reason=${evt.reason})`,
+        LogLevel.INFO,
+      );
     });
   }
 
@@ -324,21 +366,36 @@ export class EdaClient {
     const ws = new WebSocket(url, { headers: this.headers, dispatcher: this.agent });
     this.transactionSocket = ws;
 
+    ws.addEventListener('open', () => {
+      log('Transaction WebSocket opened', LogLevel.DEBUG);
+    });
+
     ws.addEventListener('message', evt => {
       try {
         const txs = JSON.parse(String(evt.data));
-        onTransactions(Array.isArray(txs.results) ? txs.results : []);
+        const results = Array.isArray(txs.results) ? txs.results : [];
+        log(`Transaction stream update with ${results.length} results`, LogLevel.DEBUG);
+        onTransactions(results);
       } catch (err) {
         log(`Failed to parse transaction stream message: ${err}`, LogLevel.ERROR);
       }
     });
 
     ws.addEventListener('error', err => {
-      log(`Transaction WebSocket error: ${err}`, LogLevel.ERROR);
+      const ee = err as any;
+      const message = ee.message || String(err);
+      const detail = ee.error;
+      log(
+        `Transaction WebSocket error: ${message}${detail ? ` (${detail})` : ''}`,
+        LogLevel.ERROR,
+      );
     });
 
-    ws.addEventListener('close', () => {
-      log('Transaction WebSocket closed', LogLevel.INFO);
+    ws.addEventListener('close', evt => {
+      log(
+        `Transaction WebSocket closed (code=${evt.code} reason=${evt.reason})`,
+        LogLevel.INFO,
+      );
     });
   }
 

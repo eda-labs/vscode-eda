@@ -26,6 +26,7 @@ export class EdaAlarmProvider implements vscode.TreeDataProvider<TreeItemBase> {
     this.refreshInterval = refreshIntervalMs;
     this.startRefreshTimer();
     void this.edactlClient.streamEdaAlarms(alarms => {
+      log(`Alarm stream provided ${alarms.length} alarms`, LogLevel.DEBUG);
       this.cachedAlarms = alarms;
       this.refresh();
     });

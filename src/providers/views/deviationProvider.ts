@@ -36,6 +36,7 @@ export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTr
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
     this.startRefreshTimer();
     void this.edactlClient.streamEdaDeviations(devs => {
+      log(`Deviation stream provided ${devs.length} deviations`, LogLevel.DEBUG);
       this.deviations = devs;
       this.refresh();
     });

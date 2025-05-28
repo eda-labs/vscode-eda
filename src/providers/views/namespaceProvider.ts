@@ -39,6 +39,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
     this.updateNamespaces();
 
     void this.edactlClient.streamEdaNamespaces(ns => {
+      log(`Namespace stream provided ${ns.length} namespaces`, LogLevel.DEBUG);
       if (!arraysEqual(this.cachedNamespaces, ns)) {
         this.cachedNamespaces = ns;
         this.refresh();
