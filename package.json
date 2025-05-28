@@ -402,6 +402,36 @@
           "type": "string",
           "default": "https://eda-api",
           "description": "Base URL of the EDA API server"
+        },
+        "vscode-eda.edaUsername": {
+          "type": "string",
+          "default": "admin",
+          "description": "Username for the EDA realm"
+        },
+        "vscode-eda.edaPassword": {
+          "type": "string",
+          "default": "admin",
+          "description": "Password for the EDA realm"
+        },
+        "vscode-eda.kcUsername": {
+          "type": "string",
+          "default": "admin",
+          "description": "Keycloak admin username"
+        },
+        "vscode-eda.kcPassword": {
+          "type": "string",
+          "default": "admin",
+          "description": "Keycloak admin password"
+        },
+        "vscode-eda.clientId": {
+          "type": "string",
+          "default": "eda",
+          "description": "Keycloak client ID for EDA"
+        },
+        "vscode-eda.clientSecret": {
+          "type": "string",
+          "default": "",
+          "description": "Client secret for the EDA client (optional)"
         }
       }
     },

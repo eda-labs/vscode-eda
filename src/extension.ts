@@ -98,9 +98,22 @@ export async function activate(_context: vscode.ExtensionContext) {
 
   log('EDA extension activating...', LogLevel.INFO, true);
   const edaUrl = config.get<string>("edaUrl", "https://eda-api");
+  const edaUsername = config.get<string>('edaUsername', 'admin');
+  const edaPassword = config.get<string>('edaPassword', 'admin');
+  const kcUsername = config.get<string>('kcUsername', 'admin');
+  const kcPassword = config.get<string>('kcPassword', 'admin');
+  const clientId = config.get<string>('clientId', 'eda');
+  const clientSecret = config.get<string>('clientSecret', '');
 
   try {
-    const client = new EdactlClient(edaUrl);
+    const client = new EdactlClient(edaUrl, {
+      edaUsername,
+      edaPassword,
+      kcUsername,
+      kcPassword,
+      clientId,
+      clientSecret: clientSecret || undefined,
+    });
     await client.getEdaNamespaces();
     log("Successfully authenticated to EDA API", LogLevel.INFO, true);
   } catch (error) {
