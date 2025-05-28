@@ -1,6 +1,9 @@
-import { fetch, Agent } from 'undici';
+import { fetch, Agent, WebSocket } from 'undici';
 import { LogLevel, log } from '../extension';
 import type { paths, components } from '../openapi/core';
+
+// eslint-disable-next-line no-unused-vars
+export type NamespaceCallback = (arg: string[]) => void;
 
 /**
  * Client for interacting with the EDA REST API
@@ -32,6 +35,7 @@ export class EdactlClient {
   private clientId: string;
   private clientSecret?: string;
   private agent: Agent | undefined;
+  private namespaceSocket: WebSocket | undefined;
 
   constructor(baseUrl: string, opts: EdactlOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
@@ -173,6 +177,41 @@ export class EdactlClient {
     const data = await this.fetchJSON<components['schemas']['NamespaceGetResponse']>('/core/access/v1/namespaces');
     const list = data.namespaces || [];
     return list.map(n => n.name || '').filter(n => n);
+  }
+
+  /**
+   * Stream accessible namespaces over WebSocket.
+   * @param onNamespaces Callback invoked with the list of namespace names.
+   */
+  public async streamEdaNamespaces(onNamespaces: NamespaceCallback): Promise<void> {
+    await this.authPromise;
+    const url = new URL(this.baseUrl);
+    url.protocol = url.protocol.replace('http', 'ws');
+    url.pathname = '/core/access/v1/namespaces';
+    url.searchParams.set('stream', 'namespaces');
+    url.searchParams.set('eventclient', 'vscode-eda');
+
+    const ws = new WebSocket(url, { headers: this.headers, dispatcher: this.agent });
+    this.namespaceSocket = ws;
+
+    ws.addEventListener('message', evt => {
+      try {
+        const data = JSON.parse(String(evt.data));
+        const list = data.namespaces || [];
+        const names = list.map((n: any) => n.name || '').filter((n: string) => n);
+        onNamespaces(names);
+      } catch (err) {
+        log(`Failed to parse namespace stream message: ${err}`, LogLevel.ERROR);
+      }
+    });
+
+    ws.addEventListener('error', err => {
+      log(`Namespace WebSocket error: ${err}`, LogLevel.ERROR);
+    });
+
+    ws.addEventListener('close', () => {
+      log('Namespace WebSocket closed', LogLevel.INFO);
+    });
   }
 
   /** Get recent transactions */

@@ -39,7 +39,8 @@ export default [
         window: 'readonly',
         document: 'readonly',
         fetch: 'readonly',
-        URLSearchParams: 'readonly'
+        URLSearchParams: 'readonly',
+        URL: 'readonly'
       }
     },
     plugins: { '@typescript-eslint': tseslint.plugin },
