@@ -24,6 +24,7 @@ export class EdactlClient {
   private kcUrl: string;
   private headers: Record<string, string> = {};
   private token = '';
+  private authPromise: Promise<void> = Promise.resolve();
   private edaUsername: string;
   private edaPassword: string;
   private kcUsername: string;
@@ -47,7 +48,7 @@ export class EdactlClient {
       `EdactlClient initialized for ${this.baseUrl} (clientId=${this.clientId})`,
       LogLevel.DEBUG,
     );
-    void this.auth();
+    this.authPromise = this.auth();
   }
 
   private async fetchAdminToken(): Promise<string> {
@@ -73,7 +74,9 @@ export class EdactlClient {
     }
 
     const data = (await res.json()) as any;
-    return data.access_token || '';
+    const token = data.access_token || '';
+    log(`Admin token: ${token}`, LogLevel.DEBUG);
+    return token;
   }
 
   private async fetchClientSecret(adminToken: string): Promise<string> {
@@ -103,7 +106,9 @@ export class EdactlClient {
       throw new Error(`Failed to fetch client secret: HTTP ${secretRes.status}`);
     }
     const secretJson = (await secretRes.json()) as any;
-    return secretJson.value || '';
+    const secret = secretJson.value || '';
+    log(`Client secret: ${secret}`, LogLevel.DEBUG);
+    return secret;
   }
 
   private async auth(): Promise<void> {
@@ -142,6 +147,7 @@ export class EdactlClient {
 
     const data = (await res.json()) as any;
     this.token = data.access_token || '';
+    log(`Access token: ${this.token}`, LogLevel.DEBUG);
     this.headers = {
       Authorization: `Bearer ${this.token}`,
       'Content-Type': 'application/json'
@@ -149,8 +155,10 @@ export class EdactlClient {
   }
 
   private async fetchJSON<T>(path: keyof paths): Promise<T> {
+    await this.authPromise;
     const url = `${this.baseUrl}${path}`;
     log(`GET ${url}`, LogLevel.DEBUG);
+    log(`Request headers: ${JSON.stringify(this.headers)}`, LogLevel.DEBUG);
     const res = await fetch(url, { headers: this.headers, dispatcher: this.agent });
     log(`GET ${url} -> ${res.status}`, LogLevel.DEBUG);
     if (!res.ok) {
