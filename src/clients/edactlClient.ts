@@ -1,4 +1,4 @@
-import { fetch } from 'undici';
+import { fetch, Agent } from 'undici';
 import { LogLevel, log } from '../extension';
 import type { paths, components } from '../openapi/core';
 
@@ -12,6 +12,11 @@ export interface EdactlOptions {
   kcPassword?: string;
   clientId?: string;
   clientSecret?: string;
+  /**
+   * Skip TLS verification when connecting to the API. Useful for dev/test
+   * environments with self-signed certificates.
+   */
+  skipTlsVerify?: boolean;
 }
 
 export class EdactlClient {
@@ -25,6 +30,7 @@ export class EdactlClient {
   private kcPassword: string;
   private clientId: string;
   private clientSecret?: string;
+  private agent: Agent | undefined;
 
   constructor(baseUrl: string, opts: EdactlOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
@@ -35,6 +41,8 @@ export class EdactlClient {
     this.kcPassword = opts.kcPassword || process.env.EDA_KC_PASSWORD || 'admin';
     this.clientId = opts.clientId || process.env.EDA_CLIENT_ID || 'eda';
     this.clientSecret = opts.clientSecret || process.env.EDA_CLIENT_SECRET;
+    const skipTls = opts.skipTlsVerify || process.env.EDA_SKIP_TLS_VERIFY === 'true';
+    this.agent = skipTls ? new Agent({ connect: { rejectUnauthorized: false } }) : undefined;
     log(
       `EdactlClient initialized for ${this.baseUrl} (clientId=${this.clientId})`,
       LogLevel.DEBUG,
@@ -54,7 +62,8 @@ export class EdactlClient {
     const res = await fetch(url, {
       method: 'POST',
       body: params,
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      dispatcher: this.agent,
     });
 
     log(`Admin token response status ${res.status}`, LogLevel.DEBUG);
@@ -71,7 +80,8 @@ export class EdactlClient {
     const listUrl = `${this.kcUrl}/admin/realms/eda/clients`;
     log(`Listing clients from ${listUrl}`, LogLevel.DEBUG);
     const res = await fetch(listUrl, {
-      headers: { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' }
+      headers: { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' },
+      dispatcher: this.agent,
     });
     log(`List clients response status ${res.status}`, LogLevel.DEBUG);
     if (!res.ok) {
@@ -85,7 +95,8 @@ export class EdactlClient {
     const secretUrl = `${listUrl}/${client.id}/client-secret`;
     log(`Fetching client secret from ${secretUrl}`, LogLevel.DEBUG);
     const secretRes = await fetch(secretUrl, {
-      headers: { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' }
+      headers: { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' },
+      dispatcher: this.agent,
     });
     log(`Client secret response status ${secretRes.status}`, LogLevel.DEBUG);
     if (!secretRes.ok) {
@@ -119,7 +130,8 @@ export class EdactlClient {
     const res = await fetch(url, {
       method: 'POST',
       body: params,
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      dispatcher: this.agent,
     });
 
     log(`Auth response status ${res.status}`, LogLevel.DEBUG);
@@ -139,7 +151,7 @@ export class EdactlClient {
   private async fetchJSON<T>(path: keyof paths): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     log(`GET ${url}`, LogLevel.DEBUG);
-    const res = await fetch(url, { headers: this.headers });
+    const res = await fetch(url, { headers: this.headers, dispatcher: this.agent });
     log(`GET ${url} -> ${res.status}`, LogLevel.DEBUG);
     if (!res.ok) {
       const text = await res.text();

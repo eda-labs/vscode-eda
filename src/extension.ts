@@ -104,6 +104,7 @@ export async function activate(_context: vscode.ExtensionContext) {
   const kcPassword = config.get<string>('kcPassword', 'admin');
   const clientId = config.get<string>('clientId', 'eda');
   const clientSecret = config.get<string>('clientSecret', '');
+  const skipTlsVerify = config.get<boolean>('skipTlsVerify', false);
 
   try {
     const client = new EdactlClient(edaUrl, {
@@ -113,6 +114,7 @@ export async function activate(_context: vscode.ExtensionContext) {
       kcPassword,
       clientId,
       clientSecret: clientSecret || undefined,
+      skipTlsVerify,
     });
     await client.getEdaNamespaces();
     log("Successfully authenticated to EDA API", LogLevel.INFO, true);

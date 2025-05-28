@@ -432,6 +432,11 @@
           "type": "string",
           "default": "",
           "description": "Client secret for the EDA client (optional)"
+        },
+        "vscode-eda.skipTlsVerify": {
+          "type": "boolean",
+          "default": false,
+          "description": "Skip TLS certificate verification when connecting to the EDA API"
         }
       }
     },

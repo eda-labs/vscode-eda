@@ -73,6 +73,8 @@ In VS Code settings (`File → Preferences → Settings`), navigate to `Extensio
   - `1` = Info (default)
   - `2` = Warning
   - `3` = Error
+- **`vscode-eda.skipTlsVerify`**
+  When enabled, the extension skips TLS certificate validation when connecting to the EDA API. This is helpful in development environments with self-signed certificates. The same behavior can be toggled via the `EDA_SKIP_TLS_VERIFY=true` environment variable.
 
 ---
 
