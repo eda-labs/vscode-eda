@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { log, LogLevel } from '../extension';
 import { serviceManager } from '../services/serviceManager';
 import { KubernetesClient } from '../clients/kubernetesClient';
-import { EdactlClient } from '../clients/edactlClient';
+import { EdaClient } from '../clients/edaClient';
 import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
 import { runKubectl } from '../utils/kubectlRunner';
 
@@ -132,7 +132,7 @@ export function registerResourceViewCommands(
 
         // 2) If we have an apiVersion and it looks EDA, try edactl first
         let finalYaml = '';
-        const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+        const edactlClient = serviceManager.getClient<EdaClient>('edactl');
 
         if (possibleApiVersion && isEdaGroup(possibleApiVersion)) {
           // If recognized as EDA, attempt an edactl fetch:

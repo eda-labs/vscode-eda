@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { serviceManager } from '../services/serviceManager';
-import { EdactlClient } from '../clients/edactlClient';
+import { EdaClient } from '../clients/edaClient';
 import { edaOutputChannel } from '../extension';
 import { log, LogLevel } from '../extension';
 
@@ -29,7 +29,7 @@ export function registerTransactionCommands(
         }
       }
       const transactionId = treeItem?.resource?.raw?.id || treeItem.label.toString().split(' - ')[0];
-      const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+      const edactlClient = serviceManager.getClient<EdaClient>('edactl');
 
       // Fetch transaction details to get commit hash
       try {
@@ -95,7 +95,7 @@ export function registerTransactionCommands(
         }
       }
       const transactionId = treeItem?.resource?.raw?.id || treeItem.label.toString().split(' - ')[0];
-      const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+      const edactlClient = serviceManager.getClient<EdaClient>('edactl');
 
       // Fetch transaction details to get commit hash
       try {

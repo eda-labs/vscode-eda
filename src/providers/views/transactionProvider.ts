@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { TreeItemBase } from './treeItem';
 import { serviceManager } from '../../services/serviceManager';
-import { EdactlClient } from '../../clients/edactlClient';
+import { EdaClient } from '../../clients/edaClient';
 import { ResourceStatusService } from '../../services/resourceStatusService';
 import { log, LogLevel } from '../../extension';
 
@@ -9,7 +9,7 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
   private _onDidChangeTreeData: vscode.EventEmitter<TransactionTreeItem | undefined | null | void> = new vscode.EventEmitter<TransactionTreeItem | undefined | null | void>();
   readonly onDidChangeTreeData: vscode.Event<TransactionTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
 
-  private edactlClient: EdactlClient;
+  private edactlClient: EdaClient;
   private statusService: ResourceStatusService;
   private refreshInterval = 10000;
   private refreshTimer?: ReturnType<typeof setInterval>;
@@ -17,7 +17,7 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
   private cachedTransactions: any[] = [];
 
   constructor() {
-    this.edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+    this.edactlClient = serviceManager.getClient<EdaClient>('edactl');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
     this.startRefreshTimer();
     void this.edactlClient.streamEdaTransactions(txs => {

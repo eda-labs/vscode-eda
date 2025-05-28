@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
 import { execSync } from 'child_process';
 import { serviceManager } from '../services/serviceManager';
-import { EdactlClient } from '../clients/edactlClient';
+import { EdaClient } from '../clients/edaClient';
 import { log, LogLevel, edaOutputChannel } from '../extension';
 
 // Define interface for DeviationResource if not imported
@@ -27,7 +27,7 @@ interface DeviationResource {
  */
 async function checkDeviationExists(name: string, namespace: string): Promise<boolean> {
   try {
-    const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+    const edactlClient = serviceManager.getClient<EdaClient>('edactl');
     const deviations = await edactlClient.getEdaDeviations();
     return deviations.some((dev: any) => dev.name === name && dev["namespace.name"] === namespace);
   } catch (error) {
@@ -108,7 +108,7 @@ export function registerDeviationCommands(
       let yamlContent;
       try {
         // Using edactl directly instead of k8sService.getResourceYaml
-        const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+        const edactlClient = serviceManager.getClient<EdaClient>('edactl');
         yamlContent = await edactlClient.executeEdactl(`get deviation ${name} -n ${namespace} -o yaml`);
       } catch (error) {
         throw new Error(`Failed to get deviation details: ${error}`);
@@ -183,7 +183,7 @@ export function registerDeviationCommands(
       let yamlContent;
       try {
         // Using edactl directly instead of k8sService.getResourceYaml
-        const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+        const edactlClient = serviceManager.getClient<EdaClient>('edactl');
         yamlContent = await edactlClient.executeEdactl(`get deviation ${name} -n ${namespace} -o yaml`);
       } catch (error) {
         throw new Error(`Failed to get deviation details: ${error}`);

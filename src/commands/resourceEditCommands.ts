@@ -4,7 +4,7 @@ import * as yaml from 'js-yaml';
 import { execSync } from 'child_process';
 import { serviceManager } from '../services/serviceManager';
 import { KubernetesClient } from '../clients/kubernetesClient';
-import { EdactlClient } from '../clients/edactlClient';
+import { EdaClient } from '../clients/edaClient';
 import type { ResourceService } from '../services/resourceService';
 import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
 import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
@@ -39,7 +39,7 @@ export function registerResourceEditCommands(
   resourceViewProvider: ResourceViewDocumentProvider
 ) {
   const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
-  const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+  const edactlClient = serviceManager.getClient<EdaClient>('edactl');
 
   // Switch from read-only view to editable
   const switchToEditCommand = vscode.commands.registerCommand(
@@ -564,7 +564,7 @@ async function promptForNextAction(resource: any, currentStep: string): Promise<
 // Validate and then prompt for apply
 async function validateAndPromptForApply(
   k8sClient: KubernetesClient,
-  edactlClient: EdactlClient,
+  edactlClient: EdaClient,
   resourceEditProvider: ResourceEditDocumentProvider,
   resourceViewProvider: ResourceViewDocumentProvider,
   documentUri: vscode.Uri,
@@ -776,7 +776,7 @@ async function confirmResourceUpdate(kind: string, name: string, dryRun: boolean
 // Apply the resource changes to the cluster
 async function applyResource(
   k8sClient: KubernetesClient,
-  edactlClient: EdactlClient,
+  edactlClient: EdaClient,
   resourceEditProvider: ResourceEditDocumentProvider,
   resourceViewProvider: ResourceViewDocumentProvider,
   resource: any,

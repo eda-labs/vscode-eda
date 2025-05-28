@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { TreeItemBase } from './treeItem';
 import { serviceManager } from '../../services/serviceManager';
-import { EdactlClient } from '../../clients/edactlClient';
+import { EdaClient } from '../../clients/edaClient';
 import { ResourceStatusService } from '../../services/resourceStatusService';
 import { log, LogLevel } from '../../extension';
 
@@ -24,7 +24,7 @@ export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTr
 
   // Cache of currently displayed deviations
   private deviations: EdaDeviation[] = [];
-  private edactlClient: EdactlClient;
+  private edactlClient: EdaClient;
   private statusService: ResourceStatusService;
   private treeFilter: string = '';
   private refreshInterval = 10000;
@@ -32,7 +32,7 @@ export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTr
   private _refreshDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor() {
-    this.edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+    this.edactlClient = serviceManager.getClient<EdaClient>('edactl');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
     this.startRefreshTimer();
     void this.edactlClient.streamEdaDeviations(devs => {

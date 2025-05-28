@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 import { TreeItemBase } from './treeItem';
 import { serviceManager } from '../../services/serviceManager';
 import { KubernetesClient } from '../../clients/kubernetesClient';
-import { EdactlClient } from '../../clients/edactlClient';
+import { EdaClient } from '../../clients/edaClient';
 import { ResourceService } from '../../services/resourceService';
 import { ResourceStatusService } from '../../services/resourceStatusService';
 import { log, LogLevel } from '../../extension';
@@ -19,7 +19,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   private expandAll: boolean = false;
 
   private k8sClient: KubernetesClient;
-  private edactlClient: EdactlClient;
+  private edactlClient: EdaClient;
   private resourceService: ResourceService;
   private statusService: ResourceStatusService;
 
@@ -31,7 +31,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
 
   constructor() {
     this.k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
-    this.edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+    this.edactlClient = serviceManager.getClient<EdaClient>('edactl');
     this.resourceService = serviceManager.getService<ResourceService>('kubernetes-resources');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
 

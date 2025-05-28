@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { TreeItemBase } from './treeItem';
 import { serviceManager } from '../../services/serviceManager';
-import { EdactlClient } from '../../clients/edactlClient';
+import { EdaClient } from '../../clients/edaClient';
 import { ResourceStatusService } from '../../services/resourceStatusService';
 import { log, LogLevel } from '../../extension';
 
@@ -12,7 +12,7 @@ export class EdaAlarmProvider implements vscode.TreeDataProvider<TreeItemBase> {
   private _onDidChangeTreeData = new vscode.EventEmitter<TreeItemBase | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  private edactlClient: EdactlClient;
+  private edactlClient: EdaClient;
   private statusService: ResourceStatusService;
   private refreshInterval: number;
   private treeFilter: string = '';
@@ -21,7 +21,7 @@ export class EdaAlarmProvider implements vscode.TreeDataProvider<TreeItemBase> {
   private cachedAlarms: any[] = [];
 
   constructor(refreshIntervalMs: number = 10000) {
-    this.edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+    this.edactlClient = serviceManager.getClient<EdaClient>('edactl');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
     this.refreshInterval = refreshIntervalMs;
     this.startRefreshTimer();

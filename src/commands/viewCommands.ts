@@ -1,7 +1,7 @@
 // src/commands/viewCommands.ts
 import * as vscode from 'vscode';
 import { serviceManager } from '../services/serviceManager';
-import { EdactlClient } from '../clients/edactlClient';
+import { EdaClient } from '../clients/edaClient';
 import { KubernetesClient } from '../clients/kubernetesClient';
 import { edaOutputChannel } from '../extension';
 import { CrdDefinitionFileSystemProvider } from '../providers/documents/crdDefinitionProvider';
@@ -27,8 +27,8 @@ export function registerViewCommands(
       }
 
       try {
-        // Get EdactlClient from service manager
-        const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+        // Get EdaClient from service manager
+        const edactlClient = serviceManager.getClient<EdaClient>('edactl');
 
         // Retrieve text from "edactl transaction <id>"
         const detailsText = await edactlClient.getTransactionDetails(transactionId);
@@ -168,7 +168,7 @@ export function registerViewCommands(
     try {
       const name = deviation.name;
       const namespace = deviation["namespace.name"];
-      const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+      const edactlClient = serviceManager.getClient<EdaClient>('edactl');
 
       // Prepare base template variables
       const templateVars: Record<string, any> = {

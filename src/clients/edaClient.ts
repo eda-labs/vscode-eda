@@ -12,7 +12,7 @@ export type TransactionCallback = (_: any[]) => void;
 /**
  * Client for interacting with the EDA REST API
  */
-export interface EdactlOptions {
+export interface EdaClientOptions {
   edaUsername?: string;
   edaPassword?: string;
   kcUsername?: string;
@@ -26,7 +26,7 @@ export interface EdactlOptions {
   skipTlsVerify?: boolean;
 }
 
-export class EdactlClient {
+export class EdaClient {
   private baseUrl: string;
   private kcUrl: string;
   private headers: Record<string, string> = {};
@@ -44,7 +44,7 @@ export class EdactlClient {
   private deviationSocket: WebSocket | undefined;
   private transactionSocket: WebSocket | undefined;
 
-  constructor(baseUrl: string, opts: EdactlOptions = {}) {
+  constructor(baseUrl: string, opts: EdaClientOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.kcUrl = `${this.baseUrl}/core/httpproxy/v1/keycloak`;
     this.edaUsername = opts.edaUsername || process.env.EDA_USERNAME || 'admin';
@@ -56,7 +56,7 @@ export class EdactlClient {
     const skipTls = opts.skipTlsVerify || process.env.EDA_SKIP_TLS_VERIFY === 'true';
     this.agent = skipTls ? new Agent({ connect: { rejectUnauthorized: false } }) : undefined;
     log(
-      `EdactlClient initialized for ${this.baseUrl} (clientId=${this.clientId})`,
+      `EdaClient initialized for ${this.baseUrl} (clientId=${this.clientId})`,
       LogLevel.DEBUG,
     );
     this.authPromise = this.auth();

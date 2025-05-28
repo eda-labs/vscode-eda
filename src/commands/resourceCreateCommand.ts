@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
 import { serviceManager } from '../services/serviceManager';
 import { KubernetesClient } from '../clients/kubernetesClient';
-import { EdactlClient } from '../clients/edactlClient';
+import { EdaClient } from '../clients/edaClient';
 import { SchemaProviderService } from '../services/schemaProviderService';
 import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
 import { log, LogLevel } from '../extension';
@@ -297,7 +297,7 @@ export function registerResourceCreateCommand(
         }
 
         // 4. Get an EDA namespace to create the resource in
-        const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+        const edactlClient = serviceManager.getClient<EdaClient>('edactl');
         const edaNamespaces = await edactlClient.getEdaNamespaces();
 
         if (!edaNamespaces || edaNamespaces.length === 0) {

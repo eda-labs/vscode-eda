@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { KubernetesClient } from './clients/kubernetesClient';
-import { EdactlClient } from './clients/edactlClient';
+import { EdaClient } from './clients/edaClient';
 import { serviceManager } from './services/serviceManager';
 import { ResourceService } from './services/resourceService';
 import { ResourceStatusService } from './services/resourceStatusService';
@@ -124,7 +124,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // 1) Create the clients independently
 
     const k8sClient = new KubernetesClient();
-    const edactlClient = new EdactlClient(edaUrl, {
+    const edactlClient = new EdaClient(edaUrl, {
       edaUsername,
       edaPassword,
       kcUsername,
@@ -141,7 +141,7 @@ export async function activate(context: vscode.ExtensionContext) {
     serviceManager.registerClient('kubernetes', k8sClient);
 
     // 3) Let k8sClient know about edactlClient so it can call it
-    k8sClient.setEdactlClient(edactlClient);
+    k8sClient.setEdaClient(edactlClient);
 
     // 4) Kick off watchers immediately so caches warm while we continue
     void k8sClient.startWatchers().catch(err => {

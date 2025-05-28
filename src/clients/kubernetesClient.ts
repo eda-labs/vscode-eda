@@ -93,7 +93,7 @@ export class KubernetesClient {
   }
 
   // Store reference to edactl client
-  public setEdactlClient(client: any): void {
+  public setEdaClient(client: any): void {
     if (client && typeof client.getEdaNamespaces === 'function') {
       this.edactlClient = client;
     }
