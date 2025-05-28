@@ -38,7 +38,8 @@ export default [
         clearInterval: 'readonly',
         window: 'readonly',
         document: 'readonly',
-        fetch: 'readonly'
+        fetch: 'readonly',
+        URLSearchParams: 'readonly'
       }
     },
     plugins: { '@typescript-eslint': tseslint.plugin },

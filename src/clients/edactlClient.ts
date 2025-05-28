@@ -1,337 +1,117 @@
+import { fetch } from 'undici';
 import { LogLevel, log } from '../extension';
-import { KubernetesClient } from './kubernetesClient';
-import { execInPod } from '../utils/kubectlRunner';
+import type { paths, components } from '../openapi/core';
 
 /**
- * Client for interacting with the EDA toolbox and edactl commands
- * Extracted from toolboxService.ts
+ * Client for interacting with the EDA REST API
  */
 export class EdactlClient {
-  private toolboxNamespace: string = 'eda-system';
-  private toolboxPodLabelSelector: string = 'eda.nokia.com/app=eda-toolbox';
-  private kubectlPath: string = 'kubectl'; // Default path to kubectl
-  private cachedToolboxPod: string | null = null;
-  private cacheExpiry: number = 0;
-  private cacheTTL: number = 60000; // 1 minute
+  private baseUrl: string;
+  private kcUrl: string;
+  private headers: Record<string, string> = {};
+  private token = '';
 
-  private k8sClient: KubernetesClient;
-
-  constructor(k8sClient: KubernetesClient) {
-    this.k8sClient = k8sClient;
-    log('Initializing EdactlClient', LogLevel.INFO);
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl.replace(/\/$/, '');
+    this.kcUrl = `${this.baseUrl}/core/httpproxy/v1/keycloak`;
+    void this.auth();
   }
 
-  /**
-   * Find the toolbox pod name,
-   * @returns Name of the toolbox pod
-   */
-  private async findToolboxPod(): Promise<string> {
-    // Check if we have a cached pod name that's still valid
-    const now = Date.now();
-    if (this.cachedToolboxPod && now < this.cacheExpiry) {
-      return this.cachedToolboxPod;
+  private async auth(): Promise<void> {
+    log('Authenticating with EDA API server', LogLevel.INFO);
+    const url = `${this.kcUrl}/realms/eda/protocol/openid-connect/token`;
+    const params = new URLSearchParams();
+    params.set('grant_type', 'password');
+    params.set('client_id', process.env.EDA_CLIENT_ID || 'eda');
+    params.set('username', process.env.EDA_USERNAME || 'admin');
+    params.set('password', process.env.EDA_PASSWORD || 'admin');
+    if (process.env.EDA_CLIENT_SECRET) {
+      params.set('client_secret', process.env.EDA_CLIENT_SECRET);
     }
 
-    log(`Finding toolbox pod in namespace ${this.toolboxNamespace}...`, LogLevel.DEBUG);
+    const res = await fetch(url, {
+      method: 'POST',
+      body: params,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    });
 
-    try {
-      // Use the runKubectl utility instead of execInPod for this special case
-      const { runKubectl } = require('../utils/kubectlRunner');
-
-      // Direct kubectl command to get the pod name
-      const podName = runKubectl(
-        this.kubectlPath,
-        ['get', 'pods', '-l', this.toolboxPodLabelSelector, '-o', 'jsonpath={.items[0].metadata.name}'],
-        { namespace: this.toolboxNamespace, ignoreErrors: true }
-      ).trim();
-
-      if (!podName) {
-        throw new Error('No toolbox pod found');
-      }
-
-      log(`Found toolbox pod: ${podName}`, LogLevel.DEBUG);
-
-      // Cache the pod name for a period of time
-      this.cachedToolboxPod = podName;
-      this.cacheExpiry = now + this.cacheTTL;
-
-      return podName;
-    } catch (error) {
-      log(`Error finding toolbox pod: ${error}`, LogLevel.ERROR, true);
-      throw new Error(`Failed to find toolbox pod: ${error}`);
+    if (!res.ok) {
+      throw new Error(`Failed to authenticate: HTTP ${res.status}`);
     }
+
+    const data = (await res.json()) as any;
+    this.token = data.access_token || '';
+    this.headers = {
+      Authorization: `Bearer ${this.token}`,
+      'Content-Type': 'application/json'
+    };
   }
 
-  /**
-   * Execute a command in the toolbox pod
-   * @param command Command to execute
-   * @param ignoreNoResources Whether to ignore "no resources found" errors
-   * @returns Command output
-   */
-  public async executeCommand(command: string, ignoreNoResources: boolean = false): Promise<string> {
-    try {
-      const podName = await this.findToolboxPod();
-      log(`Executing command in toolbox pod ${podName}: ${command}`, LogLevel.DEBUG);
-
-      const output = execInPod(
-        this.kubectlPath,
-        podName,
-        this.toolboxNamespace,
-        command.split(' '), // Split the command into an array of arguments
-        { ignoreErrors: ignoreNoResources }
-      );
-
-      if (ignoreNoResources && output.includes('No resources found')) {
-        log('Command returned "No resources found", ignoring as requested', LogLevel.DEBUG);
-        return '';
-      }
-
-      // Check if help text appears, which indicates an error
-      if (output.includes('Usage:') && output.includes('Available Commands:')) {
-        log(`Command execution error: received help text which indicates command failure`, LogLevel.WARN);
-        throw new Error('Command returned help text instead of expected output');
-      }
-
-      return output;
-    } catch (error) {
-      if (ignoreNoResources && error.toString().includes('No resources found')) {
-        log('Command returned "No resources found", ignoring as requested', LogLevel.DEBUG);
-        return '';
-      }
-      log(`Error executing command in toolbox pod: ${error}`, LogLevel.ERROR, true);
-      throw new Error(`Failed to execute command in toolbox pod: ${error}`);
+  private async fetchJSON<T>(path: keyof paths): Promise<T> {
+    const res = await fetch(`${this.baseUrl}${path}`, { headers: this.headers });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`HTTP ${res.status}: ${text}`);
     }
+    return (await res.json()) as T;
   }
 
-  /**
-   * Execute edactl command in the toolbox pod
-   * @param subCommand edactl subcommand and arguments
-   * @param ignoreNoResources Whether to ignore "no resources found" errors
-   * @returns Command output
-   */
-  public async executeEdactl(
-    subCommand: string,
-    ignoreNoResources: boolean = false
-  ): Promise<string> {
-    return this.executeCommand(`edactl ${subCommand}`, ignoreNoResources);
-  }
-
-  /**
-   * Get EDA namespaces
-   * @returns List of EDA namespaces
-   */
+  /** Get accessible EDA namespaces */
   public async getEdaNamespaces(): Promise<string[]> {
-    log(`Fetching EDA namespaces via 'edactl namespace'...`, LogLevel.DEBUG);
-    try {
-      const output = await this.executeEdactl('namespace', true);
-      if (output && output.trim().length > 0) {
-        const namespaces = output
-          .split('\n')
-          .map(line => line.trim())
-          .filter(line => line.length > 0);
-
-        log(`Found ${namespaces.length} EDA namespaces via edactl`, LogLevel.INFO);
-        return namespaces;
-      }
-      return [];
-    } catch (error) {
-      log(`Failed to get EDA namespaces: ${error}`, LogLevel.ERROR, true);
-      return [];
-    }
+    const data = await this.fetchJSON<components['schemas']['NamespaceGetResponse']>('/core/access/v1/namespaces');
+    const list = data.namespaces || [];
+    return list.map(n => n.name || '').filter(n => n);
   }
 
-  /**
-   * Get EDA transactions
-   * @returns List of EDA transactions
-   */
+  /** Get recent transactions */
   public async getEdaTransactions(): Promise<any[]> {
-    log(`Fetching EDA transactions via 'edactl transaction'...`, LogLevel.DEBUG);
-    try {
-      const output = await this.executeEdactl('transaction');
-      if (!output || output.trim().length === 0) {
-        return [];
-      }
-      const lines = output.split('\n').filter(line => line.trim().length > 0);
-      if (lines.length <= 1) {
-        return [];
-      }
-      const headerRow = lines[0];
-      const idPos = headerRow.indexOf('ID');
-      const resultPos = headerRow.indexOf('Result');
-      const agePos = headerRow.indexOf('Age');
-      const detailPos = headerRow.indexOf('Detail');
-      const dryRunPos = headerRow.indexOf('DryRun');
-      const usernamePos = headerRow.indexOf('Username');
-      const descriptionPos = headerRow.indexOf('Description');
-      const transactions = [];
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i];
-        if (line.length < usernamePos) {
-          continue;
-        }
-        const id = line.substring(idPos, resultPos).trim();
-        const result = line.substring(resultPos, agePos).trim();
-        const age = line.substring(agePos, detailPos).trim();
-        const detail = line.substring(detailPos, dryRunPos).trim();
-        const dryRun = line.substring(dryRunPos, usernamePos).trim();
-        const username = line.substring(
-          usernamePos,
-          descriptionPos > 0 ? descriptionPos : line.length
-        ).trim();
-        const description = descriptionPos > 0 ? line.substring(descriptionPos).trim() : '';
-        transactions.push({ id, result, age, detail, dryRun, username, description });
-      }
-      log(`Found ${transactions.length} transactions from edactl output`, LogLevel.DEBUG);
-      return transactions;
-    } catch (error) {
-      log(`Failed to get EDA transactions: ${error}`, LogLevel.ERROR, true);
-      return [];
-    }
+    const data = await this.fetchJSON<components['schemas']['TransactionSummaryResults']>('/core/transaction/v1/resultsummary');
+    return (data.results as any[]) || [];
   }
 
-  /**
-   * Get EDA transaction details
-   * @param id Transaction ID
-   * @returns Transaction details
-   */
+  /** Get details for a transaction */
   public async getTransactionDetails(id: string): Promise<string> {
-    log(`Fetching EDA transaction details for '${id}'...`, LogLevel.INFO);
-    try {
-      const output = await this.executeEdactl(`transaction ${id}`);
-      return output || `No details available for this transaction`;
-    } catch (error) {
-      log(`Failed to get transaction details for ID ${id}: ${error}`, LogLevel.ERROR, true);
-      return `Error retrieving transaction details for ID ${id}: ${error}`;
-    }
+    const data = await this.fetchJSON<components['schemas']['TransactionDetails']>(`/core/transaction/v1/details/${id}` as keyof paths);
+    return JSON.stringify(data, null, 2);
   }
 
-  /**
-   * Get EDA alarms
-   * @returns List of EDA alarms
-   */
+  /** Get current alarms */
   public async getEdaAlarms(): Promise<any[]> {
-    log(`Fetching EDA alarms...`, LogLevel.DEBUG);
-    try {
-      // Add timeout handling
-      const output = await Promise.race([
-        this.executeEdactl('query .namespace.alarms.v1.current-alarm -f json'),
-        new Promise<string>((_, reject) =>
-          setTimeout(() => reject(new Error('Query timed out after 20 seconds')), 20000)
-        )
-      ]);
-
-      if (!output || output.trim().length === 0) {
-        return [];
-      }
-      const alarms = JSON.parse(output);
-      return alarms;
-    } catch (error) {
-      log(`Failed to get EDA alarms: ${error}`, LogLevel.ERROR, true);
-      return []; // Return empty array instead of hanging
-    }
+    const data = await this.fetchJSON<any[]>('/core/alarm/v2/alarms');
+    return data as any[];
   }
 
-  /**
-   * Get alarm details
-   * @param id Alarm ID
-   * @returns Alarm details
-   */
+  /** Get alarm details by id */
   public async getAlarmDetails(id: string): Promise<string> {
-    log(`Fetching EDA alarm details for '${id}'...`, LogLevel.INFO);
-    try {
-      const output = await this.executeEdactl(`query .namespace.alarms.v1.current-alarm[${id}]`, true);
-      return output || `No details available for this alarm`;
-    } catch (error) {
-      log(`Failed to get alarm details for ID ${id}: ${error}`, LogLevel.ERROR, true);
-      return `Error retrieving alarm details for ID ${id}: ${error}`;
-    }
+    const alarm = (await this.getEdaAlarms()).find(a => a.name === id);
+    return alarm ? JSON.stringify(alarm, null, 2) : 'Not found';
   }
 
-  /**
-   * Get EDA deviations
-   * @returns List of EDA deviations
-   */
-  public async getEdaDeviations(): Promise<any[]> {
-    log(`Fetching EDA deviations via 'edactl query .namespace.resources.cr.core_eda_nokia_com.v1.deviation -f json'...`, LogLevel.DEBUG);
-    try {
-      // Add timeout handling
-      const output = await Promise.race([
-        this.executeEdactl('query .namespace.resources.cr.core_eda_nokia_com.v1.deviation -f json', true),
-        new Promise<string>((_, reject) =>
-          setTimeout(() => reject(new Error('Query timed out after 20 seconds')), 20000)
-        )
-      ]);
-
-      const deviations = JSON.parse(output);
-      log(`Found ${deviations.length} deviations from edactl output`, LogLevel.DEBUG);
-      return deviations;
-    } catch (error) {
-      log(`Failed to get EDA deviations: ${error}`, LogLevel.ERROR, true);
-      return [];
-    }
+  /** Get deviations within a namespace */
+  public async getEdaDeviations(namespace = 'default'): Promise<any[]> {
+    const data = await this.fetchJSON<any>(`/apps/core.eda.nokia.com/v1/namespaces/${namespace}/deviations` as keyof paths);
+    return data.items || [];
   }
 
-  /**
-     * Attempt to retrieve the resource YAML via edactl if it's an EDA CRD.
-     * If not EDA or if it fails, return '' (so caller can fallback to kubectl).
-     *
-     * @param kind       CRD kind, e.g. "Deviation"
-     * @param name       Resource name
-     * @param namespace  Namespace
-     * @returns The resource YAML as a string, or '' on error
-     */
+  /** Fetch a resource YAML using EDA API */
   public async getEdaResourceYaml(kind: string, name: string, namespace: string): Promise<string> {
-    try {
-      log(`Using edactl to fetch YAML for EDA CRD: ${kind}/${name} in ns '${namespace}'`, LogLevel.INFO);
-
-      // Construct `edactl get <lowercaseKind> <name> -n <namespace> -o yaml`
-      const edaResource = kind.charAt(0).toLowerCase() + kind.slice(1); // e.g., "Deviation" -> "deviation"
-      const command = `get ${edaResource} ${name} -n ${namespace} -o yaml`;
-
-      // Reuse the "executeEdactl" method from EdactlClient
-      const edaOutput = await this.executeEdactl(command, true); // ignoring "No resources found" if second arg = true
-
-      // Check for error indicators in the output
-      if (edaOutput && edaOutput.trim().length > 0) {
-        // If the output contains error indicators, log and return empty to trigger fallback
-        if (edaOutput.includes('NotFound') ||
-            edaOutput.includes('(NotFound)') ||
-            edaOutput.includes('error:') ||
-            edaOutput.includes('Error:')) {
-
-          log(`Error in edactl output for ${kind}/${name}: ${edaOutput.trim()}`, LogLevel.WARN);
-          return ''; // Empty string will trigger fallback to kubectl
-        }
-
-        log(`Successfully fetched EDA resource YAML for ${kind}/${name}`, LogLevel.DEBUG);
-        return edaOutput;
-      }
-
-      log(`edactl returned no output for ${kind}/${name}. Possibly resource doesn't exist.`, LogLevel.DEBUG);
-      return '';
-    } catch (error: any) {
-      // More detailed error logging to help diagnose issues
-      log(`Error getting EDA resource YAML with edactl: ${error}`, LogLevel.ERROR);
-      if (error.message) {
-        log(`Error message: ${error.message}`, LogLevel.ERROR);
-      }
-      if (error.stdout) {
-        log(`Error stdout: ${error.stdout}`, LogLevel.ERROR);
-      }
-      if (error.stderr) {
-        log(`Error stderr: ${error.stderr}`, LogLevel.ERROR);
-      }
-      return ''; // Empty string will trigger fallback to kubectl
-    }
+    const plural = kind.toLowerCase() + 's';
+    const data = await this.fetchJSON<any>(`/apps/core.eda.nokia.com/v1/namespaces/${namespace}/${plural}/${name}` as keyof paths);
+    return JSON.stringify(data, null, 2);
   }
 
-  /**
-   * Clear cached toolbox pod information
-   * This should be called when Kubernetes context changes
-   */
+  /** Execute a limited set of edactl-style commands for compatibility */
+  public async executeEdactl(command: string): Promise<string> {
+    const getMatch = command.match(/^get\s+deviation\s+(\S+)\s+-n\s+(\S+)\s+-o\s+yaml$/);
+    if (getMatch) {
+      const [, name, ns] = getMatch;
+      return this.getEdaResourceYaml('deviation', name, ns);
+    }
+    throw new Error('executeEdactl not supported in API mode');
+  }
+
+  /** Placeholder for compatibility */
   public clearCache(): void {
-    log('Clearing EdactlClient cache due to context change', LogLevel.INFO);
-    this.cachedToolboxPod = null;
-    this.cacheExpiry = 0;
+    // no-op in API mode
   }
 }
