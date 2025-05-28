@@ -44,6 +44,10 @@ export class EdaClient {
   private deviationSocket: WebSocket | undefined;
   private transactionSocket: WebSocket | undefined;
 
+  private get wsHeaders(): Record<string, string> {
+    return { Authorization: `Bearer ${this.token}` };
+  }
+
   constructor(baseUrl: string, opts: EdaClientOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.kcUrl = `${this.baseUrl}/core/httpproxy/v1/keycloak`;
@@ -206,7 +210,7 @@ export class EdaClient {
     url.searchParams.set('stream', 'namespaces');
     url.searchParams.set('eventclient', 'vscode-eda');
 
-    const ws = new WebSocket(url, { headers: this.headers, dispatcher: this.agent });
+    const ws = new WebSocket(url, { headers: this.wsHeaders, dispatcher: this.agent });
     this.namespaceSocket = ws;
 
     ws.addEventListener('open', () => {
@@ -256,7 +260,7 @@ export class EdaClient {
     url.searchParams.set('stream', 'alarms');
     url.searchParams.set('eventclient', 'vscode-eda');
 
-    const ws = new WebSocket(url, { headers: this.headers, dispatcher: this.agent });
+    const ws = new WebSocket(url, { headers: this.wsHeaders, dispatcher: this.agent });
     this.alarmSocket = ws;
 
     ws.addEventListener('open', () => {
@@ -309,7 +313,7 @@ export class EdaClient {
     url.searchParams.set('stream', 'deviations');
     url.searchParams.set('eventclient', 'vscode-eda');
 
-    const ws = new WebSocket(url, { headers: this.headers, dispatcher: this.agent });
+    const ws = new WebSocket(url, { headers: this.wsHeaders, dispatcher: this.agent });
     this.deviationSocket = ws;
 
     ws.addEventListener('open', () => {
@@ -363,7 +367,7 @@ export class EdaClient {
     url.searchParams.set('stream', 'transactions');
     url.searchParams.set('eventclient', 'vscode-eda');
 
-    const ws = new WebSocket(url, { headers: this.headers, dispatcher: this.agent });
+    const ws = new WebSocket(url, { headers: this.wsHeaders, dispatcher: this.agent });
     this.transactionSocket = ws;
 
     ws.addEventListener('open', () => {
