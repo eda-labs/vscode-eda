@@ -4,6 +4,10 @@ import type { paths, components } from '../openapi/core';
 
 // eslint-disable-next-line no-unused-vars
 export type NamespaceCallback = (arg: string[]) => void;
+// eslint-disable-next-line no-unused-vars
+export type DeviationCallback = (_: any[]) => void;
+// eslint-disable-next-line no-unused-vars
+export type TransactionCallback = (_: any[]) => void;
 
 /**
  * Client for interacting with the EDA REST API
@@ -37,6 +41,8 @@ export class EdactlClient {
   private agent: Agent | undefined;
   private namespaceSocket: WebSocket | undefined;
   private alarmSocket: WebSocket | undefined;
+  private deviationSocket: WebSocket | undefined;
+  private transactionSocket: WebSocket | undefined;
 
   constructor(baseUrl: string, opts: EdactlOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
@@ -264,12 +270,90 @@ export class EdactlClient {
     this.alarmSocket = undefined;
   }
 
-  /** Get recent transactions */
-  public async getEdaTransactions(): Promise<any[]> {
-    const data = await this.fetchJSON<components['schemas']['TransactionSummaryResults']>('/core/transaction/v1/resultsummary');
-    return (data.results as any[]) || [];
+  /** Stream deviations over WebSocket */
+  public async streamEdaDeviations(
+    onDeviations: DeviationCallback,
+    namespace = 'default'
+  ): Promise<void> {
+    await this.authPromise;
+    const url = new URL(this.baseUrl);
+    url.protocol = url.protocol.replace('http', 'ws');
+    url.pathname = `/apps/core.eda.nokia.com/v1/namespaces/${namespace}/deviations`;
+    url.searchParams.set('stream', 'deviations');
+    url.searchParams.set('eventclient', 'vscode-eda');
+
+    const ws = new WebSocket(url, { headers: this.headers, dispatcher: this.agent });
+    this.deviationSocket = ws;
+
+    ws.addEventListener('message', evt => {
+      try {
+        const deviations = JSON.parse(String(evt.data));
+        onDeviations(Array.isArray(deviations.items) ? deviations.items : []);
+      } catch (err) {
+        log(`Failed to parse deviation stream message: ${err}`, LogLevel.ERROR);
+      }
+    });
+
+    ws.addEventListener('error', err => {
+      log(`Deviation WebSocket error: ${err}`, LogLevel.ERROR);
+    });
+
+    ws.addEventListener('close', () => {
+      log('Deviation WebSocket closed', LogLevel.INFO);
+    });
   }
 
+  /** Close any open deviation stream */
+  public closeDeviationStream(): void {
+    this.deviationSocket?.close();
+    this.deviationSocket = undefined;
+  }
+
+  /** Stream transactions over WebSocket */
+  public async streamEdaTransactions(
+    onTransactions: TransactionCallback
+  ): Promise<void> {
+    await this.authPromise;
+    const url = new URL(this.baseUrl);
+    url.protocol = url.protocol.replace('http', 'ws');
+    url.pathname = '/core/transaction/v1/resultsummary';
+    url.searchParams.set('size', '50');
+    url.searchParams.set('stream', 'transactions');
+    url.searchParams.set('eventclient', 'vscode-eda');
+
+    const ws = new WebSocket(url, { headers: this.headers, dispatcher: this.agent });
+    this.transactionSocket = ws;
+
+    ws.addEventListener('message', evt => {
+      try {
+        const txs = JSON.parse(String(evt.data));
+        onTransactions(Array.isArray(txs.results) ? txs.results : []);
+      } catch (err) {
+        log(`Failed to parse transaction stream message: ${err}`, LogLevel.ERROR);
+      }
+    });
+
+    ws.addEventListener('error', err => {
+      log(`Transaction WebSocket error: ${err}`, LogLevel.ERROR);
+    });
+
+    ws.addEventListener('close', () => {
+      log('Transaction WebSocket closed', LogLevel.INFO);
+    });
+  }
+
+  /** Close any open transaction stream */
+  public closeTransactionStream(): void {
+    this.transactionSocket?.close();
+    this.transactionSocket = undefined;
+  }
+
+  /** Get recent transactions */
+  public async getEdaTransactions(size = 50): Promise<any[]> {
+    const path = `/core/transaction/v1/resultsummary?size=${size}` as keyof paths;
+    const data = await this.fetchJSON<components['schemas']['TransactionSummaryResults']>(path);
+    return (data.results as any[]) || [];
+  }
   /** Get details for a transaction */
   public async getTransactionDetails(id: string): Promise<string> {
     const data = await this.fetchJSON<components['schemas']['TransactionDetails']>(`/core/transaction/v1/details/${id}` as keyof paths);

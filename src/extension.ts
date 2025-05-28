@@ -7,17 +7,17 @@ import { ResourceStatusService } from './services/resourceStatusService';
 import { SchemaProviderService } from './services/schemaProviderService';
 import { EdaNamespaceProvider } from './providers/views/namespaceProvider';
 import { EdaAlarmProvider } from './providers/views/alarmProvider';
-
-// import { EdaDeviationProvider } from './providers/views/deviationProvider';
-// import { EdaTransactionProvider } from './providers/views/transactionProvider';
-// import { AlarmDetailsDocumentProvider } from './providers/documents/alarmDetailsProvider';
-// import { DeviationDetailsDocumentProvider } from './providers/documents/deviationDetailsProvider';
-// import { TransactionDetailsDocumentProvider } from './providers/documents/transactionDetailsProvider';
+import { EdaDeviationProvider } from './providers/views/deviationProvider';
+import { EdaTransactionProvider } from './providers/views/transactionProvider';
+import { AlarmDetailsDocumentProvider } from './providers/documents/alarmDetailsProvider';
+import { DeviationDetailsDocumentProvider } from './providers/documents/deviationDetailsProvider';
+import { TransactionDetailsDocumentProvider } from './providers/documents/transactionDetailsProvider';
+import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 // import { ResourceEditDocumentProvider } from './providers/documents/resourceEditProvider';
 
-// import { registerDeviationCommands } from './commands/deviationCommands';
-// import { registerTransactionCommands } from './commands/transactionCommands';
-// import { registerViewCommands } from './commands/viewCommands';
+import { registerDeviationCommands } from './commands/deviationCommands';
+import { registerTransactionCommands } from './commands/transactionCommands';
+import { registerViewCommands } from './commands/viewCommands';
 // import { registerResourceEditCommands } from './commands/resourceEditCommands';
 // import { registerResourceCreateCommand } from './commands/resourceCreateCommand';
 // import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand';
@@ -40,11 +40,11 @@ export enum LogLevel {
 }
 /* eslint-enable no-unused-vars */
 
-// export let edaDeviationProvider: EdaDeviationProvider;
-// export let edaTransactionProvider: EdaTransactionProvider;
-// export let alarmDetailsProvider: AlarmDetailsDocumentProvider;
-// export let deviationDetailsProvider: DeviationDetailsDocumentProvider;
-// export let transactionDetailsProvider: TransactionDetailsDocumentProvider;
+export let edaDeviationProvider: EdaDeviationProvider;
+export let edaTransactionProvider: EdaTransactionProvider;
+export let alarmDetailsProvider: AlarmDetailsDocumentProvider;
+export let deviationDetailsProvider: DeviationDetailsDocumentProvider;
+export let transactionDetailsProvider: TransactionDetailsDocumentProvider;
 export let edaOutputChannel: vscode.OutputChannel;
 export let currentLogLevel: LogLevel = LogLevel.INFO;
 let contextStatusBarItem: vscode.StatusBarItem;
@@ -177,14 +177,54 @@ export async function activate(context: vscode.ExtensionContext) {
       showCollapseAll: true
     });
 
+    edaDeviationProvider = new EdaDeviationProvider();
+    const deviationTreeView = vscode.window.createTreeView('edaDeviations', {
+      treeDataProvider: edaDeviationProvider,
+      showCollapseAll: true
+    });
+
+    edaTransactionProvider = new EdaTransactionProvider();
+    const transactionTreeView = vscode.window.createTreeView('edaTransactions', {
+      treeDataProvider: edaTransactionProvider,
+      showCollapseAll: true
+    });
+
     context.subscriptions.push(namespaceTreeView);
     context.subscriptions.push(alarmTreeView, { dispose: () => alarmProvider.dispose() });
+    context.subscriptions.push(deviationTreeView, { dispose: () => edaDeviationProvider.dispose() });
+    context.subscriptions.push(transactionTreeView, { dispose: () => edaTransactionProvider.dispose() });
 
     context.subscriptions.push(
       vscode.commands.registerCommand('vscode-eda.refreshResources', () => {
         namespaceProvider.refresh();
       })
     );
+
+    const crdFsProvider = new CrdDefinitionFileSystemProvider();
+    const transactionDetailsProviderLocal = new TransactionDetailsDocumentProvider();
+    const alarmDetailsProviderLocal = new AlarmDetailsDocumentProvider();
+    const deviationDetailsProviderLocal = new DeviationDetailsDocumentProvider();
+
+    alarmDetailsProvider = alarmDetailsProviderLocal;
+    deviationDetailsProvider = deviationDetailsProviderLocal;
+    transactionDetailsProvider = transactionDetailsProviderLocal;
+
+    context.subscriptions.push(
+      vscode.workspace.registerFileSystemProvider('crd', crdFsProvider, { isCaseSensitive: true }),
+      vscode.workspace.registerFileSystemProvider('eda-transaction', transactionDetailsProviderLocal, { isCaseSensitive: true }),
+      vscode.workspace.registerFileSystemProvider('eda-alarm', alarmDetailsProviderLocal, { isCaseSensitive: true }),
+      vscode.workspace.registerFileSystemProvider('eda-deviation', deviationDetailsProviderLocal, { isCaseSensitive: true })
+    );
+
+    registerViewCommands(
+      context,
+      crdFsProvider,
+      transactionDetailsProviderLocal,
+      alarmDetailsProviderLocal,
+      deviationDetailsProviderLocal
+    );
+    registerDeviationCommands(context, edaDeviationProvider);
+    registerTransactionCommands(context);
 
     log('Service architecture initialized successfully', LogLevel.INFO, true);
   } catch (error) {

@@ -27,10 +27,45 @@ export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTr
   private edactlClient: EdactlClient;
   private statusService: ResourceStatusService;
   private treeFilter: string = '';
+  private refreshInterval = 10000;
+  private refreshTimer?: ReturnType<typeof setInterval>;
+  private _refreshDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor() {
     this.edactlClient = serviceManager.getClient<EdactlClient>('edactl');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
+    this.startRefreshTimer();
+    void this.edactlClient.streamEdaDeviations(devs => {
+      this.deviations = devs;
+      this.refresh();
+    });
+  }
+
+  /** Start automatic refresh timer */
+  private startRefreshTimer(): void {
+    if (this.refreshTimer) {
+      clearInterval(this.refreshTimer);
+    }
+    this.refreshTimer = setInterval(() => {
+      this.refresh();
+    }, this.refreshInterval);
+    log(`Deviation polling started, refresh interval: ${this.refreshInterval}ms`, LogLevel.INFO);
+  }
+
+  /** Dispose resources */
+  public dispose(): void {
+    if (this.refreshTimer) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = undefined;
+      log('Deviation polling stopped', LogLevel.INFO);
+    }
+
+    this.edactlClient.closeDeviationStream();
+
+    if (this._refreshDebounceTimer) {
+      clearTimeout(this._refreshDebounceTimer);
+      this._refreshDebounceTimer = undefined;
+    }
   }
 
   /**
@@ -38,7 +73,13 @@ export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTr
    */
   refresh(): void {
     log('EdaDeviationProvider: Refresh called', LogLevel.DEBUG);
-    this._onDidChangeTreeData.fire();
+    if (this._refreshDebounceTimer) {
+      clearTimeout(this._refreshDebounceTimer);
+    }
+    this._refreshDebounceTimer = setTimeout(() => {
+      this._onDidChangeTreeData.fire();
+      this._refreshDebounceTimer = undefined;
+    }, 100);
   }
 
   /**
@@ -114,10 +155,10 @@ export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTr
    * Load all deviations (no filter).
    */
   private async getAllDeviationItems(): Promise<DeviationTreeItem[]> {
-    const deviations = await this.edactlClient.getEdaDeviations();
-
-    // Update our cache
-    this.deviations = deviations;
+    if (this.deviations.length === 0) {
+      this.deviations = await this.edactlClient.getEdaDeviations();
+    }
+    const deviations = this.deviations;
 
     if (!deviations.length) {
       return [this.noDeviationsItem()];
@@ -136,10 +177,10 @@ export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTr
     }
 
     const lowerFilter = filter.toLowerCase();
-    const all = await this.edactlClient.getEdaDeviations();
-
-    // Update our cache
-    this.deviations = all;
+    if (this.deviations.length === 0) {
+      this.deviations = await this.edactlClient.getEdaDeviations();
+    }
+    const all = this.deviations;
 
     const matches = all.filter((d: EdaDeviation) =>
       d.name.toLowerCase().includes(lowerFilter) ||

@@ -1,6 +1,6 @@
 # Event Driven Automation (EDA) - VS Code Extension
 
-**Manage and monitor [EDA (Event Driven Automation by Nokia)](https://docs.eda.dev/) resources in Kubernetes directly from Visual Studio Code.** This extension provides a convenient UI to view EDA namespaces, CRDs, system components, pods, alarms, deviations, and transactions — plus handy commands for editing and applying resources.
+**Manage and monitor [EDA (Event Driven Automation by Nokia)](https://docs.eda.dev/) resources directly through the EDA API from Visual Studio Code.** Whenever possible data is streamed over WebSockets for a more responsive experience. This extension provides a convenient UI to view EDA namespaces, CRDs, system components, pods, alarms, deviations, and transactions — plus handy commands for editing and applying resources.
 
 ![screencast](https://raw.githubusercontent.com/eda-labs/vscode-eda/refs/heads/main/resources/eda-vscode.png)
 
@@ -36,7 +36,7 @@
 ## Installation
 
 1. **Prerequisites**
-   - A working Kubernetes environment with “EDA” and `kubectl` installed.
+   - Access to an EDA API server. The extension communicates with EDA directly and no longer requires a Kubernetes cluster.
 
 2. **Install from VSIX or Marketplace**
 

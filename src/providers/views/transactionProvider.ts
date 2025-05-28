@@ -11,14 +11,54 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
 
   private edactlClient: EdactlClient;
   private statusService: ResourceStatusService;
+  private refreshInterval = 10000;
+  private refreshTimer?: ReturnType<typeof setInterval>;
+  private _refreshDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+  private cachedTransactions: any[] = [];
 
   constructor() {
     this.edactlClient = serviceManager.getClient<EdactlClient>('edactl');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
+    this.startRefreshTimer();
+    void this.edactlClient.streamEdaTransactions(txs => {
+      this.cachedTransactions = txs;
+      this.refresh();
+    });
+  }
+
+  private startRefreshTimer(): void {
+    if (this.refreshTimer) {
+      clearInterval(this.refreshTimer);
+    }
+    this.refreshTimer = setInterval(() => {
+      this.refresh();
+    }, this.refreshInterval);
+    log(`Transaction polling started, refresh interval: ${this.refreshInterval}ms`, LogLevel.INFO);
+  }
+
+  public dispose(): void {
+    if (this.refreshTimer) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = undefined;
+      log('Transaction polling stopped', LogLevel.INFO);
+    }
+
+    this.edactlClient.closeTransactionStream();
+
+    if (this._refreshDebounceTimer) {
+      clearTimeout(this._refreshDebounceTimer);
+      this._refreshDebounceTimer = undefined;
+    }
   }
 
   refresh(): void {
-    this._onDidChangeTreeData.fire();
+    if (this._refreshDebounceTimer) {
+      clearTimeout(this._refreshDebounceTimer);
+    }
+    this._refreshDebounceTimer = setTimeout(() => {
+      this._onDidChangeTreeData.fire();
+      this._refreshDebounceTimer = undefined;
+    }, 100);
   }
 
   getTreeItem(element: TransactionTreeItem): vscode.TreeItem {
@@ -34,7 +74,10 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
 
   private async getTransactionItems(): Promise<TransactionTreeItem[]> {
     log(`Loading transactions for the transaction tree...`, LogLevel.DEBUG);
-    const transactions = await this.edactlClient.getEdaTransactions();
+    if (this.cachedTransactions.length === 0) {
+      this.cachedTransactions = await this.edactlClient.getEdaTransactions();
+    }
+    const transactions = this.cachedTransactions;
 
     // Sort transactions by ID (assuming higher ID = newer transaction)
     // This will display the newest transactions at the top
