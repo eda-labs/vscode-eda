@@ -1,4 +1,5 @@
-import { fetch, Agent, WebSocket } from 'undici';
+import { fetch, Agent } from 'undici';
+import { io, Socket } from 'socket.io-client';
 import { LogLevel, log } from '../extension';
 import type { paths, components } from '../openapi/core';
 
@@ -43,7 +44,7 @@ export class EdaClient {
   private clientId: string;
   private clientSecret?: string;
   private agent: Agent | undefined;
-  private eventSocket: WebSocket | undefined;
+  private eventSocket: Socket | undefined;
   private keepAliveTimer: ReturnType<typeof setInterval> | undefined;
   private activeStreams: Set<string> = new Set();
   private callbacks: {
@@ -206,32 +207,36 @@ export class EdaClient {
 
   private async connectEventSocket(): Promise<void> {
     await this.authPromise;
-    if (this.eventSocket && this.eventSocket.readyState === WebSocket.OPEN) {
+    if (this.eventSocket && this.eventSocket.connected) {
       return;
     }
 
     const url = new URL(this.baseUrl);
-    url.protocol = url.protocol.replace('http', 'ws');
-    url.pathname = '/events';
+    const socketUrl = `${url.protocol}//${url.host}`;
+    const path = '/events';
+    log(`GET ${socketUrl}${path}`, LogLevel.INFO);
 
-    const ws = new WebSocket(url, { headers: this.wsHeaders, dispatcher: this.agent });
-    this.eventSocket = ws;
+    const socket = io(socketUrl, {
+      path,
+      transports: ['websocket'],
+      extraHeaders: this.wsHeaders,
+    });
+    this.eventSocket = socket;
 
-    ws.addEventListener('open', () => {
-      log('Event WebSocket opened', LogLevel.DEBUG);
+    socket.on('connect', () => {
+      log('Event socket.io connected', LogLevel.DEBUG);
     });
 
-    ws.addEventListener('message', evt => {
-      this.handleEventMessage(String(evt.data));
+    socket.on('message', (data: any) => {
+      this.handleEventMessage(typeof data === 'string' ? data : JSON.stringify(data));
     });
 
-    ws.addEventListener('error', err => {
-      const e = err as any;
-      log(`Event WebSocket error: ${e.message || err}`, LogLevel.ERROR);
+    socket.on('error', err => {
+      log(`Event socket.io error: ${err}`, LogLevel.ERROR);
     });
 
-    ws.addEventListener('close', evt => {
-      log(`Event WebSocket closed (code=${evt.code} reason=${evt.reason})`, LogLevel.INFO);
+    socket.on('disconnect', reason => {
+      log(`Event socket.io disconnected (${reason})`, LogLevel.INFO);
       this.eventSocket = undefined;
       if (this.keepAliveTimer) {
         clearInterval(this.keepAliveTimer);
@@ -246,12 +251,12 @@ export class EdaClient {
       clearInterval(this.keepAliveTimer);
     }
     this.keepAliveTimer = setInterval(() => {
-      if (!this.eventSocket || this.eventSocket.readyState !== WebSocket.OPEN) {
+      if (!this.eventSocket || !this.eventSocket.connected) {
         return;
       }
       for (const stream of this.activeStreams) {
         try {
-          this.eventSocket.send(JSON.stringify({ type: 'next', stream }));
+          this.eventSocket.emit('message', { type: 'next', stream });
         } catch (err) {
           log(`Failed to send keep-alive: ${err}`, LogLevel.DEBUG);
         }
@@ -265,6 +270,7 @@ export class EdaClient {
       if ('namespaces' in msg && this.callbacks.namespaces) {
         const list = msg.namespaces || [];
         const names = list.map((n: any) => n.name || '').filter((n: string) => n);
+        log(`Namespaces stream message: ${JSON.stringify(names)}`, LogLevel.INFO);
         this.callbacks.namespaces(names);
       } else if ('results' in msg && this.callbacks.transactions) {
         const results = Array.isArray(msg.results) ? msg.results : [];
