@@ -8,6 +8,8 @@ export type NamespaceCallback = (arg: string[]) => void;
 export type DeviationCallback = (_: any[]) => void;
 // eslint-disable-next-line no-unused-vars
 export type TransactionCallback = (_: any[]) => void;
+// eslint-disable-next-line no-unused-vars
+export type AlarmCallback = (_: any[]) => void;
 
 /**
  * Client for interacting with the EDA REST API
@@ -24,6 +26,8 @@ export interface EdaClientOptions {
    * environments with self-signed certificates.
    */
   skipTlsVerify?: boolean;
+  /** Interval in milliseconds between keep alive messages */
+  messageIntervalMs?: number;
 }
 
 export class EdaClient {
@@ -39,10 +43,16 @@ export class EdaClient {
   private clientId: string;
   private clientSecret?: string;
   private agent: Agent | undefined;
-  private namespaceSocket: WebSocket | undefined;
-  private alarmSocket: WebSocket | undefined;
-  private deviationSocket: WebSocket | undefined;
-  private transactionSocket: WebSocket | undefined;
+  private eventSocket: WebSocket | undefined;
+  private keepAliveTimer: ReturnType<typeof setInterval> | undefined;
+  private activeStreams: Set<string> = new Set();
+  private callbacks: {
+    namespaces?: NamespaceCallback;
+    alarms?: AlarmCallback;
+    deviations?: DeviationCallback;
+    transactions?: TransactionCallback;
+  } = {};
+  private messageIntervalMs = 500;
 
   private get wsHeaders(): Record<string, string> {
     return { Authorization: `Bearer ${this.token}` };
@@ -63,7 +73,9 @@ export class EdaClient {
       `EdaClient initialized for ${this.baseUrl} (clientId=${this.clientId})`,
       LogLevel.DEBUG,
     );
+    this.messageIntervalMs = opts.messageIntervalMs ?? 500;
     this.authPromise = this.auth();
+    void this.connectEventSocket();
   }
 
   private async fetchAdminToken(): Promise<string> {
@@ -143,6 +155,7 @@ export class EdaClient {
     params.set('client_id', this.clientId);
     params.set('username', this.edaUsername);
     params.set('password', this.edaPassword);
+    params.set('scope', 'openid');
     if (this.clientSecret) {
       params.set('client_secret', this.clientSecret);
     }
@@ -191,6 +204,82 @@ export class EdaClient {
     return (await res.json()) as T;
   }
 
+  private async connectEventSocket(): Promise<void> {
+    await this.authPromise;
+    if (this.eventSocket && this.eventSocket.readyState === WebSocket.OPEN) {
+      return;
+    }
+
+    const url = new URL(this.baseUrl);
+    url.protocol = url.protocol.replace('http', 'ws');
+    url.pathname = '/events';
+
+    const ws = new WebSocket(url, { headers: this.wsHeaders, dispatcher: this.agent });
+    this.eventSocket = ws;
+
+    ws.addEventListener('open', () => {
+      log('Event WebSocket opened', LogLevel.DEBUG);
+    });
+
+    ws.addEventListener('message', evt => {
+      this.handleEventMessage(String(evt.data));
+    });
+
+    ws.addEventListener('error', err => {
+      const e = err as any;
+      log(`Event WebSocket error: ${e.message || err}`, LogLevel.ERROR);
+    });
+
+    ws.addEventListener('close', evt => {
+      log(`Event WebSocket closed (code=${evt.code} reason=${evt.reason})`, LogLevel.INFO);
+      this.eventSocket = undefined;
+      if (this.keepAliveTimer) {
+        clearInterval(this.keepAliveTimer);
+        this.keepAliveTimer = undefined;
+      }
+      setTimeout(() => {
+        void this.connectEventSocket();
+      }, 2000);
+    });
+
+    if (this.keepAliveTimer) {
+      clearInterval(this.keepAliveTimer);
+    }
+    this.keepAliveTimer = setInterval(() => {
+      if (!this.eventSocket || this.eventSocket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      for (const stream of this.activeStreams) {
+        try {
+          this.eventSocket.send(JSON.stringify({ type: 'next', stream }));
+        } catch (err) {
+          log(`Failed to send keep-alive: ${err}`, LogLevel.DEBUG);
+        }
+      }
+    }, this.messageIntervalMs);
+  }
+
+  private handleEventMessage(data: string): void {
+    try {
+      const msg = JSON.parse(data);
+      if ('namespaces' in msg && this.callbacks.namespaces) {
+        const list = msg.namespaces || [];
+        const names = list.map((n: any) => n.name || '').filter((n: string) => n);
+        this.callbacks.namespaces(names);
+      } else if ('results' in msg && this.callbacks.transactions) {
+        const results = Array.isArray(msg.results) ? msg.results : [];
+        this.callbacks.transactions(results);
+      } else if ('items' in msg && this.callbacks.deviations) {
+        const items = Array.isArray(msg.items) ? msg.items : [];
+        this.callbacks.deviations(items);
+      } else if (Array.isArray(msg) && this.callbacks.alarms) {
+        this.callbacks.alarms(msg);
+      }
+    } catch (err) {
+      log(`Failed to parse event message: ${err}`, LogLevel.ERROR);
+    }
+  }
+
   /** Get accessible EDA namespaces */
   public async getEdaNamespaces(): Promise<string[]> {
     const data = await this.fetchJSON<components['schemas']['NamespaceGetResponse']>('/core/access/v1/namespaces');
@@ -203,48 +292,9 @@ export class EdaClient {
    * @param onNamespaces Callback invoked with the list of namespace names.
    */
   public async streamEdaNamespaces(onNamespaces: NamespaceCallback): Promise<void> {
-    await this.authPromise;
-    const url = new URL(this.baseUrl);
-    url.protocol = url.protocol.replace('http', 'ws');
-    url.pathname = '/core/access/v1/namespaces';
-    url.searchParams.set('stream', 'namespaces');
-    url.searchParams.set('eventclient', 'vscode-eda');
-
-    const ws = new WebSocket(url, { headers: this.wsHeaders, dispatcher: this.agent });
-    this.namespaceSocket = ws;
-
-    ws.addEventListener('open', () => {
-      log('Namespace WebSocket opened', LogLevel.DEBUG);
-    });
-
-    ws.addEventListener('message', evt => {
-      try {
-        const data = JSON.parse(String(evt.data));
-        const list = data.namespaces || [];
-        const names = list.map((n: any) => n.name || '').filter((n: string) => n);
-        log(`Namespace stream update with ${names.length} namespaces`, LogLevel.DEBUG);
-        onNamespaces(names);
-      } catch (err) {
-        log(`Failed to parse namespace stream message: ${err}`, LogLevel.ERROR);
-      }
-    });
-
-    ws.addEventListener('error', err => {
-      const ee = err as any;
-      const message = ee.message || String(err);
-      const detail = ee.error;
-      log(
-        `Namespace WebSocket error: ${message}${detail ? ` (${detail})` : ''}`,
-        LogLevel.ERROR,
-      );
-    });
-
-    ws.addEventListener('close', evt => {
-      log(
-        `Namespace WebSocket closed (code=${evt.code} reason=${evt.reason})`,
-        LogLevel.INFO,
-      );
-    });
+    this.callbacks.namespaces = onNamespaces;
+    this.activeStreams.add('namespaces');
+    await this.connectEventSocket();
   }
 
   /**
@@ -253,160 +303,47 @@ export class EdaClient {
    */
   // eslint-disable-next-line no-unused-vars
   public async streamEdaAlarms(onAlarms: (_list: any[]) => void): Promise<void> {
-    await this.authPromise;
-    const url = new URL(this.baseUrl);
-    url.protocol = url.protocol.replace('http', 'ws');
-    url.pathname = '/core/alarm/v2/alarms';
-    url.searchParams.set('stream', 'alarms');
-    url.searchParams.set('eventclient', 'vscode-eda');
-
-    const ws = new WebSocket(url, { headers: this.wsHeaders, dispatcher: this.agent });
-    this.alarmSocket = ws;
-
-    ws.addEventListener('open', () => {
-      log('Alarm WebSocket opened', LogLevel.DEBUG);
-    });
-
-    ws.addEventListener('message', evt => {
-      try {
-        const alarms = JSON.parse(String(evt.data));
-        log(`Alarm stream update with ${Array.isArray(alarms) ? alarms.length : 0} alarms`, LogLevel.DEBUG);
-        onAlarms(Array.isArray(alarms) ? alarms : []);
-      } catch (err) {
-        log(`Failed to parse alarm stream message: ${err}`, LogLevel.ERROR);
-      }
-    });
-
-    ws.addEventListener('error', err => {
-      const ee = err as any;
-      const message = ee.message || String(err);
-      const detail = ee.error;
-      log(
-        `Alarm WebSocket error: ${message}${detail ? ` (${detail})` : ''}`,
-        LogLevel.ERROR,
-      );
-    });
-
-    ws.addEventListener('close', evt => {
-      log(
-        `Alarm WebSocket closed (code=${evt.code} reason=${evt.reason})`,
-        LogLevel.INFO,
-      );
-    });
+    this.callbacks.alarms = onAlarms;
+    this.activeStreams.add('alarms');
+    await this.connectEventSocket();
   }
 
   /** Close any open alarm stream */
   public closeAlarmStream(): void {
-    this.alarmSocket?.close();
-    this.alarmSocket = undefined;
+    delete this.callbacks.alarms;
+    this.activeStreams.delete('alarms');
   }
 
   /** Stream deviations over WebSocket */
   public async streamEdaDeviations(
     onDeviations: DeviationCallback,
-    namespace = 'default'
+    _namespace = 'default'
   ): Promise<void> {
-    await this.authPromise;
-    const url = new URL(this.baseUrl);
-    url.protocol = url.protocol.replace('http', 'ws');
-    url.pathname = `/apps/core.eda.nokia.com/v1/namespaces/${namespace}/deviations`;
-    url.searchParams.set('stream', 'deviations');
-    url.searchParams.set('eventclient', 'vscode-eda');
-
-    const ws = new WebSocket(url, { headers: this.wsHeaders, dispatcher: this.agent });
-    this.deviationSocket = ws;
-
-    ws.addEventListener('open', () => {
-      log('Deviation WebSocket opened', LogLevel.DEBUG);
-    });
-
-    ws.addEventListener('message', evt => {
-      try {
-        const deviations = JSON.parse(String(evt.data));
-        const items = Array.isArray(deviations.items) ? deviations.items : [];
-        log(`Deviation stream update with ${items.length} deviations`, LogLevel.DEBUG);
-        onDeviations(items);
-      } catch (err) {
-        log(`Failed to parse deviation stream message: ${err}`, LogLevel.ERROR);
-      }
-    });
-
-    ws.addEventListener('error', err => {
-      const ee = err as any;
-      const message = ee.message || String(err);
-      const detail = ee.error;
-      log(
-        `Deviation WebSocket error: ${message}${detail ? ` (${detail})` : ''}`,
-        LogLevel.ERROR,
-      );
-    });
-
-    ws.addEventListener('close', evt => {
-      log(
-        `Deviation WebSocket closed (code=${evt.code} reason=${evt.reason})`,
-        LogLevel.INFO,
-      );
-    });
+    void _namespace;
+    this.callbacks.deviations = onDeviations;
+    this.activeStreams.add('deviations');
+    await this.connectEventSocket();
   }
 
   /** Close any open deviation stream */
   public closeDeviationStream(): void {
-    this.deviationSocket?.close();
-    this.deviationSocket = undefined;
+    delete this.callbacks.deviations;
+    this.activeStreams.delete('deviations');
   }
 
   /** Stream transactions over WebSocket */
   public async streamEdaTransactions(
     onTransactions: TransactionCallback
   ): Promise<void> {
-    await this.authPromise;
-    const url = new URL(this.baseUrl);
-    url.protocol = url.protocol.replace('http', 'ws');
-    url.pathname = '/core/transaction/v1/resultsummary';
-    url.searchParams.set('size', '50');
-    url.searchParams.set('stream', 'transactions');
-    url.searchParams.set('eventclient', 'vscode-eda');
-
-    const ws = new WebSocket(url, { headers: this.wsHeaders, dispatcher: this.agent });
-    this.transactionSocket = ws;
-
-    ws.addEventListener('open', () => {
-      log('Transaction WebSocket opened', LogLevel.DEBUG);
-    });
-
-    ws.addEventListener('message', evt => {
-      try {
-        const txs = JSON.parse(String(evt.data));
-        const results = Array.isArray(txs.results) ? txs.results : [];
-        log(`Transaction stream update with ${results.length} results`, LogLevel.DEBUG);
-        onTransactions(results);
-      } catch (err) {
-        log(`Failed to parse transaction stream message: ${err}`, LogLevel.ERROR);
-      }
-    });
-
-    ws.addEventListener('error', err => {
-      const ee = err as any;
-      const message = ee.message || String(err);
-      const detail = ee.error;
-      log(
-        `Transaction WebSocket error: ${message}${detail ? ` (${detail})` : ''}`,
-        LogLevel.ERROR,
-      );
-    });
-
-    ws.addEventListener('close', evt => {
-      log(
-        `Transaction WebSocket closed (code=${evt.code} reason=${evt.reason})`,
-        LogLevel.INFO,
-      );
-    });
+    this.callbacks.transactions = onTransactions;
+    this.activeStreams.add('transactions');
+    await this.connectEventSocket();
   }
 
   /** Close any open transaction stream */
   public closeTransactionStream(): void {
-    this.transactionSocket?.close();
-    this.transactionSocket = undefined;
+    delete this.callbacks.transactions;
+    this.activeStreams.delete('transactions');
   }
 
   /** Get recent transactions */

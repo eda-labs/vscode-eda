@@ -2,22 +2,22 @@ import * as vscode from 'vscode';
 import { KubernetesClient } from './clients/kubernetesClient';
 import { EdaClient } from './clients/edaClient';
 import { serviceManager } from './services/serviceManager';
-import { ResourceService } from './services/resourceService';
-import { ResourceStatusService } from './services/resourceStatusService';
-import { SchemaProviderService } from './services/schemaProviderService';
-import { EdaNamespaceProvider } from './providers/views/namespaceProvider';
-import { EdaAlarmProvider } from './providers/views/alarmProvider';
+// import { ResourceService } from './services/resourceService';
+// import { ResourceStatusService } from './services/resourceStatusService';
+// import { SchemaProviderService } from './services/schemaProviderService';
+// import { EdaNamespaceProvider } from './providers/views/namespaceProvider';
+// import { EdaAlarmProvider } from './providers/views/alarmProvider';
 import { EdaDeviationProvider } from './providers/views/deviationProvider';
 import { EdaTransactionProvider } from './providers/views/transactionProvider';
 import { AlarmDetailsDocumentProvider } from './providers/documents/alarmDetailsProvider';
 import { DeviationDetailsDocumentProvider } from './providers/documents/deviationDetailsProvider';
 import { TransactionDetailsDocumentProvider } from './providers/documents/transactionDetailsProvider';
-import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
+// import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 // import { ResourceEditDocumentProvider } from './providers/documents/resourceEditProvider';
 
-import { registerDeviationCommands } from './commands/deviationCommands';
-import { registerTransactionCommands } from './commands/transactionCommands';
-import { registerViewCommands } from './commands/viewCommands';
+// import { registerDeviationCommands } from './commands/deviationCommands';
+// import { registerTransactionCommands } from './commands/transactionCommands';
+// import { registerViewCommands } from './commands/viewCommands';
 // import { registerResourceEditCommands } from './commands/resourceEditCommands';
 // import { registerResourceCreateCommand } from './commands/resourceCreateCommand';
 // import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand';
@@ -138,133 +138,133 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // 2) Optionally register them in your ServiceManager
     serviceManager.registerClient('edactl', edactlClient);
-    serviceManager.registerClient('kubernetes', k8sClient);
+  //   serviceManager.registerClient('kubernetes', k8sClient);
 
-    // 3) Let k8sClient know about edactlClient so it can call it
-    k8sClient.setEdaClient(edactlClient);
+  //   // 3) Let k8sClient know about edactlClient so it can call it
+  //   k8sClient.setEdaClient(edactlClient);
 
-    // 4) Kick off watchers immediately so caches warm while we continue
-    void k8sClient.startWatchers().catch(err => {
-      log(`Watcher startup failed: ${err}`, LogLevel.ERROR, true);
-    });
-    // 5) Create core services
-    const resourceService = new ResourceService(k8sClient);
-    serviceManager.registerService('kubernetes-resources', resourceService);
+  //   // 4) Kick off watchers immediately so caches warm while we continue
+  //   void k8sClient.startWatchers().catch(err => {
+  //     log(`Watcher startup failed: ${err}`, LogLevel.ERROR, true);
+  //   });
+  //   // 5) Create core services
+  //   const resourceService = new ResourceService(k8sClient);
+  //   serviceManager.registerService('kubernetes-resources', resourceService);
 
-    const resourceStatusService = new ResourceStatusService(k8sClient);
-    serviceManager.registerService('resource-status', resourceStatusService);
+  //   const resourceStatusService = new ResourceStatusService(k8sClient);
+  //   serviceManager.registerService('resource-status', resourceStatusService);
 
-    const schemaProviderService = new SchemaProviderService(k8sClient);
-    serviceManager.registerService('schema-provider', schemaProviderService);
+  //   const schemaProviderService = new SchemaProviderService(k8sClient);
+  //   serviceManager.registerService('schema-provider', schemaProviderService);
 
-    // Heavy initialization continues in the background
-    void Promise.all([
-      resourceStatusService.initialize(context),
-      schemaProviderService.initialize(context)
-    ]).catch(err => {
-      log(`Background initialization failed: ${err}`, LogLevel.ERROR, true);
-    });
+  //   // Heavy initialization continues in the background
+  //   void Promise.all([
+  //     resourceStatusService.initialize(context),
+  //     schemaProviderService.initialize(context)
+  //   ]).catch(err => {
+  //     log(`Background initialization failed: ${err}`, LogLevel.ERROR, true);
+  //   });
 
-    const namespaceProvider = new EdaNamespaceProvider();
-    const namespaceTreeView = vscode.window.createTreeView('edaNamespaces', {
-      treeDataProvider: namespaceProvider,
-      showCollapseAll: true
-    });
+  //   const namespaceProvider = new EdaNamespaceProvider();
+  //   const namespaceTreeView = vscode.window.createTreeView('edaNamespaces', {
+  //     treeDataProvider: namespaceProvider,
+  //     showCollapseAll: true
+  //   });
 
-    const alarmProvider = new EdaAlarmProvider();
-    const alarmTreeView = vscode.window.createTreeView('edaAlarms', {
-      treeDataProvider: alarmProvider,
-      showCollapseAll: true
-    });
+  //   const alarmProvider = new EdaAlarmProvider();
+  //   const alarmTreeView = vscode.window.createTreeView('edaAlarms', {
+  //     treeDataProvider: alarmProvider,
+  //     showCollapseAll: true
+  //   });
 
-    edaDeviationProvider = new EdaDeviationProvider();
-    const deviationTreeView = vscode.window.createTreeView('edaDeviations', {
-      treeDataProvider: edaDeviationProvider,
-      showCollapseAll: true
-    });
+  //   edaDeviationProvider = new EdaDeviationProvider();
+  //   const deviationTreeView = vscode.window.createTreeView('edaDeviations', {
+  //     treeDataProvider: edaDeviationProvider,
+  //     showCollapseAll: true
+  //   });
 
-    edaTransactionProvider = new EdaTransactionProvider();
-    const transactionTreeView = vscode.window.createTreeView('edaTransactions', {
-      treeDataProvider: edaTransactionProvider,
-      showCollapseAll: true
-    });
+  //   edaTransactionProvider = new EdaTransactionProvider();
+  //   const transactionTreeView = vscode.window.createTreeView('edaTransactions', {
+  //     treeDataProvider: edaTransactionProvider,
+  //     showCollapseAll: true
+  //   });
 
-    context.subscriptions.push(namespaceTreeView);
-    context.subscriptions.push(alarmTreeView, { dispose: () => alarmProvider.dispose() });
-    context.subscriptions.push(deviationTreeView, { dispose: () => edaDeviationProvider.dispose() });
-    context.subscriptions.push(transactionTreeView, { dispose: () => edaTransactionProvider.dispose() });
+  //   context.subscriptions.push(namespaceTreeView);
+  //   context.subscriptions.push(alarmTreeView, { dispose: () => alarmProvider.dispose() });
+  //   context.subscriptions.push(deviationTreeView, { dispose: () => edaDeviationProvider.dispose() });
+  //   context.subscriptions.push(transactionTreeView, { dispose: () => edaTransactionProvider.dispose() });
 
-    context.subscriptions.push(
-      vscode.commands.registerCommand('vscode-eda.refreshResources', () => {
-        namespaceProvider.refresh();
-      })
-    );
+  //   context.subscriptions.push(
+  //     vscode.commands.registerCommand('vscode-eda.refreshResources', () => {
+  //       namespaceProvider.refresh();
+  //     })
+  //   );
 
-    const crdFsProvider = new CrdDefinitionFileSystemProvider();
-    const transactionDetailsProviderLocal = new TransactionDetailsDocumentProvider();
-    const alarmDetailsProviderLocal = new AlarmDetailsDocumentProvider();
-    const deviationDetailsProviderLocal = new DeviationDetailsDocumentProvider();
+  //   const crdFsProvider = new CrdDefinitionFileSystemProvider();
+  //   const transactionDetailsProviderLocal = new TransactionDetailsDocumentProvider();
+  //   const alarmDetailsProviderLocal = new AlarmDetailsDocumentProvider();
+  //   const deviationDetailsProviderLocal = new DeviationDetailsDocumentProvider();
 
-    alarmDetailsProvider = alarmDetailsProviderLocal;
-    deviationDetailsProvider = deviationDetailsProviderLocal;
-    transactionDetailsProvider = transactionDetailsProviderLocal;
+  //   alarmDetailsProvider = alarmDetailsProviderLocal;
+  //   deviationDetailsProvider = deviationDetailsProviderLocal;
+  //   transactionDetailsProvider = transactionDetailsProviderLocal;
 
-    context.subscriptions.push(
-      vscode.workspace.registerFileSystemProvider('crd', crdFsProvider, { isCaseSensitive: true }),
-      vscode.workspace.registerFileSystemProvider('eda-transaction', transactionDetailsProviderLocal, { isCaseSensitive: true }),
-      vscode.workspace.registerFileSystemProvider('eda-alarm', alarmDetailsProviderLocal, { isCaseSensitive: true }),
-      vscode.workspace.registerFileSystemProvider('eda-deviation', deviationDetailsProviderLocal, { isCaseSensitive: true })
-    );
+  //   context.subscriptions.push(
+  //     vscode.workspace.registerFileSystemProvider('crd', crdFsProvider, { isCaseSensitive: true }),
+  //     vscode.workspace.registerFileSystemProvider('eda-transaction', transactionDetailsProviderLocal, { isCaseSensitive: true }),
+  //     vscode.workspace.registerFileSystemProvider('eda-alarm', alarmDetailsProviderLocal, { isCaseSensitive: true }),
+  //     vscode.workspace.registerFileSystemProvider('eda-deviation', deviationDetailsProviderLocal, { isCaseSensitive: true })
+  //   );
 
-    registerViewCommands(
-      context,
-      crdFsProvider,
-      transactionDetailsProviderLocal,
-      alarmDetailsProviderLocal,
-      deviationDetailsProviderLocal
-    );
-    registerDeviationCommands(context, edaDeviationProvider);
-    registerTransactionCommands(context);
+  //   registerViewCommands(
+  //     context,
+  //     crdFsProvider,
+  //     transactionDetailsProviderLocal,
+  //     alarmDetailsProviderLocal,
+  //     deviationDetailsProviderLocal
+  //   );
+  //   registerDeviationCommands(context, edaDeviationProvider);
+  //   registerTransactionCommands(context);
 
-    log('Service architecture initialized successfully', LogLevel.INFO, true);
+  //   log('Service architecture initialized successfully', LogLevel.INFO, true);
   } catch (error) {
     log(`Error initializing service architecture: ${error}`, LogLevel.ERROR, true);
     vscode.window.showErrorMessage(`Failed to initialize EDA extension: ${error}`);
   }
 
-  const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
+  // const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
 
-  context.subscriptions.push(
-    vscode.commands.registerCommand('vscode-eda.switchContext', async () => {
-      try {
-        const contexts = k8sClient.getAvailableContexts();
-        if (!contexts || contexts.length === 0) {
-          vscode.window.showWarningMessage('No Kubernetes contexts found in your kubeconfig.');
-          return;
-        }
+  // context.subscriptions.push(
+  //   vscode.commands.registerCommand('vscode-eda.switchContext', async () => {
+  //     try {
+  //       const contexts = k8sClient.getAvailableContexts();
+  //       if (!contexts || contexts.length === 0) {
+  //         vscode.window.showWarningMessage('No Kubernetes contexts found in your kubeconfig.');
+  //         return;
+  //       }
 
-        const newContext = await vscode.window.showQuickPick(contexts, {
-          placeHolder: 'Select the new Kubernetes context'
-        });
-        if (!newContext) {
-          return;
-        }
+  //       const newContext = await vscode.window.showQuickPick(contexts, {
+  //         placeHolder: 'Select the new Kubernetes context'
+  //       });
+  //       if (!newContext) {
+  //         return;
+  //       }
 
-        await k8sClient.switchContext(newContext);
-        contextStatusBarItem.text = `$(kubernetes) EDA: ${k8sClient.getCurrentContext()}`;
+  //       await k8sClient.switchContext(newContext);
+  //       contextStatusBarItem.text = `$(kubernetes) EDA: ${k8sClient.getCurrentContext()}`;
 
-        const rs = serviceManager.getService<ResourceService>('kubernetes-resources');
-        rs.forceRefresh();
+  //       const rs = serviceManager.getService<ResourceService>('kubernetes-resources');
+  //       rs.forceRefresh();
 
-        vscode.window.showInformationMessage(`Switched to Kubernetes context: ${newContext}`);
-      } catch (error) {
-        vscode.window.showErrorMessage(`Error switching context: ${error}`);
-      }
-    })
-  );
+  //       vscode.window.showInformationMessage(`Switched to Kubernetes context: ${newContext}`);
+  //     } catch (error) {
+  //       vscode.window.showErrorMessage(`Error switching context: ${error}`);
+  //     }
+  //   })
+  // );
 
 
-  log('EDA extension activated', LogLevel.INFO, true);
+  // log('EDA extension activated', LogLevel.INFO, true);
 }
 
 export function deactivate() {
