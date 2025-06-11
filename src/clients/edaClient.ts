@@ -304,6 +304,7 @@ export class EdaClient {
     const all: StreamEndpoint[] = [];
     for (const [apiPath, info] of Object.entries<any>(apiRoot.paths ?? {})) {
       const url = `${this.baseUrl}${info.serverRelativeURL}`;
+      log(`Fetching spec ${apiPath} from ${url}`, LogLevel.DEBUG);
       const spec = await this.fetchJsonUrl(url);
       const { category, name } = this.parseApiPath(apiPath);
       await this.writeSpecAndTypes(spec, name, version, category);
@@ -313,6 +314,7 @@ export class EdaClient {
   }
 
   private async initializeSpecs(): Promise<void> {
+    log('Initializing API specs...', LogLevel.INFO);
     try {
       const apiRoot = await this.fetchJsonUrl(`${this.baseUrl}/openapi/v3`);
       const coreEntry = Object.entries<any>(apiRoot.paths ?? {}).find(([p]) => /\/core$/.test(p));
@@ -326,9 +328,11 @@ export class EdaClient {
       const versionPath = this.findPathByOperationId(coreSpec, 'versionGet');
       this.apiVersion = await this.fetchVersion(versionPath);
       this.streamEndpoints = await this.fetchAndWriteAllSpecs(apiRoot, this.apiVersion);
+      log(`Discovered ${this.streamEndpoints.length} stream endpoints`, LogLevel.DEBUG);
       // prime namespace set
       const ns = await this.fetchJsonUrl(`${this.baseUrl}${nsPath}`) as NamespaceGetResponse;
       this.namespaceSet = new Set((ns.namespaces || []).map(n => n.name || '').filter(n => n));
+      log('Spec initialization complete', LogLevel.INFO);
     } catch (err) {
       log(`Failed to initialize specs: ${err}`, LogLevel.WARN);
     }
@@ -352,7 +356,9 @@ export class EdaClient {
 
     socket.on('open', () => {
       log('Event WebSocket connected', LogLevel.DEBUG);
+      log(`Started streaming on ${this.streamEndpoints.length} nodes`, LogLevel.INFO);
       for (const stream of this.activeStreams) {
+        log(`Started to stream endpoint ${stream}`, LogLevel.DEBUG);
         socket.send(JSON.stringify({ type: 'next', stream }));
       }
       if (this.keepAliveTimer) {
@@ -435,6 +441,7 @@ export class EdaClient {
     const data = await this.fetchJSON<NamespaceGetResponse>('/core/access/v1/namespaces');
     const list = data.namespaces || [];
     this.namespaceSet = new Set(list.map(n => n.name || '').filter(n => n));
+    log(`Fetched namespaces: ${Array.from(this.namespaceSet).join(', ')}`, LogLevel.DEBUG);
     return Array.from(this.namespaceSet);
   }
 
@@ -447,6 +454,7 @@ export class EdaClient {
     this.callbacks.namespaces = onNamespaces;
     onNamespaces(Array.from(this.namespaceSet));
     this.activeStreams.add('namespaces');
+    log('Started to stream endpoint namespaces', LogLevel.DEBUG);
     await this.connectEventSocket();
   }
 
@@ -458,6 +466,7 @@ export class EdaClient {
   public async streamEdaAlarms(onAlarms: (_list: any[]) => void): Promise<void> {
     this.callbacks.alarms = onAlarms;
     this.activeStreams.add('alarms');
+    log('Started to stream endpoint alarms', LogLevel.DEBUG);
     await this.connectEventSocket();
   }
 
@@ -475,6 +484,7 @@ export class EdaClient {
     void _namespace;
     this.callbacks.deviations = onDeviations;
     this.activeStreams.add('deviations');
+    log('Started to stream endpoint deviations', LogLevel.DEBUG);
     await this.connectEventSocket();
   }
 
@@ -490,6 +500,7 @@ export class EdaClient {
   ): Promise<void> {
     this.callbacks.transactions = onTransactions;
     this.activeStreams.add('transactions');
+    log('Started to stream endpoint transactions', LogLevel.DEBUG);
     await this.connectEventSocket();
   }
 
