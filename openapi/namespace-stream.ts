@@ -1,0 +1,270 @@
+import { fetch, Agent } from 'undici';
+import WebSocket from 'ws';
+import fs from 'fs';
+
+interface Config {
+  /** Base URL of the EDA API server */
+  edaUrl: string;
+  /** Username for the EDA realm */
+  edaUsername: string;
+  /** Password for the EDA realm */
+  edaPassword: string;
+  /** Keycloak admin username */
+  kcUsername: string;
+  /** Keycloak admin password */
+  kcPassword: string;
+  /** Client ID for authentication */
+  clientId: string;
+  /** Optional client secret; will be auto-fetched if omitted */
+  clientSecret?: string;
+  /** Skip TLS certificate verification */
+  skipTlsVerify?: boolean;
+  /** Interval between keep alive messages in milliseconds */
+  messageIntervalMs?: number;
+}
+
+interface NamespaceData {
+  name?: string;
+  description?: string;
+}
+
+interface NamespaceGetResponse {
+  allNamesapces?: boolean;
+  namespaces?: NamespaceData[];
+}
+
+async function loadConfig(path = 'openapi/stream.config.json'): Promise<Config> {
+  const raw = await fs.promises.readFile(path, 'utf8');
+  return JSON.parse(raw) as Config;
+}
+
+async function fetchAdminToken(cfg: Config): Promise<string> {
+  const base = cfg.edaUrl.replace(/\/$/, '');
+  const url = `${base}/core/httpproxy/v1/keycloak/realms/master/protocol/openid-connect/token`;
+  const params = new URLSearchParams();
+  params.set('grant_type', 'password');
+  params.set('client_id', 'admin-cli');
+  params.set('username', cfg.kcUsername);
+  params.set('password', cfg.kcPassword);
+  const agent = cfg.skipTlsVerify ? new Agent({ connect: { rejectUnauthorized: false } }) : undefined;
+  console.log('POST', url);
+  console.log('Headers:', { 'Content-Type': 'application/x-www-form-urlencoded' });
+  console.log('Body:', params.toString());
+  const res = await fetch(url, {
+    method: 'POST',
+    body: params,
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    dispatcher: agent,
+  });
+  console.log('Response status', res.status);
+  const text = await res.text();
+  console.log('Response body:', text);
+  if (!res.ok) {
+    throw new Error(`Admin auth failed: HTTP ${res.status} ${text}`);
+  }
+  const data = JSON.parse(text) as any;
+  return data.access_token as string;
+}
+
+async function fetchClientSecret(adminToken: string, cfg: Config): Promise<string> {
+  const base = cfg.edaUrl.replace(/\/$/, '');
+  const listUrl = `${base}/core/httpproxy/v1/keycloak/admin/realms/eda/clients`;
+  const agent = cfg.skipTlsVerify ? new Agent({ connect: { rejectUnauthorized: false } }) : undefined;
+  console.log('GET', listUrl);
+  console.log('Headers:', { Authorization: `Bearer ${adminToken}` });
+  const res = await fetch(listUrl, { headers: { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' }, dispatcher: agent });
+  console.log('Response status', res.status);
+  const text = await res.text();
+  console.log('Response body:', text);
+  if (!res.ok) {
+    throw new Error(`Failed to list clients: HTTP ${res.status} ${text}`);
+  }
+  const clients = JSON.parse(text) as any[];
+  const client = clients.find(c => c.clientId === cfg.clientId);
+  if (!client) {
+    throw new Error(`Client '${cfg.clientId}' not found`);
+  }
+  const secretUrl = `${listUrl}/${client.id}/client-secret`;
+  console.log('GET', secretUrl);
+  console.log('Headers:', { Authorization: `Bearer ${adminToken}` });
+  const secretRes = await fetch(secretUrl, { headers: { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' }, dispatcher: agent });
+  console.log('Response status', secretRes.status);
+  const secretText = await secretRes.text();
+  console.log('Response body:', secretText);
+  if (!secretRes.ok) {
+    throw new Error(`Failed to fetch client secret: HTTP ${secretRes.status} ${secretText}`);
+  }
+  const secretJson = JSON.parse(secretText) as any;
+  return secretJson.value as string;
+}
+
+async function authenticate(cfg: Config): Promise<string> {
+  const base = cfg.edaUrl.replace(/\/$/, '');
+  if (!cfg.clientSecret) {
+    try {
+      const adminToken = await fetchAdminToken(cfg);
+      cfg.clientSecret = await fetchClientSecret(adminToken, cfg);
+    } catch (err) {
+      console.warn('Failed to auto-fetch client secret:', err);
+    }
+  }
+  const url = `${base}/core/httpproxy/v1/keycloak/realms/eda/protocol/openid-connect/token`;
+  const params = new URLSearchParams();
+  params.set('grant_type', 'password');
+  params.set('client_id', cfg.clientId);
+  params.set('username', cfg.edaUsername);
+  params.set('password', cfg.edaPassword);
+  params.set('scope', 'openid');
+  if (cfg.clientSecret) {
+    params.set('client_secret', cfg.clientSecret);
+  }
+  const agent = cfg.skipTlsVerify ? new Agent({ connect: { rejectUnauthorized: false } }) : undefined;
+  console.log('POST', url);
+  console.log('Headers:', { 'Content-Type': 'application/x-www-form-urlencoded' });
+  console.log('Body:', params.toString());
+  const res = await fetch(url, {
+    method: 'POST',
+    body: params,
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    dispatcher: agent,
+  });
+  console.log('Response status', res.status);
+  const text = await res.text();
+  console.log('Response body:', text);
+  if (!res.ok) {
+    throw new Error(`Authentication failed: HTTP ${res.status} ${text}`);
+  }
+  const data = JSON.parse(text) as any;
+  return data.access_token as string;
+}
+
+async function fetchNamespaces(token: string, cfg: Config): Promise<NamespaceGetResponse> {
+  const url = `${cfg.edaUrl.replace(/\/$/, '')}/core/access/v1/namespaces`;
+  const headers = { Authorization: `Bearer ${token}` };
+  const agent = cfg.skipTlsVerify ? new Agent({ connect: { rejectUnauthorized: false } }) : undefined;
+  console.log('GET', url);
+  console.log('Headers:', headers);
+  const res = await fetch(url, { headers, dispatcher: agent });
+  console.log('Response status', res.status);
+  const text = await res.text();
+  console.log('Response body:', text);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch namespaces: HTTP ${res.status} ${text}`);
+  }
+  return JSON.parse(text) as NamespaceGetResponse;
+}
+
+async function startNamespaceStream(
+  client: string,
+  token: string,
+  cfg: Config,
+): Promise<void> {
+  const url =
+    `${cfg.edaUrl.replace(/\/$/, '')}/core/access/v1/namespaces` +
+    `?eventclient=${encodeURIComponent(client)}` +
+    `&stream=namespaces`;
+
+  const agent = cfg.skipTlsVerify
+    ? new Agent({ connect: { rejectUnauthorized: false } })
+    : undefined;
+
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'text/event-stream',      // tell EDA we want a live stream
+    },
+    dispatcher: agent,
+  });
+
+  if (!res.ok || !res.body) {
+    throw new Error(`stream failed: HTTP ${res.status}`);
+  }
+  console.log('[STREAM] connected →', url);
+
+  const reader   = res.body.getReader();
+  const decoder  = new TextDecoder();
+  let   buffer   = '';
+
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) { console.log('[STREAM] ended'); break; }
+
+    buffer += decoder.decode(value, { stream: true });
+
+    // newline-delimited JSON objects
+    let nl;
+    while ((nl = buffer.indexOf('\n')) !== -1) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (!line) continue;
+
+      try {
+        const obj = JSON.parse(line);
+        console.log('[STREAM] update', JSON.stringify(obj));
+      } catch {
+        console.warn('[STREAM] non-JSON line:', line);
+      }
+    }
+  }
+}
+
+function connectWebSocket(token: string, cfg: Config): void {
+  const base = new URL(cfg.edaUrl);
+  const wsUrl = `wss://${base.host}/events`;
+
+  const ws = new WebSocket(wsUrl, {
+    headers: { Authorization: `Bearer ${token}` },
+    rejectUnauthorized: !(cfg.skipTlsVerify ?? false),
+  });
+
+  let eventClient: string | undefined;
+
+  ws.on('open', () => {
+    console.log('[WS] connected');
+    // first “next” immediately
+    ws.send(JSON.stringify({ type: 'next', stream: 'namespaces' }));
+    // then every 0.5 s
+    const iv = setInterval(() => {
+      ws.send(JSON.stringify({ type: 'next', stream: 'namespaces' }));
+    }, cfg.messageIntervalMs ?? 500);
+
+    ws.on('close', (code, reason) => {
+      console.log('[WS] closed', code, reason.toString());
+      clearInterval(iv);
+    });
+  });
+
+  ws.on('message', async data => {
+    const txt = data.toString();
+    console.log('[WS] ←', txt);
+
+    // first server message contains  { type:"s2c-eventclient", msg:{ client:"…" } }
+    if (!eventClient) {
+      try {
+        const obj = JSON.parse(txt);
+        const client = obj?.msg?.client as string | undefined;
+        if (client) {
+          eventClient = client;
+          console.log('[WS] eventclient id =', eventClient);
+          // kick off the HTTP stream once we have the id
+          void startNamespaceStream(eventClient, token, cfg);
+        }
+      } catch {/* ignore non-JSON frames */}
+    }
+  });
+
+  ws.on('error', err => console.error('[WS] error', err));
+}
+
+async function main() {
+  const cfg = await loadConfig();
+  const token = await authenticate(cfg);
+  const namespaces = await fetchNamespaces(token, cfg);
+  console.log('Initial namespaces:', JSON.stringify(namespaces));
+  connectWebSocket(token, cfg);
+}
+
+main().catch(err => {
+  console.error('Fatal error', err);
+  process.exit(1);
+});
