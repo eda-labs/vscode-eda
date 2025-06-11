@@ -1,7 +1,10 @@
 import { fetch, Agent } from 'undici';
-import { io, Socket } from 'socket.io-client';
+import WebSocket from 'ws';
 import { LogLevel, log } from '../extension';
-import type { paths, components } from '../openapi/core';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import openapiTS, { astToString, COMMENT_HEADER } from 'openapi-typescript';
 
 // eslint-disable-next-line no-unused-vars
 export type NamespaceCallback = (arg: string[]) => void;
@@ -31,6 +34,29 @@ export interface EdaClientOptions {
   messageIntervalMs?: number;
 }
 
+interface NamespaceData {
+  name?: string;
+  description?: string;
+}
+
+interface NamespaceGetResponse {
+  allNamesapces?: boolean;
+  namespaces?: NamespaceData[];
+}
+
+interface TransactionSummaryResults {
+  results?: any[];
+}
+
+interface TransactionDetails {
+  [key: string]: any;
+}
+
+interface StreamEndpoint {
+  path: string;
+  stream: string;
+}
+
 export class EdaClient {
   private baseUrl: string;
   private kcUrl: string;
@@ -44,8 +70,13 @@ export class EdaClient {
   private clientId: string;
   private clientSecret?: string;
   private agent: Agent | undefined;
-  private eventSocket: Socket | undefined;
+  private eventSocket: WebSocket | undefined;
   private keepAliveTimer: ReturnType<typeof setInterval> | undefined;
+  private initPromise: Promise<void> = Promise.resolve();
+  private apiVersion = 'unknown';
+  private streamEndpoints: StreamEndpoint[] = [];
+  private namespaceSet: Set<string> = new Set();
+  private skipTlsVerify = false;
   private activeStreams: Set<string> = new Set();
   private callbacks: {
     namespaces?: NamespaceCallback;
@@ -68,15 +99,15 @@ export class EdaClient {
     this.kcPassword = opts.kcPassword || process.env.EDA_KC_PASSWORD || 'admin';
     this.clientId = opts.clientId || process.env.EDA_CLIENT_ID || 'eda';
     this.clientSecret = opts.clientSecret || process.env.EDA_CLIENT_SECRET;
-    const skipTls = opts.skipTlsVerify || process.env.EDA_SKIP_TLS_VERIFY === 'true';
-    this.agent = skipTls ? new Agent({ connect: { rejectUnauthorized: false } }) : undefined;
+    this.skipTlsVerify = opts.skipTlsVerify || process.env.EDA_SKIP_TLS_VERIFY === 'true';
+    this.agent = this.skipTlsVerify ? new Agent({ connect: { rejectUnauthorized: false } }) : undefined;
     log(
       `EdaClient initialized for ${this.baseUrl} (clientId=${this.clientId})`,
       LogLevel.DEBUG,
     );
     this.messageIntervalMs = opts.messageIntervalMs ?? 500;
     this.authPromise = this.auth();
-    void this.connectEventSocket();
+    this.initPromise = this.authPromise.then(() => this.initializeSpecs());
   }
 
   private async fetchAdminToken(): Promise<string> {
@@ -183,7 +214,7 @@ export class EdaClient {
     };
   }
 
-  private async fetchJSON<T>(path: keyof paths): Promise<T> {
+  private async fetchJSON<T = any>(path: string): Promise<T> {
     await this.authPromise;
     const url = `${this.baseUrl}${path}`;
     log(`GET ${url}`, LogLevel.DEBUG);
@@ -205,38 +236,140 @@ export class EdaClient {
     return (await res.json()) as T;
   }
 
+  private async fetchJsonUrl(url: string): Promise<any> {
+    await this.authPromise;
+    const res = await fetch(url, { headers: this.headers, dispatcher: this.agent });
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(`Failed to fetch ${url}: HTTP ${res.status} ${text}`);
+    }
+    return JSON.parse(text);
+  }
+
+  private findPathByOperationId(spec: any, opId: string): string {
+    for (const [p, methods] of Object.entries<any>(spec.paths ?? {})) {
+      for (const m of Object.values<any>(methods as any)) {
+        if (m && typeof m === 'object' && m.operationId === opId) {
+          return p;
+        }
+      }
+    }
+    throw new Error(`operationId '${opId}' not found`);
+  }
+
+  private parseApiPath(apiPath: string): { category: string; name: string } {
+    const parts = apiPath.split('/').filter(Boolean);
+    const category = parts[0] || 'core';
+    const nameSeg = category === 'apps' ? parts[1] : category;
+    const name = (nameSeg ?? 'core').split('.')[0];
+    return { category, name };
+  }
+
+  private collectStreamEndpoints(spec: any): StreamEndpoint[] {
+    const eps: StreamEndpoint[] = [];
+    for (const [p, methods] of Object.entries<any>(spec.paths ?? {})) {
+      const get = (methods as any).get;
+      if (!get) continue;
+      const params = Array.isArray(get.parameters) ? get.parameters : [];
+      const names = params.map((prm: any) => prm.name);
+      if (names.includes('eventclient') && names.includes('stream') && !p.includes('{')) {
+        const stream = p.split('/').filter(Boolean).pop() ?? 'unknown';
+        eps.push({ path: p, stream });
+      }
+    }
+    return eps;
+  }
+
+  private async writeSpecAndTypes(spec: any, name: string, version: string, category: string): Promise<void> {
+    const versionDir = path.join(os.homedir(), '.eda', version, category);
+    await fs.promises.mkdir(versionDir, { recursive: true });
+    const jsonPath = path.join(versionDir, `${name}.json`);
+    await fs.promises.writeFile(jsonPath, JSON.stringify(spec, null, 2));
+
+    const tsAst = await openapiTS(spec);
+    const ts = COMMENT_HEADER + astToString(tsAst);
+    const dtsPath = path.join(versionDir, `${name}.d.ts`);
+    await fs.promises.writeFile(dtsPath, ts);
+  }
+
+  private async fetchVersion(path: string): Promise<string> {
+    const url = `${this.baseUrl}${path}`;
+    const data = await this.fetchJsonUrl(url);
+    const full = (data?.eda?.version as string | undefined) ?? 'unknown';
+    const match = full.match(/^([^-]+)/);
+    return match ? match[1] : full;
+  }
+
+  private async fetchAndWriteAllSpecs(apiRoot: any, version: string): Promise<StreamEndpoint[]> {
+    const all: StreamEndpoint[] = [];
+    for (const [apiPath, info] of Object.entries<any>(apiRoot.paths ?? {})) {
+      const url = `${this.baseUrl}${info.serverRelativeURL}`;
+      const spec = await this.fetchJsonUrl(url);
+      const { category, name } = this.parseApiPath(apiPath);
+      await this.writeSpecAndTypes(spec, name, version, category);
+      all.push(...this.collectStreamEndpoints(spec));
+    }
+    return all;
+  }
+
+  private async initializeSpecs(): Promise<void> {
+    try {
+      const apiRoot = await this.fetchJsonUrl(`${this.baseUrl}/openapi/v3`);
+      const coreEntry = Object.entries<any>(apiRoot.paths ?? {}).find(([p]) => /\/core$/.test(p));
+      if (!coreEntry) {
+        log('core API path not found in root spec', LogLevel.WARN);
+        return;
+      }
+      const coreUrl = `${this.baseUrl}${(coreEntry[1] as any).serverRelativeURL}`;
+      const coreSpec = await this.fetchJsonUrl(coreUrl);
+      const nsPath = this.findPathByOperationId(coreSpec, 'accessGetNamespaces');
+      const versionPath = this.findPathByOperationId(coreSpec, 'versionGet');
+      this.apiVersion = await this.fetchVersion(versionPath);
+      this.streamEndpoints = await this.fetchAndWriteAllSpecs(apiRoot, this.apiVersion);
+      // prime namespace set
+      const ns = await this.fetchJsonUrl(`${this.baseUrl}${nsPath}`) as NamespaceGetResponse;
+      this.namespaceSet = new Set((ns.namespaces || []).map(n => n.name || '').filter(n => n));
+    } catch (err) {
+      log(`Failed to initialize specs: ${err}`, LogLevel.WARN);
+    }
+  }
+
   private async connectEventSocket(): Promise<void> {
     await this.authPromise;
-    if (this.eventSocket && this.eventSocket.connected) {
+    if (this.eventSocket && this.eventSocket.readyState === WebSocket.OPEN) {
       return;
     }
 
     const url = new URL(this.baseUrl);
-    const socketUrl = `${url.protocol}//${url.host}`;
-    const path = '/events';
-    log(`GET ${socketUrl}${path}`, LogLevel.INFO);
+    const wsUrl = `wss://${url.host}/events`;
+    log(`CONNECT ${wsUrl}`, LogLevel.INFO);
 
-    const socket = io(socketUrl, {
-      path,
-      transports: ['websocket'],
-      extraHeaders: this.wsHeaders,
+    const socket = new WebSocket(wsUrl, {
+      headers: this.wsHeaders,
+      rejectUnauthorized: !this.skipTlsVerify,
     });
     this.eventSocket = socket;
 
-    socket.on('connect', () => {
-      log('Event socket.io connected', LogLevel.DEBUG);
+    socket.on('open', () => {
+      log('Event WebSocket connected', LogLevel.DEBUG);
+      for (const stream of this.activeStreams) {
+        socket.send(JSON.stringify({ type: 'next', stream }));
+      }
+      if (this.keepAliveTimer) {
+        clearInterval(this.keepAliveTimer);
+      }
+      this.keepAliveTimer = setInterval(() => {
+        for (const stream of this.activeStreams) {
+          socket.send(JSON.stringify({ type: 'next', stream }));
+        }
+      }, this.messageIntervalMs);
     });
 
-    socket.on('message', (data: any) => {
-      this.handleEventMessage(typeof data === 'string' ? data : JSON.stringify(data));
+    socket.on('message', data => {
+      this.handleEventMessage(data.toString());
     });
 
-    socket.on('error', err => {
-      log(`Event socket.io error: ${err}`, LogLevel.ERROR);
-    });
-
-    socket.on('disconnect', reason => {
-      log(`Event socket.io disconnected (${reason})`, LogLevel.INFO);
+    const reconnect = () => {
       this.eventSocket = undefined;
       if (this.keepAliveTimer) {
         clearInterval(this.keepAliveTimer);
@@ -245,33 +378,40 @@ export class EdaClient {
       setTimeout(() => {
         void this.connectEventSocket();
       }, 2000);
-    });
+    };
 
-    if (this.keepAliveTimer) {
-      clearInterval(this.keepAliveTimer);
-    }
-    this.keepAliveTimer = setInterval(() => {
-      if (!this.eventSocket || !this.eventSocket.connected) {
-        return;
-      }
-      for (const stream of this.activeStreams) {
-        try {
-          this.eventSocket.emit('message', { type: 'next', stream });
-        } catch (err) {
-          log(`Failed to send keep-alive: ${err}`, LogLevel.DEBUG);
-        }
-      }
-    }, this.messageIntervalMs);
+    socket.on('close', reconnect);
+    socket.on('error', err => {
+      log(`Event WebSocket error: ${err}`, LogLevel.ERROR);
+      reconnect();
+    });
   }
 
   private handleEventMessage(data: string): void {
     try {
       const msg = JSON.parse(data);
-      if ('namespaces' in msg && this.callbacks.namespaces) {
-        const list = msg.namespaces || [];
-        const names = list.map((n: any) => n.name || '').filter((n: string) => n);
-        log(`Namespaces stream message: ${JSON.stringify(names)}`, LogLevel.INFO);
-        this.callbacks.namespaces(names);
+      if (
+        msg.type === 'update' &&
+        msg.stream === 'namespaces' &&
+        this.callbacks.namespaces
+      ) {
+        const updates = Array.isArray(msg.msg?.updates) ? msg.msg.updates : [];
+        for (const up of updates) {
+          let name: string | undefined = up.data?.metadata?.name || up.data?.name;
+          if (!name && up.key) {
+            const matches = [...String(up.key).matchAll(/namespace\{\.name=="([^"]+)"\}/g)];
+            if (matches.length > 0) {
+              name = matches[matches.length - 1][1];
+            }
+          }
+          if (!name) continue;
+          if (up.data === null) {
+            this.namespaceSet.delete(name);
+          } else {
+            this.namespaceSet.add(name);
+          }
+        }
+        this.callbacks.namespaces(Array.from(this.namespaceSet));
       } else if ('results' in msg && this.callbacks.transactions) {
         const results = Array.isArray(msg.results) ? msg.results : [];
         this.callbacks.transactions(results);
@@ -288,9 +428,14 @@ export class EdaClient {
 
   /** Get accessible EDA namespaces */
   public async getEdaNamespaces(): Promise<string[]> {
-    const data = await this.fetchJSON<components['schemas']['NamespaceGetResponse']>('/core/access/v1/namespaces');
+    await this.initPromise;
+    if (this.namespaceSet.size > 0) {
+      return Array.from(this.namespaceSet);
+    }
+    const data = await this.fetchJSON<NamespaceGetResponse>('/core/access/v1/namespaces');
     const list = data.namespaces || [];
-    return list.map(n => n.name || '').filter(n => n);
+    this.namespaceSet = new Set(list.map(n => n.name || '').filter(n => n));
+    return Array.from(this.namespaceSet);
   }
 
   /**
@@ -298,7 +443,9 @@ export class EdaClient {
    * @param onNamespaces Callback invoked with the list of namespace names.
    */
   public async streamEdaNamespaces(onNamespaces: NamespaceCallback): Promise<void> {
+    await this.initPromise;
     this.callbacks.namespaces = onNamespaces;
+    onNamespaces(Array.from(this.namespaceSet));
     this.activeStreams.add('namespaces');
     await this.connectEventSocket();
   }
@@ -354,13 +501,13 @@ export class EdaClient {
 
   /** Get recent transactions */
   public async getEdaTransactions(size = 50): Promise<any[]> {
-    const path = `/core/transaction/v1/resultsummary?size=${size}` as keyof paths;
-    const data = await this.fetchJSON<components['schemas']['TransactionSummaryResults']>(path);
+    const path = `/core/transaction/v1/resultsummary?size=${size}`;
+    const data = await this.fetchJSON<TransactionSummaryResults>(path);
     return (data.results as any[]) || [];
   }
   /** Get details for a transaction */
   public async getTransactionDetails(id: string): Promise<string> {
-    const data = await this.fetchJSON<components['schemas']['TransactionDetails']>(`/core/transaction/v1/details/${id}` as keyof paths);
+    const data = await this.fetchJSON<TransactionDetails>(`/core/transaction/v1/details/${id}`);
     return JSON.stringify(data, null, 2);
   }
 
@@ -378,14 +525,14 @@ export class EdaClient {
 
   /** Get deviations within a namespace */
   public async getEdaDeviations(namespace = 'default'): Promise<any[]> {
-    const data = await this.fetchJSON<any>(`/apps/core.eda.nokia.com/v1/namespaces/${namespace}/deviations` as keyof paths);
+    const data = await this.fetchJSON<any>(`/apps/core.eda.nokia.com/v1/namespaces/${namespace}/deviations`);
     return data.items || [];
   }
 
   /** Fetch a resource YAML using EDA API */
   public async getEdaResourceYaml(kind: string, name: string, namespace: string): Promise<string> {
     const plural = kind.toLowerCase() + 's';
-    const data = await this.fetchJSON<any>(`/apps/core.eda.nokia.com/v1/namespaces/${namespace}/${plural}/${name}` as keyof paths);
+    const data = await this.fetchJSON<any>(`/apps/core.eda.nokia.com/v1/namespaces/${namespace}/${plural}/${name}`);
     return JSON.stringify(data, null, 2);
   }
 
