@@ -5,7 +5,7 @@ import { serviceManager } from './services/serviceManager';
 // import { ResourceService } from './services/resourceService';
 // import { ResourceStatusService } from './services/resourceStatusService';
 // import { SchemaProviderService } from './services/schemaProviderService';
-// import { EdaNamespaceProvider } from './providers/views/namespaceProvider';
+import { EdaNamespaceProvider } from './providers/views/namespaceProvider';
 // import { EdaAlarmProvider } from './providers/views/alarmProvider';
 import { EdaDeviationProvider } from './providers/views/deviationProvider';
 import { EdaTransactionProvider } from './providers/views/transactionProvider';
@@ -171,6 +171,12 @@ export async function activate(context: vscode.ExtensionContext) {
   //     showCollapseAll: true
   //   });
 
+  const namespaceProvider = new EdaNamespaceProvider();
+  const namespaceTreeView = vscode.window.createTreeView('edaNamespaces', {
+    treeDataProvider: namespaceProvider,
+    showCollapseAll: true
+  });
+
   //   const alarmProvider = new EdaAlarmProvider();
   //   const alarmTreeView = vscode.window.createTreeView('edaAlarms', {
   //     treeDataProvider: alarmProvider,
@@ -188,6 +194,13 @@ export async function activate(context: vscode.ExtensionContext) {
   //     treeDataProvider: edaTransactionProvider,
   //     showCollapseAll: true
   //   });
+
+  context.subscriptions.push(namespaceTreeView);
+  context.subscriptions.push(
+    vscode.commands.registerCommand('vscode-eda.refreshResources', () => {
+      namespaceProvider.refresh();
+    })
+  );
 
   //   context.subscriptions.push(namespaceTreeView);
   //   context.subscriptions.push(alarmTreeView, { dispose: () => alarmProvider.dispose() });

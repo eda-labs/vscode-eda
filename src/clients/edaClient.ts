@@ -280,6 +280,33 @@ export class EdaClient {
     return eps;
   }
 
+  private async loadCachedSpecs(version: string): Promise<StreamEndpoint[]> {
+    const versionDir = path.join(os.homedir(), '.eda', version);
+    const endpoints: StreamEndpoint[] = [];
+    try {
+      const categories = await fs.promises.readdir(versionDir, { withFileTypes: true });
+      for (const cat of categories) {
+        if (!cat.isDirectory()) continue;
+        const catDir = path.join(versionDir, cat.name);
+        const files = await fs.promises.readdir(catDir);
+        for (const file of files) {
+          if (!file.endsWith('.json')) continue;
+          const specPath = path.join(catDir, file);
+          try {
+            const raw = await fs.promises.readFile(specPath, 'utf8');
+            const spec = JSON.parse(raw);
+            endpoints.push(...this.collectStreamEndpoints(spec));
+          } catch (err) {
+            log(`Failed to read cached spec ${specPath}: ${err}`, LogLevel.WARN);
+          }
+        }
+      }
+    } catch (err) {
+      log(`No cached specs found for version ${version}: ${err}`, LogLevel.DEBUG);
+    }
+    return endpoints;
+  }
+
   private async writeSpecAndTypes(spec: any, name: string, version: string, category: string): Promise<void> {
     const versionDir = path.join(os.homedir(), '.eda', version, category);
     await fs.promises.mkdir(versionDir, { recursive: true });
@@ -327,7 +354,13 @@ export class EdaClient {
       const nsPath = this.findPathByOperationId(coreSpec, 'accessGetNamespaces');
       const versionPath = this.findPathByOperationId(coreSpec, 'versionGet');
       this.apiVersion = await this.fetchVersion(versionPath);
-      this.streamEndpoints = await this.fetchAndWriteAllSpecs(apiRoot, this.apiVersion);
+      let endpoints = await this.loadCachedSpecs(this.apiVersion);
+      if (endpoints.length > 0) {
+        log(`Loaded cached API specs for version ${this.apiVersion}`, LogLevel.INFO);
+        this.streamEndpoints = endpoints;
+      } else {
+        this.streamEndpoints = await this.fetchAndWriteAllSpecs(apiRoot, this.apiVersion);
+      }
       log(`Discovered ${this.streamEndpoints.length} stream endpoints`, LogLevel.DEBUG);
       // prime namespace set
       const ns = await this.fetchJsonUrl(`${this.baseUrl}${nsPath}`) as NamespaceGetResponse;
@@ -394,6 +427,7 @@ export class EdaClient {
   }
 
   private handleEventMessage(data: string): void {
+    log(`WS message: ${data}`, LogLevel.DEBUG);
     try {
       const msg = JSON.parse(data);
       if (
