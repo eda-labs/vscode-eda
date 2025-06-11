@@ -454,7 +454,7 @@
     "lint": "eslint --ext .ts,.tsx .",
     "lint:fix": "npm run lint -- --fix",
     "test": "mocha -r ts-node/register -r ./test/setup.ts test/**/*.test.ts",
-    "stream:namespaces": "ts-node openapi/namespace-stream.ts"
+    "stream:namespaces": "ts-node namespace-stream.ts"
   },
   "devDependencies": {
     "@types/chai": "^5.2.2",
