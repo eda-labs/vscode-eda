@@ -37,6 +37,11 @@ interface NamespaceGetResponse {
   namespaces?: NamespaceData[];
 }
 
+interface StreamEndpoint {
+  path: string;
+  stream: string;
+}
+
 async function loadConfig(path = 'stream.config.json'): Promise<Config> {
   const raw = await fs.promises.readFile(path, 'utf8');
   return JSON.parse(raw) as Config;
@@ -117,12 +122,30 @@ function parseApiPath(apiPath: string): { category: string; name: string } {
   return { category, name };
 }
 
+function collectStreamEndpoints(spec: any): StreamEndpoint[] {
+  const eps: StreamEndpoint[] = [];
+  for (const [p, methods] of Object.entries<any>(spec.paths ?? {})) {
+    const get = (methods as any).get;
+    if (!get) {
+      continue;
+    }
+    const params = Array.isArray(get.parameters) ? get.parameters : [];
+    const names = params.map((prm: any) => prm.name);
+    if (names.includes('eventclient') && names.includes('stream') && !p.includes('{')) {
+      const stream = p.split('/').filter(Boolean).pop() ?? 'unknown';
+      eps.push({ path: p, stream });
+    }
+  }
+  return eps;
+}
+
 async function fetchAndWriteAllSpecs(
   apiRoot: any,
   token: string,
   cfg: Config,
   version: string,
-): Promise<void> {
+): Promise<StreamEndpoint[]> {
+  const all: StreamEndpoint[] = [];
   for (const [apiPath, info] of Object.entries<any>(apiRoot.paths ?? {})) {
     const url = `${cfg.edaUrl.replace(/\/$/, '')}${info.serverRelativeURL}`;
     const spec = await fetchJson(url, token, cfg);
@@ -130,8 +153,10 @@ async function fetchAndWriteAllSpecs(
     const { category, name } = parseApiPath(apiPath);
 
     await writeSpecAndTypes(spec, name, version, category);
+    all.push(...collectStreamEndpoints(spec));
     console.log(`Fetched ${apiPath}`);
   }
+  return all;
 }
 
 async function fetchAdminToken(cfg: Config): Promise<string> {
@@ -250,31 +275,38 @@ async function fetchNamespaces(token: string, cfg: Config, path: string): Promis
   return JSON.parse(text) as NamespaceGetResponse;
 }
 
-async function startNamespaceStream(
+async function startStream(
   client: string,
   token: string,
   cfg: Config,
-  path: string,
+  endpoint: StreamEndpoint,
 ): Promise<void> {
   const url =
-    `${cfg.edaUrl.replace(/\/$/, '')}${path}` +
+    `${cfg.edaUrl.replace(/\/$/, '')}${endpoint.path}` +
     `?eventclient=${encodeURIComponent(client)}` +
-    `&stream=namespaces`;
+    `&stream=${encodeURIComponent(endpoint.stream)}`;
 
   const agent = cfg.skipTlsVerify
     ? new Agent({ connect: { rejectUnauthorized: false } })
     : undefined;
 
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'text/event-stream',      // tell EDA we want a live stream
-    },
-    dispatcher: agent,
-  });
+  let res: any;
+  try {
+    res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'text/event-stream',      // tell EDA we want a live stream
+      },
+      dispatcher: agent,
+    });
+  } catch (err) {
+    console.error('[STREAM] request failed', err);
+    return;
+  }
 
   if (!res.ok || !res.body) {
-    throw new Error(`stream failed: HTTP ${res.status}`);
+    console.error(`[STREAM] failed ${url}: HTTP ${res.status}`);
+    return;
   }
   console.log('[STREAM] connected →', url);
 
@@ -305,7 +337,7 @@ async function startNamespaceStream(
   }
 }
 
-function connectWebSocket(token: string, cfg: Config, namespacesPath: string): void {
+function connectWebSocket(token: string, cfg: Config, endpoints: StreamEndpoint[]): void {
   const base = new URL(cfg.edaUrl);
   const wsUrl = `wss://${base.host}/events`;
 
@@ -315,14 +347,17 @@ function connectWebSocket(token: string, cfg: Config, namespacesPath: string): v
   });
 
   let eventClient: string | undefined;
+  const streams = Array.from(new Set(endpoints.map(e => e.stream)));
 
   ws.on('open', () => {
     console.log('[WS] connected');
-    // first “next” immediately
-    ws.send(JSON.stringify({ type: 'next', stream: 'namespaces' }));
-    // then every 0.5 s
+    for (const s of streams) {
+      ws.send(JSON.stringify({ type: 'next', stream: s }));
+    }
     const iv = setInterval(() => {
-      ws.send(JSON.stringify({ type: 'next', stream: 'namespaces' }));
+      for (const s of streams) {
+        ws.send(JSON.stringify({ type: 'next', stream: s }));
+      }
     }, cfg.messageIntervalMs ?? 500);
 
     ws.on('close', (code, reason) => {
@@ -343,8 +378,9 @@ function connectWebSocket(token: string, cfg: Config, namespacesPath: string): v
         if (client) {
           eventClient = client;
           console.log('[WS] eventclient id =', eventClient);
-          // kick off the HTTP stream once we have the id
-          void startNamespaceStream(eventClient, token, cfg, namespacesPath);
+          for (const ep of endpoints) {
+            void startStream(eventClient, token, cfg, ep);
+          }
         }
       } catch {/* ignore non-JSON frames */}
     }
@@ -367,11 +403,11 @@ async function main() {
   const versionPath = findPathByOperationId(coreSpec, 'versionGet');
   const version = await fetchVersion(token, cfg, versionPath);
 
-  await fetchAndWriteAllSpecs(apiRoot, token, cfg, version);
+  const endpoints = await fetchAndWriteAllSpecs(apiRoot, token, cfg, version);
 
   const namespaces = await fetchNamespaces(token, cfg, namespacesPath);
   console.log('Initial namespaces:', JSON.stringify(namespaces));
-  connectWebSocket(token, cfg, namespacesPath);
+  connectWebSocket(token, cfg, endpoints);
 }
 
 main().catch(err => {
