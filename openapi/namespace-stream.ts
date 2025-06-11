@@ -1,6 +1,10 @@
 import { fetch, Agent } from 'undici';
 import WebSocket from 'ws';
 import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { TextDecoder } from 'util';
+import openapiTS, { astToString, COMMENT_HEADER } from 'openapi-typescript';
 
 interface Config {
   /** Base URL of the EDA API server */
@@ -36,6 +40,65 @@ interface NamespaceGetResponse {
 async function loadConfig(path = 'openapi/stream.config.json'): Promise<Config> {
   const raw = await fs.promises.readFile(path, 'utf8');
   return JSON.parse(raw) as Config;
+}
+
+async function fetchOpenApiRoot(token: string, cfg: Config): Promise<any> {
+  const url = `${cfg.edaUrl.replace(/\/$/, '')}/openapi/v3`;
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  const agent = cfg.skipTlsVerify ? new Agent({ connect: { rejectUnauthorized: false } }) : undefined;
+  console.log('GET', url);
+  const res = await fetch(url, { headers, dispatcher: agent });
+  console.log('Response status', res.status);
+  const text = await res.text();
+  console.log('Response body:', text);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch openapi root: HTTP ${res.status} ${text}`);
+  }
+  return JSON.parse(text);
+}
+
+async function fetchJson(url: string, token: string, cfg: Config): Promise<any> {
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  const agent = cfg.skipTlsVerify ? new Agent({ connect: { rejectUnauthorized: false } }) : undefined;
+  console.log('GET', url);
+  const res = await fetch(url, { headers, dispatcher: agent });
+  console.log('Response status', res.status);
+  const text = await res.text();
+  console.log('Response body:', text);
+  if (!res.ok) {
+    throw new Error(`Failed HTTP ${res.status} ${text}`);
+  }
+  return JSON.parse(text);
+}
+
+function findPathByOperationId(spec: any, opId: string): string {
+  for (const [p, methods] of Object.entries<any>(spec.paths ?? {})) {
+    for (const m of Object.values<any>(methods as any)) {
+      if (m && typeof m === 'object' && m.operationId === opId) {
+        return p;
+      }
+    }
+  }
+  throw new Error(`operationId '${opId}' not found in spec`);
+}
+
+async function writeSpecAndTypes(spec: any, version: string): Promise<void> {
+  const dir = path.join(os.homedir(), '.eda', version);
+  await fs.promises.mkdir(dir, { recursive: true });
+  const jsonPath = path.join(dir, 'core.json');
+  await fs.promises.writeFile(jsonPath, JSON.stringify(spec, null, 2));
+  const ast = await openapiTS(spec);
+  const ts = COMMENT_HEADER + astToString(ast);
+  await fs.promises.writeFile(path.join(dir, 'core.d.ts'), ts);
+  console.log(`Saved spec to ${jsonPath}`);
+}
+
+async function fetchVersion(token: string, cfg: Config, path: string): Promise<string> {
+  const url = `${cfg.edaUrl.replace(/\/$/, '')}${path}`;
+  const data = await fetchJson(url, token, cfg);
+  const full = (data?.eda?.version as string | undefined) ?? 'unknown';
+  const match = full.match(/^([^-]+)/);
+  return match ? match[1] : full;
 }
 
 async function fetchAdminToken(cfg: Config): Promise<string> {
@@ -138,8 +201,8 @@ async function authenticate(cfg: Config): Promise<string> {
   return data.access_token as string;
 }
 
-async function fetchNamespaces(token: string, cfg: Config): Promise<NamespaceGetResponse> {
-  const url = `${cfg.edaUrl.replace(/\/$/, '')}/core/access/v1/namespaces`;
+async function fetchNamespaces(token: string, cfg: Config, path: string): Promise<NamespaceGetResponse> {
+  const url = `${cfg.edaUrl.replace(/\/$/, '')}${path}`;
   const headers = { Authorization: `Bearer ${token}` };
   const agent = cfg.skipTlsVerify ? new Agent({ connect: { rejectUnauthorized: false } }) : undefined;
   console.log('GET', url);
@@ -158,9 +221,10 @@ async function startNamespaceStream(
   client: string,
   token: string,
   cfg: Config,
+  path: string,
 ): Promise<void> {
   const url =
-    `${cfg.edaUrl.replace(/\/$/, '')}/core/access/v1/namespaces` +
+    `${cfg.edaUrl.replace(/\/$/, '')}${path}` +
     `?eventclient=${encodeURIComponent(client)}` +
     `&stream=namespaces`;
 
@@ -208,7 +272,7 @@ async function startNamespaceStream(
   }
 }
 
-function connectWebSocket(token: string, cfg: Config): void {
+function connectWebSocket(token: string, cfg: Config, namespacesPath: string): void {
   const base = new URL(cfg.edaUrl);
   const wsUrl = `wss://${base.host}/events`;
 
@@ -247,7 +311,7 @@ function connectWebSocket(token: string, cfg: Config): void {
           eventClient = client;
           console.log('[WS] eventclient id =', eventClient);
           // kick off the HTTP stream once we have the id
-          void startNamespaceStream(eventClient, token, cfg);
+          void startNamespaceStream(eventClient, token, cfg, namespacesPath);
         }
       } catch {/* ignore non-JSON frames */}
     }
@@ -259,9 +323,20 @@ function connectWebSocket(token: string, cfg: Config): void {
 async function main() {
   const cfg = await loadConfig();
   const token = await authenticate(cfg);
-  const namespaces = await fetchNamespaces(token, cfg);
+  const apiRoot = await fetchOpenApiRoot(token, cfg);
+  const corePathEntry = Object.entries<any>(apiRoot.paths ?? {}).find(([p]) => /\/core$/.test(p));
+  if (!corePathEntry) {
+    throw new Error('core API path not found');
+  }
+  const coreUrl = `${cfg.edaUrl.replace(/\/$/, '')}${corePathEntry[1].serverRelativeURL}`;
+  const coreSpec = await fetchJson(coreUrl, token, cfg);
+  const namespacesPath = findPathByOperationId(coreSpec, 'accessGetNamespaces');
+  const versionPath = findPathByOperationId(coreSpec, 'versionGet');
+  const version = await fetchVersion(token, cfg, versionPath);
+  await writeSpecAndTypes(coreSpec, version);
+  const namespaces = await fetchNamespaces(token, cfg, namespacesPath);
   console.log('Initial namespaces:', JSON.stringify(namespaces));
-  connectWebSocket(token, cfg);
+  connectWebSocket(token, cfg, namespacesPath);
 }
 
 main().catch(err => {
