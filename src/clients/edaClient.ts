@@ -661,6 +661,24 @@ export class EdaClient {
     return names;
   }
 
+  /** Get stream names grouped by API source (e.g. netbox) */
+  public async getStreamGroups(): Promise<Record<string, string[]>> {
+    await this.initPromise;
+    const groups: Record<string, Set<string>> = {};
+    for (const ep of this.streamEndpoints) {
+      const { name } = this.parseApiPath(ep.path);
+      if (!groups[name]) {
+        groups[name] = new Set();
+      }
+      groups[name].add(ep.stream);
+    }
+    const result: Record<string, string[]> = {};
+    for (const [name, set] of Object.entries(groups)) {
+      result[name] = Array.from(set).sort();
+    }
+    return result;
+  }
+
   /** Fetch a resource YAML using EDA API */
   public async getEdaResourceYaml(kind: string, name: string, namespace: string): Promise<string> {
     const plural = kind.toLowerCase() + 's';
