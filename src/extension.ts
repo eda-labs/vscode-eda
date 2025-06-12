@@ -3,7 +3,7 @@ import { KubernetesClient } from './clients/kubernetesClient';
 import { EdaClient } from './clients/edaClient';
 import { serviceManager } from './services/serviceManager';
 // import { ResourceService } from './services/resourceService';
-// import { ResourceStatusService } from './services/resourceStatusService';
+import { ResourceStatusService } from './services/resourceStatusService';
 import { EdaNamespaceProvider } from './providers/views/namespaceProvider';
 // import { EdaAlarmProvider } from './providers/views/alarmProvider';
 import { EdaDeviationProvider } from './providers/views/deviationProvider';
@@ -137,7 +137,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // 2) Optionally register them in your ServiceManager
     serviceManager.registerClient('edactl', edactlClient);
-  //   serviceManager.registerClient('kubernetes', k8sClient);
+    serviceManager.registerClient('kubernetes', k8sClient);
 
   //   // 3) Let k8sClient know about edactlClient so it can call it
   //   k8sClient.setEdaClient(edactlClient);
@@ -150,8 +150,9 @@ export async function activate(context: vscode.ExtensionContext) {
   //   const resourceService = new ResourceService(k8sClient);
   //   serviceManager.registerService('kubernetes-resources', resourceService);
 
-  //   const resourceStatusService = new ResourceStatusService(k8sClient);
-  //   serviceManager.registerService('resource-status', resourceStatusService);
+    const resourceStatusService = new ResourceStatusService(k8sClient);
+    serviceManager.registerService('resource-status', resourceStatusService);
+    void resourceStatusService.initialize(context);
 
   //   const schemaProviderService = new SchemaProviderService(k8sClient);
   //   serviceManager.registerService('schema-provider', schemaProviderService);

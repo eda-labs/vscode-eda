@@ -413,15 +413,24 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       return [item];
     }
     const items: TreeItemBase[] = [];
-    for (const [name] of Array.from(map.entries()).sort()) {
+    for (const [name, resource] of Array.from(map.entries()).sort()) {
       const ti = new TreeItemBase(
         name,
         vscode.TreeItemCollapsibleState.None,
-        'stream-item'
+        'stream-item',
+        resource
       );
       ti.namespace = namespace;
       ti.resourceType = stream;
       ti.streamGroup = streamGroup;
+      if (resource && this.statusService) {
+        const indicator = this.statusService.getResourceStatusIndicator(resource);
+        const desc = this.statusService.getStatusDescription(resource);
+        ti.iconPath = this.statusService.getStatusIcon(indicator);
+        ti.description = desc;
+        ti.tooltip = this.statusService.getResourceTooltip(resource);
+        ti.status = { indicator, description: desc };
+      }
       items.push(ti);
     }
     return items;
