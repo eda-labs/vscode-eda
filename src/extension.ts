@@ -6,8 +6,8 @@ import { serviceManager } from './services/serviceManager';
 import { ResourceStatusService } from './services/resourceStatusService';
 import { EdaNamespaceProvider } from './providers/views/namespaceProvider';
 // import { EdaAlarmProvider } from './providers/views/alarmProvider';
-import { EdaDeviationProvider } from './providers/views/deviationProvider';
-import { EdaTransactionProvider } from './providers/views/transactionProvider';
+// import { EdaDeviationProvider } from './providers/views/deviationProvider';
+// import { EdaTransactionProvider } from './providers/views/transactionProvider';
 import { AlarmDetailsDocumentProvider } from './providers/documents/alarmDetailsProvider';
 import { DeviationDetailsDocumentProvider } from './providers/documents/deviationDetailsProvider';
 import { TransactionDetailsDocumentProvider } from './providers/documents/transactionDetailsProvider';
@@ -43,8 +43,8 @@ export enum LogLevel {
 }
 /* eslint-enable no-unused-vars */
 
-export let edaDeviationProvider: EdaDeviationProvider;
-export let edaTransactionProvider: EdaTransactionProvider;
+// export let edaDeviationProvider: EdaDeviationProvider;
+// export let edaTransactionProvider: EdaTransactionProvider;
 export let alarmDetailsProvider: AlarmDetailsDocumentProvider;
 export let deviationDetailsProvider: DeviationDetailsDocumentProvider;
 export let transactionDetailsProvider: TransactionDetailsDocumentProvider;

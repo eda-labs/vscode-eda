@@ -45,14 +45,6 @@ interface NamespaceGetResponse {
   namespaces?: NamespaceData[];
 }
 
-interface TransactionSummaryResults {
-  results?: any[];
-}
-
-interface TransactionDetails {
-  [key: string]: any;
-}
-
 interface StreamEndpoint {
   path: string;
   stream: string;
@@ -567,19 +559,6 @@ export class EdaClient {
     }
   }
 
-  /** Get accessible EDA namespaces */
-  public async getEdaNamespaces(): Promise<string[]> {
-    await this.initPromise;
-    if (this.namespaceSet.size > 0) {
-      return Array.from(this.namespaceSet);
-    }
-    const data = await this.fetchJSON<NamespaceGetResponse>('/core/access/v1/namespaces');
-    const list = data.namespaces || [];
-    this.namespaceSet = new Set(list.map(n => n.name || '').filter(n => n));
-    log(`Fetched namespaces: ${Array.from(this.namespaceSet).join(', ')}`, LogLevel.DEBUG);
-    return Array.from(this.namespaceSet);
-  }
-
   /**
    * Stream accessible namespaces over WebSocket.
    * @param onNamespaces Callback invoked with the list of namespace names.
@@ -591,88 +570,6 @@ export class EdaClient {
     this.activeStreams.add('namespaces');
     log('Started to stream endpoint namespaces', LogLevel.DEBUG);
     await this.connectEventSocket();
-  }
-
-  /**
-   * Stream alarms over WebSocket.
-   * @param onAlarms Callback invoked with the list of alarms.
-   */
-  // eslint-disable-next-line no-unused-vars
-  public async streamEdaAlarms(onAlarms: (_list: any[]) => void): Promise<void> {
-    this.callbacks.alarms = onAlarms;
-    this.activeStreams.add('alarms');
-    log('Started to stream endpoint alarms', LogLevel.DEBUG);
-    await this.connectEventSocket();
-  }
-
-  /** Close any open alarm stream */
-  public closeAlarmStream(): void {
-    delete this.callbacks.alarms;
-    this.activeStreams.delete('alarms');
-  }
-
-  /** Stream deviations over WebSocket */
-  public async streamEdaDeviations(
-    onDeviations: DeviationCallback,
-    _namespace = 'default'
-  ): Promise<void> {
-    void _namespace;
-    this.callbacks.deviations = onDeviations;
-    this.activeStreams.add('deviations');
-    log('Started to stream endpoint deviations', LogLevel.DEBUG);
-    await this.connectEventSocket();
-  }
-
-  /** Close any open deviation stream */
-  public closeDeviationStream(): void {
-    delete this.callbacks.deviations;
-    this.activeStreams.delete('deviations');
-  }
-
-  /** Stream transactions over WebSocket */
-  public async streamEdaTransactions(
-    onTransactions: TransactionCallback
-  ): Promise<void> {
-    this.callbacks.transactions = onTransactions;
-    this.activeStreams.add('transactions');
-    log('Started to stream endpoint transactions', LogLevel.DEBUG);
-    await this.connectEventSocket();
-  }
-
-  /** Close any open transaction stream */
-  public closeTransactionStream(): void {
-    delete this.callbacks.transactions;
-    this.activeStreams.delete('transactions');
-  }
-
-  /** Get recent transactions */
-  public async getEdaTransactions(size = 50): Promise<any[]> {
-    const path = `/core/transaction/v1/resultsummary?size=${size}`;
-    const data = await this.fetchJSON<TransactionSummaryResults>(path);
-    return (data.results as any[]) || [];
-  }
-  /** Get details for a transaction */
-  public async getTransactionDetails(id: string): Promise<string> {
-    const data = await this.fetchJSON<TransactionDetails>(`/core/transaction/v1/details/${id}`);
-    return JSON.stringify(data, null, 2);
-  }
-
-  /** Get current alarms */
-  public async getEdaAlarms(): Promise<any[]> {
-    const data = await this.fetchJSON<any[]>('/core/alarm/v2/alarms');
-    return data as any[];
-  }
-
-  /** Get alarm details by id */
-  public async getAlarmDetails(id: string): Promise<string> {
-    const alarm = (await this.getEdaAlarms()).find(a => a.name === id);
-    return alarm ? JSON.stringify(alarm, null, 2) : 'Not found';
-  }
-
-  /** Get deviations within a namespace */
-  public async getEdaDeviations(namespace = 'default'): Promise<any[]> {
-    const data = await this.fetchJSON<any>(`/apps/core.eda.nokia.com/v1/namespaces/${namespace}/deviations`);
-    return data.items || [];
   }
 
   /** Get unique stream names discovered from the API */

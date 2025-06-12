@@ -50,7 +50,6 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
     }
 
     this.setupEventListeners();
-    void this.updateNamespaces();
     void this.loadStreams();
 
     void this.edactlClient.streamEdaNamespaces(ns => {
@@ -77,30 +76,6 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
         log(msg, LogLevel.DEBUG);
         this.refresh();
       });
-    }
-    if (this.k8sClient) {
-      this.k8sClient.onNamespacesChanged(() => {
-        void this.updateNamespaces();
-        this.refresh();
-      });
-    }
-  }
-
-  /**
-   * Update cached namespaces from the Kubernetes client
-   */
-  private async updateNamespaces(): Promise<void> {
-    try {
-      const namespaces = await this.edactlClient.getEdaNamespaces();
-      if (!arraysEqual(this.cachedNamespaces, namespaces)) {
-        log(
-          `Namespaces changed from [${this.cachedNamespaces.join(', ')}] to [${namespaces.join(', ')}]`,
-          LogLevel.DEBUG
-        );
-        this.cachedNamespaces = namespaces;
-      }
-    } catch (err) {
-      log(`Failed to update namespaces: ${err}`, LogLevel.ERROR);
     }
   }
 
@@ -354,46 +329,6 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
     }
     return items;
   }
-
-  /**
-   * Resource categories under each namespace: "EDA Resources" and "Kubernetes Resources"
-   */
-  // private getResourceCategories(namespace: string): TreeItemBase[] {
-  //   return [];
-  // }
-
-  /**
-   * EDA vs. k8s resource "types" under the category
-   */
-  // private getResourcesForCategory(namespace: string, category: string): TreeItemBase[] {
-  //   return [];
-  // }
-
-  /**
-   * Build EDA resource type nodes (CRD kinds)
-   */
-  // private getEdaResourceTypes(namespace: string): TreeItemBase[] {
-  //   return [];
-  // }
-
-  /**
-   * Build standard K8s resource type nodes
-   */
-  // private getK8sResourceTypes(namespace: string): TreeItemBase[] {
-  //   return [];
-  // }
-
-  /**
-   * Build resource instance items for the chosen resource-type
-   */
-  // private getResourceInstances(
-  //   namespace: string,
-  //   resourceType: string,
-  //   category: string,
-  //   crdInfo: any
-  // ): TreeItemBase[] {
-  //   return [];
-  // }
 
   /** Handle incoming stream messages and cache items */
   private processStreamMessage(stream: string, msg: any): void {
