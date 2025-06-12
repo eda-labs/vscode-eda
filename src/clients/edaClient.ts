@@ -429,7 +429,11 @@ export class EdaClient {
 
   private async connectEventSocket(): Promise<void> {
     await this.authPromise;
-    if (this.eventSocket && this.eventSocket.readyState === WebSocket.OPEN) {
+    if (
+      this.eventSocket &&
+      (this.eventSocket.readyState === WebSocket.OPEN ||
+        this.eventSocket.readyState === WebSocket.CONNECTING)
+    ) {
       return;
     }
 
@@ -542,8 +546,13 @@ export class EdaClient {
       } else if ('items' in msg && this.callbacks.deviations) {
         const items = Array.isArray(msg.items) ? msg.items : [];
         this.callbacks.deviations(items);
-      } else if (Array.isArray(msg) && this.callbacks.alarms) {
-        this.callbacks.alarms(msg);
+      } else if (
+        msg.stream === 'alarms' &&
+        Array.isArray(msg.msg?.rows) &&
+        this.callbacks.alarms
+      ) {
+        const rows = msg.msg.rows.map((r: any) => r.update || r).filter((r: any) => r);
+        this.callbacks.alarms(rows);
       }
       if (msg.stream) {
         for (const cb of this.streamCallbacks) {
@@ -570,6 +579,21 @@ export class EdaClient {
     this.activeStreams.add('namespaces');
     log('Started to stream endpoint namespaces', LogLevel.DEBUG);
     await this.connectEventSocket();
+  }
+
+  /** Stream alarms over WebSocket */
+  public async streamEdaAlarms(onAlarms: AlarmCallback): Promise<void> {
+    await this.initPromise;
+    this.callbacks.alarms = onAlarms;
+    this.activeStreams.add('alarms');
+    log('Started to stream endpoint alarms', LogLevel.DEBUG);
+    await this.connectEventSocket();
+  }
+
+  /** Stop streaming alarms */
+  public closeAlarmStream(): void {
+    this.callbacks.alarms = undefined;
+    this.activeStreams.delete('alarms');
   }
 
   /** Get unique stream names discovered from the API */
