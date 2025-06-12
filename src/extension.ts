@@ -202,6 +202,26 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  // Allow the user to filter the namespace tree
+  context.subscriptions.push(
+    vscode.commands.registerCommand('vscode-eda.filterTree', async () => {
+      const filterText = await vscode.window.showInputBox({
+        prompt: 'Filter resources by text',
+        placeHolder: 'Enter filter text'
+      });
+      if (filterText !== undefined) {
+        namespaceProvider.setTreeFilter(filterText.trim());
+      }
+    })
+  );
+
+  // Clear any active tree filter
+  context.subscriptions.push(
+    vscode.commands.registerCommand('vscode-eda.clearFilter', () => {
+      namespaceProvider.clearTreeFilter();
+    })
+  );
+
   //   context.subscriptions.push(namespaceTreeView);
   //   context.subscriptions.push(alarmTreeView, { dispose: () => alarmProvider.dispose() });
   //   context.subscriptions.push(deviationTreeView, { dispose: () => edaDeviationProvider.dispose() });

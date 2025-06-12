@@ -154,6 +154,50 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   }
 
   /**
+   * Determine if a stream should be shown based on the current filter.
+   * Matches on the stream name or any of its items.
+   */
+  private streamMatches(namespace: string, stream: string): boolean {
+    if (!this.treeFilter) {
+      return true;
+    }
+    if (stream.toLowerCase().includes(this.treeFilter)) {
+      return true;
+    }
+    const key = `${stream}:${namespace}`;
+    const map = this.streamData.get(key);
+    if (!map) {
+      return false;
+    }
+    for (const name of map.keys()) {
+      if (name.toLowerCase().includes(this.treeFilter)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Determine if a stream group should be shown based on the current filter.
+   * Matches on the group name or any streams/items within it.
+   */
+  private groupMatches(namespace: string, group: string): boolean {
+    if (!this.treeFilter) {
+      return true;
+    }
+    if (group.toLowerCase().includes(this.treeFilter)) {
+      return true;
+    }
+    const streams = this.cachedStreamGroups[group] || [];
+    for (const stream of streams) {
+      if (this.streamMatches(namespace, stream)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Implementation of TreeDataProvider: get a tree item
    */
   getTreeItem(element: TreeItemBase): vscode.TreeItem {
@@ -257,7 +301,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
     }
 
     const items = groups
-      .filter(g => !this.treeFilter || g.toLowerCase().includes(this.treeFilter))
+      .filter(g => this.groupMatches(namespace, g))
       .map(g => {
         const ti = new TreeItemBase(
           g,
@@ -286,7 +330,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   private getStreamsForGroup(namespace: string, group: string): TreeItemBase[] {
     const streams = this.cachedStreamGroups[group] || [];
     const items = streams
-      .filter(s => !this.treeFilter || s.toLowerCase().includes(this.treeFilter))
+      .filter(s => this.streamMatches(namespace, s))
       .map(s => {
         const ti = new TreeItemBase(
           s,
@@ -414,6 +458,9 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
     }
     const items: TreeItemBase[] = [];
     for (const [name, resource] of Array.from(map.entries()).sort()) {
+      if (this.treeFilter && !name.toLowerCase().includes(this.treeFilter)) {
+        continue;
+      }
       const ti = new TreeItemBase(
         name,
         vscode.TreeItemCollapsibleState.None,
@@ -433,6 +480,17 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       }
       items.push(ti);
     }
+
+    if (items.length === 0 && this.treeFilter) {
+      const noItem = new TreeItemBase(
+        `No items match "${this.treeFilter}"`,
+        vscode.TreeItemCollapsibleState.None,
+        'message'
+      );
+      noItem.iconPath = new vscode.ThemeIcon('info');
+      return [noItem];
+    }
+
     return items;
   }
 }
