@@ -441,7 +441,15 @@ export class EdaClient {
     socket.on('open', () => {
       log('Event WebSocket connected', LogLevel.DEBUG);
       log(`Started streaming on ${this.streamEndpoints.length} nodes`, LogLevel.INFO);
-      for (const stream of this.activeStreams) {
+
+      // Ensure we request updates for every discovered stream
+      const allStreams = new Set<string>([
+        ...this.activeStreams,
+        ...this.streamEndpoints.map(e => e.stream),
+      ]);
+      this.activeStreams = allStreams;
+
+      for (const stream of allStreams) {
         log(`Started to stream endpoint ${stream}`, LogLevel.DEBUG);
         socket.send(JSON.stringify({ type: 'next', stream }));
       }
@@ -498,6 +506,9 @@ export class EdaClient {
     log(`WS message: ${data}`, LogLevel.DEBUG);
     try {
       const msg = JSON.parse(data);
+      if (msg.type && msg.stream) {
+        log(`Stream ${msg.stream} event received`, LogLevel.DEBUG);
+      }
       if (
         msg.type === 'update' &&
         msg.stream === 'namespaces' &&
