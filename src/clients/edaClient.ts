@@ -72,6 +72,7 @@ export class EdaClient {
   private apiVersion = 'unknown';
   private streamEndpoints: StreamEndpoint[] = [];
   private namespaceSet: Set<string> = new Set();
+  private currentAlarmMap: Map<number, any> = new Map();
   private skipTlsVerify = false;
   private activeStreams: Set<string> = new Set();
   private callbacks: {
@@ -427,6 +428,60 @@ export class EdaClient {
     }
   }
 
+  /** Start the EQL current alarm stream */
+  private async startCurrentAlarmStream(client: string): Promise<void> {
+    const query = '.namespace.alarms.v1.current-alarm';
+    // Reset local alarm cache whenever we (re)start the stream
+    this.currentAlarmMap.clear();
+    const url =
+      `${this.baseUrl}/core/query/v1/eql` +
+      `?eventclient=${encodeURIComponent(client)}` +
+      `&stream=current-alarms` +
+      `&query=${encodeURIComponent(query)}`;
+
+    let res: any;
+    try {
+      res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          Accept: 'text/event-stream',
+        },
+        dispatcher: this.agent,
+      });
+    } catch (err) {
+      log(`[STREAM] request failed ${err}`, LogLevel.ERROR);
+      return;
+    }
+
+    if (!res.ok || !res.body) {
+      log(`[STREAM] failed ${url}: HTTP ${res.status}`, LogLevel.ERROR);
+      return;
+    }
+    log(`[STREAM] connected → ${url}`, LogLevel.DEBUG);
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) {
+        log('[STREAM] ended', LogLevel.DEBUG);
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+
+      let nl;
+      while ((nl = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, nl).trim();
+        buffer = buffer.slice(nl + 1);
+        if (!line) continue;
+        this.handleEventMessage(line);
+      }
+    }
+  }
+
   private async connectEventSocket(): Promise<void> {
     await this.authPromise;
     if (
@@ -454,7 +509,9 @@ export class EdaClient {
       // Ensure we request updates for every discovered stream
       const allStreams = new Set<string>([
         ...this.activeStreams,
-        ...this.streamEndpoints.map(e => e.stream),
+        ...this.streamEndpoints
+          .map(e => e.stream)
+          .filter(s => s !== 'alarms'),
       ]);
       this.activeStreams = allStreams;
 
@@ -482,7 +539,11 @@ export class EdaClient {
             this.eventClient = client;
             log(`WS eventclient id = ${this.eventClient}`, LogLevel.DEBUG);
             for (const ep of this.streamEndpoints) {
+              if (ep.stream === 'alarms') continue;
               void this.startStream(this.eventClient, ep);
+            }
+            if (this.activeStreams.has('current-alarms')) {
+              void this.startCurrentAlarmStream(this.eventClient);
             }
           }
         } catch {
@@ -547,12 +608,34 @@ export class EdaClient {
         const items = Array.isArray(msg.items) ? msg.items : [];
         this.callbacks.deviations(items);
       } else if (
-        msg.stream === 'alarms' &&
-        Array.isArray(msg.msg?.rows) &&
+        msg.stream === 'current-alarms' &&
+        Array.isArray(msg.msg?.op) &&
         this.callbacks.alarms
       ) {
-        const rows = msg.msg.rows.map((r: any) => r.update || r).filter((r: any) => r);
-        this.callbacks.alarms(rows);
+        const ops: any[] = msg.msg.op;
+        let changed = false;
+        for (const op of ops) {
+          if (op.delete && Array.isArray(op.delete.ids)) {
+            for (const id of op.delete.ids) {
+              if (this.currentAlarmMap.delete(id)) {
+                changed = true;
+              }
+            }
+          } else if (
+            op.insert_or_modify &&
+            Array.isArray(op.insert_or_modify.rows)
+          ) {
+            for (const row of op.insert_or_modify.rows) {
+              if (row && row.id !== undefined) {
+                this.currentAlarmMap.set(row.id, row.data || row);
+                changed = true;
+              }
+            }
+          }
+        }
+        if (changed && this.callbacks.alarms) {
+          this.callbacks.alarms(Array.from(this.currentAlarmMap.values()));
+        }
       }
       if (msg.stream) {
         for (const cb of this.streamCallbacks) {
@@ -585,16 +668,18 @@ export class EdaClient {
   public async streamEdaAlarms(onAlarms: AlarmCallback): Promise<void> {
     await this.initPromise;
     this.callbacks.alarms = onAlarms;
-    this.activeStreams.add('alarms');
-    log('Started to stream endpoint alarms', LogLevel.DEBUG);
+    // Replace the legacy "alarms" stream with the EQL current alarms stream
+    this.activeStreams.add('current-alarms');
+    log('Started to stream endpoint current-alarms', LogLevel.DEBUG);
     await this.connectEventSocket();
   }
 
   /** Stop streaming alarms */
   public closeAlarmStream(): void {
     this.callbacks.alarms = undefined;
-    this.activeStreams.delete('alarms');
+    this.activeStreams.delete('current-alarms');
   }
+
 
   /** Get unique stream names discovered from the API */
   public async getStreamNames(): Promise<string[]> {

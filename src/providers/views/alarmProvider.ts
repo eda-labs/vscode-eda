@@ -19,15 +19,9 @@ export class EdaAlarmProvider implements vscode.TreeDataProvider<TreeItemBase> {
     this.edactlClient = serviceManager.getClient<EdaClient>('edactl');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
 
-    void this.edactlClient.streamEdaAlarms(events => {
-      log(`Alarm stream provided ${events.length} events`, LogLevel.DEBUG);
-      for (const ev of events) {
-        const alarm = ev.update ?? ev;
-        if (!alarm || !alarm.name) {
-          continue;
-        }
-        this.alarms.set(alarm.name, alarm);
-      }
+    void this.edactlClient.streamEdaAlarms(alarms => {
+      log(`Alarm stream provided ${alarms.length} alarms`, LogLevel.DEBUG);
+      this.alarms = new Map(alarms.map(a => [a.name, a]));
       this.refresh();
     });
   }
