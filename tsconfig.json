@@ -19,5 +19,5 @@
     "esModuleInterop": true,
     "skipLibCheck": true
   },
-  "exclude": ["node_modules", ".vscode-test", "docs", "vscode-kubernetes-tools", "javascript"]
+  "exclude": ["node_modules", ".vscode-test", "docs", "vscode-kubernetes-tools", "javascript" ,"spec_example"]
 }

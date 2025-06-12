@@ -4,6 +4,7 @@ import { LogLevel, log } from '../extension';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { TextDecoder } from 'util';
 import openapiTS, { astToString, COMMENT_HEADER } from 'openapi-typescript';
 
 // eslint-disable-next-line no-unused-vars
@@ -71,6 +72,7 @@ export class EdaClient {
   private clientSecret?: string;
   private agent: Agent | undefined;
   private eventSocket: WebSocket | undefined;
+  private eventClient: string | undefined;
   private keepAliveTimer: ReturnType<typeof setInterval> | undefined;
   private initPromise: Promise<void> = Promise.resolve();
   private apiVersion = 'unknown';
@@ -371,6 +373,55 @@ export class EdaClient {
     }
   }
 
+  private async startStream(client: string, endpoint: StreamEndpoint): Promise<void> {
+    const url =
+      `${this.baseUrl}${endpoint.path}` +
+      `?eventclient=${encodeURIComponent(client)}` +
+      `&stream=${encodeURIComponent(endpoint.stream)}`;
+
+    let res: any;
+    try {
+      res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          Accept: 'text/event-stream',
+        },
+        dispatcher: this.agent,
+      });
+    } catch (err) {
+      log(`[STREAM] request failed ${err}`, LogLevel.ERROR);
+      return;
+    }
+
+    if (!res.ok || !res.body) {
+      log(`[STREAM] failed ${url}: HTTP ${res.status}`, LogLevel.ERROR);
+      return;
+    }
+    log(`[STREAM] connected → ${url}`, LogLevel.DEBUG);
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) {
+        log('[STREAM] ended', LogLevel.DEBUG);
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+
+      let nl;
+      while ((nl = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, nl).trim();
+        buffer = buffer.slice(nl + 1);
+        if (!line) continue;
+        this.handleEventMessage(line);
+      }
+    }
+  }
+
   private async connectEventSocket(): Promise<void> {
     await this.authPromise;
     if (this.eventSocket && this.eventSocket.readyState === WebSocket.OPEN) {
@@ -405,11 +456,28 @@ export class EdaClient {
     });
 
     socket.on('message', data => {
-      this.handleEventMessage(data.toString());
+      const txt = data.toString();
+      if (!this.eventClient) {
+        try {
+          const obj = JSON.parse(txt);
+          const client = obj?.msg?.client as string | undefined;
+          if (obj.type === 'register' && client) {
+            this.eventClient = client;
+            log(`WS eventclient id = ${this.eventClient}`, LogLevel.DEBUG);
+            for (const ep of this.streamEndpoints) {
+              void this.startStream(this.eventClient, ep);
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      this.handleEventMessage(txt);
     });
 
     const reconnect = () => {
       this.eventSocket = undefined;
+      this.eventClient = undefined;
       if (this.keepAliveTimer) {
         clearInterval(this.keepAliveTimer);
         this.keepAliveTimer = undefined;
