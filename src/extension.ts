@@ -14,6 +14,7 @@ import { TransactionDetailsDocumentProvider } from './providers/documents/transa
 // import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 // import { ResourceEditDocumentProvider } from './providers/documents/resourceEditProvider';
 import { ResourceViewDocumentProvider } from './providers/documents/resourceViewProvider';
+import { SchemaProviderService } from './services/schemaProviderService';
 
 import { registerResourceViewCommands } from './commands/resourceViewCommands';
 
@@ -164,16 +165,9 @@ export async function activate(context: vscode.ExtensionContext) {
     );
     registerResourceViewCommands(context, resourceViewProvider);
 
-  //   const schemaProviderService = new SchemaProviderService(k8sClient);
-  //   serviceManager.registerService('schema-provider', schemaProviderService);
-
-  //   // Heavy initialization continues in the background
-  //   void Promise.all([
-  //     resourceStatusService.initialize(context),
-  //     schemaProviderService.initialize(context)
-  //   ]).catch(err => {
-  //     log(`Background initialization failed: ${err}`, LogLevel.ERROR, true);
-  //   });
+    const schemaProviderService = new SchemaProviderService();
+    serviceManager.registerService('schema-provider', schemaProviderService);
+    await schemaProviderService.initialize(context);
 
   //   const namespaceProvider = new EdaNamespaceProvider();
   //   const namespaceTreeView = vscode.window.createTreeView('edaNamespaces', {
