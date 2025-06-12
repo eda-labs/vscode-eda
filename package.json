@@ -482,10 +482,10 @@
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.32.1",
     "utf-8-validate": "^6.0.5",
-    "webpack": "^5.99.7",
-    "webpack-cli": "^6.0.1"
+    "webpack": "^5.99.7"
   },
   "dependencies": {
+    "webpack-cli": "^6.0.1",
     "@types/sinon": "^17.0.4",
     "@types/sinon-chai": "^4.0.0",
     "@vscode/vsce": "^3.4.2",
@@ -495,5 +495,8 @@
     "undici": "^7.10.0",
     "undici-types": "^7.10.0",
     "ws": "^8.18.2"
-  }
+  },
+  "bundledDependencies": [
+    "openapi-typescript"
+  ]
 }
