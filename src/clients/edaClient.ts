@@ -57,6 +57,8 @@ interface StreamEndpoint {
   path: string;
   stream: string;
 }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars, no-unused-vars
+type StreamCallback = (stream: string, msg: any) => void;
 
 export class EdaClient {
   private baseUrl: string;
@@ -86,10 +88,21 @@ export class EdaClient {
     deviations?: DeviationCallback;
     transactions?: TransactionCallback;
   } = {};
+  private streamCallbacks: Set<StreamCallback> = new Set();
   private messageIntervalMs = 500;
 
   private get wsHeaders(): Record<string, string> {
     return { Authorization: `Bearer ${this.token}` };
+  }
+
+  /** Register a callback for any stream message */
+  public onStreamMessage(cb: StreamCallback): void {
+    this.streamCallbacks.add(cb);
+  }
+
+  /** Unregister a previously registered stream callback */
+  public offStreamMessage(cb: StreamCallback): void {
+    this.streamCallbacks.delete(cb);
   }
 
   constructor(baseUrl: string, opts: EdaClientOptions = {}) {
@@ -539,6 +552,15 @@ export class EdaClient {
         this.callbacks.deviations(items);
       } else if (Array.isArray(msg) && this.callbacks.alarms) {
         this.callbacks.alarms(msg);
+      }
+      if (msg.stream) {
+        for (const cb of this.streamCallbacks) {
+          try {
+            cb(msg.stream, msg);
+          } catch (err) {
+            log(`Stream callback error: ${err}`, LogLevel.ERROR);
+          }
+        }
       }
     } catch (err) {
       log(`Failed to parse event message: ${err}`, LogLevel.ERROR);

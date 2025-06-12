@@ -29,6 +29,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   private _refreshDebounceTimer: ReturnType<typeof setTimeout> | undefined;
   private cachedNamespaces: string[] = [];
   private cachedStreamGroups: Record<string, string[]> = {};
+  private streamData: Map<string, Map<string, any>> = new Map();
 
   constructor() {
     try {
@@ -58,6 +59,10 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
         this.cachedNamespaces = ns;
         this.refresh();
       }
+    });
+
+    this.edactlClient.onStreamMessage((stream, msg) => {
+      this.processStreamMessage(stream, msg);
     });
   }
 
@@ -166,6 +171,8 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       return this.getStreamGroups(element.label as string);
     } else if (element.contextValue === 'stream-group') {
       return this.getStreamsForGroup(element.namespace!, element.streamGroup!);
+    } else if (element.contextValue === 'stream') {
+      return this.getItemsForStream(element.namespace!, element.label as string, element.streamGroup);
     }
     return [];
   }
@@ -182,6 +189,9 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
     } else if (element.contextValue === 'stream') {
       const groups = this.getStreamGroups(element.namespace!);
       return groups.find(g => g.streamGroup === element.streamGroup);
+    } else if (element.contextValue === 'stream-item') {
+      const streams = this.getStreamsForGroup(element.namespace!, element.streamGroup!);
+      return streams.find(s => s.label === element.resourceType);
     }
     return null;
   }
@@ -280,7 +290,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       .map(s => {
         const ti = new TreeItemBase(
           s,
-          vscode.TreeItemCollapsibleState.None,
+          vscode.TreeItemCollapsibleState.Collapsed,
           'stream'
         );
         ti.iconPath = new vscode.ThemeIcon('symbol-event');
@@ -691,6 +701,82 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       }
     }
 
+    return items;
+  }
+
+  /** Handle incoming stream messages and cache items */
+  private processStreamMessage(stream: string, msg: any): void {
+    const updates = Array.isArray(msg.msg?.updates) ? msg.msg.updates : [];
+    if (updates.length === 0) {
+      return;
+    }
+    for (const up of updates) {
+      const { name, namespace } = this.extractNames(up);
+      if (!namespace || !name) {
+        continue;
+      }
+      const key = `${stream}:${namespace}`;
+      let map = this.streamData.get(key);
+      if (!map) {
+        map = new Map();
+        this.streamData.set(key, map);
+      }
+      if (up.data === null) {
+        map.delete(name);
+      } else {
+        map.set(name, up.data);
+      }
+    }
+    this.refresh();
+  }
+
+  /** Extract name and namespace from a stream update */
+  private extractNames(update: any): { name?: string; namespace?: string } {
+    let name = update.data?.metadata?.name;
+    let namespace = update.data?.metadata?.namespace;
+    if (!name && update.key) {
+      const matches = String(update.key).match(/\.name=="([^"]+)"/g);
+      if (matches && matches.length > 0) {
+        const last = matches[matches.length - 1].match(/\.name=="([^"]+)"/);
+        if (last) {
+          name = last[1];
+        }
+      }
+    }
+    if (!namespace && update.key) {
+      const nsMatch = String(update.key).match(/namespace\{\.name=="([^"]+)"\}/);
+      if (nsMatch) {
+        namespace = nsMatch[1];
+      }
+    }
+    return { name, namespace };
+  }
+
+  /** Build items for a specific stream */
+  private getItemsForStream(namespace: string, stream: string, streamGroup?: string): TreeItemBase[] {
+    const key = `${stream}:${namespace}`;
+    const map = this.streamData.get(key);
+    if (!map || map.size === 0) {
+      const item = new TreeItemBase(
+        'No Items',
+        vscode.TreeItemCollapsibleState.None,
+        'message'
+      );
+      item.iconPath = new vscode.ThemeIcon('info');
+      return [item];
+    }
+    const items: TreeItemBase[] = [];
+    for (const [name] of Array.from(map.entries()).sort()) {
+      const ti = new TreeItemBase(
+        name,
+        vscode.TreeItemCollapsibleState.None,
+        'stream-item'
+      );
+      ti.namespace = namespace;
+      ti.resourceType = stream;
+      ti.streamGroup = streamGroup;
+      items.push(ti);
+    }
     return items;
   }
 }
