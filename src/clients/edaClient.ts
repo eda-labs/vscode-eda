@@ -642,6 +642,14 @@ export class EdaClient {
     return data.items || [];
   }
 
+  /** Get unique stream names discovered from the API */
+  public async getStreamNames(): Promise<string[]> {
+    await this.initPromise;
+    const names = Array.from(new Set(this.streamEndpoints.map(e => e.stream)));
+    names.sort();
+    return names;
+  }
+
   /** Fetch a resource YAML using EDA API */
   public async getEdaResourceYaml(kind: string, name: string, namespace: string): Promise<string> {
     const plural = kind.toLowerCase() + 's';

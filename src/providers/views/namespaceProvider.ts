@@ -28,6 +28,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
 
   private _refreshDebounceTimer: ReturnType<typeof setTimeout> | undefined;
   private cachedNamespaces: string[] = [];
+  private cachedStreams: string[] = [];
 
   constructor() {
     try {
@@ -49,6 +50,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
 
     this.setupEventListeners();
     void this.updateNamespaces();
+    void this.loadStreams();
 
     void this.edactlClient.streamEdaNamespaces(ns => {
       log(`Namespace stream provided ${ns.length} namespaces`, LogLevel.DEBUG);
@@ -94,6 +96,15 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       }
     } catch (err) {
       log(`Failed to update namespaces: ${err}`, LogLevel.ERROR);
+    }
+  }
+
+  private async loadStreams(): Promise<void> {
+    try {
+      this.cachedStreams = await this.edactlClient.getStreamNames();
+      log(`Discovered streams: ${this.cachedStreams.join(', ')}`, LogLevel.DEBUG);
+    } catch (err) {
+      log(`Failed to load streams: ${err}`, LogLevel.ERROR);
     }
   }
 
@@ -151,16 +162,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       // Root level: list EDA namespaces (unfiltered)
       return this.getNamespaces();
     } else if (element.contextValue === 'namespace') {
-      return this.getResourceCategories(element.label as string);
-    } else if (element.contextValue === 'resource-category') {
-      return this.getResourcesForCategory(element.namespace || '', element.resourceCategory || '');
-    } else if (element.contextValue === 'resource-type') {
-      return this.getResourceInstances(
-        element.namespace || '',
-        element.resourceType || '',
-        element.resourceCategory || '',
-        element.crdInfo
-      );
+      return this.getStreams(element.label as string);
     }
     return [];
   }
@@ -169,38 +171,12 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
    * Implementation of TreeDataProvider: gets the parent of a tree item
    */
   getParent(element: TreeItemBase): vscode.ProviderResult<TreeItemBase> {
-    // If element is namespace or a message, it's a root element, so no parent
     if (element.contextValue === 'namespace' || element.contextValue === 'message') {
       return null;
-    }
-    // If element is a resource category, its parent is the namespace
-    else if (element.contextValue === 'resource-category') {
-      // Find the namespace item that matches this element's namespace
+    } else if (element.contextValue === 'stream') {
       const namespaces = this.getNamespaces();
       return namespaces.find(ns => ns.label === element.namespace);
     }
-    // If element is a resource type, its parent is the resource category
-    else if (element.contextValue === 'resource-type') {
-      // Find the category that contains this resource type
-      const categories = this.getResourceCategories(element.namespace || '');
-      return categories.find(cat => cat.resourceCategory === element.resourceCategory);
-    }
-    // If element is a resource instance (pod, crd-instance, etc), its parent is the resource type
-    else if (element.contextValue === 'pod' || element.contextValue === 'crd-instance') {
-      const namespace = element.namespace || '';
-      const resourceType = element.resourceType || '';
-      const resourceCategory = element.resourceCategory || '';
-
-      // Find the appropriate parent resource type
-      if (resourceCategory === 'eda') {
-        const edaTypes = this.getEdaResourceTypes(namespace);
-        return edaTypes.find(type => type.resourceType === resourceType);
-      } else if (resourceCategory === 'k8s') {
-        const k8sTypes = this.getK8sResourceTypes(namespace);
-        return k8sTypes.find(type => type.resourceType === resourceType);
-      }
-    }
-
     return null;
   }
 
@@ -213,10 +189,9 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       if (namespace.contextValue === 'namespace') {
         await treeView.reveal(namespace, { expand: 1 });
 
-        // Then reveal categories under each namespace
-        const categories = await this.getChildren(namespace);
-        for (const category of categories) {
-          await treeView.reveal(category, { expand: 2 });
+        const streams = await this.getChildren(namespace);
+        for (const stream of streams) {
+          await treeView.reveal(stream, { expand: 2 });
         }
       }
     }
@@ -246,6 +221,43 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       treeItem.namespace = ns;
       return treeItem;
     });
+  }
+
+  /** Get stream items under a namespace */
+  private getStreams(namespace: string): TreeItemBase[] {
+    if (this.cachedStreams.length === 0) {
+      const item = new TreeItemBase(
+        'No streams found',
+        vscode.TreeItemCollapsibleState.None,
+        'message'
+      );
+      item.iconPath = new vscode.ThemeIcon('info');
+      return [item];
+    }
+
+    const items = this.cachedStreams
+      .filter(s => !this.treeFilter || s.toLowerCase().includes(this.treeFilter))
+      .map(s => {
+        const ti = new TreeItemBase(
+          s,
+          vscode.TreeItemCollapsibleState.None,
+          'stream'
+        );
+        ti.iconPath = new vscode.ThemeIcon('symbol-event');
+        ti.namespace = namespace;
+        return ti;
+      });
+
+    if (items.length === 0 && this.treeFilter) {
+      const noMatch = new TreeItemBase(
+        `No streams match "${this.treeFilter}"`,
+        vscode.TreeItemCollapsibleState.None,
+        'message'
+      );
+      noMatch.iconPath = new vscode.ThemeIcon('info');
+      return [noMatch];
+    }
+    return items;
   }
 
   /**
