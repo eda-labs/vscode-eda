@@ -11,7 +11,7 @@ import { EdaAlarmProvider } from './providers/views/alarmProvider';
 import { AlarmDetailsDocumentProvider } from './providers/documents/alarmDetailsProvider';
 import { DeviationDetailsDocumentProvider } from './providers/documents/deviationDetailsProvider';
 import { TransactionDetailsDocumentProvider } from './providers/documents/transactionDetailsProvider';
-// import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
+import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 // import { ResourceEditDocumentProvider } from './providers/documents/resourceEditProvider';
 import { ResourceViewDocumentProvider } from './providers/documents/resourceViewProvider';
 import { SchemaProviderService } from './services/schemaProviderService';
@@ -20,7 +20,7 @@ import { registerResourceViewCommands } from './commands/resourceViewCommands';
 
 // import { registerDeviationCommands } from './commands/deviationCommands';
 // import { registerTransactionCommands } from './commands/transactionCommands';
-// import { registerViewCommands } from './commands/viewCommands';
+import { registerViewCommands } from './commands/viewCommands';
 // import { registerResourceEditCommands } from './commands/resourceEditCommands';
 // import { registerResourceCreateCommand } from './commands/resourceCreateCommand';
 // import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand';
@@ -238,29 +238,29 @@ export async function activate(context: vscode.ExtensionContext) {
   //     })
   //   );
 
-  //   const crdFsProvider = new CrdDefinitionFileSystemProvider();
-  //   const transactionDetailsProviderLocal = new TransactionDetailsDocumentProvider();
-  //   const alarmDetailsProviderLocal = new AlarmDetailsDocumentProvider();
-  //   const deviationDetailsProviderLocal = new DeviationDetailsDocumentProvider();
+  const crdFsProvider = new CrdDefinitionFileSystemProvider();
+  const transactionDetailsProviderLocal = new TransactionDetailsDocumentProvider();
+  const alarmDetailsProviderLocal = new AlarmDetailsDocumentProvider();
+  const deviationDetailsProviderLocal = new DeviationDetailsDocumentProvider();
 
-  //   alarmDetailsProvider = alarmDetailsProviderLocal;
-  //   deviationDetailsProvider = deviationDetailsProviderLocal;
-  //   transactionDetailsProvider = transactionDetailsProviderLocal;
+  alarmDetailsProvider = alarmDetailsProviderLocal;
+  deviationDetailsProvider = deviationDetailsProviderLocal;
+  transactionDetailsProvider = transactionDetailsProviderLocal;
 
-  //   context.subscriptions.push(
-  //     vscode.workspace.registerFileSystemProvider('crd', crdFsProvider, { isCaseSensitive: true }),
-  //     vscode.workspace.registerFileSystemProvider('eda-transaction', transactionDetailsProviderLocal, { isCaseSensitive: true }),
-  //     vscode.workspace.registerFileSystemProvider('eda-alarm', alarmDetailsProviderLocal, { isCaseSensitive: true }),
-  //     vscode.workspace.registerFileSystemProvider('eda-deviation', deviationDetailsProviderLocal, { isCaseSensitive: true })
-  //   );
+  context.subscriptions.push(
+    vscode.workspace.registerFileSystemProvider('crd', crdFsProvider, { isCaseSensitive: true }),
+    vscode.workspace.registerFileSystemProvider('eda-transaction', transactionDetailsProviderLocal, { isCaseSensitive: true }),
+    vscode.workspace.registerFileSystemProvider('eda-alarm', alarmDetailsProviderLocal, { isCaseSensitive: true }),
+    vscode.workspace.registerFileSystemProvider('eda-deviation', deviationDetailsProviderLocal, { isCaseSensitive: true })
+  );
 
-  //   registerViewCommands(
-  //     context,
-  //     crdFsProvider,
-  //     transactionDetailsProviderLocal,
-  //     alarmDetailsProviderLocal,
-  //     deviationDetailsProviderLocal
-  //   );
+  registerViewCommands(
+    context,
+    crdFsProvider,
+    transactionDetailsProviderLocal,
+    alarmDetailsProviderLocal,
+    deviationDetailsProviderLocal
+  );
   //   registerDeviationCommands(context, edaDeviationProvider);
   //   registerTransactionCommands(context);
 
