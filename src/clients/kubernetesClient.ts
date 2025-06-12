@@ -1,7 +1,6 @@
 /* global NodeJS */
 import { fetch, Agent } from 'undici';
 /* global AbortController, TextDecoder */
-import { isDeepStrictEqual } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -49,20 +48,14 @@ export class KubernetesClient {
   private contexts: string[] = [];
 
   // Cached resources
-  private crdCache: any[] = [];
   private namespaceCache: any[] = [];
-  private resourceCache: Map<string, any[]> = new Map();
   private podCache: Map<string, any[]> = new Map();
   private deploymentCache: Map<string, any[]> = new Map();
   private serviceCache: Map<string, any[]> = new Map();
   private configMapCache: Map<string, any[]> = new Map();
   private secretCache: Map<string, any[]> = new Map();
 
-  // Optional edactl client for fetching EDA namespaces
-  private edactlClient: { getEdaNamespaces: () => Promise<string[]> } | undefined;
-
   // Active resource watchers
-  private activeWatchKeys: Set<string> = new Set();
   private watchControllers: AbortController[] = [];
 
   // Poll interval in milliseconds
@@ -92,12 +85,6 @@ export class KubernetesClient {
     this.loadKubeConfig();
   }
 
-  // Store reference to edactl client
-  public setEdaClient(client: any): void {
-    if (client && typeof client.getEdaNamespaces === 'function') {
-      this.edactlClient = client;
-    }
-  }
 
   private loadKubeConfig(): void {
     try {
@@ -152,9 +139,7 @@ export class KubernetesClient {
   public async switchContext(contextName: string): Promise<void> {
     if (this.contexts.includes(contextName)) {
       this.dispose();
-      this.crdCache = [];
       this.namespaceCache = [];
-      this.resourceCache.clear();
       this.podCache.clear();
       this.deploymentCache.clear();
       this.serviceCache.clear();
@@ -233,205 +218,12 @@ export class KubernetesClient {
     this.namespaceTimers.set(namespace, arr);
   }
 
-  private startResourceWatchers(): void {
-    for (const crd of this.crdCache) {
-      const group = crd.spec?.group || '';
-      const version = crd.spec?.versions?.find((v: any) => v.served)?.name || crd.spec?.versions?.[0]?.name || 'v1';
-      const plural = crd.spec?.names?.plural || '';
-      const namespaced = crd.spec?.scope === 'Namespaced';
-      const kind = crd.spec?.names?.kind || '';
-
-      if (!group || !version || !plural) {
-        continue;
-      }
-
-      if (namespaced) {
-        for (const nsObj of this.namespaceCache) {
-          const ns = nsObj.metadata?.name;
-          if (!ns) continue;
-          const key = `${group}|${version}|${plural}|${ns}`;
-          const path = `/apis/${group}/${version}/namespaces/${ns}/${plural}`;
-          this.startResourceWatcher(path, key, kind);
-        }
-      } else {
-        const key = `${group}|${version}|${plural}|`;
-        const path = `/apis/${group}/${version}/${plural}`;
-        this.startResourceWatcher(path, key, kind);
-      }
-    }
-  }
-
-  private startResourceWatcher(
-    path: string,
-    key: string,
-    kind: string
-  ): void {
-    if (this.activeWatchKeys.has(key)) {
-      return;
-    }
-    this.activeWatchKeys.add(key);
-    const controller = new AbortController();
-    this.watchControllers.push(controller);
-
-    const run = async () => {
-      let resourceVersion = '';
-      while (!controller.signal.aborted) {
-        try {
-          let url = `${this.server}${path}?watch=true&allowWatchBookmarks=true`;
-          if (resourceVersion) {
-            url += `&resourceVersion=${resourceVersion}`;
-          }
-
-          const headers: Record<string, string> = { Accept: 'application/json' };
-          if (this.token) {
-            headers['Authorization'] = `Bearer ${this.token}`;
-          }
-
-          const res = await fetch(url, {
-            headers,
-            dispatcher: this.agent,
-            signal: controller.signal
-          });
-
-          if (!res.ok || !res.body) {
-            throw new Error(`HTTP ${res.status}`);
-          }
-
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = '';
-
-          while (!controller.signal.aborted) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const parts = buffer.split('\n');
-            buffer = parts.pop() || '';
-            for (const part of parts) {
-              if (!part.trim()) continue;
-              try {
-                const evt = JSON.parse(part);
-                resourceVersion = evt.object?.metadata?.resourceVersion || resourceVersion;
-                const items = this.resourceCache.get(key) || [];
-                const uid = evt.object?.metadata?.uid;
-                if (!uid) continue;
-                const idx = items.findIndex(i => i.metadata?.uid === uid);
-                if (evt.type === 'DELETED') {
-                  if (idx >= 0) items.splice(idx, 1);
-                } else {
-                  if (idx >= 0) items[idx] = evt.object;
-                  else items.push(evt.object);
-                }
-                this.resourceCache.set(key, items);
-                this._onResourceChanged.fire();
-                if (kind === 'Deviation') {
-                  this._onDeviationChanged.fire();
-                } else if (kind === 'TransactionResult') {
-                  this._onTransactionChanged.fire();
-                }
-              } catch (err) {
-                log(`Error processing watch event for ${path}: ${err}`, LogLevel.ERROR);
-              }
-            }
-          }
-        } catch (err) {
-          if (!controller.signal.aborted) {
-            log(`Watch failed for ${path}: ${err}`, LogLevel.ERROR);
-            await new Promise(res => setTimeout(res, this.pollInterval));
-          }
-        }
-      }
-    };
-
-    void run();
-  }
-
-  private async refreshCustomResources(filterKinds?: string[]): Promise<void> {
-    let resourceChanged = false;
-    let deviationChanged = false;
-    let transactionChanged = false;
-    for (const crd of this.crdCache) {
-      const kind = crd.spec?.names?.kind;
-      if (filterKinds && (!kind || !filterKinds.includes(kind))) {
-        continue;
-      }
-      const group = crd.spec?.group || '';
-      const version = crd.spec?.versions?.find((v: any) => v.served)?.name || crd.spec?.versions?.[0]?.name || 'v1';
-      const plural = crd.spec?.names?.plural || '';
-      const namespaced = crd.spec?.scope === 'Namespaced';
-      if (!group || !version || !plural) {
-        continue;
-      }
-      if (namespaced) {
-        for (const nsObj of this.namespaceCache) {
-          const ns = nsObj.metadata?.name;
-          if (!ns) continue;
-          const key = `${group}|${version}|${plural}|${ns}`;
-          try {
-            const res = await this.fetchJSON(`/apis/${group}/${version}/namespaces/${ns}/${plural}`);
-            const items = res.items || [];
-            const prev = this.resourceCache.get(key) || [];
-            if (!isDeepStrictEqual(prev, items)) {
-              this.resourceCache.set(key, items);
-              resourceChanged = true;
-              const kind = crd.spec?.names?.kind;
-              if (kind === 'Deviation') {
-                deviationChanged = true;
-              } else if (kind === 'TransactionResult') {
-                transactionChanged = true;
-              }
-            }
-          } catch (err) {
-            log(`Failed to refresh ${plural} in namespace ${ns}: ${err}`, LogLevel.ERROR);
-          }
-        }
-      } else {
-        const key = `${group}|${version}|${plural}|`;
-        try {
-          const res = await this.fetchJSON(`/apis/${group}/${version}/${plural}`);
-          const items = res.items || [];
-          const prev = this.resourceCache.get(key) || [];
-          if (!isDeepStrictEqual(prev, items)) {
-            this.resourceCache.set(key, items);
-            resourceChanged = true;
-            const kind = crd.spec?.names?.kind;
-            if (kind === 'Deviation') {
-              deviationChanged = true;
-            } else if (kind === 'TransactionResult') {
-              transactionChanged = true;
-            }
-          }
-        } catch (err) {
-          log(`Failed to refresh ${plural}: ${err}`, LogLevel.ERROR);
-        }
-      }
-    }
-    if (resourceChanged) {
-      this._onResourceChanged.fire();
-    }
-    if (deviationChanged) {
-      this._onDeviationChanged.fire();
-    }
-    if (transactionChanged) {
-      this._onTransactionChanged.fire();
-    }
-  }
 
   private async refreshNamespaces(): Promise<void> {
     const allNamespaces = await this.listNamespaces();
     const allNames = allNamespaces.map((n: any) => n.metadata?.name).filter((n: any) => !!n);
-    let edaNames: string[] | undefined;
-    if (this.edactlClient) {
-      try {
-        edaNames = await this.edactlClient.getEdaNamespaces();
-      } catch (err) {
-        log(`Failed to fetch EDA namespaces: ${err}`, LogLevel.WARN);
-      }
-    }
-    const names = edaNames ? allNames.filter(n => edaNames!.includes(n)) : allNames;
-    const namespaces = edaNames
-      ? allNamespaces.filter(n => edaNames!.includes(n.metadata?.name))
-      : allNamespaces;
+    const names = allNames;
+    const namespaces = allNamespaces;
     const old = this.namespaceCache.map((n: any) => n.metadata?.name).filter((n: any) => !!n);
     this.namespaceCache = namespaces;
     for (const ns of names) {
@@ -460,7 +252,6 @@ export class KubernetesClient {
     if (JSON.stringify(names) !== JSON.stringify(old)) {
       this._onNamespacesChanged.fire();
       this._onResourceChanged.fire();
-      this.startResourceWatchers();
     }
   }
 
@@ -485,20 +276,6 @@ export class KubernetesClient {
     }
   }
 
-  private async preloadKnownResources(): Promise<void> {
-    try {
-      if (this.crdCache.length === 0) {
-        this.crdCache = await this.listCustomResourceDefinitions();
-      }
-
-      await Promise.all([
-        this.refreshCustomResources(['Deviation', 'TransactionResult']),
-        this.preloadNamespaceResources()
-      ]);
-    } catch (err) {
-      log(`Failed to preload known resources: ${err}`, LogLevel.WARN);
-    }
-  }
 
   private startNamespaceWatcher(): void {
     const controller = new AbortController();
@@ -565,23 +342,12 @@ export class KubernetesClient {
 
   public async startWatchers(): Promise<void> {
     try {
-      this.startGlobalPoller(async () => {
-        this.crdCache = await this.listCustomResourceDefinitions();
-        await this.refreshCustomResources();
-        this.startResourceWatchers();
-      });
-
       await this.refreshNamespaces();
-      void this.preloadKnownResources();
+      await this.preloadNamespaceResources();
       this.startNamespaceWatcher();
     } catch (err) {
       log(`Failed to start watchers: ${err}`, LogLevel.ERROR);
     }
-  }
-
-  public async listCustomResourceDefinitions(): Promise<any[]> {
-    const data = await this.fetchJSON('/apis/apiextensions.k8s.io/v1/customresourcedefinitions');
-    return data.items || [];
   }
 
   public async listNamespaces(): Promise<any[]> {
@@ -589,25 +355,16 @@ export class KubernetesClient {
     return data.items || [];
   }
 
-  public async listClusterCustomObject(group: string, version: string, plural: string): Promise<{ items: any[] }> {
-    return this.fetchJSON(`/apis/${group}/${version}/${plural}`);
-  }
-
-  public async listNamespacedCustomObject(group: string, version: string, namespace: string, plural: string): Promise<{ items: any[] }> {
-    return this.fetchJSON(`/apis/${group}/${version}/namespaces/${namespace}/${plural}`);
-  }
-
   public getCachedCrds(): any[] {
-    return this.crdCache;
+    return [];
   }
 
   public getCachedNamespaces(): any[] {
     return this.namespaceCache;
   }
 
-  public getCachedResources(group = '', version = '', plural = '', ns = ''): any[] {
-    const key = `${group}|${version}|${plural}|${ns}`;
-    return this.resourceCache.get(key) || [];
+  public getCachedResources(): any[] {
+    return [];
   }
 
   public getCachedPods(ns: string): any[] {
@@ -640,7 +397,6 @@ export class KubernetesClient {
       c.abort();
     }
     this.watchControllers = [];
-    this.activeWatchKeys.clear();
     this._onResourceChanged.dispose();
     this._onDeviationChanged.dispose();
     this._onTransactionChanged.dispose();

@@ -78,11 +78,6 @@
         "icon": "$(database-stop)"
       },
       {
-        "command": "vscode-eda.refreshSchemas",
-        "title": "Refresh CRD Schemas",
-        "icon": "$(symbol-enum)"
-      },
-      {
         "command": "vscode-eda.showTransactionDetails",
         "title": "Show Transaction Details"
       },
@@ -152,11 +147,6 @@
         "icon": "$(expand-all)"
       },
       {
-        "command": "vscode-eda.createResource",
-        "title": "Create Resource",
-        "icon": "$(add)"
-      },
-      {
         "command": "vscode-eda.deleteResource",
         "title": "Delete Resource",
         "icon": "$(trash)"
@@ -219,11 +209,6 @@
           "command": "vscode-eda.clearFilter",
           "when": "view == edaNamespaces || view == edaSystem",
           "group": "navigation@2"
-        },
-        {
-          "command": "vscode-eda.createResource",
-          "when": "view == edaNamespaces || view == edaSystem",
-          "group": "navigation@3"
         },
         {
           "command": "vscode-eda.expandAllNamespaces",
@@ -491,12 +476,9 @@
     "@vscode/vsce": "^3.4.2",
     "handlebars": "^4.7.8",
     "js-yaml": "^4.1.0",
-    "openapi-typescript": "^7.8.0",
     "undici": "^7.10.0",
     "undici-types": "^7.10.0",
     "ws": "^8.18.2"
   },
-  "bundledDependencies": [
-    "openapi-typescript"
-  ]
+  "bundledDependencies": []
 }

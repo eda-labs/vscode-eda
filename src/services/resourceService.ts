@@ -2,8 +2,6 @@ import * as vscode from 'vscode';
 import { CoreService } from './coreService';
 import { KubernetesClient } from '../clients/kubernetesClient';
 import { log, LogLevel } from '../extension';
-import { serviceManager } from './serviceManager';
-import { ResourceStatusService } from './resourceStatusService';
 
 interface ResourceDefinition {
   namespaced?: boolean;
@@ -32,7 +30,6 @@ export class ResourceService extends CoreService {
   private cachedResourceResults: ResourceResult[] = [];
   private lastRefreshTime: number = 0;
   private resourcesInitialized: boolean = false;
-  private lastCrdCount: number = 0;
 
   private pendingRefreshTimeout: ReturnType<typeof setTimeout> | null = null;
   private isRefreshing: boolean = false;
@@ -96,99 +93,16 @@ export class ResourceService extends CoreService {
       this.isRefreshing = true;
       log('Refreshing cached resources...', LogLevel.DEBUG);
 
-      // Get namespaces
+      // Update namespaces
       this.namespaceCache = this.k8sClient
         .getCachedNamespaces()
         .map(n => n.metadata?.name)
-        .filter(name => !!name) as string[]; // remove duplicates if needed
+        .filter(name => !!name) as string[];
 
-      // Get CRDs from cache
-      const crds = this.k8sClient.getCachedCrds().filter(crd => {
-        const group = crd.spec?.group || '';
-        return !group.endsWith('k8s.io');
-      });
-
-      // Reload status schemas only if CRD count changed
-      const statusService = serviceManager.getService<ResourceStatusService>('resource-status');
-      if (crds.length !== this.lastCrdCount) {
-        await statusService.refreshStatusSchemas();
-        this.lastCrdCount = crds.length;
-      }
-
-      // Process CRDs to build resource results
-      const newResults: ResourceResult[] = [];
-
-      for (const crd of crds) {
-        const group = crd.spec?.group || '';
-        if (!group || group.endsWith('k8s.io')) {
-          continue;
-        }
-
-        const versionObj = crd.spec?.versions?.find((v: any) => v.served) || crd.spec?.versions?.[0];
-        if (!versionObj) {
-          continue;
-        }
-
-        const version = versionObj.name;
-        const plural = crd.spec?.names?.plural || '';
-        const kind = crd.spec?.names?.kind || '';
-
-        if (!plural || !kind) {
-          continue;
-        }
-
-        // Create resource definition
-        const rd: ResourceDefinition = {
-          name: crd.metadata?.name || '',
-          kind: kind,
-          namespaced: crd.spec?.scope === 'Namespaced',
-          plural: plural,
-          apiGroup: group,
-          apiVersion: version
-        };
-
-        // Get instances from cache
-        let instances: any[] = [];
-
-        if (rd.namespaced) {
-          // For namespaced resources, get instances from each namespace
-          for (const ns of this.namespaceCache) {
-            const nsInstances = this.k8sClient.getCachedResources(group, version, plural, ns);
-            instances = [...instances, ...nsInstances];
-          }
-        } else {
-          // For cluster-wide resources, get all instances
-          instances = this.k8sClient.getCachedResources(group, version, plural);
-        }
-
-        newResults.push({ resource: rd, instances });
-      }
-
-      // Check if anything has changed before updating
-      const summary = this.getResourceChangeSummary(
-        this.cachedResourceResults,
-        newResults
-      );
-      const details = this.getResourceChangeDetails(
-        this.cachedResourceResults,
-        newResults
-      );
-
-      if (summary) {
-        log(
-          `Resource changes detected${summary ? ` (${summary})` : ''}, updating cache and notifying listeners`,
-          LogLevel.DEBUG
-        );
-        if (details) {
-          log(`Changed resources: ${details}`, LogLevel.DEBUG);
-        }
-        this.cachedResourceResults = newResults;
-        this.lastRefreshTime = now;
-        this._onDidChangeResources.fire(summary);
-      } else {
-        log(`No resource changes detected, keeping existing cache`, LogLevel.DEBUG);
-        this.lastRefreshTime = now;
-      }
+      // Reset resource results
+      this.cachedResourceResults = [];
+      this.lastRefreshTime = now;
+      this._onDidChangeResources.fire(undefined);
     } catch (error) {
       log(`Error refreshing cached resources: ${error}`, LogLevel.ERROR);
     } finally {
@@ -384,12 +298,6 @@ export class ResourceService extends CoreService {
     return details.slice(0, 10).join(', ');
   }
 
-  /**
-   * Get all CRDs from cache
-   */
-  public getAllCrds(): ResourceDefinition[] {
-    return this.cachedResourceResults.map(result => result.resource);
-  }
 
   /**
    * Get (and cache) the namespaces, filtered by ALLOWED_NAMESPACES
@@ -402,7 +310,7 @@ export class ResourceService extends CoreService {
    * Get all resource instances from cache
    */
   public getAllResourceInstances(): ResourceResult[] {
-    return this.cachedResourceResults;
+    return [];
   }
 
   /**

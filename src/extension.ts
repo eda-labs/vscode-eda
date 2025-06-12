@@ -4,7 +4,6 @@ import { EdaClient } from './clients/edaClient';
 import { serviceManager } from './services/serviceManager';
 // import { ResourceService } from './services/resourceService';
 // import { ResourceStatusService } from './services/resourceStatusService';
-// import { SchemaProviderService } from './services/schemaProviderService';
 import { EdaNamespaceProvider } from './providers/views/namespaceProvider';
 // import { EdaAlarmProvider } from './providers/views/alarmProvider';
 import { EdaDeviationProvider } from './providers/views/deviationProvider';

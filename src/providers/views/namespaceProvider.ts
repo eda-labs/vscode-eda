@@ -314,395 +314,42 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   /**
    * Resource categories under each namespace: "EDA Resources" and "Kubernetes Resources"
    */
-  private getResourceCategories(namespace: string): TreeItemBase[] {
-    if (!this.resourceService) {
-      return [];
-    }
-    const allResources = this.resourceService.getAllResourceInstances();
-    const hasEdaResources = allResources.some(r => {
-      const group = r.resource.apiGroup || '';
-      return !group.endsWith('k8s.io');
-    });
-
-    const categories = [
-      {
-        id: 'eda',
-        label: hasEdaResources ? 'EDA Resources' : 'EDA Resources (init)',
-        icon: 'zap'
-      },
-      { id: 'k8s', label: 'Kubernetes Resources', icon: 'symbol-namespace' }
-    ];
-
-    // Build items, but filter them if no match
-    const result: TreeItemBase[] = [];
-
-    for (const cat of categories) {
-      const catLabel = cat.label.toLowerCase();
-      const catMatches = this.treeFilter && catLabel.includes(this.treeFilter); // <-- NEW
-
-      // Make a node for the category
-      const treeItem = new TreeItemBase(
-        cat.label,
-        this.expandAll ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
-        'resource-category'
-      );
-      treeItem.iconPath = new vscode.ThemeIcon(cat.icon);
-      treeItem.namespace = namespace;
-      treeItem.resourceCategory = cat.id;
-
-      if (!this.treeFilter) {
-        // No filter => keep all categories
-        result.push(treeItem);
-      } else {
-        if (catMatches) {
-          // Category label matched => show entire category
-          result.push(treeItem);
-        } else {
-          // Otherwise, only show if the sub-resources have some match
-          const resourceTypes = this.getResourcesForCategory(namespace, cat.id);
-          if (resourceTypes.length > 0) {
-            result.push(treeItem);
-          }
-        }
-      }
-    }
-
-    // If after filtering we have none, show a "no matches" item
-    if (result.length === 0 && this.treeFilter) {
-      const noMatchItem = new TreeItemBase(
-        `No categories match "${this.treeFilter}"`,
-        this.expandAll ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
-        'message'
-      );
-      noMatchItem.iconPath = new vscode.ThemeIcon('info');
-      return [noMatchItem];
-    }
-
-    return result;
-  }
+  // private getResourceCategories(namespace: string): TreeItemBase[] {
+  //   return [];
+  // }
 
   /**
    * EDA vs. k8s resource "types" under the category
    */
-  private getResourcesForCategory(namespace: string, category: string): TreeItemBase[] {
-    if (category === 'eda' && !this.resourceService) {
-      return [];
-    }
-    if (category === 'k8s' && !this.k8sClient) {
-      return [];
-    }
-    try {
-      if (category === 'eda') {
-        return this.getEdaResourceTypes(namespace);
-      } else if (category === 'k8s') {
-        return this.getK8sResourceTypes(namespace);
-      }
-      return [];
-    } catch (error) {
-      log(`Error getting resource types for category ${category}: ${error}`, LogLevel.ERROR);
-      const errorItem = new TreeItemBase(
-        'Error loading resources',
-        this.expandAll ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
-        'error'
-      );
-      errorItem.iconPath = new vscode.ThemeIcon('error');
-      errorItem.tooltip = String(error);
-      return [errorItem];
-    }
-  }
+  // private getResourcesForCategory(namespace: string, category: string): TreeItemBase[] {
+  //   return [];
+  // }
 
   /**
    * Build EDA resource type nodes (CRD kinds)
    */
-  private getEdaResourceTypes(namespace: string): TreeItemBase[] {
-    if (!this.resourceService) {
-      return [];
-    }
-    const allResources = this.resourceService.getAllResourceInstances(); // from ResourceService
-    // We only want CRDs that are not standard k8s (i.e. group doesn't end with k8s.io)
-    const edaRes = allResources.filter(r => {
-      const group = r.resource.apiGroup || '';
-      return !group.endsWith('k8s.io');
-    });
-
-    if (edaRes.length === 0 && !this.treeFilter) {
-      const msgItem = new TreeItemBase(
-        'No EDA CRDs found',
-        vscode.TreeItemCollapsibleState.None,
-        'message'
-      );
-      msgItem.iconPath = new vscode.ThemeIcon('info');
-      return [msgItem];
-    }
-
-    const items: TreeItemBase[] = [];
-
-    for (const r of edaRes) {
-      const { kind, apiGroup, apiVersion, plural, namespaced } = r.resource;
-      if (!kind) continue;
-
-      // Filter to ensure there's at least one instance in this namespace
-      let inst = r.instances;
-      if (namespaced) {
-        inst = inst.filter(i => i.metadata?.namespace === namespace);
-      }
-      if (inst.length === 0) continue;
-
-      const label = kind;
-
-      // We handle name-based filtering of children in getResourceInstances,
-      // so the resource type nodes are always created here.
-      const treeItem = new TreeItemBase(
-        label,
-        this.expandAll ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
-        'resource-type'
-      );
-      treeItem.iconPath = new vscode.ThemeIcon('symbol-class');
-      treeItem.namespace = namespace;
-      treeItem.resourceType = kind.toLowerCase();
-      treeItem.resourceCategory = 'eda';
-      treeItem.crdInfo = {
-        group: apiGroup,
-        version: apiVersion,
-        plural: plural,
-        namespaced: namespaced
-      };
-
-      items.push(treeItem);
-    }
-
-    // If there's a filter, remove resource types that end up with zero matching children
-    if (this.treeFilter) {
-      const filteredItems = items.filter(typeItem => {
-        // if resource-type label matches => keep it
-        const typeLabel = typeItem.label.toString().toLowerCase();
-        if (typeLabel.includes(this.treeFilter)) return true;
-
-        // otherwise see if at least one child instance name matches
-        const children = this.getResourceInstances(
-          typeItem.namespace!,
-          typeItem.resourceType!,
-          typeItem.resourceCategory!,
-          typeItem.crdInfo
-        );
-        return (children.length > 0);
-      });
-      return filteredItems;
-    }
-
-    return items;
-  }
+  // private getEdaResourceTypes(namespace: string): TreeItemBase[] {
+  //   return [];
+  // }
 
   /**
    * Build standard K8s resource type nodes
    */
-  private getK8sResourceTypes(namespace: string): TreeItemBase[] {
-    if (!this.k8sClient) {
-      return [];
-    }
-    const k8sClient = this.k8sClient!;
-    const k8sResourceTypes = [
-      {
-        kind: 'Pod',
-        icon: 'vm',
-        plural: 'pods',
-        getResources: () => k8sClient.getCachedPods(namespace)
-      },
-      {
-        kind: 'Deployment',
-        icon: 'rocket',
-        plural: 'deployments',
-        getResources: () => k8sClient.getCachedDeployments(namespace)
-      },
-      {
-        kind: 'Service',
-        icon: 'globe',
-        plural: 'services',
-        getResources: () => k8sClient.getCachedServices(namespace)
-      },
-      {
-        kind: 'ConfigMap',
-        icon: 'file-binary',
-        plural: 'configmaps',
-        getResources: () => k8sClient.getCachedConfigMaps(namespace)
-      },
-      {
-        kind: 'Secret',
-        icon: 'lock',
-        plural: 'secrets',
-        getResources: () => k8sClient.getCachedSecrets(namespace)
-      }
-    ];
-
-    const items: TreeItemBase[] = [];
-
-    for (const rt of k8sResourceTypes) {
-      const resources = rt.getResources() || [];
-      if (resources.length === 0) continue;
-
-      const label = rt.kind;
-      const treeItem = new TreeItemBase(
-        label,
-        this.expandAll ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
-        'resource-type'
-      );
-      treeItem.iconPath = new vscode.ThemeIcon(rt.icon);
-      treeItem.namespace = namespace;
-      treeItem.resourceType = rt.kind.toLowerCase();
-      treeItem.resourceCategory = 'k8s';
-      treeItem.crdInfo = {
-        group: '',
-        version: 'v1',
-        plural: rt.plural,
-        namespaced: true
-      };
-
-      items.push(treeItem);
-    }
-
-    // Apply a filter if set
-    if (this.treeFilter) {
-      const filteredItems = items.filter(typeItem => {
-        const lbl = typeItem.label.toString().toLowerCase();
-        if (lbl.includes(this.treeFilter)) {
-          return true;
-        } else {
-          // see if any child matches the filter by name
-          const childInstances = this.getResourceInstances(
-            typeItem.namespace!,
-            typeItem.resourceType!,
-            'k8s',
-            typeItem.crdInfo
-          );
-          return childInstances.length > 0;
-        }
-      });
-      return filteredItems;
-    }
-
-    return items;
-  }
+  // private getK8sResourceTypes(namespace: string): TreeItemBase[] {
+  //   return [];
+  // }
 
   /**
    * Build resource instance items for the chosen resource-type
    */
-  private getResourceInstances(
-    namespace: string,
-    resourceType: string,
-    category: string,
-    crdInfo: any
-  ): TreeItemBase[] {
-    let instances: any[] = [];
-
-    // EDA CRDs
-    if (category === 'eda' && crdInfo) {
-      if (!this.resourceService) {
-        return [];
-      }
-      // find the matching CRD in the ResourceService
-      const all = this.resourceService.getAllResourceInstances();
-      for (const r of all) {
-        const rd = r.resource;
-        if (
-          rd.kind?.toLowerCase() === resourceType &&
-          rd.apiGroup === crdInfo.group &&
-          rd.plural === crdInfo.plural
-        ) {
-          instances = r.instances;
-          if (rd.namespaced) {
-            instances = instances.filter(i => i.metadata?.namespace === namespace);
-          }
-          break;
-        }
-      }
-    }
-    // K8s resources
-    else if (category === 'k8s') {
-      if (!this.k8sClient) {
-        return [];
-      }
-      switch (resourceType) {
-        case 'pod':
-          instances = this.k8sClient.getCachedPods(namespace);
-          break;
-        case 'deployment':
-          instances = this.k8sClient.getCachedDeployments(namespace);
-          break;
-        case 'service':
-          instances = this.k8sClient.getCachedServices(namespace);
-          break;
-        case 'configmap':
-          instances = this.k8sClient.getCachedConfigMaps(namespace);
-          break;
-        case 'secret':
-          instances = this.k8sClient.getCachedSecrets(namespace);
-          break;
-      }
-    }
-
-    if (!instances || instances.length === 0) {
-      return [];
-    }
-
-    const items = instances.map(inst => {
-      const name = inst.metadata?.name || 'unnamed';
-      const contextValue = (resourceType === 'pod') ? 'pod' :
-                    (resourceType === 'deployment' && category === 'k8s') ?
-                    'k8s-deployment-instance' : 'crd-instance';
-
-      const treeItem = new TreeItemBase(
-        name,
-        this.expandAll ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
-        contextValue,
-        inst
-      );
-
-      // Get status
-      if (this.statusService) {
-        const statusIndicator = this.statusService.getResourceStatusIndicator(inst);
-        const statusDescription = this.statusService.getStatusDescription(inst);
-        treeItem.setStatus(statusIndicator, statusDescription);
-
-        try {
-          // Custom status icon if available
-          treeItem.iconPath = this.statusService.getStatusIcon(statusIndicator);
-        } catch {
-          // fallback if not found
-          treeItem.iconPath = this.statusService.getThemeStatusIcon(statusIndicator);
-        }
-        treeItem.tooltip = this.statusService.getResourceTooltip(inst);
-      }
-
-      treeItem.namespace = namespace;
-      treeItem.resourceType = resourceType;
-
-      // Command
-      treeItem.command = {
-        command: resourceType === 'pod'
-          ? 'vscode-eda.describePod'
-          : 'vscode-eda.viewResource',
-        title: 'View Resource Details',
-        arguments: [treeItem]
-      };
-
-      return treeItem;
-    });
-
-    // If parent's label didn't match, we filter instances by name
-    if (this.treeFilter) {
-      // We have to check if the parent's resource-type name matched already.
-      // We'll just do a direct re-check here:
-      const parentTypeMatches = resourceType.toLowerCase().includes(this.treeFilter);
-
-      if (!parentTypeMatches) {
-        return items.filter(it =>
-          it.label.toLowerCase().includes(this.treeFilter)
-        );
-      }
-    }
-
-    return items;
-  }
+  // private getResourceInstances(
+  //   namespace: string,
+  //   resourceType: string,
+  //   category: string,
+  //   crdInfo: any
+  // ): TreeItemBase[] {
+  //   return [];
+  // }
 
   /** Handle incoming stream messages and cache items */
   private processStreamMessage(stream: string, msg: any): void {

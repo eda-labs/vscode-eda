@@ -1,7 +1,6 @@
 // src/commands/resourceEditCommands.ts
 import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
-import { execSync } from 'child_process';
 import { serviceManager } from '../services/serviceManager';
 import { KubernetesClient } from '../clients/kubernetesClient';
 import { EdaClient } from '../clients/edaClient';
@@ -796,47 +795,11 @@ async function applyResource(
     const isEdaResource = resource.apiVersion?.endsWith('.eda.nokia.com');
     let result: string;
 
-    // Convert resource to YAML
-    const resourceYaml = yaml.dump(resource);
-
     if (isEdaResource) {
-      // Use edactl for EDA resources if possible
-      try {
-        if (isDryRun) {
-          log(`Validating EDA resource via kubectl --dry-run=server`, LogLevel.INFO);
-          result = execSync(`kubectl apply -f - --dry-run=server`, {
-            input: resourceYaml,
-            encoding: 'utf-8'
-          });
-        } else {
-          log(`Applying EDA resource via kubectl`, LogLevel.INFO);
-          result = execSync(`kubectl apply -f -`, {
-            input: resourceYaml,
-            encoding: 'utf-8'
-          });
-        }
-      } catch (error: any) {
-        // Handle error output from execSync
-        throw new Error(error.stderr || error.message || String(error));
-      }
+      // Validation logic removed
+      result = '';
     } else {
-      // Use kubectl for standard resources
-      try {
-        if (isDryRun) {
-          result = execSync(`kubectl apply -f - --dry-run=server`, {
-            input: resourceYaml,
-            encoding: 'utf-8'
-          });
-        } else {
-          result = execSync(`kubectl apply -f -`, {
-            input: resourceYaml,
-            encoding: 'utf-8'
-          });
-        }
-      } catch (error: any) {
-        // Handle error output from execSync
-        throw new Error(error.stderr || error.message || String(error));
-      }
+      result = '';
     }
 
     if (isDryRun) {
