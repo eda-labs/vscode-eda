@@ -186,6 +186,11 @@
         "command": "vscode-eda.restoreTransaction",
         "title": "Restore Transaction",
         "icon": "$(debug-step-back)"
+      },
+      {
+        "command": "vscode-eda.viewStreamItem",
+        "title": "View Stream Item",
+        "icon": "$(file)"
       }
     ],
     "menus": {
@@ -273,6 +278,11 @@
           "group": "inline"
         },
         {
+          "command": "vscode-eda.viewStreamItem",
+          "when": "viewItem == stream-item",
+          "group": "inline"
+        },
+        {
           "command": "vscode-eda.showCRDDefinition",
           "when": "viewItem == crd-instance",
           "group": "inline"
@@ -280,6 +290,11 @@
         {
           "command": "vscode-eda.showCRDDefinition",
           "when": "viewItem == crd-instance",
+          "group": "navigation"
+        },
+        {
+          "command": "vscode-eda.viewStreamItem",
+          "when": "viewItem == stream-item",
           "group": "navigation"
         },
         {

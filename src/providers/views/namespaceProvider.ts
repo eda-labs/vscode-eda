@@ -470,6 +470,12 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       ti.namespace = namespace;
       ti.resourceType = stream;
       ti.streamGroup = streamGroup;
+      // Use sanitized command arguments to avoid circular references
+      ti.command = {
+        command: 'vscode-eda.viewStreamItem',
+        title: 'View Stream Item',
+        arguments: [ti.getCommandArguments()]
+      };
       if (resource && this.statusService) {
         const indicator = this.statusService.getResourceStatusIndicator(resource);
         const desc = this.statusService.getStatusDescription(resource);

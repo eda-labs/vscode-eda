@@ -6,6 +6,7 @@ import { KubernetesClient } from '../clients/kubernetesClient';
 import { EdaClient } from '../clients/edaClient';
 import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
 import { runKubectl } from '../utils/kubectlRunner';
+import * as yaml from 'js-yaml';
 
 /**
  * Decide if the given apiVersion is an EDA group (ends with ".eda.nokia.com")
@@ -215,5 +216,39 @@ export function registerResourceViewCommands(
     }
   );
 
-  context.subscriptions.push(viewResourceCmd);
+  const viewStreamItemCmd = vscode.commands.registerCommand(
+    'vscode-eda.viewStreamItem',
+    async (arg: any) => {
+      try {
+        // Handle both sanitized ResourceData objects and TreeItem objects
+        const resource = arg?.raw || arg?.rawResource || arg?.resource?.raw;
+        if (!resource) {
+          vscode.window.showErrorMessage('No data available for this item');
+          return;
+        }
+
+        const namespace =
+          resource.metadata?.namespace || arg.namespace || 'default';
+        const kind =
+          resource.kind || arg.resourceType || arg.kind || 'Resource';
+        const name = resource.metadata?.name || arg.name || arg.label || 'unknown';
+
+        const yamlText = yaml.dump(resource, { indent: 2 });
+
+        const viewUri = vscode.Uri.parse(
+          `k8s-view:/${namespace}/${kind}/${name}?ts=${Date.now()}`
+        );
+        resourceViewProvider.setResourceContent(viewUri, yamlText);
+
+        const doc = await vscode.workspace.openTextDocument(viewUri);
+        await vscode.languages.setTextDocumentLanguage(doc, 'yaml');
+        await vscode.window.showTextDocument(doc, { preview: true });
+      } catch (error: any) {
+        log(`Failed to open stream item: ${error}`, LogLevel.ERROR, true);
+        vscode.window.showErrorMessage(`Error viewing stream item: ${error}`);
+      }
+    }
+  );
+
+  context.subscriptions.push(viewResourceCmd, viewStreamItemCmd);
 }

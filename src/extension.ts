@@ -13,6 +13,9 @@ import { DeviationDetailsDocumentProvider } from './providers/documents/deviatio
 import { TransactionDetailsDocumentProvider } from './providers/documents/transactionDetailsProvider';
 // import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 // import { ResourceEditDocumentProvider } from './providers/documents/resourceEditProvider';
+import { ResourceViewDocumentProvider } from './providers/documents/resourceViewProvider';
+
+import { registerResourceViewCommands } from './commands/resourceViewCommands';
 
 // import { registerDeviationCommands } from './commands/deviationCommands';
 // import { registerTransactionCommands } from './commands/transactionCommands';
@@ -44,6 +47,7 @@ export let edaTransactionProvider: EdaTransactionProvider;
 export let alarmDetailsProvider: AlarmDetailsDocumentProvider;
 export let deviationDetailsProvider: DeviationDetailsDocumentProvider;
 export let transactionDetailsProvider: TransactionDetailsDocumentProvider;
+export let resourceViewProvider: ResourceViewDocumentProvider;
 export let edaOutputChannel: vscode.OutputChannel;
 export let currentLogLevel: LogLevel = LogLevel.INFO;
 let contextStatusBarItem: vscode.StatusBarItem;
@@ -153,6 +157,12 @@ export async function activate(context: vscode.ExtensionContext) {
     const resourceStatusService = new ResourceStatusService(k8sClient);
     serviceManager.registerService('resource-status', resourceStatusService);
     void resourceStatusService.initialize(context);
+
+    resourceViewProvider = new ResourceViewDocumentProvider();
+    context.subscriptions.push(
+      vscode.workspace.registerFileSystemProvider('k8s-view', resourceViewProvider, { isCaseSensitive: true })
+    );
+    registerResourceViewCommands(context, resourceViewProvider);
 
   //   const schemaProviderService = new SchemaProviderService(k8sClient);
   //   serviceManager.registerService('schema-provider', schemaProviderService);
