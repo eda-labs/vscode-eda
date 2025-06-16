@@ -1013,6 +1013,39 @@ export class EdaClient {
     return results;
   }
 
+  /** Get JSON schema for a given resource kind */
+  public async getSchemaForKind(kind: string): Promise<any | null> {
+    await this.initPromise;
+    const versionDir = path.join(os.homedir(), '.eda', this.apiVersion);
+    try {
+      const categories = await fs.promises.readdir(versionDir, { withFileTypes: true });
+      for (const cat of categories) {
+        if (!cat.isDirectory()) continue;
+        const catDir = path.join(versionDir, cat.name);
+        const files = await fs.promises.readdir(catDir);
+        for (const file of files) {
+          if (!file.endsWith('.json')) continue;
+          const specPath = path.join(catDir, file);
+          try {
+            const raw = await fs.promises.readFile(specPath, 'utf8');
+            const spec = JSON.parse(raw);
+            const schemas = spec.components?.schemas ?? {};
+            for (const [name, schema] of Object.entries<any>(schemas)) {
+              if (name === kind || name.endsWith(`.${kind}`)) {
+                return schema;
+              }
+            }
+          } catch {
+            // ignore parse errors
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }
+
   /**
    * Create a custom resource using the EDA API
    * @param group API group, e.g. 'core.eda.nokia.com'

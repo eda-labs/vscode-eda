@@ -2,6 +2,7 @@
 import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
 import { BaseDocumentProvider } from './baseDocumentProvider';
+import type { EdaCrd } from '../../clients/edaClient';
 
 /**
  * A file system provider for the "k8s:" scheme, handling the editable version
@@ -10,6 +11,8 @@ import { BaseDocumentProvider } from './baseDocumentProvider';
 export class ResourceEditDocumentProvider extends BaseDocumentProvider {
   // Store original resources to compare for changes
   private originalResources = new Map<string, any>();
+  private crdInfo = new Map<string, EdaCrd>();
+  private newResources = new Set<string>();
 
   public stat(uri: vscode.Uri): vscode.FileStat {
     // re-use the base logic, but remove 'readonly' permission
@@ -37,6 +40,26 @@ export class ResourceEditDocumentProvider extends BaseDocumentProvider {
    */
   public setOriginalResource(uri: vscode.Uri, resource: any): void {
     this.originalResources.set(uri.toString(), resource);
+  }
+
+  public setCrdInfo(uri: vscode.Uri, crd: EdaCrd): void {
+    this.crdInfo.set(uri.toString(), crd);
+  }
+
+  public getCrdInfo(uri: vscode.Uri): EdaCrd | undefined {
+    return this.crdInfo.get(uri.toString());
+  }
+
+  public markNewResource(uri: vscode.Uri): void {
+    this.newResources.add(uri.toString());
+  }
+
+  public clearNewResource(uri: vscode.Uri): void {
+    this.newResources.delete(uri.toString());
+  }
+
+  public isNewResource(uri: vscode.Uri): boolean {
+    return this.newResources.has(uri.toString());
   }
 
   /**
@@ -81,6 +104,8 @@ export class ResourceEditDocumentProvider extends BaseDocumentProvider {
   public cleanupDocument(uri: vscode.Uri): void {
     this.contentMap.delete(uri.toString());
     this.originalResources.delete(uri.toString());
+    this.crdInfo.delete(uri.toString());
+    this.newResources.delete(uri.toString());
   }
 
   /**

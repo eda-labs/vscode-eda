@@ -304,7 +304,7 @@ export function registerResourceEditCommands(
             // Confirm and apply
             const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
             if (confirmed) {
-              const result = await applyResource(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
+              const result = await applyResource(documentUri, k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
               if (result) {
                 // Update both providers with the applied resource
                 resourceEditProvider.setOriginalResource(documentUri, resource);
@@ -362,7 +362,7 @@ export function registerResourceEditCommands(
             // Direct apply after diff
             const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
             if (confirmed) {
-              const result = await applyResource(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
+              const result = await applyResource(documentUri, k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
               if (result) {
                 // Update both providers
                 resourceEditProvider.setOriginalResource(documentUri, resource);
@@ -402,7 +402,7 @@ export function registerResourceEditCommands(
           // Confirm and apply
           const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
           if (confirmed) {
-            const result = await applyResource(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
+            const result = await applyResource(documentUri, k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
             if (result) {
               // Update both providers
               resourceEditProvider.setOriginalResource(documentUri, resource);
@@ -582,7 +582,7 @@ async function validateAndPromptForApply(
   }
 
   // Perform validation (dry run)
-  const validationResult = await applyResource(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: true });
+  const validationResult = await applyResource(documentUri, k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: true });
 
   if (validationResult) {
     // Show success message for validation
@@ -593,7 +593,7 @@ async function validateAndPromptForApply(
 
     if (validationAction === 'Apply Changes') {
       // Now apply the changes
-      const applyResult = await applyResource(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
+      const applyResult = await applyResource(documentUri, k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
       if (applyResult) {
         resourceEditProvider.setOriginalResource(documentUri, resource);
 
@@ -774,6 +774,7 @@ async function confirmResourceUpdate(kind: string, name: string, dryRun: boolean
 
 // Apply the resource changes to the cluster
 async function applyResource(
+  documentUri: vscode.Uri,
   k8sClient: KubernetesClient,
   edactlClient: EdaClient,
   resourceEditProvider: ResourceEditDocumentProvider,
@@ -793,12 +794,26 @@ async function applyResource(
 
     // Determine if this is an EDA resource
     const isEdaResource = resource.apiVersion?.endsWith('.eda.nokia.com');
+    const isNew = resourceEditProvider.isNewResource(documentUri);
+    const crdInfo = resourceEditProvider.getCrdInfo(documentUri);
     let result: string;
 
-    if (isEdaResource) {
-      // Validation logic removed
+    if (isEdaResource && isNew && !isDryRun) {
+      const [group, version] = (resource.apiVersion || '').split('/');
+      const plural = crdInfo?.plural || resource.kind.toLowerCase() + 's';
+      await edactlClient.createCustomResource(
+        group,
+        version,
+        resource.metadata.namespace,
+        plural,
+        resource,
+        crdInfo?.namespaced ?? true
+      );
       result = '';
+      resourceEditProvider.setOriginalResource(documentUri, resource);
+      resourceEditProvider.clearNewResource(documentUri);
     } else {
+      // Validation or update logic removed
       result = '';
     }
 

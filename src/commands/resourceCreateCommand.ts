@@ -7,6 +7,40 @@ import { SchemaProviderService } from '../services/schemaProviderService';
 import * as yaml from 'js-yaml';
 import { log, LogLevel } from '../extension';
 
+function buildSkeletonFromSchema(schema: any): any {
+  if (!schema) {
+    return {};
+  }
+  if (schema.type === 'object' || schema.properties) {
+    const obj: any = {};
+    const props = schema.properties || {};
+    for (const [key, prop] of Object.entries<any>(props)) {
+      if ((prop as any)['readOnly']) {
+        continue;
+      }
+      obj[key] = buildSkeletonFromSchema(prop);
+    }
+    return obj;
+  }
+  if (schema.type === 'array') {
+    return [buildSkeletonFromSchema(schema.items)];
+  }
+  if (Object.prototype.hasOwnProperty.call(schema, 'default')) {
+    return schema.default;
+  }
+  switch (schema.type) {
+    case 'string':
+      return '';
+    case 'integer':
+    case 'number':
+      return 0;
+    case 'boolean':
+      return false;
+    default:
+      return null;
+  }
+}
+
 export function registerResourceCreateCommand(
   context: vscode.ExtensionContext,
   resourceEditProvider: ResourceEditDocumentProvider,
@@ -56,11 +90,16 @@ export function registerResourceCreateCommand(
 
       const { group, version, namespaced } = selected.crd;
 
+      const schema = await edaClient.getSchemaForKind(selected.crd.kind);
+      const specSkeleton = schema?.properties?.spec
+        ? buildSkeletonFromSchema(schema.properties.spec)
+        : {};
+
       const resource: any = {
         apiVersion: `${group}/${version}`,
         kind: selected.crd.kind,
         metadata: { name },
-        spec: {},
+        spec: specSkeleton,
       };
 
       if (namespaced) {
@@ -72,6 +111,8 @@ export function registerResourceCreateCommand(
       const uri = ResourceEditDocumentProvider.createUri(nsSegment, selected.crd.kind, name);
       resourceEditProvider.setOriginalResource(uri, resource);
       resourceEditProvider.setResourceContent(uri, yamlContent);
+      resourceEditProvider.setCrdInfo(uri, selected.crd);
+      resourceEditProvider.markNewResource(uri);
 
       const document = await vscode.workspace.openTextDocument(uri);
       await vscode.languages.setTextDocumentLanguage(document, 'yaml');
