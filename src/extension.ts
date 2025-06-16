@@ -7,7 +7,7 @@ import { ResourceStatusService } from './services/resourceStatusService';
 import { EdaNamespaceProvider } from './providers/views/namespaceProvider';
 import { EdaAlarmProvider } from './providers/views/alarmProvider';
 import { EdaDeviationProvider } from './providers/views/deviationProvider';
-// import { EdaTransactionProvider } from './providers/views/transactionProvider';
+import { EdaTransactionProvider } from './providers/views/transactionProvider';
 import { AlarmDetailsDocumentProvider } from './providers/documents/alarmDetailsProvider';
 import { DeviationDetailsDocumentProvider } from './providers/documents/deviationDetailsProvider';
 import { TransactionDetailsDocumentProvider } from './providers/documents/transactionDetailsProvider';
@@ -43,7 +43,7 @@ export enum LogLevel {
 /* eslint-enable no-unused-vars */
 
 export let edaDeviationProvider: EdaDeviationProvider;
-// export let edaTransactionProvider: EdaTransactionProvider;
+export let edaTransactionProvider: EdaTransactionProvider;
 export let alarmDetailsProvider: AlarmDetailsDocumentProvider;
 export let deviationDetailsProvider: DeviationDetailsDocumentProvider;
 export let transactionDetailsProvider: TransactionDetailsDocumentProvider;
@@ -192,11 +192,11 @@ export async function activate(context: vscode.ExtensionContext) {
     showCollapseAll: true
   });
 
-  //   edaTransactionProvider = new EdaTransactionProvider();
-  //   const transactionTreeView = vscode.window.createTreeView('edaTransactions', {
-  //     treeDataProvider: edaTransactionProvider,
-  //     showCollapseAll: true
-  //   });
+  edaTransactionProvider = new EdaTransactionProvider();
+  const transactionTreeView = vscode.window.createTreeView('edaTransactions', {
+    treeDataProvider: edaTransactionProvider,
+    showCollapseAll: true
+  });
 
   context.subscriptions.push(namespaceTreeView);
   context.subscriptions.push(alarmTreeView);
@@ -229,7 +229,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(namespaceTreeView);
   context.subscriptions.push(alarmTreeView);
   context.subscriptions.push(deviationTreeView, { dispose: () => edaDeviationProvider.dispose() });
-  // context.subscriptions.push(transactionTreeView, { dispose: () => edaTransactionProvider.dispose() });
+  context.subscriptions.push(transactionTreeView, { dispose: () => edaTransactionProvider.dispose() });
 
   //   context.subscriptions.push(
   //     vscode.commands.registerCommand('vscode-eda.refreshResources', () => {

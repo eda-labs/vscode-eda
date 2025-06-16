@@ -19,7 +19,7 @@
    - View or reject deviations
 
 3. **Transactions**
-   - Browse recent transactions.
+   - Browse the last 50 transactions streamed from EDA.
    - Show transaction details, revert or restore using `edactl` commands.
 
 4. **Pod Actions**

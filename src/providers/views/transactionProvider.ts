@@ -1,144 +1,121 @@
-// import * as vscode from 'vscode';
-// import { TreeItemBase } from './treeItem';
-// import { serviceManager } from '../../services/serviceManager';
-// import { EdaClient } from '../../clients/edaClient';
-// import { ResourceStatusService } from '../../services/resourceStatusService';
-// import { log, LogLevel } from '../../extension';
+import * as vscode from 'vscode';
+import { TreeItemBase } from './treeItem';
+import { serviceManager } from '../../services/serviceManager';
+import { EdaClient } from '../../clients/edaClient';
+import { ResourceStatusService } from '../../services/resourceStatusService';
+import { log, LogLevel } from '../../extension';
 
-// export class EdaTransactionProvider implements vscode.TreeDataProvider<TransactionTreeItem> {
-//   private _onDidChangeTreeData: vscode.EventEmitter<TransactionTreeItem | undefined | null | void> = new vscode.EventEmitter<TransactionTreeItem | undefined | null | void>();
-//   readonly onDidChangeTreeData: vscode.Event<TransactionTreeItem | undefined | null | void> = this._onDidChangeTreeData.event;
+export class EdaTransactionProvider implements vscode.TreeDataProvider<TransactionTreeItem> {
+  private _onDidChangeTreeData = new vscode.EventEmitter<TransactionTreeItem | undefined | null | void>();
+  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-//   private edactlClient: EdaClient;
-//   private statusService: ResourceStatusService;
-//   private refreshInterval = 10000;
-//   private refreshTimer?: ReturnType<typeof setInterval>;
-//   private _refreshDebounceTimer: ReturnType<typeof setTimeout> | undefined;
-//   private cachedTransactions: any[] = [];
+  private edactlClient: EdaClient;
+  private statusService: ResourceStatusService;
+  private _refreshDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+  private cachedTransactions: any[] = [];
 
-//   constructor() {
-//     this.edactlClient = serviceManager.getClient<EdaClient>('edactl');
-//     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
-//     this.startRefreshTimer();
-//     void this.edactlClient.streamEdaTransactions(txs => {
-//       log(`Transaction stream provided ${txs.length} results`, LogLevel.DEBUG);
-//       this.cachedTransactions = txs;
-//       this.refresh();
-//     });
-//   }
+  constructor() {
+    this.edactlClient = serviceManager.getClient<EdaClient>('edactl');
+    this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
+    void this.edactlClient.streamEdaTransactions(txs => {
+      log(`Transaction stream provided ${txs.length} results`, LogLevel.DEBUG);
+      this.cachedTransactions = txs;
+      this.refresh();
+    }, 50);
+  }
 
-//   private startRefreshTimer(): void {
-//     if (this.refreshTimer) {
-//       clearInterval(this.refreshTimer);
-//     }
-//     this.refreshTimer = setInterval(() => {
-//       this.refresh();
-//     }, this.refreshInterval);
-//     log(`Transaction polling started, refresh interval: ${this.refreshInterval}ms`, LogLevel.INFO);
-//   }
+  public dispose(): void {
+    this.edactlClient.closeTransactionStream();
 
-//   public dispose(): void {
-//     if (this.refreshTimer) {
-//       clearInterval(this.refreshTimer);
-//       this.refreshTimer = undefined;
-//       log('Transaction polling stopped', LogLevel.INFO);
-//     }
+    if (this._refreshDebounceTimer) {
+      clearTimeout(this._refreshDebounceTimer);
+      this._refreshDebounceTimer = undefined;
+    }
+  }
 
-//     this.edactlClient.closeTransactionStream();
+  refresh(): void {
+    if (this._refreshDebounceTimer) {
+      clearTimeout(this._refreshDebounceTimer);
+    }
+    this._refreshDebounceTimer = setTimeout(() => {
+      this._onDidChangeTreeData.fire();
+      this._refreshDebounceTimer = undefined;
+    }, 100);
+  }
 
-//     if (this._refreshDebounceTimer) {
-//       clearTimeout(this._refreshDebounceTimer);
-//       this._refreshDebounceTimer = undefined;
-//     }
-//   }
+  getTreeItem(element: TransactionTreeItem): vscode.TreeItem {
+    return element;
+  }
 
-//   refresh(): void {
-//     if (this._refreshDebounceTimer) {
-//       clearTimeout(this._refreshDebounceTimer);
-//     }
-//     this._refreshDebounceTimer = setTimeout(() => {
-//       this._onDidChangeTreeData.fire();
-//       this._refreshDebounceTimer = undefined;
-//     }, 100);
-//   }
+  async getChildren(element?: TransactionTreeItem): Promise<TransactionTreeItem[]> {
+    if (element) {
+      return [];
+    }
+    return this.getTransactionItems();
+  }
 
-//   getTreeItem(element: TransactionTreeItem): vscode.TreeItem {
-//     return element;
-//   }
+  private async getTransactionItems(): Promise<TransactionTreeItem[]> {
+    log(`Loading transactions for the transaction tree...`, LogLevel.DEBUG);
+    if (this.cachedTransactions.length === 0) {
+      return [this.noTransactionsItem()];
+    }
+    const transactions = this.cachedTransactions.slice();
 
-//   async getChildren(element?: TransactionTreeItem): Promise<TransactionTreeItem[]> {
-//     if (element) {
-//       return [];
-//     }
-//     return this.getTransactionItems();
-//   }
+    transactions.sort((a, b) => {
+      const idA = parseInt(String(a.id), 10);
+      const idB = parseInt(String(b.id), 10);
 
-//   private async getTransactionItems(): Promise<TransactionTreeItem[]> {
-//     log(`Loading transactions for the transaction tree...`, LogLevel.DEBUG);
-//     if (this.cachedTransactions.length === 0) {
-//       this.cachedTransactions = await this.edactlClient.getEdaTransactions();
-//     }
-//     const transactions = this.cachedTransactions;
+      if (!isNaN(idA) && !isNaN(idB)) {
+        return idB - idA;
+      }
+      return String(b.id).localeCompare(String(a.id));
+    });
 
-//     // Sort transactions by ID (assuming higher ID = newer transaction)
-//     // This will display the newest transactions at the top
-//     transactions.sort((a, b) => {
-//       // Try numeric comparison first (most reliable if IDs are numeric)
-//       const idA = parseInt(a.id, 10);
-//       const idB = parseInt(b.id, 10);
+    return transactions.map(t => {
+      const label = `${t.id} - ${t.username}`;
+      const item = new TransactionTreeItem(
+        label,
+        vscode.TreeItemCollapsibleState.None,
+        'transaction',
+        t
+      );
+      item.description = `${t.state} - ${t.lastChangeTimestamp || ''}`;
+      item.tooltip =
+        `ID: ${t.id}\n` +
+        `User: ${t.username}\n` +
+        `State: ${t.state}\n` +
+        `Dry Run: ${t.dryRun ? 'Yes' : 'No'}\n` +
+        `Description: ${t.description || 'No description'}`;
 
-//       if (!isNaN(idA) && !isNaN(idB)) {
-//         return idB - idA; // Sort in descending order (newest first)
-//       }
+      const success = !!t.success;
+      item.iconPath = this.statusService.getTransactionIcon(success);
+      item.command = {
+        command: 'vscode-eda.showTransactionDetails',
+        title: 'Show Transaction Details',
+        arguments: [String(t.id)],
+      };
+      return item;
+    });
+  }
 
-//       // If parsing as numbers fails, compare as strings
-//       return b.id.localeCompare(a.id);
-//     });
+  private noTransactionsItem(): TransactionTreeItem {
+    const item = new TransactionTreeItem(
+      'No Transactions Found',
+      vscode.TreeItemCollapsibleState.None,
+      'info',
+    );
+    item.iconPath = this.statusService.getThemeStatusIcon('gray');
+    return item;
+  }
+}
 
-//     return transactions.map(t => {
-//       const label = `${t.id} - ${t.username}`;
-//       const item = new TransactionTreeItem(
-//         label,
-//         vscode.TreeItemCollapsibleState.None,
-//         'transaction',
-//         t
-//       );
-//       if (t.result === 'OK') {
-//         item.description = `${t.age} - ${t.description || 'No description'}`;
-//       } else {
-//         item.description = `FAILED - ${t.age}`;
-//       }
-//       item.tooltip =
-//         `ID: ${t.id}\n` +
-//         `Result: ${t.result}\n` +
-//         `Age: ${t.age}\n` +
-//         `Detail Level: ${t.detail}\n` +
-//         `Dry Run: ${t.dryRun || 'No'}\n` +
-//         `Username: ${t.username}\n` +
-//         `Description: ${t.description || 'No description'}`;
-
-//       const success = t.result === 'OK';
-
-//       // Use transaction icon from statusService
-//       item.iconPath = this.statusService.getTransactionIcon(success);
-
-//       item.command = {
-//         command: 'vscode-eda.showTransactionDetails',
-//         title: 'Show Transaction Details',
-//         arguments: [t.id]
-//       };
-//       return item;
-//     });
-//   }
-// }
-
-// export class TransactionTreeItem extends TreeItemBase {
-//   constructor(
-//     label: string,
-//     collapsibleState: vscode.TreeItemCollapsibleState,
-//     contextValue: string,
-//     resource?: any
-//   ) {
-//     super(label, collapsibleState, contextValue, resource);
-//   }
-// }
+export class TransactionTreeItem extends TreeItemBase {
+  constructor(
+    label: string,
+    collapsibleState: vscode.TreeItemCollapsibleState,
+    contextValue: string,
+    resource?: any
+  ) {
+    super(label, collapsibleState, contextValue, resource);
+  }
+}

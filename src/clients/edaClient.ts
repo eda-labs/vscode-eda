@@ -84,6 +84,7 @@ export class EdaClient {
   } = {};
   private streamCallbacks: Set<StreamCallback> = new Set();
   private messageIntervalMs = 500;
+  private transactionSummarySize = 50;
 
   private get wsHeaders(): Record<string, string> {
     return { Authorization: `Bearer ${this.token}` };
@@ -483,6 +484,59 @@ export class EdaClient {
     }
   }
 
+  /** Start the transaction summary stream */
+  private async startTransactionSummaryStream(client: string): Promise<void> {
+    const ep = this.streamEndpoints.find(e => e.stream === 'summary');
+    const path = ep?.path || '/core/transaction/v2/result/summary';
+    const url =
+      `${this.baseUrl}${path}` +
+      `?size=${this.transactionSummarySize}` +
+      `&eventclient=${encodeURIComponent(client)}` +
+      `&stream=summary`;
+
+    let res: any;
+    try {
+      res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          Accept: 'text/event-stream',
+        },
+        dispatcher: this.agent,
+      });
+    } catch (err) {
+      log(`[STREAM] request failed ${err}`, LogLevel.ERROR);
+      return;
+    }
+
+    if (!res.ok || !res.body) {
+      log(`[STREAM] failed ${url}: HTTP ${res.status}`, LogLevel.ERROR);
+      return;
+    }
+    log(`[STREAM] connected → ${url}`, LogLevel.DEBUG);
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) {
+        log('[STREAM] ended', LogLevel.DEBUG);
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+
+      let nl;
+      while ((nl = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, nl).trim();
+        buffer = buffer.slice(nl + 1);
+        if (!line) continue;
+        this.handleEventMessage(line);
+      }
+    }
+  }
+
   private async connectEventSocket(): Promise<void> {
     await this.authPromise;
     if (
@@ -512,7 +566,7 @@ export class EdaClient {
         ...this.activeStreams,
         ...this.streamEndpoints
           .map(e => e.stream)
-          .filter(s => s !== 'alarms'),
+          .filter(s => s !== 'alarms' && s !== 'summary'),
       ]);
       this.activeStreams = allStreams;
 
@@ -540,11 +594,14 @@ export class EdaClient {
             this.eventClient = client;
             log(`WS eventclient id = ${this.eventClient}`, LogLevel.DEBUG);
             for (const ep of this.streamEndpoints) {
-              if (ep.stream === 'alarms') continue;
+              if (ep.stream === 'alarms' || ep.stream === 'summary') continue;
               void this.startStream(this.eventClient, ep);
             }
             if (this.activeStreams.has('current-alarms')) {
               void this.startCurrentAlarmStream(this.eventClient);
+            }
+            if (this.activeStreams.has('summary')) {
+              void this.startTransactionSummaryStream(this.eventClient);
             }
           }
         } catch {
@@ -602,8 +659,15 @@ export class EdaClient {
           }
         }
         this.callbacks.namespaces(Array.from(this.namespaceSet));
-      } else if ('results' in msg && this.callbacks.transactions) {
-        const results = Array.isArray(msg.results) ? msg.results : [];
+      } else if (
+        this.callbacks.transactions &&
+        (Array.isArray(msg.results) || Array.isArray(msg.msg?.results))
+      ) {
+        const results = Array.isArray(msg.results)
+          ? msg.results
+          : Array.isArray(msg.msg?.results)
+            ? msg.msg.results
+            : [];
         this.callbacks.transactions(results);
       } else if ('items' in msg && this.callbacks.deviations) {
         const items = Array.isArray(msg.items) ? msg.items : [];
@@ -732,6 +796,28 @@ export class EdaClient {
     await this.connectEventSocket();
   }
 
+  /** Stream transaction summaries over WebSocket */
+  public async streamEdaTransactions(
+    onTransactions: TransactionCallback,
+    size = 50,
+  ): Promise<void> {
+    await this.initPromise;
+    this.callbacks.transactions = onTransactions;
+    this.transactionSummarySize = size;
+    this.activeStreams.add('summary');
+    log('Started to stream endpoint summary', LogLevel.DEBUG);
+    await this.connectEventSocket();
+    if (this.eventClient) {
+      void this.startTransactionSummaryStream(this.eventClient);
+    }
+  }
+
+  /** Stop streaming transactions */
+  public closeTransactionStream(): void {
+    this.callbacks.transactions = undefined;
+    this.activeStreams.delete('summary');
+  }
+
   /** Stop streaming deviations */
   public closeDeviationStream(): void {
     this.callbacks.deviations = undefined;
@@ -763,6 +849,15 @@ export class EdaClient {
       result[name] = Array.from(set).sort();
     }
     return result;
+  }
+
+  /** Fetch transaction summary results */
+  public async getEdaTransactions(size = 50): Promise<any[]> {
+    await this.initPromise;
+    const path = this.streamEndpoints.find(e => e.stream === 'summary')?.path ||
+      '/core/transaction/v2/result/summary';
+    const data = await this.fetchJSON<any>(`${path}?size=${size}`);
+    return Array.isArray(data?.results) ? data.results : [];
   }
 
 
