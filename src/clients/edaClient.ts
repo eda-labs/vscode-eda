@@ -885,6 +885,25 @@ export class EdaClient {
     return Array.isArray(data?.results) ? data.results : [];
   }
 
+  /** Fetch detailed information for a single transaction */
+  public async getTransactionDetails(
+    transactionId: string | number,
+    waitForComplete = false,
+    failOnErrors = false
+  ): Promise<any> {
+    await this.initPromise;
+    const path = `/core/alltransaction/v1/details/${transactionId}`;
+    const params: string[] = [];
+    if (waitForComplete) {
+      params.push('waitForComplete=true');
+    }
+    if (failOnErrors) {
+      params.push('failOnErrors=true');
+    }
+    const url = params.length > 0 ? `${path}?${params.join('&')}` : path;
+    return this.fetchJSON<any>(url);
+  }
+
 
   /** Fetch a resource YAML using EDA API */
   public async getEdaResourceYaml(kind: string, name: string, namespace: string): Promise<string> {

@@ -20,7 +20,7 @@
 
 3. **Transactions**
    - Browse the last 50 transactions streamed from EDA.
-   - Show transaction details, revert or restore using `edactl` commands.
+   - View detailed information for a transaction directly from the EDA API.
 
 4. **Pod Actions**
    - Open a terminal to a Pod, view logs in a terminal, or delete/describe a Pod.

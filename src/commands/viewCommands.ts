@@ -28,10 +28,11 @@ export function registerViewCommands(
 
       try {
         // Get EdaClient from service manager
-        // const edactlClient = serviceManager.getClient<EdaClient>('edactl');
+        const edaClient = serviceManager.getClient<EdaClient>('edactl');
 
-        // // Retrieve text from "edactl transaction <id>"
-        // const detailsText = await edactlClient.getTransactionDetails(transactionId);
+        // Retrieve transaction details JSON
+        const detailsObj = await edaClient.getTransactionDetails(transactionId);
+        const detailsText = JSON.stringify(detailsObj, null, 2);
 
         // Create a "eda-transaction:" URI for read-only
         const docUri = vscode.Uri.parse(
@@ -39,7 +40,7 @@ export function registerViewCommands(
         );
 
         // Store the text in the read-only provider
-        // transactionDetailsProvider.setTransactionContent(docUri, detailsText);
+        transactionDetailsProvider.setTransactionContent(docUri, detailsText);
 
         // Open the doc
         const doc = await vscode.workspace.openTextDocument(docUri);
