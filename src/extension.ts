@@ -12,7 +12,7 @@ import { AlarmDetailsDocumentProvider } from './providers/documents/alarmDetails
 import { DeviationDetailsDocumentProvider } from './providers/documents/deviationDetailsProvider';
 import { TransactionDetailsDocumentProvider } from './providers/documents/transactionDetailsProvider';
 import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
-// import { ResourceEditDocumentProvider } from './providers/documents/resourceEditProvider';
+import { ResourceEditDocumentProvider } from './providers/documents/resourceEditProvider';
 import { ResourceViewDocumentProvider } from './providers/documents/resourceViewProvider';
 import { SchemaProviderService } from './services/schemaProviderService';
 
@@ -21,7 +21,7 @@ import { registerDeviationCommands } from './commands/deviationCommands';
 import { registerTransactionCommands } from './commands/transactionCommands';
 import { registerViewCommands } from './commands/viewCommands';
 // import { registerResourceEditCommands } from './commands/resourceEditCommands';
-// import { registerResourceCreateCommand } from './commands/resourceCreateCommand';
+import { registerResourceCreateCommand } from './commands/resourceCreateCommand';
 // import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand';
 // import { registerResourceViewCommands } from './commands/resourceViewCommands';
 // import { registerDeploymentCommands } from './commands/deploymentCommands';
@@ -48,6 +48,7 @@ export let alarmDetailsProvider: AlarmDetailsDocumentProvider;
 export let deviationDetailsProvider: DeviationDetailsDocumentProvider;
 export let transactionDetailsProvider: TransactionDetailsDocumentProvider;
 export let resourceViewProvider: ResourceViewDocumentProvider;
+export let resourceEditProvider: ResourceEditDocumentProvider;
 export let edaOutputChannel: vscode.OutputChannel;
 export let currentLogLevel: LogLevel = LogLevel.INFO;
 let contextStatusBarItem: vscode.StatusBarItem;
@@ -163,6 +164,12 @@ export async function activate(context: vscode.ExtensionContext) {
       vscode.workspace.registerFileSystemProvider('k8s-view', resourceViewProvider, { isCaseSensitive: true })
     );
     registerResourceViewCommands(context, resourceViewProvider);
+
+    resourceEditProvider = new ResourceEditDocumentProvider();
+    context.subscriptions.push(
+      vscode.workspace.registerFileSystemProvider('k8s', resourceEditProvider, { isCaseSensitive: true })
+    );
+    registerResourceCreateCommand(context, resourceEditProvider);
 
     const schemaProviderService = new SchemaProviderService();
     serviceManager.registerService('schema-provider', schemaProviderService);

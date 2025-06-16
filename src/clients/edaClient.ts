@@ -49,8 +49,17 @@ interface StreamEndpoint {
   path: string;
   stream: string;
 }
-// eslint-disable-next-line @typescript-eslint/no-unused-vars, no-unused-vars
-type StreamCallback = (stream: string, msg: any) => void;
+
+export interface EdaCrd {
+  kind: string;
+  group: string;
+  version: string;
+  plural: string;
+  namespaced: boolean;
+  description?: string;
+}
+/* eslint-disable-next-line no-unused-vars */
+type StreamCallback = (_stream: string, _msg: any) => void;
 
 export class EdaClient {
   private baseUrl: string;
@@ -72,6 +81,7 @@ export class EdaClient {
   private apiVersion = 'unknown';
   private streamEndpoints: StreamEndpoint[] = [];
   private namespaceSet: Set<string> = new Set();
+  private crdCache: EdaCrd[] | undefined;
   private currentAlarmMap: Map<number, any> = new Map();
   private deviationMap: Map<string, any> = new Map();
   private skipTlsVerify = false;
@@ -943,6 +953,87 @@ export class EdaClient {
     await this.initPromise;
     const path = `/core/transaction/v2/revert/${transactionId}`;
     return this.requestJSON('POST', path);
+  }
+
+  /** Get the currently known EDA namespaces */
+  public getCachedNamespaces(): string[] {
+    return Array.from(this.namespaceSet);
+  }
+
+  /** Return CRD metadata discovered from cached OpenAPI specs */
+  public async getCustomResourceDefinitions(): Promise<EdaCrd[]> {
+    await this.initPromise;
+    if (this.crdCache) return this.crdCache;
+    const results: EdaCrd[] = [];
+    try {
+      const versionDir = path.join(os.homedir(), '.eda', this.apiVersion);
+      const categories = await fs.promises.readdir(versionDir, { withFileTypes: true });
+      for (const cat of categories) {
+        if (!cat.isDirectory()) continue;
+        const catDir = path.join(versionDir, cat.name);
+        const files = await fs.promises.readdir(catDir);
+        for (const file of files) {
+          if (!file.endsWith('.json')) continue;
+          const specPath = path.join(catDir, file);
+          try {
+            const raw = await fs.promises.readFile(specPath, 'utf8');
+            const spec = JSON.parse(raw);
+            for (const [p, methods] of Object.entries<any>(spec.paths ?? {})) {
+              const post = (methods as any).post;
+              if (!post || !post.requestBody) continue;
+              const match = p.match(/^\/apps\/([^/]+)\/([^/]+)(?:\/namespaces\/\{namespace\})?\/([^/]+)$/);
+              if (!match) continue;
+              const [, group, version, plural] = match;
+              const namespaced = p.includes('/namespaces/{namespace}/');
+              let kind: string | undefined;
+              let description: string | undefined = post.description || post.summary;
+              const ref = post.requestBody.content?.['application/json']?.schema?.['$ref'];
+              if (typeof ref === 'string') {
+                const m = /\.([^./]+)$/.exec(ref);
+                if (m) {
+                  kind = m[1];
+                  description = description ?? spec.components?.schemas?.[m[1]]?.description;
+                }
+              }
+              if (!kind) {
+                kind = plural.replace(/s$/, '').replace(/(^|[-_])(\w)/g, (_, __, ch) => ch.toUpperCase());
+              }
+              results.push({ kind, group, version, plural, namespaced, description });
+            }
+          } catch (err) {
+            log(`Failed to parse spec ${specPath}: ${err}`, LogLevel.WARN);
+          }
+        }
+      }
+    } catch (err) {
+      log(`Failed to load CRD definitions: ${err}`, LogLevel.WARN);
+    }
+    results.sort((a, b) => a.kind.localeCompare(b.kind));
+    this.crdCache = results;
+    return results;
+  }
+
+  /**
+   * Create a custom resource using the EDA API
+   * @param group API group, e.g. 'core.eda.nokia.com'
+   * @param version API version
+   * @param namespace Namespace for namespaced resources
+   * @param plural Plural name of the resource
+   * @param body Resource body
+   * @param namespaced Whether the resource is namespaced
+   */
+  public async createCustomResource(
+    group: string,
+    version: string,
+    namespace: string | undefined,
+    plural: string,
+    body: any,
+    namespaced = true
+  ): Promise<any> {
+    await this.initPromise;
+    const nsPart = namespaced ? `/namespaces/${namespace}` : '';
+    const path = `/apps/${group}/${version}${nsPart}/${plural}`;
+    return this.requestJSON('POST', path, body);
   }
 
   /** Execute a limited set of edactl-style commands for compatibility */

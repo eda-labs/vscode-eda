@@ -147,6 +147,11 @@
         "icon": "$(expand-all)"
       },
       {
+        "command": "vscode-eda.createResource",
+        "title": "Create Resource",
+        "icon": "$(add)"
+      },
+      {
         "command": "vscode-eda.deleteResource",
         "title": "Delete Resource",
         "icon": "$(trash)"
@@ -214,6 +219,11 @@
           "command": "vscode-eda.clearFilter",
           "when": "view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactions || view == edaSystem",
           "group": "navigation@2"
+        },
+        {
+          "command": "vscode-eda.createResource",
+          "when": "view == edaNamespaces",
+          "group": "navigation@3"
         },
         {
           "command": "vscode-eda.expandAllNamespaces",
