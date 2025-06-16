@@ -13,6 +13,7 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
   private statusService: ResourceStatusService;
   private _refreshDebounceTimer: ReturnType<typeof setTimeout> | undefined;
   private cachedTransactions: any[] = [];
+  private treeFilter = '';
 
   /**
    * Merge new transaction updates into the cached list while
@@ -71,6 +72,16 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
     }, 100);
   }
 
+  setTreeFilter(filter: string): void {
+    this.treeFilter = filter.toLowerCase();
+    this.refresh();
+  }
+
+  clearTreeFilter(): void {
+    this.treeFilter = '';
+    this.refresh();
+  }
+
   getTreeItem(element: TransactionTreeItem): vscode.TreeItem {
     return element;
   }
@@ -87,7 +98,23 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
     if (this.cachedTransactions.length === 0) {
       return [this.noTransactionsItem()];
     }
-    const transactions = this.cachedTransactions.slice();
+    let transactions = this.cachedTransactions.slice();
+
+    if (this.treeFilter) {
+      const filter = this.treeFilter;
+      transactions = transactions.filter(t => {
+        return (
+          String(t.id).toLowerCase().includes(filter) ||
+          String(t.username || '').toLowerCase().includes(filter) ||
+          String(t.state || '').toLowerCase().includes(filter) ||
+          String(t.description || '').toLowerCase().includes(filter)
+        );
+      });
+    }
+
+    if (transactions.length === 0) {
+      return [this.noTransactionsItem(` (no matches for "${this.treeFilter}")`)];
+    }
 
     transactions.sort((a, b) => {
       const idA = parseInt(String(a.id), 10);
@@ -126,9 +153,10 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
     });
   }
 
-  private noTransactionsItem(): TransactionTreeItem {
+  private noTransactionsItem(extra?: string): TransactionTreeItem {
+    const label = extra ? `No Transactions Found ${extra}` : 'No Transactions Found';
     const item = new TransactionTreeItem(
-      'No Transactions Found',
+      label,
       vscode.TreeItemCollapsibleState.None,
       'info',
     );

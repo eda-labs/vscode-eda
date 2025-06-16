@@ -206,7 +206,7 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Allow the user to filter the namespace tree
+  // Allow the user to filter all tree views
   context.subscriptions.push(
     vscode.commands.registerCommand('vscode-eda.filterTree', async () => {
       const filterText = await vscode.window.showInputBox({
@@ -214,7 +214,11 @@ export async function activate(context: vscode.ExtensionContext) {
         placeHolder: 'Enter filter text'
       });
       if (filterText !== undefined) {
-        namespaceProvider.setTreeFilter(filterText.trim());
+        const text = filterText.trim();
+        namespaceProvider.setTreeFilter(text);
+        alarmProvider.setTreeFilter(text);
+        edaDeviationProvider.setTreeFilter(text);
+        edaTransactionProvider.setTreeFilter(text);
       }
     })
   );
@@ -223,6 +227,9 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('vscode-eda.clearFilter', () => {
       namespaceProvider.clearTreeFilter();
+      alarmProvider.clearTreeFilter();
+      edaDeviationProvider.clearTreeFilter();
+      edaTransactionProvider.clearTreeFilter();
     })
   );
 

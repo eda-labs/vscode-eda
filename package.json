@@ -207,12 +207,12 @@
       "view/title": [
         {
           "command": "vscode-eda.filterTree",
-          "when": "view == edaNamespaces",
+          "when": "view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactions",
           "group": "navigation@1"
         },
         {
           "command": "vscode-eda.clearFilter",
-          "when": "view == edaNamespaces || view == edaSystem",
+          "when": "view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactions || view == edaSystem",
           "group": "navigation@2"
         },
         {
