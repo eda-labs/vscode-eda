@@ -9,6 +9,7 @@ export default [
       '**/*.js',          // ← ignore *all* JavaScript bundles
       'out/**',
       'dist/**',
+        'esbuild.config.mjs',
       'node_modules/**',
       '.vscode-test.mjs', // VS Code test harness
       'spec_example/**'
