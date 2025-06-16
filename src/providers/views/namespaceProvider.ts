@@ -172,6 +172,18 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
     return false;
   }
 
+  /** Check if a stream currently has any child items */
+  private streamHasData(namespace: string, stream: string): boolean {
+    const map = this.streamData.get(`${stream}:${namespace}`);
+    return !!map && map.size > 0;
+  }
+
+  /** Determine if a group should be flattened because it only repeats a stream */
+  private isGroupRedundant(group: string): boolean {
+    const streams = this.cachedStreamGroups[group] || [];
+    return streams.length === 1 && streams[0] === group;
+  }
+
   /**
    * Implementation of TreeDataProvider: get a tree item
    */
@@ -206,11 +218,21 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       const namespaces = this.getNamespaces();
       return namespaces.find(ns => ns.label === element.namespace);
     } else if (element.contextValue === 'stream') {
+      const group = element.streamGroup ?? '';
+      if (this.isGroupRedundant(group)) {
+        const namespaces = this.getNamespaces();
+        return namespaces.find(ns => ns.label === element.namespace);
+      }
       const groups = this.getStreamGroups(element.namespace!);
       return groups.find(g => g.streamGroup === element.streamGroup);
     } else if (element.contextValue === 'stream-item') {
-      const streams = this.getStreamsForGroup(element.namespace!, element.streamGroup!);
-      return streams.find(s => s.label === element.resourceType);
+      const group = element.streamGroup ?? '';
+      if (this.isGroupRedundant(group)) {
+        const flattened = this.getStreamGroups(element.namespace!);
+        return flattened.find(s => s.label === element.resourceType);
+      }
+      const streamItems = this.getStreamsForGroup(element.namespace!, element.streamGroup!);
+      return streamItems.find(s => s.label === element.resourceType);
     }
     return null;
   }
@@ -275,9 +297,35 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       return [item];
     }
 
-    const items = groups
-      .filter(g => this.groupMatches(namespace, g))
-      .map(g => {
+    const items: TreeItemBase[] = [];
+    for (const g of groups) {
+      if (!this.groupMatches(namespace, g)) {
+        continue;
+      }
+
+      const streams = this.cachedStreamGroups[g] || [];
+      const visible = streams.filter(s => this.streamMatches(namespace, s));
+      const withData = visible.filter(s => this.streamHasData(namespace, s));
+
+      if (withData.length === 0) {
+        continue;
+      }
+
+      if (this.isGroupRedundant(g)) {
+        const s = streams[0];
+        if (!this.streamHasData(namespace, s)) {
+          continue;
+        }
+        const ti = new TreeItemBase(
+          s,
+          vscode.TreeItemCollapsibleState.Collapsed,
+          'stream'
+        );
+        ti.iconPath = new vscode.ThemeIcon('symbol-event');
+        ti.namespace = namespace;
+        ti.streamGroup = g;
+        items.push(ti);
+      } else {
         const ti = new TreeItemBase(
           g,
           vscode.TreeItemCollapsibleState.Collapsed,
@@ -286,8 +334,9 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
         ti.iconPath = new vscode.ThemeIcon('folder-library');
         ti.namespace = namespace;
         ti.streamGroup = g;
-        return ti;
-      });
+        items.push(ti);
+      }
+    }
 
     if (items.length === 0 && this.treeFilter) {
       const noMatch = new TreeItemBase(
@@ -304,19 +353,25 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   /** Get stream items under a group */
   private getStreamsForGroup(namespace: string, group: string): TreeItemBase[] {
     const streams = this.cachedStreamGroups[group] || [];
-    const items = streams
-      .filter(s => this.streamMatches(namespace, s))
-      .map(s => {
-        const ti = new TreeItemBase(
-          s,
-          vscode.TreeItemCollapsibleState.Collapsed,
-          'stream'
-        );
-        ti.iconPath = new vscode.ThemeIcon('symbol-event');
-        ti.namespace = namespace;
-        ti.streamGroup = group;
-        return ti;
-      });
+    const items: TreeItemBase[] = [];
+    for (const s of streams) {
+      if (!this.streamMatches(namespace, s)) {
+        continue;
+      }
+      const map = this.streamData.get(`${s}:${namespace}`);
+      if (!map || map.size === 0) {
+        continue;
+      }
+      const ti = new TreeItemBase(
+        s,
+        vscode.TreeItemCollapsibleState.Collapsed,
+        'stream'
+      );
+      ti.iconPath = new vscode.ThemeIcon('symbol-event');
+      ti.namespace = namespace;
+      ti.streamGroup = group;
+      items.push(ti);
+    }
 
     if (items.length === 0 && this.treeFilter) {
       const noMatch = new TreeItemBase(
