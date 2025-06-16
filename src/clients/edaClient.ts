@@ -927,6 +927,20 @@ export class EdaClient {
     return this.requestJSON('POST', `/apps/core.eda.nokia.com/v1/namespaces/${namespace}/deviationactions`, action);
   }
 
+  /** Restore system configuration to the specified transaction */
+  public async restoreTransaction(transactionId: string | number): Promise<any> {
+    await this.initPromise;
+    const path = `/core/transaction/v2/restore/${transactionId}`;
+    return this.requestJSON('POST', path);
+  }
+
+  /** Revert the specified transaction */
+  public async revertTransaction(transactionId: string | number): Promise<any> {
+    await this.initPromise;
+    const path = `/core/transaction/v2/revert/${transactionId}`;
+    return this.requestJSON('POST', path);
+  }
+
   /** Execute a limited set of edactl-style commands for compatibility */
   public async executeEdactl(command: string): Promise<string> {
     const getMatch = command.match(/^get\s+deviation\s+(\S+)\s+-n\s+(\S+)\s+-o\s+yaml$/);

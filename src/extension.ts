@@ -18,7 +18,7 @@ import { SchemaProviderService } from './services/schemaProviderService';
 
 import { registerResourceViewCommands } from './commands/resourceViewCommands';
 import { registerDeviationCommands } from './commands/deviationCommands';
-// import { registerTransactionCommands } from './commands/transactionCommands';
+import { registerTransactionCommands } from './commands/transactionCommands';
 import { registerViewCommands } from './commands/viewCommands';
 // import { registerResourceEditCommands } from './commands/resourceEditCommands';
 // import { registerResourceCreateCommand } from './commands/resourceCreateCommand';
@@ -268,7 +268,7 @@ export async function activate(context: vscode.ExtensionContext) {
     deviationDetailsProviderLocal
   );
   registerDeviationCommands(context);
-  //   registerTransactionCommands(context);
+  registerTransactionCommands(context);
 
   //   log('Service architecture initialized successfully', LogLevel.INFO, true);
   } catch (error) {
