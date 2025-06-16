@@ -885,6 +885,16 @@ export class EdaClient {
     return Array.isArray(data?.results) ? data.results : [];
   }
 
+  /** Fetch summary information for a single transaction */
+  public async getTransactionSummary(transactionId: string | number): Promise<any> {
+    await this.initPromise;
+    const basePath =
+      this.streamEndpoints.find(e => e.stream === 'summary')?.path ||
+      '/core/transaction/v2/result/summary';
+    const path = `${basePath}/${transactionId}`;
+    return this.fetchJSON<any>(path);
+  }
+
   /** Fetch detailed information for a single transaction */
   public async getTransactionDetails(
     transactionId: string | number,

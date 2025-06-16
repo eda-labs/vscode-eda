@@ -30,31 +30,36 @@ export function registerViewCommands(
         // Get EdaClient from service manager
         const edaClient = serviceManager.getClient<EdaClient>('edactl');
 
-        // Retrieve transaction details JSON
-        const detailsObj = await edaClient.getTransactionDetails(transactionId);
+        // Retrieve transaction details and summary JSON
+        const [detailsObj, summaryObj] = await Promise.all([
+          edaClient.getTransactionDetails(transactionId),
+          edaClient.getTransactionSummary(transactionId)
+        ]);
 
-        const success = detailsObj.success ? 'Yes' : 'No';
-        const successColor = detailsObj.success ? '#2ECC71' : '#E74C3C';
+        const mergedObj = { ...summaryObj, ...detailsObj } as any;
+
+        const success = mergedObj.success ? 'Yes' : 'No';
+        const successColor = mergedObj.success ? '#2ECC71' : '#E74C3C';
 
         const templateVars: Record<string, any> = {
-          id: detailsObj.id,
-          state: detailsObj.state,
-          username: detailsObj.username,
-          description: detailsObj.description || 'N/A',
-          dryRun: detailsObj.dryRun ? 'Yes' : 'No',
+          id: mergedObj.id,
+          state: mergedObj.state,
+          username: mergedObj.username,
+          description: mergedObj.description || 'N/A',
+          dryRun: mergedObj.dryRun ? 'Yes' : 'No',
           success,
           successColor,
-          changedCrs: Array.isArray(detailsObj.changedCrs)
-            ? detailsObj.changedCrs
+          changedCrs: Array.isArray(mergedObj.changedCrs)
+            ? mergedObj.changedCrs
             : [],
-          inputCrs: Array.isArray(detailsObj.inputCrs)
-            ? detailsObj.inputCrs
+          inputCrs: Array.isArray(mergedObj.inputCrs)
+            ? mergedObj.inputCrs
             : [],
-          nodesWithConfigChanges: Array.isArray(detailsObj.nodesWithConfigChanges)
-            ? detailsObj.nodesWithConfigChanges
+          nodesWithConfigChanges: Array.isArray(mergedObj.nodesWithConfigChanges)
+            ? mergedObj.nodesWithConfigChanges
             : [],
-          generalErrors: detailsObj.generalErrors,
-          rawJson: JSON.stringify(detailsObj, null, 2)
+          generalErrors: mergedObj.generalErrors,
+          rawJson: JSON.stringify(mergedObj, null, 2)
         };
 
         const detailsText = loadTemplate('transaction', context, templateVars);
