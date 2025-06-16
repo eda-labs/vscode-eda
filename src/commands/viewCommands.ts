@@ -169,16 +169,17 @@ export function registerViewCommands(
     }
 
     try {
-      const name = deviation.name;
-      const namespace = deviation["namespace.name"];
+      const name = deviation.name || deviation.metadata?.name;
+      const namespace =
+        deviation["namespace.name"] || deviation.namespace || deviation.metadata?.namespace;
       const edactlClient = serviceManager.getClient<EdaClient>('edactl');
 
       // Prepare base template variables
       const templateVars: Record<string, any> = {
-        name: deviation.name,
+        name,
         kind: deviation.kind || 'Deviation',
         apiVersion: deviation.apiVersion || 'v1',
-        namespace: deviation["namespace.name"]
+        namespace
       };
 
       try {
