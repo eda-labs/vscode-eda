@@ -400,6 +400,10 @@ export class EdaClient {
       // prime namespace set
       const ns = await this.fetchJsonUrl(`${this.baseUrl}${nsPath}`) as NamespaceGetResponse;
       this.namespaceSet = new Set((ns.namespaces || []).map(n => n.name || '').filter(n => n));
+      // The system namespace is not included in the standard API response
+      // but streams may still return resources from it. Always include it so
+      // consumers can display these resources in the namespace tree.
+      this.namespaceSet.add('eda-system');
       log('Spec initialization complete', LogLevel.INFO);
     } catch (err) {
       log(`Failed to initialize specs: ${err}`, LogLevel.WARN);
