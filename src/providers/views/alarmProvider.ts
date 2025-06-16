@@ -66,6 +66,11 @@ export class EdaAlarmProvider implements vscode.TreeDataProvider<TreeItemBase> {
       item.iconPath = this.statusService.getThemeStatusIcon('gray');
       return [item];
     }
+    list.sort((a, b) => {
+      const aTime = a.lastChanged ? new Date(a.lastChanged).getTime() : 0;
+      const bTime = b.lastChanged ? new Date(b.lastChanged).getTime() : 0;
+      return bTime - aTime;
+    });
     return list.map(a => this.createAlarmItem(a));
   }
 
