@@ -32,23 +32,43 @@ export function registerViewCommands(
 
         // Retrieve transaction details JSON
         const detailsObj = await edaClient.getTransactionDetails(transactionId);
-        const detailsText = JSON.stringify(detailsObj, null, 2);
+
+        const success = detailsObj.success ? 'Yes' : 'No';
+        const successColor = detailsObj.success ? '#2ECC71' : '#E74C3C';
+
+        const templateVars: Record<string, any> = {
+          id: detailsObj.id,
+          state: detailsObj.state,
+          username: detailsObj.username,
+          description: detailsObj.description || 'N/A',
+          dryRun: detailsObj.dryRun ? 'Yes' : 'No',
+          success,
+          successColor,
+          changedCrs: Array.isArray(detailsObj.changedCrs)
+            ? detailsObj.changedCrs
+            : [],
+          inputCrs: Array.isArray(detailsObj.inputCrs)
+            ? detailsObj.inputCrs
+            : [],
+          nodesWithConfigChanges: Array.isArray(detailsObj.nodesWithConfigChanges)
+            ? detailsObj.nodesWithConfigChanges
+            : [],
+          generalErrors: detailsObj.generalErrors,
+          rawJson: JSON.stringify(detailsObj, null, 2)
+        };
+
+        const detailsText = loadTemplate('transaction', context, templateVars);
 
         // Create a "eda-transaction:" URI for read-only
         const docUri = vscode.Uri.parse(
           `eda-transaction:/${transactionId}?ts=${Date.now()}`
         );
 
-        // Store the text in the read-only provider
+        // Store the markdown text in the read-only provider
         transactionDetailsProvider.setTransactionContent(docUri, detailsText);
 
-        // Open the doc
-        const doc = await vscode.workspace.openTextDocument(docUri);
-
-        // Force syntax highlighting to "log" format
-        await vscode.languages.setTextDocumentLanguage(doc, 'log');
-
-        await vscode.window.showTextDocument(doc, { preview: true });
+        // Show markdown preview
+        await vscode.commands.executeCommand('markdown.showPreview', docUri);
       } catch (err: any) {
         const msg = `Failed to load transaction details for ID ${transactionId}: ${err.message}`;
         vscode.window.showErrorMessage(msg);
