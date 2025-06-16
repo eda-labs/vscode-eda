@@ -107,7 +107,13 @@ export class ResourceStatusService extends CoreService {
     if (s.includes('running')) {
       return this.getTransactionIconByColor('yellow');
     }
-    if (s.includes('success') || s.includes('complete') || s.includes('succeeded')) {
+    if (s.includes('complete')) {
+      if (success === false) {
+        return this.getTransactionIconByColor('red');
+      }
+      return this.getTransactionIconByColor('green');
+    }
+    if (s.includes('success') || s.includes('succeeded')) {
       return this.getTransactionIconByColor('green');
     }
     if (s.includes('fail') || s.includes('error')) {
