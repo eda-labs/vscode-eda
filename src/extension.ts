@@ -17,7 +17,7 @@ import { ResourceViewDocumentProvider } from './providers/documents/resourceView
 import { SchemaProviderService } from './services/schemaProviderService';
 
 import { registerResourceViewCommands } from './commands/resourceViewCommands';
-// import { registerDeviationCommands } from './commands/deviationCommands';
+import { registerDeviationCommands } from './commands/deviationCommands';
 // import { registerTransactionCommands } from './commands/transactionCommands';
 import { registerViewCommands } from './commands/viewCommands';
 // import { registerResourceEditCommands } from './commands/resourceEditCommands';
@@ -260,7 +260,7 @@ export async function activate(context: vscode.ExtensionContext) {
     alarmDetailsProviderLocal,
     deviationDetailsProviderLocal
   );
-  // registerDeviationCommands(context, edaDeviationProvider);
+  registerDeviationCommands(context);
   //   registerTransactionCommands(context);
 
   //   log('Service architecture initialized successfully', LogLevel.INFO, true);

@@ -1,243 +1,92 @@
-// import * as vscode from 'vscode';
-// import * as yaml from 'js-yaml';
-// import { execSync } from 'child_process';
-// import { serviceManager } from '../services/serviceManager';
-// import { EdaClient } from '../clients/edaClient';
-// import { log, LogLevel, edaOutputChannel } from '../extension';
+import * as vscode from 'vscode';
+import { serviceManager } from '../services/serviceManager';
+import { EdaClient } from '../clients/edaClient';
+import { edaDeviationProvider, log, LogLevel } from '../extension';
 
-// // Define interface for DeviationResource if not imported
-// interface DeviationResource {
-//   apiVersion: string;
-//   kind: string;
-//   metadata: {
-//     name: string;
-//     namespace: string;
-//     [key: string]: any;
-//   };
-//   spec: {
-//     nodeEndpoint?: string;
-//     path?: string;
-//     [key: string]: any;
-//   };
-//   [key: string]: any;
-// }
+interface Deviation {
+  name?: string;
+  metadata?: { name?: string; namespace?: string };
+  namespace?: string;
+  'namespace.name'?: string;
+  spec?: { nodeEndpoint?: string; path?: string };
+  [key: string]: any;
+}
 
-// /**
-//  * Check if a deviation still exists
-//  */
-// async function checkDeviationExists(name: string, namespace: string): Promise<boolean> {
-//   try {
-//     const edactlClient = serviceManager.getClient<EdaClient>('edactl');
-//     const deviations = await edactlClient.getEdaDeviations();
-//     return deviations.some((dev: any) => dev.name === name && dev["namespace.name"] === namespace);
-//   } catch (error) {
-//     log(`Error checking if deviation exists: ${error}`, LogLevel.ERROR);
-//     return true;
-//   }
-// }
+function getDeviationName(dev: Deviation): string | undefined {
+  return dev.name || dev.metadata?.name;
+}
 
-// /**
-//  * Delete a DeviationAction resource
-//  */
-// async function deleteDeviationAction(name: string, namespace: string): Promise<void> {
-//   try {
-//     log(`Deleting DeviationAction ${name} in namespace ${namespace}`, LogLevel.INFO);
-//     const kubectlPath = 'kubectl'; // Default, or you could get this from a config
-//     execSync(`${kubectlPath} delete deviationaction ${name} -n ${namespace}`, { encoding: 'utf-8' });
-//     log(`Successfully deleted DeviationAction ${name}`, LogLevel.INFO);
-//   } catch (error) {
-//     log(`Error deleting DeviationAction: ${error}`, LogLevel.ERROR);
-//   }
-// }
+function getDeviationNamespace(dev: Deviation): string | undefined {
+  return dev['namespace.name'] || dev.namespace || dev.metadata?.namespace;
+}
 
-// /**
-//  * Register commands for deviation acceptance and rejection
-//  */
-// export function registerDeviationCommands(
-//   context: vscode.ExtensionContext,
-//   edaDeviationProvider: any  // Add this parameter
-// ) {
+export function registerDeviationCommands(
+  context: vscode.ExtensionContext,
+): void {
+  const edaClient = serviceManager.getClient<EdaClient>('edactl');
 
-//   // Helper function to repeatedly try deleting the deviation action
-//   async function attemptCleanup(
-//     name: string,
-//     namespace: string,
-//     actionName: string
-//   ) {
-//     const maxWaitTime = 60000; // 60 seconds
-//     const pollInterval = 5000; // every 5 seconds
-//     const startTime = Date.now();
+  async function handleAction(
+    dev: Deviation,
+    action: 'setAccept' | 'reject'
+  ): Promise<void> {
+    const name = getDeviationName(dev);
+    const ns = getDeviationNamespace(dev);
+    const nodeEndpoint = dev.spec?.nodeEndpoint;
+    const path = dev.spec?.path;
+    if (!name || !ns || !nodeEndpoint || !path) {
+      vscode.window.showErrorMessage('Deviation information incomplete.');
+      return;
+    }
+    const actionName = `${action === 'setAccept' ? 'accept' : 'reject'}-${name}`;
+    const body = {
+      apiVersion: 'core.eda.nokia.com/v1',
+      kind: 'DeviationAction',
+      metadata: { name: actionName, namespace: ns },
+      spec: {
+        actions: [
+          {
+            action,
+            path,
+            recurse: false,
+          },
+        ],
+        nodeEndpoint,
+      },
+    };
+    try {
+      await edaClient.createDeviationAction(ns, body);
+      vscode.window.showInformationMessage(
+        `Deviation ${name} ${action === 'setAccept' ? 'accepted' : 'rejected'} successfully.`,
+      );
+      edaDeviationProvider.updateDeviation(name, ns, 'Processing...');
+    } catch (err: any) {
+      const msg = `Failed to ${action === 'setAccept' ? 'accept' : 'reject'} deviation: ${err.message || err}`;
+      vscode.window.showErrorMessage(msg);
+      log(msg, LogLevel.ERROR, true);
+    }
+  }
 
-//     async function cleanupLoop() {
-//       try {
-//         const deviationExists = await checkDeviationExists(name, namespace);
-//         if (!deviationExists) {
-//           log(`Deviation ${name} has been successfully handled, deleting DeviationAction...`, LogLevel.INFO);
-//           await deleteDeviationAction(actionName, namespace);
-//           edaDeviationProvider.removeDeviation(name, namespace);
-//         } else if (Date.now() - startTime < maxWaitTime) {
-//           setTimeout(cleanupLoop, pollInterval);
-//         } else {
-//           edaDeviationProvider.updateDeviation(name, namespace, "Still processing...");
-//         }
-//       } catch (error) {
-//         log(`Error during deletion cleanup: ${error}`, LogLevel.ERROR);
-//       }
-//     }
+  const acceptCmd = vscode.commands.registerCommand(
+    'vscode-eda.acceptDeviation',
+    async (treeItem: any) => {
+      if (!treeItem?.deviation) {
+        vscode.window.showErrorMessage('No deviation selected.');
+        return;
+      }
+      await handleAction(treeItem.deviation as Deviation, 'setAccept');
+    },
+  );
 
-//     // Start checking after 2 seconds
-//     setTimeout(cleanupLoop, 2000);
-//   }
+  const rejectCmd = vscode.commands.registerCommand(
+    'vscode-eda.rejectDeviation',
+    async (treeItem: any) => {
+      if (!treeItem?.deviation) {
+        vscode.window.showErrorMessage('No deviation selected.');
+        return;
+      }
+      await handleAction(treeItem.deviation as Deviation, 'reject');
+    },
+  );
 
-//   // Register accept deviation command
-//   const acceptDeviationCmd = vscode.commands.registerCommand('vscode-eda.acceptDeviation', async (treeItem: any) => {
-//     if (!treeItem?.deviation) {
-//       vscode.window.showErrorMessage('No deviation selected.');
-//       return;
-//     }
-
-//     try {
-//       const deviation = treeItem.deviation;
-//       const name = deviation.name;
-//       const namespace = deviation["namespace.name"];
-//       const actionName = `accept-${name}`;
-
-//       log(`Accepting deviation ${name} in namespace ${namespace}`, LogLevel.INFO, true);
-
-//       // Get the YAML content for the deviation
-//       let yamlContent;
-//       try {
-//         // Using edactl directly instead of k8sService.getResourceYaml
-//         const edactlClient = serviceManager.getClient<EdaClient>('edactl');
-//         yamlContent = await edactlClient.executeEdactl(`get deviation ${name} -n ${namespace} -o yaml`);
-//       } catch (error) {
-//         throw new Error(`Failed to get deviation details: ${error}`);
-//       }
-
-//       const fullDeviation = yaml.load(yamlContent) as DeviationResource;
-
-//       if (!fullDeviation || !fullDeviation.spec) {
-//         vscode.window.showErrorMessage(`Failed to get full details for deviation ${name}`);
-//         return;
-//       }
-
-//       const nodeEndpoint = fullDeviation.spec.nodeEndpoint;
-//       const path = fullDeviation.spec.path;
-
-//       if (!nodeEndpoint || !path) {
-//         vscode.window.showErrorMessage('Deviation is missing required properties');
-//         return;
-//       }
-
-//       const acceptResource = {
-//         apiVersion: 'core.eda.nokia.com/v1',
-//         kind: 'DeviationAction',
-//         metadata: {
-//           name: actionName,
-//           namespace: namespace
-//         },
-//         spec: {
-//           actions: [
-//             {
-//               action: 'setAccept',
-//               path: path,
-//               recurse: false
-//             }
-//           ],
-//           nodeEndpoint: nodeEndpoint
-//         }
-//       };
-
-//       // Apply the resource using kubectl
-//       const yamlData = yaml.dump(acceptResource);
-//       execSync(`kubectl apply -f - <<EOF\n${yamlData}\nEOF`, { encoding: 'utf8' });
-
-//       vscode.window.showInformationMessage(`Deviation ${name} accepted successfully`);
-//       edaDeviationProvider.updateDeviation(name, namespace, "Processing...");
-
-//       // Attempt to clean up the deviation action resource for up to 60 seconds
-//       attemptCleanup(name, namespace, actionName);
-
-//     } catch (error) {
-//       vscode.window.showErrorMessage(`Failed to accept deviation: ${error}`);
-//       edaOutputChannel.appendLine(`Error accepting deviation: ${error}`);
-//     }
-//   });
-
-//   // Register reject deviation command
-//   const rejectDeviationCmd = vscode.commands.registerCommand('vscode-eda.rejectDeviation', async (treeItem: any) => {
-//     if (!treeItem?.deviation) {
-//       vscode.window.showErrorMessage('No deviation selected.');
-//       return;
-//     }
-
-//     try {
-//       const deviation = treeItem.deviation;
-//       const name = deviation.name;
-//       const namespace = deviation["namespace.name"];
-//       const actionName = `reject-${name}`;
-
-//       log(`Rejecting deviation ${name} in namespace ${namespace}`, LogLevel.INFO, true);
-
-//       // Get the YAML content for the deviation
-//       let yamlContent;
-//       try {
-//         // Using edactl directly instead of k8sService.getResourceYaml
-//         const edactlClient = serviceManager.getClient<EdaClient>('edactl');
-//         yamlContent = await edactlClient.executeEdactl(`get deviation ${name} -n ${namespace} -o yaml`);
-//       } catch (error) {
-//         throw new Error(`Failed to get deviation details: ${error}`);
-//       }
-
-//       const fullDeviation = yaml.load(yamlContent) as DeviationResource;
-
-//       if (!fullDeviation || !fullDeviation.spec) {
-//         vscode.window.showErrorMessage(`Failed to get full details for deviation ${name}`);
-//         return;
-//       }
-
-//       const nodeEndpoint = fullDeviation.spec.nodeEndpoint;
-//       const path = fullDeviation.spec.path;
-
-//       if (!nodeEndpoint || !path) {
-//         vscode.window.showErrorMessage('Deviation is missing required properties');
-//         return;
-//       }
-
-//       const rejectResource = {
-//         apiVersion: 'core.eda.nokia.com/v1',
-//         kind: 'DeviationAction',
-//         metadata: {
-//           name: actionName,
-//           namespace: namespace
-//         },
-//         spec: {
-//           actions: [
-//             {
-//               action: "reject",
-//               path: path,
-//               recurse: false
-//             }
-//           ],
-//           nodeEndpoint: nodeEndpoint
-//         }
-//       };
-
-//       // Apply the resource using kubectl
-//       const yamlData = yaml.dump(rejectResource);
-//       execSync(`kubectl apply -f - <<EOF\n${yamlData}\nEOF`, { encoding: 'utf8' });
-
-//       vscode.window.showInformationMessage(`Deviation ${name} rejected successfully`);
-//       edaDeviationProvider.updateDeviation(name, namespace, "Processing...");
-
-//       // Attempt to clean up the deviation action resource for up to 60 seconds
-//       attemptCleanup(name, namespace, actionName);
-
-//     } catch (error) {
-//       vscode.window.showErrorMessage(`Failed to reject deviation: ${error}`);
-//       edaOutputChannel.appendLine(`Error rejecting deviation: ${error}`);
-//     }
-//   });
-
-//   context.subscriptions.push(acceptDeviationCmd, rejectDeviationCmd);
-// }
+  context.subscriptions.push(acceptCmd, rejectCmd);
+}

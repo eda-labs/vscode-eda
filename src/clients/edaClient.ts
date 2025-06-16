@@ -246,6 +246,31 @@ export class EdaClient {
     return (await res.json()) as T;
   }
 
+  private async requestJSON<T = any>(
+    method: string,
+    path: string,
+    body?: any
+  ): Promise<T> {
+    await this.authPromise;
+    const url = `${this.baseUrl}${path}`;
+    log(`${method} ${url}`, LogLevel.DEBUG);
+    const res = await fetch(url, {
+      method,
+      headers: this.headers,
+      dispatcher: this.agent,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    log(`${method} ${url} -> ${res.status}`, LogLevel.DEBUG);
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`HTTP ${res.status}: ${text}`);
+    }
+    if (res.status === 204) {
+      return undefined as T;
+    }
+    return (await res.json()) as T;
+  }
+
   private async fetchJsonUrl(url: string): Promise<any> {
     await this.authPromise;
     const res = await fetch(url, { headers: this.headers, dispatcher: this.agent });
@@ -866,6 +891,11 @@ export class EdaClient {
     const plural = kind.toLowerCase() + 's';
     const data = await this.fetchJSON<any>(`/apps/core.eda.nokia.com/v1/namespaces/${namespace}/${plural}/${name}`);
     return JSON.stringify(data, null, 2);
+  }
+
+  /** Create a DeviationAction resource */
+  public async createDeviationAction(namespace: string, action: any): Promise<any> {
+    return this.requestJSON('POST', `/apps/core.eda.nokia.com/v1/namespaces/${namespace}/deviationactions`, action);
   }
 
   /** Execute a limited set of edactl-style commands for compatibility */
