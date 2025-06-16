@@ -14,12 +14,40 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
   private _refreshDebounceTimer: ReturnType<typeof setTimeout> | undefined;
   private cachedTransactions: any[] = [];
 
+  /**
+   * Merge new transaction updates into the cached list while
+   * maintaining at most 50 entries.
+   */
+  private mergeTransactions(txs: any[]): void {
+    const byId = new Map<string, any>();
+    for (const tx of this.cachedTransactions) {
+      if (tx && tx.id !== undefined) {
+        byId.set(String(tx.id), tx);
+      }
+    }
+    for (const tx of txs) {
+      if (tx && tx.id !== undefined) {
+        byId.set(String(tx.id), tx);
+      }
+    }
+    const merged = Array.from(byId.values());
+    merged.sort((a, b) => {
+      const idA = parseInt(String(a.id), 10);
+      const idB = parseInt(String(b.id), 10);
+      if (!isNaN(idA) && !isNaN(idB)) {
+        return idB - idA;
+      }
+      return String(b.id).localeCompare(String(a.id));
+    });
+    this.cachedTransactions = merged.slice(0, 50);
+  }
+
   constructor() {
     this.edactlClient = serviceManager.getClient<EdaClient>('edactl');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
     void this.edactlClient.streamEdaTransactions(txs => {
       log(`Transaction stream provided ${txs.length} results`, LogLevel.DEBUG);
-      this.cachedTransactions = txs;
+      this.mergeTransactions(txs);
       this.refresh();
     }, 50);
   }
