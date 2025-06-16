@@ -70,28 +70,53 @@ export class ResourceStatusService extends CoreService {
   }
 
   /**
-   * Get transaction icon based on success/failure
-   * Only used for transaction items
+   * Get transaction icon based on a color indicator
    */
-  public getTransactionIcon(success: boolean): vscode.Uri {
+  private getTransactionIconByColor(color: string): vscode.Uri {
     if (!this.extensionContext) {
       throw new Error('ResourceStatusService not properly initialized with context');
     }
 
-    const status = success ? 'green' : 'red';
+    const valid = ['green', 'red', 'yellow'];
+    const indicator = valid.includes(color) ? color : 'red';
 
-    // Use cached icon if available
-    if (this.transactionIconCache.has(status)) {
-      return this.transactionIconCache.get(status)!;
+    if (this.transactionIconCache.has(indicator)) {
+      return this.transactionIconCache.get(indicator)!;
     }
 
-    // Create and cache the icon
     const iconUri = vscode.Uri.file(
-      this.extensionContext.asAbsolutePath(path.join('resources', 'status', `transaction-${status}.svg`))
+      this.extensionContext.asAbsolutePath(path.join('resources', 'status', `transaction-${indicator}.svg`))
     );
 
-    this.transactionIconCache.set(status, iconUri);
+    this.transactionIconCache.set(indicator, iconUri);
     return iconUri;
+  }
+
+  /**
+   * Get transaction icon based on success/failure
+   */
+  public getTransactionIcon(success: boolean): vscode.Uri {
+    return this.getTransactionIconByColor(success ? 'green' : 'red');
+  }
+
+  /**
+   * Get transaction icon based on transaction state string
+   */
+  public getTransactionStatusIcon(state: string | undefined, success?: boolean): vscode.Uri {
+    const s = (state || '').toLowerCase();
+    if (s.includes('running')) {
+      return this.getTransactionIconByColor('yellow');
+    }
+    if (s.includes('success') || s.includes('complete') || s.includes('succeeded')) {
+      return this.getTransactionIconByColor('green');
+    }
+    if (s.includes('fail') || s.includes('error')) {
+      return this.getTransactionIconByColor('red');
+    }
+    if (success !== undefined) {
+      return this.getTransactionIcon(success);
+    }
+    return this.getTransactionIconByColor('red');
   }
 
   /**

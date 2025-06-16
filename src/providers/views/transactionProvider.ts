@@ -116,7 +116,7 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
         `Description: ${t.description || 'No description'}`;
 
       const success = !!t.success;
-      item.iconPath = this.statusService.getTransactionIcon(success);
+      item.iconPath = this.statusService.getTransactionStatusIcon(t.state, success);
       item.command = {
         command: 'vscode-eda.showTransactionDetails',
         title: 'Show Transaction Details',
