@@ -72,7 +72,11 @@ export class EdaAlarmProvider implements vscode.TreeDataProvider<TreeItemBase> {
   private createAlarmItem(alarm: any): TreeItemBase {
     const label = `${(alarm.severity || 'info').toUpperCase()} - ${alarm.type}`;
     const item = new TreeItemBase(label, vscode.TreeItemCollapsibleState.None, 'eda-alarm', { metadata: { name: alarm.name } });
-    const ns = alarm.namespace || alarm['namespace.name'] || 'unknown';
+    const ns =
+      alarm['.namespace.name'] ||
+      alarm['namespace.name'] ||
+      alarm.namespace ||
+      'unknown';
     item.description = `ns: ${ns}`;
     item.tooltip = [
       `Name: ${alarm.name}`,

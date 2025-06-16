@@ -130,7 +130,10 @@ export function registerViewCommands(
         type: alarm.type,
         severity: alarm.severity,
         severityColor,
-        namespace: alarm["namespace.name"],
+        namespace:
+          alarm[".namespace.name"] ||
+          alarm["namespace.name"] ||
+          alarm.namespace,
         group: alarm.group,
         sourceGroup: alarm.sourceGroup,
         sourceKind: alarm.sourceKind,
