@@ -4,7 +4,7 @@ src/**
 test/**
 javascript/**
 vscode-kubernetes-tools/**
-!node_modules/**
+node_modules/**
 webpack.config.js
 tsconfig.json
 patch.sh

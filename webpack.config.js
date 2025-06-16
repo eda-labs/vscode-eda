@@ -17,8 +17,7 @@ const config = {
   },
   devtool: 'source-map',
   externals: {
-    vscode: 'commonjs vscode',
-    'openapi-typescript': 'commonjs openapi-typescript',
+    vscode: 'commonjs vscode'
   },
   ignoreWarnings: [{
     module: /node_modules\/handlebars/
