@@ -73,6 +73,7 @@ export class EdaClient {
   private streamEndpoints: StreamEndpoint[] = [];
   private namespaceSet: Set<string> = new Set();
   private currentAlarmMap: Map<number, any> = new Map();
+  private deviationMap: Map<string, any> = new Map();
   private skipTlsVerify = false;
   private activeStreams: Set<string> = new Set();
   private callbacks: {
@@ -606,7 +607,46 @@ export class EdaClient {
         this.callbacks.transactions(results);
       } else if ('items' in msg && this.callbacks.deviations) {
         const items = Array.isArray(msg.items) ? msg.items : [];
-        this.callbacks.deviations(items);
+        this.deviationMap.clear();
+        for (const it of items) {
+          const name = it?.metadata?.name || it?.name;
+          const ns = it?.metadata?.namespace || it?.['namespace.name'];
+          if (name && ns) {
+            this.deviationMap.set(`${ns}/${name}`, it);
+          }
+        }
+        this.callbacks.deviations(Array.from(this.deviationMap.values()));
+      } else if (
+        msg.stream === 'deviations' &&
+        Array.isArray(msg.msg?.updates) &&
+        this.callbacks.deviations
+      ) {
+        const updates = msg.msg.updates;
+        let changed = false;
+        for (const up of updates) {
+          let name: string | undefined = up.data?.metadata?.name || up.data?.name;
+          let ns: string | undefined = up.data?.metadata?.namespace;
+          if ((!name || !ns) && up.key) {
+            const nameMatch = String(up.key).match(/\.name=="([^"]+)"/g);
+            if (nameMatch && nameMatch.length) {
+              const last = nameMatch[nameMatch.length - 1].match(/\.name=="([^"]+)"/);
+              if (last) name = last[1];
+            }
+            const nsMatch = String(up.key).match(/namespace\{\.name=="([^"]+)"\}/);
+            if (nsMatch) ns = nsMatch[1];
+          }
+          if (!name || !ns) continue;
+          const key = `${ns}/${name}`;
+          if (up.data === null) {
+            if (this.deviationMap.delete(key)) changed = true;
+          } else {
+            this.deviationMap.set(key, up.data);
+            changed = true;
+          }
+        }
+        if (changed) {
+          this.callbacks.deviations(Array.from(this.deviationMap.values()));
+        }
       } else if (
         msg.stream === 'current-alarms' &&
         Array.isArray(msg.msg?.op) &&
@@ -680,6 +720,24 @@ export class EdaClient {
     this.activeStreams.delete('current-alarms');
   }
 
+  /** Stream deviations over WebSocket */
+  public async streamEdaDeviations(
+    onDeviations: DeviationCallback,
+  ): Promise<void> {
+    await this.initPromise;
+    this.callbacks.deviations = onDeviations;
+    this.deviationMap.clear();
+    this.activeStreams.add('deviations');
+    log('Started to stream endpoint deviations', LogLevel.DEBUG);
+    await this.connectEventSocket();
+  }
+
+  /** Stop streaming deviations */
+  public closeDeviationStream(): void {
+    this.callbacks.deviations = undefined;
+    this.activeStreams.delete('deviations');
+  }
+
 
   /** Get unique stream names discovered from the API */
   public async getStreamNames(): Promise<string[]> {
@@ -706,6 +764,7 @@ export class EdaClient {
     }
     return result;
   }
+
 
   /** Fetch a resource YAML using EDA API */
   public async getEdaResourceYaml(kind: string, name: string, namespace: string): Promise<string> {

@@ -6,7 +6,7 @@ import { serviceManager } from './services/serviceManager';
 import { ResourceStatusService } from './services/resourceStatusService';
 import { EdaNamespaceProvider } from './providers/views/namespaceProvider';
 import { EdaAlarmProvider } from './providers/views/alarmProvider';
-// import { EdaDeviationProvider } from './providers/views/deviationProvider';
+import { EdaDeviationProvider } from './providers/views/deviationProvider';
 // import { EdaTransactionProvider } from './providers/views/transactionProvider';
 import { AlarmDetailsDocumentProvider } from './providers/documents/alarmDetailsProvider';
 import { DeviationDetailsDocumentProvider } from './providers/documents/deviationDetailsProvider';
@@ -17,7 +17,6 @@ import { ResourceViewDocumentProvider } from './providers/documents/resourceView
 import { SchemaProviderService } from './services/schemaProviderService';
 
 import { registerResourceViewCommands } from './commands/resourceViewCommands';
-
 // import { registerDeviationCommands } from './commands/deviationCommands';
 // import { registerTransactionCommands } from './commands/transactionCommands';
 import { registerViewCommands } from './commands/viewCommands';
@@ -43,7 +42,7 @@ export enum LogLevel {
 }
 /* eslint-enable no-unused-vars */
 
-// export let edaDeviationProvider: EdaDeviationProvider;
+export let edaDeviationProvider: EdaDeviationProvider;
 // export let edaTransactionProvider: EdaTransactionProvider;
 export let alarmDetailsProvider: AlarmDetailsDocumentProvider;
 export let deviationDetailsProvider: DeviationDetailsDocumentProvider;
@@ -187,11 +186,11 @@ export async function activate(context: vscode.ExtensionContext) {
     showCollapseAll: true
   });
 
-  //   edaDeviationProvider = new EdaDeviationProvider();
-  //   const deviationTreeView = vscode.window.createTreeView('edaDeviations', {
-  //     treeDataProvider: edaDeviationProvider,
-  //     showCollapseAll: true
-  //   });
+  edaDeviationProvider = new EdaDeviationProvider();
+  const deviationTreeView = vscode.window.createTreeView('edaDeviations', {
+    treeDataProvider: edaDeviationProvider,
+    showCollapseAll: true
+  });
 
   //   edaTransactionProvider = new EdaTransactionProvider();
   //   const transactionTreeView = vscode.window.createTreeView('edaTransactions', {
@@ -227,10 +226,10 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  //   context.subscriptions.push(namespaceTreeView);
-  //   context.subscriptions.push(alarmTreeView, { dispose: () => alarmProvider.dispose() });
-  //   context.subscriptions.push(deviationTreeView, { dispose: () => edaDeviationProvider.dispose() });
-  //   context.subscriptions.push(transactionTreeView, { dispose: () => edaTransactionProvider.dispose() });
+  context.subscriptions.push(namespaceTreeView);
+  context.subscriptions.push(alarmTreeView);
+  context.subscriptions.push(deviationTreeView, { dispose: () => edaDeviationProvider.dispose() });
+  // context.subscriptions.push(transactionTreeView, { dispose: () => edaTransactionProvider.dispose() });
 
   //   context.subscriptions.push(
   //     vscode.commands.registerCommand('vscode-eda.refreshResources', () => {
@@ -261,7 +260,7 @@ export async function activate(context: vscode.ExtensionContext) {
     alarmDetailsProviderLocal,
     deviationDetailsProviderLocal
   );
-  //   registerDeviationCommands(context, edaDeviationProvider);
+  // registerDeviationCommands(context, edaDeviationProvider);
   //   registerTransactionCommands(context);
 
   //   log('Service architecture initialized successfully', LogLevel.INFO, true);
