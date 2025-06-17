@@ -20,7 +20,7 @@ import { registerResourceViewCommands } from './commands/resourceViewCommands';
 import { registerDeviationCommands } from './commands/deviationCommands';
 import { registerTransactionCommands } from './commands/transactionCommands';
 import { registerViewCommands } from './commands/viewCommands';
-// import { registerResourceEditCommands } from './commands/resourceEditCommands';
+import { registerResourceEditCommands } from './commands/resourceEditCommands';
 import { registerResourceCreateCommand } from './commands/resourceCreateCommand';
 // import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand';
 // import { registerResourceViewCommands } from './commands/resourceViewCommands';
@@ -170,6 +170,7 @@ export async function activate(context: vscode.ExtensionContext) {
       vscode.workspace.registerFileSystemProvider('k8s', resourceEditProvider, { isCaseSensitive: true })
     );
     registerResourceCreateCommand(context, resourceEditProvider);
+    registerResourceEditCommands(context, resourceEditProvider, resourceViewProvider);
 
     const schemaProviderService = new SchemaProviderService();
     serviceManager.registerService('schema-provider', schemaProviderService);

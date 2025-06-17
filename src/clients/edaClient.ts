@@ -1061,12 +1061,50 @@ export class EdaClient {
     namespace: string | undefined,
     plural: string,
     body: any,
-    namespaced = true
+    namespaced = true,
+    dryRun = false
   ): Promise<any> {
     await this.initPromise;
     const nsPart = namespaced ? `/namespaces/${namespace}` : '';
     const path = `/apps/${group}/${version}${nsPart}/${plural}`;
-    return this.requestJSON('POST', path, body);
+    const url = dryRun ? `${path}?dryRun=true` : path;
+    return this.requestJSON('POST', url, body);
+  }
+
+  /**
+   * Update an existing custom resource using the EDA API
+   * @param group API group, e.g. 'core.eda.nokia.com'
+   * @param version API version
+   * @param namespace Namespace for namespaced resources
+   * @param plural Plural name of the resource
+   * @param name Resource name
+   * @param body Resource body
+   * @param namespaced Whether the resource is namespaced
+   */
+  public async updateCustomResource(
+    group: string,
+    version: string,
+    namespace: string | undefined,
+    plural: string,
+    name: string,
+    body: any,
+    namespaced = true,
+    dryRun = false
+  ): Promise<any> {
+    await this.initPromise;
+    const nsPart = namespaced ? `/namespaces/${namespace}` : '';
+    const path = `/apps/${group}/${version}${nsPart}/${plural}/${name}`;
+    const url = dryRun ? `${path}?dryRun=true` : path;
+    return this.requestJSON('PUT', url, body);
+  }
+
+  /**
+   * Validate custom resources using the EDA API
+   * @param resources Array of resource objects to validate
+   */
+  public async validateCustomResources(resources: any[]): Promise<void> {
+    await this.initPromise;
+    await this.requestJSON('POST', '/core/transaction/v2/validate', resources);
   }
 
   /** Execute a limited set of edactl-style commands for compatibility */

@@ -2,7 +2,6 @@
 import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
 import { serviceManager } from '../services/serviceManager';
-import { KubernetesClient } from '../clients/kubernetesClient';
 import { EdaClient } from '../clients/edaClient';
 import type { ResourceService } from '../services/resourceService';
 import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
@@ -37,7 +36,6 @@ export function registerResourceEditCommands(
   resourceEditProvider: ResourceEditDocumentProvider,
   resourceViewProvider: ResourceViewDocumentProvider
 ) {
-  const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
   const edactlClient = serviceManager.getClient<EdaClient>('edactl');
 
   // Switch from read-only view to editable
@@ -293,7 +291,7 @@ export function registerResourceEditCommands(
         // If we have an explicit option (dry run or direct apply), skip the initial prompt
         if (options.skipPrompt) {
           if (options.dryRun) {
-            return await validateAndPromptForApply(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
+            return await validateAndPromptForApply(edactlClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
           } else {
             // Direct apply - still show diff first
             const shouldContinue = await showResourceDiff(resourceEditProvider, documentUri);
@@ -304,7 +302,7 @@ export function registerResourceEditCommands(
             // Confirm and apply
             const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
             if (confirmed) {
-              const result = await applyResource(documentUri, k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
+              const result = await applyResource(documentUri, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
               if (result) {
                 // Update both providers with the applied resource
                 resourceEditProvider.setOriginalResource(documentUri, resource);
@@ -357,12 +355,12 @@ export function registerResourceEditCommands(
 
           if (nextAction === 'validate') {
             // Validate and then ask for apply
-            return await validateAndPromptForApply(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
+            return await validateAndPromptForApply(edactlClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
           } else {
             // Direct apply after diff
             const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
             if (confirmed) {
-              const result = await applyResource(documentUri, k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
+              const result = await applyResource(documentUri, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
               if (result) {
                 // Update both providers
                 resourceEditProvider.setOriginalResource(documentUri, resource);
@@ -391,7 +389,7 @@ export function registerResourceEditCommands(
           }
         } else if (action === 'validate') {
           // Validate and then ask for apply
-          return await validateAndPromptForApply(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
+          return await validateAndPromptForApply(edactlClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
         } else {
           // Direct apply - still show diff first as a safeguard
           const shouldContinue = await showResourceDiff(resourceEditProvider, documentUri);
@@ -402,7 +400,7 @@ export function registerResourceEditCommands(
           // Confirm and apply
           const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
           if (confirmed) {
-            const result = await applyResource(documentUri, k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
+            const result = await applyResource(documentUri, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
             if (result) {
               // Update both providers
               resourceEditProvider.setOriginalResource(documentUri, resource);
@@ -562,7 +560,6 @@ async function promptForNextAction(resource: any, currentStep: string): Promise<
 
 // Validate and then prompt for apply
 async function validateAndPromptForApply(
-  k8sClient: KubernetesClient,
   edactlClient: EdaClient,
   resourceEditProvider: ResourceEditDocumentProvider,
   resourceViewProvider: ResourceViewDocumentProvider,
@@ -582,7 +579,7 @@ async function validateAndPromptForApply(
   }
 
   // Perform validation (dry run)
-  const validationResult = await applyResource(documentUri, k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: true });
+  const validationResult = await applyResource(documentUri, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: true });
 
   if (validationResult) {
     // Show success message for validation
@@ -593,7 +590,7 @@ async function validateAndPromptForApply(
 
     if (validationAction === 'Apply Changes') {
       // Now apply the changes
-      const applyResult = await applyResource(documentUri, k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
+      const applyResult = await applyResource(documentUri, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
       if (applyResult) {
         resourceEditProvider.setOriginalResource(documentUri, resource);
 
@@ -775,7 +772,6 @@ async function confirmResourceUpdate(kind: string, name: string, dryRun: boolean
 // Apply the resource changes to the cluster
 async function applyResource(
   documentUri: vscode.Uri,
-  k8sClient: KubernetesClient,
   edactlClient: EdaClient,
   resourceEditProvider: ResourceEditDocumentProvider,
   resourceViewProvider: ResourceViewDocumentProvider,
@@ -798,20 +794,37 @@ async function applyResource(
     const crdInfo = resourceEditProvider.getCrdInfo(documentUri);
     let result: string;
 
-    if (isEdaResource && isNew && !isDryRun) {
+    if (isEdaResource) {
       const [group, version] = (resource.apiVersion || '').split('/');
       const plural = crdInfo?.plural || resource.kind.toLowerCase() + 's';
-      await edactlClient.createCustomResource(
-        group,
-        version,
-        resource.metadata.namespace,
-        plural,
-        resource,
-        crdInfo?.namespaced ?? true
-      );
+
+      if (isDryRun) {
+        await edactlClient.validateCustomResources([resource]);
+      } else if (isNew) {
+        await edactlClient.createCustomResource(
+          group,
+          version,
+          resource.metadata.namespace,
+          plural,
+          resource,
+          crdInfo?.namespaced ?? true
+        );
+        resourceEditProvider.setOriginalResource(documentUri, resource);
+        resourceEditProvider.clearNewResource(documentUri);
+      } else {
+        await edactlClient.updateCustomResource(
+          group,
+          version,
+          resource.metadata.namespace,
+          plural,
+          resource.metadata.name,
+          resource,
+          crdInfo?.namespaced ?? true
+        );
+        resourceEditProvider.setOriginalResource(documentUri, resource);
+      }
+
       result = '';
-      resourceEditProvider.setOriginalResource(documentUri, resource);
-      resourceEditProvider.clearNewResource(documentUri);
     } else {
       // Validation or update logic removed
       result = '';
@@ -822,8 +835,12 @@ async function applyResource(
     } else {
       log(`Successfully applied ${resource.kind} "${resource.metadata.name}"`, LogLevel.INFO, true);
 
-      // Notify resource service of changes
-      serviceManager.getService<ResourceService>('kubernetes-resources').forceRefresh();
+      // Notify resource service of changes if registered
+      const serviceNames = serviceManager.getServiceNames();
+      if (serviceNames.includes('kubernetes-resources')) {
+        const resourceService = serviceManager.getService<ResourceService>('kubernetes-resources');
+        resourceService.forceRefresh();
+      }
 
       // Update the resource pair with the newest resource
       const pair = resourcePairs.get(resourceKey);
