@@ -955,6 +955,24 @@ export class EdaClient {
     return this.requestJSON('POST', path);
   }
 
+  /**
+   * Run a transaction consisting of one or more CRs
+   * @param transaction Transaction object as defined by the API
+   * @returns The transaction ID assigned by the API
+   */
+  public async runTransaction(transaction: any): Promise<number> {
+    await this.initPromise;
+    log('POST /core/transaction/v2', LogLevel.INFO, true);
+    log(JSON.stringify(transaction, null, 2), LogLevel.DEBUG);
+    const result = await this.requestJSON<{ id: number }>(
+      'POST',
+      '/core/transaction/v2',
+      transaction,
+    );
+    log(`POST /core/transaction/v2 -> ${result.id}`, LogLevel.INFO, true);
+    return result.id;
+  }
+
   /** Get the currently known EDA namespaces */
   public getCachedNamespaces(): string[] {
     return Array.from(this.namespaceSet);

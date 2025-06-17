@@ -77,7 +77,7 @@ export function registerResourceEditCommands(
           const readOnlyDoc = await vscode.workspace.openTextDocument(viewDocumentUri);
           const readOnlyYaml = readOnlyDoc.getText();
 
-          // Parse the YAML to verify it's valid
+          // Parse the YAML to verify it's valid and remove status field
           let resourceObject: any;
           try {
             resourceObject = yaml.load(readOnlyYaml);
@@ -85,9 +85,15 @@ export function registerResourceEditCommands(
             throw new Error(`Invalid YAML in read-only view: ${parseErr}`);
           }
 
+          if (resourceObject && typeof resourceObject === 'object') {
+            delete (resourceObject as any).status;
+          }
+
+          const sanitizedYaml = yaml.dump(resourceObject, { indent: 2 });
+
           // Store the resource in your editable file system provider
           resourceEditProvider.setOriginalResource(editUri, resourceObject);
-          resourceEditProvider.setResourceContent(editUri, readOnlyYaml);
+          resourceEditProvider.setResourceContent(editUri, sanitizedYaml);
 
           // Store the pair for future switches
           resourcePairs.set(resourceKey, {
@@ -789,39 +795,35 @@ async function applyResource(
     log(`${isDryRun ? 'Validating' : 'Applying'} resource ${resource.kind}/${resource.metadata.name}...`, LogLevel.INFO, true);
 
     // Determine if this is an EDA resource
-    const isEdaResource = resource.apiVersion?.endsWith('.eda.nokia.com');
+    const isEdaResource = resource.apiVersion?.includes('.eda.nokia.com');
     const isNew = resourceEditProvider.isNewResource(documentUri);
-    const crdInfo = resourceEditProvider.getCrdInfo(documentUri);
     let result: string;
 
     if (isEdaResource) {
-      const [group, version] = (resource.apiVersion || '').split('/');
-      const plural = crdInfo?.plural || resource.kind.toLowerCase() + 's';
+      const tx = {
+        crs: [
+          {
+            type: isNew
+              ? { create: { value: resource } }
+              : { replace: { value: resource } },
+          },
+        ],
+        description: `vscode apply ${resource.kind}/${resource.metadata.name}`,
+        dryRun: isDryRun,
+      };
 
-      if (isDryRun) {
-        await edactlClient.validateCustomResources([resource]);
-      } else if (isNew) {
-        await edactlClient.createCustomResource(
-          group,
-          version,
-          resource.metadata.namespace,
-          plural,
-          resource,
-          crdInfo?.namespaced ?? true
-        );
+      const txId = await edactlClient.runTransaction(tx);
+      log(
+        `Transaction ${txId} created for ${resource.kind}/${resource.metadata.name}`,
+        LogLevel.INFO,
+        true
+      );
+
+      if (!isDryRun) {
         resourceEditProvider.setOriginalResource(documentUri, resource);
-        resourceEditProvider.clearNewResource(documentUri);
-      } else {
-        await edactlClient.updateCustomResource(
-          group,
-          version,
-          resource.metadata.namespace,
-          plural,
-          resource.metadata.name,
-          resource,
-          crdInfo?.namespaced ?? true
-        );
-        resourceEditProvider.setOriginalResource(documentUri, resource);
+        if (isNew) {
+          resourceEditProvider.clearNewResource(documentUri);
+        }
       }
 
       result = '';
