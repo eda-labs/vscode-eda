@@ -30,12 +30,16 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   private cachedNamespaces: string[] = [];
   private cachedStreamGroups: Record<string, string[]> = {};
   private streamData: Map<string, Map<string, any>> = new Map();
+  private k8sStreams: string[] = [];
 
   constructor() {
     try {
       this.k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
     } catch {
       this.k8sClient = undefined;
+    }
+    if (this.k8sClient) {
+      this.k8sStreams = this.k8sClient.getWatchedResourceTypes();
     }
     this.edactlClient = serviceManager.getClient<EdaClient>('edactl');
     try {
@@ -54,8 +58,9 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
 
     void this.edactlClient.streamEdaNamespaces(ns => {
       log(`Namespace stream provided ${ns.length} namespaces`, LogLevel.DEBUG);
-      if (!arraysEqual(this.cachedNamespaces, ns)) {
-        this.cachedNamespaces = ns;
+      const all = Array.from(new Set([...ns, 'eda-system']));
+      if (!arraysEqual(this.cachedNamespaces, all)) {
+        this.cachedNamespaces = all;
         this.refresh();
       }
     });
@@ -77,6 +82,11 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
         this.refresh();
       });
     }
+    if (this.k8sClient) {
+      this.k8sClient.onResourceChanged(() => {
+        this.refresh();
+      });
+    }
   }
 
   private async loadStreams(): Promise<void> {
@@ -84,6 +94,9 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       this.cachedStreamGroups = await this.edactlClient.getStreamGroups();
       const groupList = Object.keys(this.cachedStreamGroups).join(', ');
       log(`Discovered stream groups: ${groupList}`, LogLevel.DEBUG);
+      if (this.k8sStreams.length > 0) {
+        this.cachedStreamGroups['kubernetes'] = this.k8sStreams;
+      }
     } catch (err) {
       log(`Failed to load streams: ${err}`, LogLevel.ERROR);
     }
@@ -139,6 +152,10 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
     if (stream.toLowerCase().includes(this.treeFilter)) {
       return true;
     }
+    if (this.k8sStreams.includes(stream)) {
+      const items = this.k8sClient?.getCachedResource(stream, this.k8sClient?.isNamespacedResource(stream) ? namespace : undefined) || [];
+      return items.some(r => (r.metadata?.name || '').toLowerCase().includes(this.treeFilter));
+    }
     const key = `${stream}:${namespace}`;
     const map = this.streamData.get(key);
     if (!map) {
@@ -163,6 +180,14 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
     if (group.toLowerCase().includes(this.treeFilter)) {
       return true;
     }
+    if (group === 'kubernetes') {
+      for (const s of this.k8sStreams) {
+        if (this.streamMatches(namespace, s)) {
+          return true;
+        }
+      }
+      return false;
+    }
     const streams = this.cachedStreamGroups[group] || [];
     for (const stream of streams) {
       if (this.streamMatches(namespace, stream)) {
@@ -174,6 +199,10 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
 
   /** Check if a stream currently has any child items */
   private streamHasData(namespace: string, stream: string): boolean {
+    if (this.k8sStreams.includes(stream)) {
+      const items = this.k8sClient?.getCachedResource(stream, this.k8sClient?.isNamespacedResource(stream) ? namespace : undefined) || [];
+      return items.length > 0;
+    }
     const map = this.streamData.get(`${stream}:${namespace}`);
     return !!map && map.size > 0;
   }
@@ -358,6 +387,21 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       if (!this.streamMatches(namespace, s)) {
         continue;
       }
+      if (group === 'kubernetes') {
+        if (!this.streamHasData(namespace, s)) {
+          continue;
+        }
+        const ti = new TreeItemBase(
+          s,
+          vscode.TreeItemCollapsibleState.Collapsed,
+          'stream'
+        );
+        ti.iconPath = new vscode.ThemeIcon('symbol-event');
+        ti.namespace = namespace;
+        ti.streamGroup = group;
+        items.push(ti);
+        continue;
+      }
       const map = this.streamData.get(`${s}:${namespace}`);
       if (!map || map.size === 0) {
         continue;
@@ -435,6 +479,46 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
 
   /** Build items for a specific stream */
   private getItemsForStream(namespace: string, stream: string, streamGroup?: string): TreeItemBase[] {
+    if (streamGroup === 'kubernetes') {
+      const items = this.k8sClient?.getCachedResource(stream, this.k8sClient?.isNamespacedResource(stream) ? namespace : undefined) || [];
+      if (items.length === 0) {
+        const it = new TreeItemBase('No Items', vscode.TreeItemCollapsibleState.None, 'message');
+        it.iconPath = new vscode.ThemeIcon('info');
+        return [it];
+      }
+      const out: TreeItemBase[] = [];
+      for (const resource of items) {
+        const name = resource.metadata?.name || 'unknown';
+        if (this.treeFilter && !name.toLowerCase().includes(this.treeFilter)) {
+          continue;
+        }
+        const ti = new TreeItemBase(name, vscode.TreeItemCollapsibleState.None, 'stream-item', resource);
+        ti.namespace = namespace;
+        ti.resourceType = stream;
+        ti.streamGroup = streamGroup;
+        ti.command = {
+          command: 'vscode-eda.viewStreamItem',
+          title: 'View Stream Item',
+          arguments: [ti.getCommandArguments()]
+        };
+        if (this.statusService) {
+          const indicator = this.statusService.getResourceStatusIndicator(resource);
+          const desc = this.statusService.getStatusDescription(resource);
+          ti.iconPath = this.statusService.getStatusIcon(indicator);
+          ti.description = desc;
+          ti.tooltip = this.statusService.getResourceTooltip(resource);
+          ti.status = { indicator, description: desc };
+        }
+        out.push(ti);
+      }
+      if (out.length === 0 && this.treeFilter) {
+        const ni = new TreeItemBase(`No items match "${this.treeFilter}"`, vscode.TreeItemCollapsibleState.None, 'message');
+        ni.iconPath = new vscode.ThemeIcon('info');
+        return [ni];
+      }
+      return out;
+    }
+
     const key = `${stream}:${namespace}`;
     const map = this.streamData.get(key);
     if (!map || map.size === 0) {
@@ -460,7 +544,6 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       ti.namespace = namespace;
       ti.resourceType = stream;
       ti.streamGroup = streamGroup;
-      // Use sanitized command arguments to avoid circular references
       ti.command = {
         command: 'vscode-eda.viewStreamItem',
         title: 'View Stream Item',

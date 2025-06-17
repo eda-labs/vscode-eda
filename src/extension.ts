@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { KubernetesClient } from './clients/kubernetesClient';
 import { EdaClient } from './clients/edaClient';
 import { serviceManager } from './services/serviceManager';
-// import { ResourceService } from './services/resourceService';
+import { ResourceService } from './services/resourceService';
 import { ResourceStatusService } from './services/resourceStatusService';
 import { EdaNamespaceProvider } from './providers/views/namespaceProvider';
 import { EdaAlarmProvider } from './providers/views/alarmProvider';
@@ -144,16 +144,11 @@ export async function activate(context: vscode.ExtensionContext) {
     serviceManager.registerClient('edactl', edactlClient);
     serviceManager.registerClient('kubernetes', k8sClient);
 
-  //   // 3) Let k8sClient know about edactlClient so it can call it
-  //   k8sClient.setEdaClient(edactlClient);
-
-  //   // 4) Kick off watchers immediately so caches warm while we continue
-  //   void k8sClient.startWatchers().catch(err => {
-  //     log(`Watcher startup failed: ${err}`, LogLevel.ERROR, true);
-  //   });
-  //   // 5) Create core services
-  //   const resourceService = new ResourceService(k8sClient);
-  //   serviceManager.registerService('kubernetes-resources', resourceService);
+    void k8sClient.startWatchers().catch(err => {
+      log(`Watcher startup failed: ${err}`, LogLevel.ERROR, true);
+    });
+    const resourceService = new ResourceService(k8sClient);
+    serviceManager.registerService('kubernetes-resources', resourceService);
 
     const resourceStatusService = new ResourceStatusService(k8sClient);
     serviceManager.registerService('resource-status', resourceStatusService);
