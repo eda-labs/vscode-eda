@@ -97,6 +97,7 @@ export class KubernetesClient {
   // Polling timers
   private timers: NodeJS.Timeout[] = [];
   private activeWatchers: Map<string, AbortController> = new Map();
+  private lastChangeLogTime: Map<string, number> = new Map();
 
   private watchDefinitions = [
     // Core/v1
@@ -318,7 +319,7 @@ export class KubernetesClient {
       let resourceVersion = '';
       while (!controller.signal.aborted) {
         try {
-          let url = `${this.server}${path}?watch=true&allowWatchBookmarks=true`;
+          let url = `${this.server}${path}?watch=true&allowWatchBookmarks=true&timeoutSeconds=0`;
           if (resourceVersion) {
             url += `&resourceVersion=${resourceVersion}`;
           }
@@ -331,8 +332,10 @@ export class KubernetesClient {
           const res = await fetch(url, {
             headers,
             dispatcher: this.agent,
-            signal: controller.signal
-          });
+            signal: controller.signal,
+            headersTimeout: 0,
+            bodyTimeout: 0
+          } as any);
 
           if (!res.ok || !res.body) {
             throw new Error(`HTTP ${res.status}`);
@@ -342,9 +345,15 @@ export class KubernetesClient {
           const decoder = new TextDecoder();
           let buffer = '';
 
-          while (!controller.signal.aborted) {
+          readLoop: while (!controller.signal.aborted) {
             const { done, value } = await reader.read();
-            if (done) break;
+            if (done) {
+              log(
+                `Watch stream for ${def.name}${namespace ? `/${namespace}` : ''} ended; reconnecting`,
+                LogLevel.INFO
+              );
+              break;
+            }
             buffer += decoder.decode(value, { stream: true });
             const parts = buffer.split('\n');
             buffer = parts.pop() || '';
@@ -352,6 +361,14 @@ export class KubernetesClient {
               if (!part.trim()) continue;
               try {
                 const evt = JSON.parse(part);
+                if (evt.type === 'ERROR') {
+                  log(
+                    `Watch stream for ${def.name}${namespace ? `/${namespace}` : ''} returned error ${evt.object?.message || ''}; reconnecting`,
+                    LogLevel.INFO
+                  );
+                  resourceVersion = '';
+                  break readLoop;
+                }
                 resourceVersion = evt.object?.metadata?.resourceVersion || resourceVersion;
                 const obj = evt.object;
                 const cacheName = `${def.name}Cache` as keyof this;
@@ -377,7 +394,16 @@ export class KubernetesClient {
                 }
                 const origin = namespace ? `${def.name}/${namespace}` : def.name;
                 const nsInfo = namespace ? ` (namespace: ${namespace})` : '';
-                log(`Change detected from stream ${origin}${nsInfo}`, LogLevel.DEBUG);
+                const objName = obj.metadata?.name ? ` ${obj.metadata?.name}` : '';
+                const now = Date.now();
+                const last = this.lastChangeLogTime.get(origin) || 0;
+                if (now - last > 1000) {
+                  log(
+                    `Change detected from stream ${origin}${nsInfo}:${objName} ${evt.type}`,
+                    LogLevel.DEBUG
+                  );
+                  this.lastChangeLogTime.set(origin, now);
+                }
                 this._onResourceChanged.fire();
               } catch (err) {
                 log(`Error processing ${def.name} watch event: ${err}`, LogLevel.ERROR);
@@ -386,7 +412,15 @@ export class KubernetesClient {
           }
         } catch (err) {
           if (!controller.signal.aborted) {
-            log(`Watch failed for ${def.name}: ${err}`, LogLevel.ERROR);
+            const msg = `${err}`;
+            if (msg.includes('terminated')) {
+              log(
+                `Watch stream for ${def.name}${namespace ? `/${namespace}` : ''} terminated; reconnecting`,
+                LogLevel.INFO
+              );
+            } else {
+              log(`Watch failed for ${def.name}: ${err}`, LogLevel.ERROR);
+            }
             await new Promise(res => setTimeout(res, this.pollInterval));
           }
         }
