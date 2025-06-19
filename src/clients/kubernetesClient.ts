@@ -48,7 +48,7 @@ export class KubernetesClient {
   private contexts: string[] = [];
 
   // Cached resources
-  private namespaceCache: any[] = [];
+  private namespaceCache: string[] = [];
   private podsCache: Map<string, any[]> = new Map();
   private deploymentsCache: Map<string, any[]> = new Map();
   private servicesCache: Map<string, any[]> = new Map();
@@ -96,72 +96,19 @@ export class KubernetesClient {
 
   // Polling timers
   private timers: NodeJS.Timeout[] = [];
-  private namespaceTimers: Map<string, NodeJS.Timeout[]> = new Map();
   private activeWatchers: Map<string, AbortController> = new Map();
 
   private watchDefinitions = [
     // Core/v1
     { name: 'pods', group: '', version: 'v1', plural: 'pods', namespaced: true },
     { name: 'services', group: '', version: 'v1', plural: 'services', namespaced: true },
-    { name: 'endpoints', group: '', version: 'v1', plural: 'endpoints', namespaced: true },
-    { name: 'replicationcontrollers', group: '', version: 'v1', plural: 'replicationcontrollers', namespaced: true },
     { name: 'configmaps', group: '', version: 'v1', plural: 'configmaps', namespaced: true },
     { name: 'secrets', group: '', version: 'v1', plural: 'secrets', namespaced: true },
-    { name: 'persistentvolumeclaims', group: '', version: 'v1', plural: 'persistentvolumeclaims', namespaced: true },
-    { name: 'persistentvolumes', group: '', version: 'v1', plural: 'persistentvolumes', namespaced: false },
-    { name: 'serviceaccounts', group: '', version: 'v1', plural: 'serviceaccounts', namespaced: true },
     { name: 'events', group: '', version: 'v1', plural: 'events', namespaced: true },
-    { name: 'resourcequotas', group: '', version: 'v1', plural: 'resourcequotas', namespaced: true },
-    { name: 'limitranges', group: '', version: 'v1', plural: 'limitranges', namespaced: true },
-    { name: 'componentstatuses', group: '', version: 'v1', plural: 'componentstatuses', namespaced: false },
     { name: 'nodes', group: '', version: 'v1', plural: 'nodes', namespaced: false },
 
     // apps/v1
-    { name: 'deployments', group: 'apps', version: 'v1', plural: 'deployments', namespaced: true },
-    { name: 'replicasets', group: 'apps', version: 'v1', plural: 'replicasets', namespaced: true },
-    { name: 'statefulsets', group: 'apps', version: 'v1', plural: 'statefulsets', namespaced: true },
-    { name: 'daemonsets', group: 'apps', version: 'v1', plural: 'daemonsets', namespaced: true },
-    { name: 'controllerrevisions', group: 'apps', version: 'v1', plural: 'controllerrevisions', namespaced: true },
-
-    // batch/v1
-    { name: 'jobs', group: 'batch', version: 'v1', plural: 'jobs', namespaced: true },
-    { name: 'cronjobs', group: 'batch', version: 'v1', plural: 'cronjobs', namespaced: true },
-
-    // autoscaling
-    { name: 'horizontalpodautoscalers', group: 'autoscaling', version: 'v1', plural: 'horizontalpodautoscalers', namespaced: true },
-
-    // networking.k8s.io
-    { name: 'ingresses', group: 'networking.k8s.io', version: 'v1', plural: 'ingresses', namespaced: true },
-    { name: 'networkpolicies', group: 'networking.k8s.io', version: 'v1', plural: 'networkpolicies', namespaced: true },
-
-    // rbac.authorization.k8s.io
-    { name: 'roles', group: 'rbac.authorization.k8s.io', version: 'v1', plural: 'roles', namespaced: true },
-    { name: 'rolebindings', group: 'rbac.authorization.k8s.io', version: 'v1', plural: 'rolebindings', namespaced: true },
-    { name: 'clusterroles', group: 'rbac.authorization.k8s.io', version: 'v1', plural: 'clusterroles', namespaced: false },
-    { name: 'clusterrolebindings', group: 'rbac.authorization.k8s.io', version: 'v1', plural: 'clusterrolebindings', namespaced: false },
-
-    // policy/v1
-    { name: 'poddisruptionbudgets', group: 'policy', version: 'v1', plural: 'poddisruptionbudgets', namespaced: true },
-
-    // storage.k8s.io/v1
-    { name: 'storageclasses', group: 'storage.k8s.io', version: 'v1', plural: 'storageclasses', namespaced: false },
-    { name: 'volumeattachments', group: 'storage.k8s.io', version: 'v1', plural: 'volumeattachments', namespaced: false },
-
-    // apiextensions.k8s.io
-    { name: 'customresourcedefinitions', group: 'apiextensions.k8s.io', version: 'v1', plural: 'customresourcedefinitions', namespaced: false },
-
-    // apiregistration.k8s.io
-    { name: 'apiservices', group: 'apiregistration.k8s.io', version: 'v1', plural: 'apiservices', namespaced: false },
-
-    // admissionregistration.k8s.io
-    { name: 'mutatingwebhookconfigurations', group: 'admissionregistration.k8s.io', version: 'v1', plural: 'mutatingwebhookconfigurations', namespaced: false },
-    { name: 'validatingwebhookconfigurations', group: 'admissionregistration.k8s.io', version: 'v1', plural: 'validatingwebhookconfigurations', namespaced: false },
-
-    // certificates.k8s.io
-    { name: 'certificatesigningrequests', group: 'certificates.k8s.io', version: 'v1', plural: 'certificatesigningrequests', namespaced: false },
-
-    // coordination.k8s.io
-    { name: 'leases', group: 'coordination.k8s.io', version: 'v1', plural: 'leases', namespaced: true }
+    { name: 'deployments', group: 'apps', version: 'v1', plural: 'deployments', namespaced: true }
   ];
 
   private _onResourceChanged = new vscode.EventEmitter<void>();
@@ -238,6 +185,7 @@ export class KubernetesClient {
   public async switchContext(contextName: string): Promise<void> {
     if (this.contexts.includes(contextName)) {
       this.dispose();
+      const prevNamespaces = this.namespaceCache.slice();
       this.namespaceCache = [];
       for (const def of this.watchDefinitions) {
         const key = `${def.name}Cache` as keyof this;
@@ -249,7 +197,7 @@ export class KubernetesClient {
       }
       this.currentContext = contextName;
       this.loadKubeConfig();
-      await this.startWatchers();
+      await this.startWatchers(prevNamespaces);
     }
   }
 
@@ -295,40 +243,11 @@ export class KubernetesClient {
     this.timers.push(t);
   }
 
-  private startNamespacePoller(namespace: string, fn: () => Promise<void>): void {
-    let errorCount = 0;
-    let t: NodeJS.Timeout;
-
-    const run = async () => {
-      try {
-        await fn();
-        errorCount = 0;
-      } catch (err) {
-        errorCount += 1;
-        log(`${err}`, LogLevel.ERROR);
-        if (errorCount >= 5) {
-          clearInterval(t);
-          log(`Stopping poller for namespace ${namespace} due to repeated errors`, LogLevel.ERROR);
-        }
-      }
-    };
-
-    run();
-    t = setInterval(run, this.pollInterval);
-    const arr = this.namespaceTimers.get(namespace) || [];
-    arr.push(t);
-    this.namespaceTimers.set(namespace, arr);
-  }
-
-
-  private async refreshNamespaces(): Promise<void> {
-    const allNamespaces = await this.listNamespaces();
-    const allNames = allNamespaces.map((n: any) => n.metadata?.name).filter((n: any) => !!n);
-    const names = allNames;
-    const namespaces = allNamespaces;
-    const old = this.namespaceCache.map((n: any) => n.metadata?.name).filter((n: any) => !!n);
+  private updateNamespaceWatchers(namespaces: string[]): void {
+    const old = this.namespaceCache;
     this.namespaceCache = namespaces;
-    for (const ns of names) {
+
+    for (const ns of namespaces) {
       for (const def of this.watchDefinitions.filter(d => d.namespaced)) {
         const key = `${def.name}:${ns}`;
         if (!this.activeWatchers.has(key)) {
@@ -341,7 +260,7 @@ export class KubernetesClient {
       const parts = key.split(':');
       if (parts.length === 2) {
         const ns = parts[1];
-        if (!names.includes(ns)) {
+        if (!namespaces.includes(ns)) {
           const controller = this.activeWatchers.get(key);
           controller?.abort();
           this.activeWatchers.delete(key);
@@ -358,20 +277,14 @@ export class KubernetesClient {
       }
     }
 
-    if (JSON.stringify(names) !== JSON.stringify(old)) {
-      this._onNamespacesChanged.fire();
-      this._onResourceChanged.fire();
-    }
-    if (JSON.stringify(names) !== JSON.stringify(old)) {
+    if (JSON.stringify(namespaces) !== JSON.stringify(old)) {
       this._onNamespacesChanged.fire();
       this._onResourceChanged.fire();
     }
   }
 
   private async preloadNamespaceResources(): Promise<void> {
-    const namespaces = this.namespaceCache
-      .map(n => n.metadata?.name)
-      .filter((n): n is string => !!n);
+    const namespaces = this.namespaceCache;
 
     for (const ns of namespaces) {
       try {
@@ -390,68 +303,7 @@ export class KubernetesClient {
   }
 
 
-  private startNamespaceWatcher(): void {
-    const controller = new AbortController();
-    this.watchControllers.push(controller);
 
-    const run = async () => {
-      let resourceVersion = '';
-      while (!controller.signal.aborted) {
-        try {
-          let url = `${this.server}/api/v1/namespaces?watch=true&allowWatchBookmarks=true`;
-          if (resourceVersion) {
-            url += `&resourceVersion=${resourceVersion}`;
-          }
-
-          const headers: Record<string, string> = { Accept: 'application/json' };
-          if (this.token) {
-            headers['Authorization'] = `Bearer ${this.token}`;
-          }
-
-          const res = await fetch(url, {
-            headers,
-            dispatcher: this.agent,
-            signal: controller.signal
-          });
-
-          if (!res.ok || !res.body) {
-            throw new Error(`HTTP ${res.status}`);
-          }
-
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = '';
-
-          while (!controller.signal.aborted) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const parts = buffer.split('\n');
-            buffer = parts.pop() || '';
-            for (const part of parts) {
-              if (!part.trim()) continue;
-              try {
-                const evt = JSON.parse(part);
-                resourceVersion = evt.object?.metadata?.resourceVersion || resourceVersion;
-                if (['ADDED', 'DELETED', 'MODIFIED'].includes(evt.type)) {
-                  await this.refreshNamespaces();
-                }
-              } catch (err) {
-                log(`Error processing namespace watch event: ${err}`, LogLevel.ERROR);
-              }
-            }
-          }
-        } catch (err) {
-          if (!controller.signal.aborted) {
-            log(`Watch failed for namespaces: ${err}`, LogLevel.ERROR);
-            await new Promise(res => setTimeout(res, this.pollInterval));
-          }
-        }
-      }
-    };
-
-    void run();
-  }
 
   private watchApiResource(def: { name: string; group: string; version: string; plural: string; namespaced: boolean }, namespace?: string): void {
     const controller = new AbortController();
@@ -523,6 +375,9 @@ export class KubernetesClient {
                     (this as any)[cacheName] = arr;
                   }
                 }
+                const origin = namespace ? `${def.name}/${namespace}` : def.name;
+                const nsInfo = namespace ? ` (namespace: ${namespace})` : '';
+                log(`Change detected from stream ${origin}${nsInfo}`, LogLevel.DEBUG);
                 this._onResourceChanged.fire();
               } catch (err) {
                 log(`Error processing ${def.name} watch event: ${err}`, LogLevel.ERROR);
@@ -541,13 +396,16 @@ export class KubernetesClient {
     void run();
   }
 
-  public async startWatchers(): Promise<void> {
+  public async startWatchers(namespaces: string[] = this.namespaceCache): Promise<void> {
     try {
-      await this.refreshNamespaces();
-      this.startNamespaceWatcher();
+      this.updateNamespaceWatchers(namespaces);
     } catch (err) {
       log(`Failed to start watchers: ${err}`, LogLevel.ERROR);
     }
+  }
+
+  public async setWatchedNamespaces(namespaces: string[]): Promise<void> {
+    this.updateNamespaceWatchers(namespaces);
   }
 
   public async listNamespaces(): Promise<any[]> {
@@ -559,7 +417,7 @@ export class KubernetesClient {
     return [];
   }
 
-  public getCachedNamespaces(): any[] {
+  public getCachedNamespaces(): string[] {
     return this.namespaceCache;
   }
 
@@ -608,10 +466,6 @@ export class KubernetesClient {
 
   public dispose(): void {
     this.timers.forEach(t => clearInterval(t));
-    for (const arr of this.namespaceTimers.values()) {
-      arr.forEach(t => clearInterval(t));
-    }
-    this.namespaceTimers.clear();
     for (const c of this.watchControllers) {
       c.abort();
     }

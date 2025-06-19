@@ -144,9 +144,6 @@ export async function activate(context: vscode.ExtensionContext) {
     serviceManager.registerClient('edactl', edactlClient);
     serviceManager.registerClient('kubernetes', k8sClient);
 
-    void k8sClient.startWatchers().catch(err => {
-      log(`Watcher startup failed: ${err}`, LogLevel.ERROR, true);
-    });
     const resourceService = new ResourceService(k8sClient);
     serviceManager.registerService('kubernetes-resources', resourceService);
 

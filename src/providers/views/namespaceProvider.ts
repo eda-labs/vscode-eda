@@ -61,6 +61,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
       const all = Array.from(new Set([...ns, 'eda-system']));
       if (!arraysEqual(this.cachedNamespaces, all)) {
         this.cachedNamespaces = all;
+        this.k8sClient?.setWatchedNamespaces(all);
         this.refresh();
       }
     });
