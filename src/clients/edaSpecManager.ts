@@ -115,10 +115,10 @@ export class EdaSpecManager {
       let endpoints = await this.loadCachedSpecs(this.apiVersion);
       if (endpoints.length > 0) {
         log(`Loaded cached API specs for version ${this.apiVersion}`, LogLevel.INFO);
-        this.streamEndpoints = endpoints;
       } else {
-        this.streamEndpoints = await this.fetchAndWriteAllSpecs(apiRoot, this.apiVersion);
+        endpoints = await this.fetchAndWriteAllSpecs(apiRoot, this.apiVersion);
       }
+      this.streamEndpoints = this.deduplicateEndpoints(endpoints);
       log(`Discovered ${this.streamEndpoints.length} stream endpoints`, LogLevel.DEBUG);
 
       // Prime namespace set
@@ -164,6 +164,22 @@ export class EdaSpecManager {
       }
     }
     return eps;
+  }
+
+  /** Deduplicate endpoints, preferring '/apps' paths when duplicates exist */
+  private deduplicateEndpoints(endpoints: StreamEndpoint[]): StreamEndpoint[] {
+    const result = new Map<string, StreamEndpoint>();
+    for (const ep of endpoints) {
+      const existing = result.get(ep.stream);
+      if (!existing) {
+        result.set(ep.stream, ep);
+        continue;
+      }
+      if (!existing.path.startsWith('/apps') && ep.path.startsWith('/apps')) {
+        result.set(ep.stream, ep);
+      }
+    }
+    return Array.from(result.values());
   }
 
   private async loadCachedSpecs(version: string): Promise<StreamEndpoint[]> {
