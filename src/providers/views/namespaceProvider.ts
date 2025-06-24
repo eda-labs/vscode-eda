@@ -512,6 +512,9 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
           continue;
         }
         const ti = new TreeItemBase(name, vscode.TreeItemCollapsibleState.None, 'stream-item', resource);
+        if (stream === 'pods') {
+          ti.contextValue = 'pod';
+        }
         ti.namespace = namespace;
         ti.resourceType = stream;
         ti.streamGroup = streamGroup;
@@ -560,6 +563,9 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
         'stream-item',
         resource
       );
+      if (stream === 'pods') {
+        ti.contextValue = 'pod';
+      }
       ti.namespace = namespace;
       ti.resourceType = stream;
       ti.streamGroup = streamGroup;

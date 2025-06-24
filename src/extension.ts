@@ -15,6 +15,8 @@ import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefini
 import { ResourceEditDocumentProvider } from './providers/documents/resourceEditProvider';
 import { ResourceViewDocumentProvider } from './providers/documents/resourceViewProvider';
 import { SchemaProviderService } from './services/schemaProviderService';
+import { PodDescribeDocumentProvider } from './providers/documents/podDescribeProvider';
+import { registerPodCommands } from './commands/podCommands';
 
 import { registerResourceViewCommands } from './commands/resourceViewCommands';
 import { registerDeviationCommands } from './commands/deviationCommands';
@@ -28,9 +30,6 @@ import { registerCredentialCommands } from './commands/credentialCommands';
 // import { registerDeploymentCommands } from './commands/deploymentCommands';
 // import { registerEngineConfigCommands } from './commands/engineConfigCommands';
 // import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
-// import { PodDescribeDocumentProvider } from './providers/documents/podDescribeProvider';
-// import { ResourceViewDocumentProvider } from './providers/documents/resourceViewProvider';
-// import { registerPodCommands } from './commands/podCommands';
 
 
 
@@ -50,9 +49,36 @@ export let deviationDetailsProvider: DeviationDetailsDocumentProvider;
 export let transactionDetailsProvider: TransactionDetailsDocumentProvider;
 export let resourceViewProvider: ResourceViewDocumentProvider;
 export let resourceEditProvider: ResourceEditDocumentProvider;
+export let podDescribeProvider: PodDescribeDocumentProvider;
 export let edaOutputChannel: vscode.OutputChannel;
 export let currentLogLevel: LogLevel = LogLevel.INFO;
 let contextStatusBarItem: vscode.StatusBarItem;
+
+async function verifyKubernetesContext(
+  edaClient: EdaClient,
+  k8sClient: KubernetesClient
+): Promise<void> {
+  try {
+    await edaClient.getStreamNames();
+    const edaNamespaces = edaClient.getCachedNamespaces();
+    const k8sNsObjs = await k8sClient.listNamespaces();
+    const k8sNamespaces = k8sNsObjs
+      .map((n: any) => n?.metadata?.name)
+      .filter((n: any) => typeof n === 'string');
+    const missing = edaNamespaces.filter(ns => !k8sNamespaces.includes(ns));
+    if (missing.length > 0) {
+      const msg = `Kubernetes context may not match EDA cluster; missing namespaces: ${missing.join(
+        ', '
+      )}`;
+      log(msg, LogLevel.WARN, true);
+      vscode.window.showWarningMessage(msg);
+    } else {
+      log('Kubernetes context matches EDA API', LogLevel.INFO);
+    }
+  } catch (err) {
+    log(`Failed to verify context: ${err}`, LogLevel.WARN);
+  }
+}
 
 export function log(
   message: string,
@@ -160,6 +186,8 @@ export async function activate(context: vscode.ExtensionContext) {
     serviceManager.registerClient('eda', edaClient);
     serviceManager.registerClient('kubernetes', k8sClient);
 
+    await verifyKubernetesContext(edaClient, k8sClient);
+
     const resourceService = new ResourceService(k8sClient);
     serviceManager.registerService('kubernetes-resources', resourceService);
 
@@ -179,6 +207,12 @@ export async function activate(context: vscode.ExtensionContext) {
     );
     registerResourceCreateCommand(context, resourceEditProvider);
     registerResourceEditCommands(context, resourceEditProvider, resourceViewProvider);
+
+    podDescribeProvider = new PodDescribeDocumentProvider();
+    context.subscriptions.push(
+      vscode.workspace.registerFileSystemProvider('k8s-describe', podDescribeProvider, { isCaseSensitive: true })
+    );
+    registerPodCommands(context, podDescribeProvider);
 
     const schemaProviderService = new SchemaProviderService();
     serviceManager.registerService('schema-provider', schemaProviderService);
@@ -293,36 +327,36 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.window.showErrorMessage(`Failed to initialize EDA extension: ${error}`);
   }
 
-  // const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
+  const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
 
-  // context.subscriptions.push(
-  //   vscode.commands.registerCommand('vscode-eda.switchContext', async () => {
-  //     try {
-  //       const contexts = k8sClient.getAvailableContexts();
-  //       if (!contexts || contexts.length === 0) {
-  //         vscode.window.showWarningMessage('No Kubernetes contexts found in your kubeconfig.');
-  //         return;
-  //       }
+  context.subscriptions.push(
+    vscode.commands.registerCommand('vscode-eda.switchContext', async () => {
+      try {
+        const contexts = k8sClient.getAvailableContexts();
+        if (!contexts || contexts.length === 0) {
+          vscode.window.showWarningMessage('No Kubernetes contexts found in your kubeconfig.');
+          return;
+        }
 
-  //       const newContext = await vscode.window.showQuickPick(contexts, {
-  //         placeHolder: 'Select the new Kubernetes context'
-  //       });
-  //       if (!newContext) {
-  //         return;
-  //       }
+        const newContext = await vscode.window.showQuickPick(contexts, {
+          placeHolder: 'Select the new Kubernetes context'
+        });
+        if (!newContext) {
+          return;
+        }
 
-  //       await k8sClient.switchContext(newContext);
-  //       contextStatusBarItem.text = `$(kubernetes) EDA: ${k8sClient.getCurrentContext()}`;
+        await k8sClient.switchContext(newContext);
+        contextStatusBarItem.text = `$(kubernetes) EDA: ${k8sClient.getCurrentContext()}`;
 
-  //       const rs = serviceManager.getService<ResourceService>('kubernetes-resources');
-  //       rs.forceRefresh();
+        const rs = serviceManager.getService<ResourceService>('kubernetes-resources');
+        rs.forceRefresh();
 
-  //       vscode.window.showInformationMessage(`Switched to Kubernetes context: ${newContext}`);
-  //     } catch (error) {
-  //       vscode.window.showErrorMessage(`Error switching context: ${error}`);
-  //     }
-  //   })
-  // );
+        vscode.window.showInformationMessage(`Switched to Kubernetes context: ${newContext}`);
+      } catch (error) {
+        vscode.window.showErrorMessage(`Error switching context: ${error}`);
+      }
+    })
+  );
 
 
   // log('EDA extension activated', LogLevel.INFO, true);
