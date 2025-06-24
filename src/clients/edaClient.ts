@@ -408,12 +408,12 @@ export class EdaClient {
     }
   }
 
-  private async startStream(client: string, endpoint: StreamEndpoint): Promise<void> {
-    const url =
-      `${this.baseUrl}${endpoint.path}` +
-      `?eventclient=${encodeURIComponent(client)}` +
-      `&stream=${encodeURIComponent(endpoint.stream)}`;
-
+  /**
+   * Open a server-sent events connection and pass each line to
+   * {@link handleEventMessage}.
+   * @param url Full URL of the SSE endpoint
+   */
+  private async streamSse(url: string): Promise<void> {
     let res: any;
     try {
       res = await fetch(url, {
@@ -457,6 +457,15 @@ export class EdaClient {
     }
   }
 
+  private async startStream(client: string, endpoint: StreamEndpoint): Promise<void> {
+    const url =
+      `${this.baseUrl}${endpoint.path}` +
+      `?eventclient=${encodeURIComponent(client)}` +
+      `&stream=${encodeURIComponent(endpoint.stream)}`;
+
+    await this.streamSse(url);
+  }
+
   /** Start the EQL current alarm stream */
   private async startCurrentAlarmStream(client: string): Promise<void> {
     const query = '.namespace.alarms.v1.current-alarm';
@@ -466,47 +475,7 @@ export class EdaClient {
       `&stream=current-alarms` +
       `&query=${encodeURIComponent(query)}`;
 
-    let res: any;
-    try {
-      res = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${this.token}`,
-          Accept: 'text/event-stream',
-        },
-        dispatcher: this.agent,
-      });
-    } catch (err) {
-      log(`[STREAM] request failed ${err}`, LogLevel.ERROR);
-      return;
-    }
-
-    if (!res.ok || !res.body) {
-      log(`[STREAM] failed ${url}: HTTP ${res.status}`, LogLevel.ERROR);
-      return;
-    }
-    log(`[STREAM] connected → ${url}`, LogLevel.DEBUG);
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) {
-        log('[STREAM] ended', LogLevel.DEBUG);
-        break;
-      }
-
-      buffer += decoder.decode(value, { stream: true });
-
-      let nl;
-      while ((nl = buffer.indexOf('\n')) !== -1) {
-        const line = buffer.slice(0, nl).trim();
-        buffer = buffer.slice(nl + 1);
-        if (!line) continue;
-        this.handleEventMessage(line);
-      }
-    }
+    await this.streamSse(url);
   }
 
   /** Start the transaction summary stream */
@@ -519,47 +488,7 @@ export class EdaClient {
       `&eventclient=${encodeURIComponent(client)}` +
       `&stream=summary`;
 
-    let res: any;
-    try {
-      res = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${this.token}`,
-          Accept: 'text/event-stream',
-        },
-        dispatcher: this.agent,
-      });
-    } catch (err) {
-      log(`[STREAM] request failed ${err}`, LogLevel.ERROR);
-      return;
-    }
-
-    if (!res.ok || !res.body) {
-      log(`[STREAM] failed ${url}: HTTP ${res.status}`, LogLevel.ERROR);
-      return;
-    }
-    log(`[STREAM] connected → ${url}`, LogLevel.DEBUG);
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) {
-        log('[STREAM] ended', LogLevel.DEBUG);
-        break;
-      }
-
-      buffer += decoder.decode(value, { stream: true });
-
-      let nl;
-      while ((nl = buffer.indexOf('\n')) !== -1) {
-        const line = buffer.slice(0, nl).trim();
-        buffer = buffer.slice(nl + 1);
-        if (!line) continue;
-        this.handleEventMessage(line);
-      }
-    }
+    await this.streamSse(url);
   }
 
   private async connectEventSocket(): Promise<void> {
