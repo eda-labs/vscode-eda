@@ -58,7 +58,7 @@ export class EdaApiClient {
     const url = `${this.authClient.getBaseUrl()}${path}`;
     log(`${method} ${url}`, LogLevel.DEBUG);
 
-    const res = await fetch(url, {
+    let res = await fetch(url, {
       method,
       headers: this.authClient.getHeaders(),
       dispatcher: this.authClient.getAgent(),
@@ -69,7 +69,20 @@ export class EdaApiClient {
 
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`HTTP ${res.status}: ${text}`);
+      if (this.authClient.isTokenExpiredResponse(res.status, text)) {
+        log('Access token expired, refreshing...', LogLevel.INFO);
+        await this.authClient.refreshAuth();
+        res = await fetch(url, {
+          method,
+          headers: this.authClient.getHeaders(),
+          dispatcher: this.authClient.getAgent(),
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        log(`${method} ${url} retry -> ${res.status}`, LogLevel.DEBUG);
+      }
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${text}`);
+      }
     }
 
     if (res.status === 204) {
@@ -84,13 +97,25 @@ export class EdaApiClient {
    */
   public async fetchJsonUrl(url: string): Promise<any> {
     await this.authClient.waitForAuth();
-    const res = await fetch(url, {
+    let res = await fetch(url, {
       headers: this.authClient.getHeaders(),
       dispatcher: this.authClient.getAgent()
     });
-    const text = await res.text();
+    let text = await res.text();
     if (!res.ok) {
-      throw new Error(`Failed to fetch ${url}: HTTP ${res.status} ${text}`);
+      if (this.authClient.isTokenExpiredResponse(res.status, text)) {
+        log('Access token expired, refreshing...', LogLevel.INFO);
+        await this.authClient.refreshAuth();
+        res = await fetch(url, {
+          headers: this.authClient.getHeaders(),
+          dispatcher: this.authClient.getAgent()
+        });
+        text = await res.text();
+        log(`GET ${url} retry -> ${res.status}`, LogLevel.DEBUG);
+      }
+      if (!res.ok) {
+        throw new Error(`Failed to fetch ${url}: HTTP ${res.status} ${text}`);
+      }
     }
     return JSON.parse(text);
   }
