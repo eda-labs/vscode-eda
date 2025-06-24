@@ -82,16 +82,12 @@ export class EdaClient {
   private streamEndpoints: StreamEndpoint[] = [];
   private namespaceSet: Set<string> = new Set();
   private crdCache: EdaCrd[] | undefined;
-  private currentAlarmMap: Map<number, any> = new Map();
-  private deviationMap: Map<string, any> = new Map();
   private skipTlsVerify = false;
   private activeStreams: Set<string> = new Set();
-  private callbacks: {
-    namespaces?: NamespaceCallback;
-    alarms?: AlarmCallback;
-    deviations?: DeviationCallback;
-    transactions?: TransactionCallback;
-  } = {};
+  /**
+   * Consumers can register to receive raw stream messages. Providers are
+   * responsible for parsing and caching data from these messages.
+   */
   private streamCallbacks: Set<StreamCallback> = new Set();
   private messageIntervalMs = 500;
   private transactionSummarySize = 50;
@@ -472,8 +468,6 @@ export class EdaClient {
   /** Start the EQL current alarm stream */
   private async startCurrentAlarmStream(client: string): Promise<void> {
     const query = '.namespace.alarms.v1.current-alarm';
-    // Reset local alarm cache whenever we (re)start the stream
-    this.currentAlarmMap.clear();
     const url =
       `${this.baseUrl}/core/query/v1/eql` +
       `?eventclient=${encodeURIComponent(client)}` +
@@ -676,110 +670,6 @@ export class EdaClient {
       if (msg.type && msg.stream) {
         log(`Stream ${msg.stream} event received`, LogLevel.DEBUG);
       }
-      if (
-        msg.type === 'update' &&
-        msg.stream === 'namespaces' &&
-        this.callbacks.namespaces
-      ) {
-        const updates = Array.isArray(msg.msg?.updates) ? msg.msg.updates : [];
-        for (const up of updates) {
-          let name: string | undefined = up.data?.metadata?.name || up.data?.name;
-          if (!name && up.key) {
-            const matches = [...String(up.key).matchAll(/namespace\{\.name=="([^"]+)"\}/g)];
-            if (matches.length > 0) {
-              name = matches[matches.length - 1][1];
-            }
-          }
-          if (!name) continue;
-          if (up.data === null) {
-            this.namespaceSet.delete(name);
-          } else {
-            this.namespaceSet.add(name);
-          }
-        }
-        this.callbacks.namespaces(Array.from(this.namespaceSet));
-      } else if (
-        this.callbacks.transactions &&
-        (Array.isArray(msg.results) || Array.isArray(msg.msg?.results))
-      ) {
-        const results = Array.isArray(msg.results)
-          ? msg.results
-          : Array.isArray(msg.msg?.results)
-            ? msg.msg.results
-            : [];
-        this.callbacks.transactions(results);
-      } else if ('items' in msg && this.callbacks.deviations) {
-        const items = Array.isArray(msg.items) ? msg.items : [];
-        this.deviationMap.clear();
-        for (const it of items) {
-          const name = it?.metadata?.name || it?.name;
-          const ns = it?.metadata?.namespace || it?.['namespace.name'];
-          if (name && ns) {
-            this.deviationMap.set(`${ns}/${name}`, it);
-          }
-        }
-        this.callbacks.deviations(Array.from(this.deviationMap.values()));
-      } else if (
-        msg.stream === 'deviations' &&
-        Array.isArray(msg.msg?.updates) &&
-        this.callbacks.deviations
-      ) {
-        const updates = msg.msg.updates;
-        let changed = false;
-        for (const up of updates) {
-          let name: string | undefined = up.data?.metadata?.name || up.data?.name;
-          let ns: string | undefined = up.data?.metadata?.namespace;
-          if ((!name || !ns) && up.key) {
-            const nameMatch = String(up.key).match(/\.name=="([^"]+)"/g);
-            if (nameMatch && nameMatch.length) {
-              const last = nameMatch[nameMatch.length - 1].match(/\.name=="([^"]+)"/);
-              if (last) name = last[1];
-            }
-            const nsMatch = String(up.key).match(/namespace\{\.name=="([^"]+)"\}/);
-            if (nsMatch) ns = nsMatch[1];
-          }
-          if (!name || !ns) continue;
-          const key = `${ns}/${name}`;
-          if (up.data === null) {
-            if (this.deviationMap.delete(key)) changed = true;
-          } else {
-            this.deviationMap.set(key, up.data);
-            changed = true;
-          }
-        }
-        if (changed) {
-          this.callbacks.deviations(Array.from(this.deviationMap.values()));
-        }
-      } else if (
-        msg.stream === 'current-alarms' &&
-        Array.isArray(msg.msg?.op) &&
-        this.callbacks.alarms
-      ) {
-        const ops: any[] = msg.msg.op;
-        let changed = false;
-        for (const op of ops) {
-          if (op.delete && Array.isArray(op.delete.ids)) {
-            for (const id of op.delete.ids) {
-              if (this.currentAlarmMap.delete(id)) {
-                changed = true;
-              }
-            }
-          } else if (
-            op.insert_or_modify &&
-            Array.isArray(op.insert_or_modify.rows)
-          ) {
-            for (const row of op.insert_or_modify.rows) {
-              if (row && row.id !== undefined) {
-                this.currentAlarmMap.set(row.id, row.data || row);
-                changed = true;
-              }
-            }
-          }
-        }
-        if (changed && this.callbacks.alarms) {
-          this.callbacks.alarms(Array.from(this.currentAlarmMap.values()));
-        }
-      }
       if (msg.stream) {
         for (const cb of this.streamCallbacks) {
           try {
@@ -795,22 +685,18 @@ export class EdaClient {
   }
 
   /**
-   * Stream accessible namespaces over WebSocket.
-   * @param onNamespaces Callback invoked with the list of namespace names.
+   * Start streaming namespace updates over WebSocket.
    */
-  public async streamEdaNamespaces(onNamespaces: NamespaceCallback): Promise<void> {
+  public async streamEdaNamespaces(): Promise<void> {
     await this.initPromise;
-    this.callbacks.namespaces = onNamespaces;
-    onNamespaces(Array.from(this.namespaceSet));
     this.activeStreams.add('namespaces');
     log('Started to stream endpoint namespaces', LogLevel.DEBUG);
     await this.connectEventSocket();
   }
 
   /** Stream alarms over WebSocket */
-  public async streamEdaAlarms(onAlarms: AlarmCallback): Promise<void> {
+  public async streamEdaAlarms(): Promise<void> {
     await this.initPromise;
-    this.callbacks.alarms = onAlarms;
     // Replace the legacy "alarms" stream with the EQL current alarms stream
     this.activeStreams.add('current-alarms');
     log('Started to stream endpoint current-alarms', LogLevel.DEBUG);
@@ -819,29 +705,20 @@ export class EdaClient {
 
   /** Stop streaming alarms */
   public closeAlarmStream(): void {
-    this.callbacks.alarms = undefined;
     this.activeStreams.delete('current-alarms');
   }
 
   /** Stream deviations over WebSocket */
-  public async streamEdaDeviations(
-    onDeviations: DeviationCallback,
-  ): Promise<void> {
+  public async streamEdaDeviations(): Promise<void> {
     await this.initPromise;
-    this.callbacks.deviations = onDeviations;
-    this.deviationMap.clear();
     this.activeStreams.add('deviations');
     log('Started to stream endpoint deviations', LogLevel.DEBUG);
     await this.connectEventSocket();
   }
 
   /** Stream transaction summaries over WebSocket */
-  public async streamEdaTransactions(
-    onTransactions: TransactionCallback,
-    size = 50,
-  ): Promise<void> {
+  public async streamEdaTransactions(size = 50): Promise<void> {
     await this.initPromise;
-    this.callbacks.transactions = onTransactions;
     this.transactionSummarySize = size;
     this.activeStreams.add('summary');
     log('Started to stream endpoint summary', LogLevel.DEBUG);
@@ -853,13 +730,11 @@ export class EdaClient {
 
   /** Stop streaming transactions */
   public closeTransactionStream(): void {
-    this.callbacks.transactions = undefined;
     this.activeStreams.delete('summary');
   }
 
   /** Stop streaming deviations */
   public closeDeviationStream(): void {
-    this.callbacks.deviations = undefined;
     this.activeStreams.delete('deviations');
   }
 
@@ -976,6 +851,11 @@ export class EdaClient {
   /** Get the currently known EDA namespaces */
   public getCachedNamespaces(): string[] {
     return Array.from(this.namespaceSet);
+  }
+
+  /** Update the cached namespace list */
+  public setCachedNamespaces(names: string[]): void {
+    this.namespaceSet = new Set(names);
   }
 
   /** Return CRD metadata discovered from cached OpenAPI specs */

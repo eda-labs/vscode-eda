@@ -3,7 +3,6 @@ import { TreeItemBase } from './treeItem';
 import { serviceManager } from '../../services/serviceManager';
 import { EdaClient } from '../../clients/edaClient';
 import { ResourceStatusService } from '../../services/resourceStatusService';
-import { log, LogLevel } from '../../extension';
 
 export class EdaAlarmProvider implements vscode.TreeDataProvider<TreeItemBase> {
   private _onDidChangeTreeData = new vscode.EventEmitter<TreeItemBase | undefined>();
@@ -19,10 +18,11 @@ export class EdaAlarmProvider implements vscode.TreeDataProvider<TreeItemBase> {
     this.edactlClient = serviceManager.getClient<EdaClient>('edactl');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
 
-    void this.edactlClient.streamEdaAlarms(alarms => {
-      log(`Alarm stream provided ${alarms.length} alarms`, LogLevel.DEBUG);
-      this.alarms = new Map(alarms.map(a => [a.name, a]));
-      this.refresh();
+    void this.edactlClient.streamEdaAlarms();
+    this.edactlClient.onStreamMessage((stream, msg) => {
+      if (stream === 'current-alarms') {
+        this.processAlarmMessage(msg);
+      }
     });
   }
 
@@ -96,5 +96,34 @@ export class EdaAlarmProvider implements vscode.TreeDataProvider<TreeItemBase> {
       arguments: [alarm]
     };
     return item;
+  }
+
+  /** Process alarm stream updates */
+  private processAlarmMessage(msg: any): void {
+    const ops: any[] = Array.isArray(msg.msg?.op) ? msg.msg.op : [];
+    if (ops.length === 0) {
+      return;
+    }
+    let changed = false;
+    for (const op of ops) {
+      if (op.delete && Array.isArray(op.delete.ids)) {
+        for (const id of op.delete.ids) {
+          if (this.alarms.delete(String(id))) {
+            changed = true;
+          }
+        }
+      } else if (op.insert_or_modify && Array.isArray(op.insert_or_modify.rows)) {
+        for (const row of op.insert_or_modify.rows) {
+          if (row && row.id !== undefined) {
+            const data = row.data || row;
+            this.alarms.set(String(row.id), data);
+            changed = true;
+          }
+        }
+      }
+    }
+    if (changed) {
+      this.refresh();
+    }
   }
 }

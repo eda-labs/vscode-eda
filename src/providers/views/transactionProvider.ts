@@ -46,11 +46,12 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
   constructor() {
     this.edactlClient = serviceManager.getClient<EdaClient>('edactl');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
-    void this.edactlClient.streamEdaTransactions(txs => {
-      log(`Transaction stream provided ${txs.length} results`, LogLevel.DEBUG);
-      this.mergeTransactions(txs);
-      this.refresh();
-    }, 50);
+    void this.edactlClient.streamEdaTransactions(50);
+    this.edactlClient.onStreamMessage((stream, msg) => {
+      if (stream === 'summary') {
+        this.processTransactionMessage(msg);
+      }
+    });
   }
 
   public dispose(): void {
@@ -162,6 +163,20 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
     );
     item.iconPath = this.statusService.getThemeStatusIcon('gray');
     return item;
+  }
+
+  /** Process transaction summary stream updates */
+  private processTransactionMessage(msg: any): void {
+    let results: any[] = [];
+    if (Array.isArray(msg.results)) {
+      results = msg.results;
+    } else if (Array.isArray(msg.msg?.results)) {
+      results = msg.msg.results;
+    }
+    if (results.length > 0) {
+      this.mergeTransactions(results);
+      this.refresh();
+    }
   }
 }
 

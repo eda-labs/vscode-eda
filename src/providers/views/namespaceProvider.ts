@@ -56,18 +56,20 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
     this.setupEventListeners();
     void this.loadStreams();
 
-    void this.edactlClient.streamEdaNamespaces(ns => {
-      log(`Namespace stream provided ${ns.length} namespaces`, LogLevel.DEBUG);
-      const all = Array.from(new Set([...ns, 'eda-system']));
-      if (!arraysEqual(this.cachedNamespaces, all)) {
-        this.cachedNamespaces = all;
-        this.k8sClient?.setWatchedNamespaces(all);
-        this.refresh();
-      }
-    });
+    this.cachedNamespaces = this.edactlClient.getCachedNamespaces();
+    if (!this.cachedNamespaces.includes('eda-system')) {
+      this.cachedNamespaces.push('eda-system');
+    }
+    this.k8sClient?.setWatchedNamespaces(this.cachedNamespaces);
+
+    void this.edactlClient.streamEdaNamespaces();
 
     this.edactlClient.onStreamMessage((stream, msg) => {
-      this.processStreamMessage(stream, msg);
+      if (stream === 'namespaces') {
+        this.handleNamespaceMessage(msg);
+      } else {
+        this.processStreamMessage(stream, msg);
+      }
     });
   }
 
@@ -456,6 +458,40 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
     this.refresh();
   }
 
+  /** Update cached namespaces from stream messages */
+  private handleNamespaceMessage(msg: any): void {
+    const updates = Array.isArray(msg.msg?.updates) ? msg.msg.updates : [];
+    if (updates.length === 0) {
+      return;
+    }
+    let changed = false;
+    for (const up of updates) {
+      let name: string | undefined = up.data?.metadata?.name || up.data?.name;
+      if (!name && up.key) {
+        const matches = [...String(up.key).matchAll(/namespace\{\.name=="([^"]+)"\}/g)];
+        if (matches.length > 0) {
+          name = matches[matches.length - 1][1];
+        }
+      }
+      if (!name) continue;
+      if (up.data === null) {
+        const idx = this.cachedNamespaces.indexOf(name);
+        if (idx !== -1) {
+          this.cachedNamespaces.splice(idx, 1);
+          changed = true;
+        }
+      } else if (!this.cachedNamespaces.includes(name)) {
+        this.cachedNamespaces.push(name);
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.edactlClient.setCachedNamespaces(this.cachedNamespaces);
+      this.k8sClient?.setWatchedNamespaces(this.cachedNamespaces);
+      this.refresh();
+    }
+  }
+
   /** Extract name and namespace from a stream update */
   private extractNames(update: any): { name?: string; namespace?: string } {
     let name = update.data?.metadata?.name;
@@ -578,10 +614,3 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
 /**
  * Simple helper for array equality (shallow).
  */
-function arraysEqual(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}

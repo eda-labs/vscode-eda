@@ -36,18 +36,11 @@ export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTr
   constructor() {
     this.edaClient = serviceManager.getClient<EdaClient>('edactl');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
-    void this.edaClient.streamEdaDeviations(devs => {
-      log(`Deviation stream provided ${devs.length} deviations`, LogLevel.DEBUG);
-      this.deviations = new Map(
-        devs
-          .map(d => {
-            const ns = getDeviationNamespace(d);
-            const name = getDeviationName(d);
-            return ns && name ? [`${ns}/${name}`, d] : undefined;
-          })
-          .filter((v): v is [string, EdaDeviation] => v !== undefined),
-      );
-      this.refresh();
+    void this.edaClient.streamEdaDeviations();
+    this.edaClient.onStreamMessage((stream, msg) => {
+      if (stream === 'deviations') {
+        this.processDeviationMessage(msg);
+      }
     });
   }
 
@@ -168,6 +161,53 @@ export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTr
     const item = new DeviationTreeItem(label, vscode.TreeItemCollapsibleState.None, 'info');
     item.iconPath = this.statusService.getThemeStatusIcon('gray');
     return item;
+  }
+
+  /** Process deviation stream updates */
+  private processDeviationMessage(msg: any): void {
+    if ('items' in msg && Array.isArray(msg.items)) {
+      this.deviations = new Map(
+        msg.items
+          .map((d: any) => {
+            const ns = getDeviationNamespace(d);
+            const name = getDeviationName(d);
+            return ns && name ? [`${ns}/${name}`, d] : undefined;
+          })
+          .filter((v: [string, EdaDeviation] | undefined): v is [string, EdaDeviation] => v !== undefined),
+      );
+      this.refresh();
+      return;
+    }
+
+    if (msg.stream !== 'deviations' || !Array.isArray(msg.msg?.updates)) {
+      return;
+    }
+
+    let changed = false;
+    for (const up of msg.msg.updates) {
+      let name: string | undefined = up.data?.metadata?.name || up.data?.name;
+      let ns: string | undefined = up.data?.metadata?.namespace;
+      if ((!name || !ns) && up.key) {
+        const nameMatch = String(up.key).match(/\.name=="([^"]+)"/g);
+        if (nameMatch && nameMatch.length) {
+          const last = nameMatch[nameMatch.length - 1].match(/\.name=="([^"]+)"/);
+          if (last) name = last[1];
+        }
+        const nsMatch = String(up.key).match(/namespace\{\.name=="([^"]+)"\}/);
+        if (nsMatch) ns = nsMatch[1];
+      }
+      if (!name || !ns) continue;
+      const key = `${ns}/${name}`;
+      if (up.data === null) {
+        if (this.deviations.delete(key)) changed = true;
+      } else {
+        this.deviations.set(key, up.data);
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.refresh();
+    }
   }
 }
 
