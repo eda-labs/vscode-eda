@@ -8,7 +8,11 @@ import { ResourceService } from '../services/resourceService';
 export function registerDeploymentCommands(context: vscode.ExtensionContext) {
   const restartDeploymentCmd = vscode.commands.registerCommand('vscode-eda.restartDeployment', async (treeItem: any) => {
     // First check if this is actually a deployment
-    if (!treeItem || !treeItem.resourceType || treeItem.resourceType.toLowerCase() !== 'deployment') {
+    if (
+      !treeItem ||
+      !treeItem.resourceType ||
+      !['deployment', 'deployments'].includes(treeItem.resourceType.toLowerCase())
+    ) {
       vscode.window.showErrorMessage('This command can only be used on Deployments.');
       return;
     }

@@ -514,6 +514,8 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
         const ti = new TreeItemBase(name, vscode.TreeItemCollapsibleState.None, 'stream-item', resource);
         if (stream === 'pods') {
           ti.contextValue = 'pod';
+        } else if (stream === 'deployments') {
+          ti.contextValue = 'k8s-deployment-instance';
         }
         ti.namespace = namespace;
         ti.resourceType = stream;
@@ -565,6 +567,8 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
       );
       if (stream === 'pods') {
         ti.contextValue = 'pod';
+      } else if (stream === 'deployments') {
+        ti.contextValue = 'k8s-deployment-instance';
       }
       ti.namespace = namespace;
       ti.resourceType = stream;

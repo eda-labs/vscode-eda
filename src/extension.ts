@@ -17,6 +17,7 @@ import { ResourceViewDocumentProvider } from './providers/documents/resourceView
 import { SchemaProviderService } from './services/schemaProviderService';
 import { PodDescribeDocumentProvider } from './providers/documents/podDescribeProvider';
 import { registerPodCommands } from './commands/podCommands';
+import { registerDeploymentCommands } from './commands/deploymentCommands';
 
 import { registerResourceViewCommands } from './commands/resourceViewCommands';
 import { registerDeviationCommands } from './commands/deviationCommands';
@@ -27,7 +28,6 @@ import { registerResourceCreateCommand } from './commands/resourceCreateCommand'
 import { registerCredentialCommands } from './commands/credentialCommands';
 // import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand';
 // import { registerResourceViewCommands } from './commands/resourceViewCommands';
-// import { registerDeploymentCommands } from './commands/deploymentCommands';
 // import { registerEngineConfigCommands } from './commands/engineConfigCommands';
 // import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 
@@ -213,6 +213,7 @@ export async function activate(context: vscode.ExtensionContext) {
       vscode.workspace.registerFileSystemProvider('k8s-describe', podDescribeProvider, { isCaseSensitive: true })
     );
     registerPodCommands(context, podDescribeProvider);
+    registerDeploymentCommands(context);
 
     const schemaProviderService = new SchemaProviderService();
     serviceManager.registerService('schema-provider', schemaProviderService);
