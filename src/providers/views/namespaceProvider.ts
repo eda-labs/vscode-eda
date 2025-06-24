@@ -2,6 +2,7 @@
 
 import * as vscode from 'vscode';
 import { TreeItemBase } from './treeItem';
+import { FilteredTreeProvider } from './filteredTreeProvider';
 import { serviceManager } from '../../services/serviceManager';
 import { KubernetesClient } from '../../clients/kubernetesClient';
 import { EdaClient } from '../../clients/edaClient';
@@ -12,10 +13,7 @@ import { log, LogLevel } from '../../extension';
 /**
  * TreeDataProvider for the EDA Namespaces view
  */
-export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBase> {
-  private _onDidChangeTreeData = new vscode.EventEmitter<TreeItemBase | undefined>();
-  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
-
+export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
   private expandAll: boolean = false;
 
   private k8sClient?: KubernetesClient;
@@ -23,16 +21,15 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
   private resourceService?: ResourceService;
   private statusService?: ResourceStatusService;
 
-  // The current filter text (if any).
-  private treeFilter: string = '';
+  // The current filter text (if any) is managed by FilteredTreeProvider
 
-  private _refreshDebounceTimer: ReturnType<typeof setTimeout> | undefined;
   private cachedNamespaces: string[] = [];
   private cachedStreamGroups: Record<string, string[]> = {};
   private streamData: Map<string, Map<string, any>> = new Map();
   private k8sStreams: string[] = [];
 
   constructor() {
+    super();
     try {
       this.k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
     } catch {
@@ -109,13 +106,7 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
    * Trigger a debounced refresh
    */
   public refresh(): void {
-    if (this._refreshDebounceTimer) {
-      clearTimeout(this._refreshDebounceTimer);
-    }
-    this._refreshDebounceTimer = setTimeout(() => {
-      this._onDidChangeTreeData.fire(undefined);
-      this._refreshDebounceTimer = undefined;
-    }, 120);
+    super.refresh(120);
   }
 
   /**
@@ -128,20 +119,18 @@ export class EdaNamespaceProvider implements vscode.TreeDataProvider<TreeItemBas
 
   /**
    * Set filter text for searching categories/types/instances
-   */
+  */
   public setTreeFilter(filterText: string): void {
-    this.treeFilter = filterText.toLowerCase(); // <-- CHANGED
     log(`Tree filter set to: "${filterText}"`, LogLevel.INFO);
-    this.refresh();
+    super.setTreeFilter(filterText);
   }
 
   /**
    * Clear the filter text
    */
   public clearTreeFilter(): void {
-    this.treeFilter = ''; // <-- CHANGED
     log(`Clearing tree filter`, LogLevel.INFO);
-    this.refresh();
+    super.clearTreeFilter();
   }
 
   /**

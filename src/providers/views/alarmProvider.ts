@@ -1,20 +1,17 @@
 import * as vscode from 'vscode';
 import { TreeItemBase } from './treeItem';
+import { FilteredTreeProvider } from './filteredTreeProvider';
 import { serviceManager } from '../../services/serviceManager';
 import { EdaClient } from '../../clients/edaClient';
 import { ResourceStatusService } from '../../services/resourceStatusService';
 
-export class EdaAlarmProvider implements vscode.TreeDataProvider<TreeItemBase> {
-  private _onDidChangeTreeData = new vscode.EventEmitter<TreeItemBase | undefined>();
-  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
-
+export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
   private edactlClient: EdaClient;
   private statusService: ResourceStatusService;
   private alarms: Map<string, any> = new Map();
-  private treeFilter = '';
-  private _refreshDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor() {
+    super();
     this.edactlClient = serviceManager.getClient<EdaClient>('edactl');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
 
@@ -26,25 +23,6 @@ export class EdaAlarmProvider implements vscode.TreeDataProvider<TreeItemBase> {
     });
   }
 
-  refresh(): void {
-    if (this._refreshDebounceTimer) {
-      clearTimeout(this._refreshDebounceTimer);
-    }
-    this._refreshDebounceTimer = setTimeout(() => {
-      this._onDidChangeTreeData.fire(undefined);
-      this._refreshDebounceTimer = undefined;
-    }, 100);
-  }
-
-  setTreeFilter(text: string): void {
-    this.treeFilter = text.toLowerCase();
-    this.refresh();
-  }
-
-  clearTreeFilter(): void {
-    this.treeFilter = '';
-    this.refresh();
-  }
 
   getTreeItem(element: TreeItemBase): vscode.TreeItem {
     return element;

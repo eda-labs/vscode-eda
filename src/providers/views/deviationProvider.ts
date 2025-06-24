@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { TreeItemBase } from './treeItem';
+import { FilteredTreeProvider } from './filteredTreeProvider';
 import { serviceManager } from '../../services/serviceManager';
 import { EdaClient } from '../../clients/edaClient';
 import { ResourceStatusService } from '../../services/resourceStatusService';
@@ -23,17 +24,13 @@ function getDeviationNamespace(d: EdaDeviation): string | undefined {
   return d['namespace.name'] || d.namespace || d.metadata?.namespace;
 }
 
-export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTreeItem> {
-  private _onDidChangeTreeData = new vscode.EventEmitter<DeviationTreeItem | undefined | null | void>();
-  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
-
+export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem> {
   private deviations: Map<string, EdaDeviation> = new Map();
   private edaClient: EdaClient;
   private statusService: ResourceStatusService;
-  private treeFilter = '';
-  private _refreshDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor() {
+    super();
     this.edaClient = serviceManager.getClient<EdaClient>('edactl');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
     void this.edaClient.streamEdaDeviations();
@@ -52,16 +49,6 @@ export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTr
     }
   }
 
-  refresh(): void {
-    log('EdaDeviationProvider: Refresh called', LogLevel.DEBUG);
-    if (this._refreshDebounceTimer) {
-      clearTimeout(this._refreshDebounceTimer);
-    }
-    this._refreshDebounceTimer = setTimeout(() => {
-      this._onDidChangeTreeData.fire();
-      this._refreshDebounceTimer = undefined;
-    }, 100);
-  }
 
   updateDeviation(name: string, namespace: string, status: string): void {
     log(`Updating deviation ${name} in namespace ${namespace} with status: ${status}`, LogLevel.DEBUG);
@@ -81,15 +68,6 @@ export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTr
     }
   }
 
-  setTreeFilter(filter: string): void {
-    this.treeFilter = filter.toLowerCase();
-    this.refresh();
-  }
-
-  clearTreeFilter(): void {
-    this.treeFilter = '';
-    this.refresh();
-  }
 
   getTreeItem(element: DeviationTreeItem): vscode.TreeItem {
     return element;

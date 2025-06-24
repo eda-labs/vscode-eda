@@ -1,19 +1,15 @@
 import * as vscode from 'vscode';
 import { TreeItemBase } from './treeItem';
+import { FilteredTreeProvider } from './filteredTreeProvider';
 import { serviceManager } from '../../services/serviceManager';
 import { EdaClient } from '../../clients/edaClient';
 import { ResourceStatusService } from '../../services/resourceStatusService';
 import { log, LogLevel } from '../../extension';
 
-export class EdaTransactionProvider implements vscode.TreeDataProvider<TransactionTreeItem> {
-  private _onDidChangeTreeData = new vscode.EventEmitter<TransactionTreeItem | undefined | null | void>();
-  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
-
+export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTreeItem> {
   private edactlClient: EdaClient;
   private statusService: ResourceStatusService;
-  private _refreshDebounceTimer: ReturnType<typeof setTimeout> | undefined;
   private cachedTransactions: any[] = [];
-  private treeFilter = '';
 
   /**
    * Merge new transaction updates into the cached list while
@@ -44,6 +40,7 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
   }
 
   constructor() {
+    super();
     this.edactlClient = serviceManager.getClient<EdaClient>('edactl');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
     void this.edactlClient.streamEdaTransactions(50);
@@ -63,25 +60,6 @@ export class EdaTransactionProvider implements vscode.TreeDataProvider<Transacti
     }
   }
 
-  refresh(): void {
-    if (this._refreshDebounceTimer) {
-      clearTimeout(this._refreshDebounceTimer);
-    }
-    this._refreshDebounceTimer = setTimeout(() => {
-      this._onDidChangeTreeData.fire();
-      this._refreshDebounceTimer = undefined;
-    }, 100);
-  }
-
-  setTreeFilter(filter: string): void {
-    this.treeFilter = filter.toLowerCase();
-    this.refresh();
-  }
-
-  clearTreeFilter(): void {
-    this.treeFilter = '';
-    this.refresh();
-  }
 
   getTreeItem(element: TransactionTreeItem): vscode.TreeItem {
     return element;
