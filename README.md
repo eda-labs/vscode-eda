@@ -42,6 +42,13 @@
 
 3. **Reload** VS Code to finalize activation.
 
+### Authentication
+
+On first activation the extension prompts for your EDA and Keycloak passwords.
+The values are stored in VS Code's Secret Storage so they persist securely
+between sessions. You can update the stored passwords later via the
+`EDA: Update Stored Credentials` command from the Command Palette.
+
 ---
 
 ## Usage

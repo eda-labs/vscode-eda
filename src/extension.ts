@@ -22,6 +22,7 @@ import { registerTransactionCommands } from './commands/transactionCommands';
 import { registerViewCommands } from './commands/viewCommands';
 import { registerResourceEditCommands } from './commands/resourceEditCommands';
 import { registerResourceCreateCommand } from './commands/resourceCreateCommand';
+import { registerCredentialCommands } from './commands/credentialCommands';
 // import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand';
 // import { registerResourceViewCommands } from './commands/resourceViewCommands';
 // import { registerDeploymentCommands } from './commands/deploymentCommands';
@@ -102,9 +103,24 @@ export async function activate(context: vscode.ExtensionContext) {
   log('EDA extension activating...', LogLevel.INFO, true);
   const edaUrl = config.get<string>("edaUrl", "https://eda-api");
   const edaUsername = config.get<string>('edaUsername', 'admin');
-  const edaPassword = config.get<string>('edaPassword', 'admin');
   const kcUsername = config.get<string>('kcUsername', 'admin');
-  const kcPassword = config.get<string>('kcPassword', 'admin');
+  const secrets = context.secrets;
+
+  async function getOrPromptSecret(key: string, prompt: string): Promise<string> {
+    let val = await secrets.get(key);
+    if (!val) {
+      val = await vscode.window.showInputBox({ prompt, password: true, ignoreFocusOut: true });
+      if (val) {
+        await secrets.store(key, val);
+      } else {
+        val = '';
+      }
+    }
+    return val;
+  }
+
+  const edaPassword = await getOrPromptSecret('edaPassword', 'Enter EDA password');
+  const kcPassword = await getOrPromptSecret('kcPassword', 'Enter Keycloak admin password');
   const clientId = config.get<string>('clientId', 'eda');
   const clientSecret = config.get<string>('clientSecret', '');
   const skipTlsVerify = config.get<boolean>('skipTlsVerify', false);
@@ -269,6 +285,7 @@ export async function activate(context: vscode.ExtensionContext) {
   );
   registerDeviationCommands(context);
   registerTransactionCommands(context);
+  registerCredentialCommands(context);
 
   //   log('Service architecture initialized successfully', LogLevel.INFO, true);
   } catch (error) {

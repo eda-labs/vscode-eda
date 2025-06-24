@@ -64,7 +64,7 @@
     "commands": [
       {
         "command": "vscode-eda.refreshResources",
-        "title": "Refresh Resources",
+        "title": "EDA: Refresh Resources",
         "icon": "$(refresh)"
       },
       {
@@ -79,123 +79,128 @@
       },
       {
         "command": "vscode-eda.showTransactionDetails",
-        "title": "Show Transaction Details"
+        "title": "EDA: Show Transaction Details"
       },
       {
         "command": "vscode-eda.deletePod",
-        "title": "Delete Pod",
+        "title": "EDA: Delete Pod",
         "icon": "$(trash)"
       },
       {
         "command": "vscode-eda.restartDeployment",
-        "title": "Restart Deployment",
+        "title": "EDA: Restart Deployment",
         "icon": "$(debug-restart)"
       },
       {
         "command": "vscode-eda.terminalPod",
-        "title": "Open Terminal to Pod",
+        "title": "EDA: Open Terminal to Pod",
         "icon": "$(terminal)"
       },
       {
         "command": "vscode-eda.logsPod",
-        "title": "View Pod Logs",
+        "title": "EDA: View Pod Logs",
         "icon": "$(list-unordered)"
       },
       {
         "command": "vscode-eda.describePod",
-        "title": "Describe Pod",
+        "title": "EDA: Describe Pod",
         "icon": "$(info)"
       },
       {
         "command": "vscode-eda.switchToEditResource",
-        "title": "Switch to Edit Mode",
+        "title": "EDA: Switch to Edit Mode",
         "icon": "$(edit)"
       },
       {
         "command": "vscode-eda.applyResourceChanges",
-        "title": "Apply Resource Changes",
+        "title": "EDA: Apply Resource Changes",
         "icon": "$(check)"
       },
       {
         "command": "vscode-eda.applyResourceChanges.dryRun",
-        "title": "Validate (Dry Run)",
+        "title": "EDA: Validate (Dry Run)",
         "icon": "$(debug-alt)"
       },
       {
         "command": "vscode-eda.showResourceDiff",
-        "title": "Show Resource Changes",
+        "title": "EDA: Show Resource Changes",
         "icon": "$(diff)"
       },
       {
         "command": "vscode-eda.showCRDDefinition",
-        "title": "Show CRD Definition",
+        "title": "EDA: Show CRD Definition",
         "icon": "$(file)"
       },
       {
         "command": "vscode-eda.filterTree",
-        "title": "Filter Tree",
+        "title": "EDA: Filter Tree",
         "icon": "$(filter-filled)"
       },
       {
         "command": "vscode-eda.clearFilter",
-        "title": "Clear Filter",
+        "title": "EDA: Clear Filter",
         "icon": "$(filter)"
       },
       {
         "command": "vscode-eda.expandAllNamespaces",
-        "title": "Expand All",
+        "title": "EDA: Expand All",
         "icon": "$(expand-all)"
       },
       {
         "command": "vscode-eda.createResource",
-        "title": "Create Resource",
+        "title": "EDA: Create Resource",
         "icon": "$(add)"
       },
       {
         "command": "vscode-eda.deleteResource",
-        "title": "Delete Resource",
+        "title": "EDA: Delete Resource",
         "icon": "$(trash)"
       },
       {
         "command": "vscode-eda.showAlarmDetails",
-        "title": "Show Alarm Details"
+        "title": "EDA: Show Alarm Details"
       },
       {
         "command": "vscode-eda.showDeviationDetails",
-        "title": "Show Deviation Details"
+        "title": "EDA: Show Deviation Details"
       },
       {
         "command": "vscode-eda.acceptDeviation",
-        "title": "Accept Deviation"
+        "title": "EDA: Accept Deviation"
       },
       {
         "command": "vscode-eda.rejectDeviation",
-        "title": "Reject Deviation"
+        "title": "EDA: Reject Deviation"
       },
       {
         "command": "vscode-eda.acceptDeviation",
-        "title": "Accept Deviation",
+        "title": "EDA: Accept Deviation",
         "icon": "$(check)"
       },
       {
         "command": "vscode-eda.rejectDeviation",
-        "title": "Reject Deviation",
+        "title": "EDA: Reject Deviation",
         "icon": "$(x)"
       },
       {
         "command": "vscode-eda.revertTransaction",
-        "title": "Revert Transaction",
+        "title": "EDA: Revert Transaction",
         "icon": "$(history)"
       },
       {
         "command": "vscode-eda.restoreTransaction",
-        "title": "Restore Transaction",
+        "title": "EDA: Restore Transaction",
         "icon": "$(debug-step-back)"
       },
       {
         "command": "vscode-eda.viewStreamItem",
-        "title": "View Stream Item",
+        "title": "EDA: View Stream Item",
         "icon": "$(file)"
+      },
+      {
+        "command": "vscode-eda.updateCredentials",
+        "title": "EDA: Update Stored Credentials",
+        "icon": "$(key)"
       }
     ],
     "menus": {
@@ -206,6 +211,10 @@
         },
         {
           "command": "vscode-eda.undoPatchEngineConfig",
+          "when": "true"
+        },
+        {
+          "command": "vscode-eda.updateCredentials",
           "when": "true"
         }
       ],
@@ -418,20 +427,10 @@
           "default": "admin",
           "description": "Username for the EDA realm"
         },
-        "vscode-eda.edaPassword": {
-          "type": "string",
-          "default": "admin",
-          "description": "Password for the EDA realm"
-        },
         "vscode-eda.kcUsername": {
           "type": "string",
           "default": "admin",
           "description": "Keycloak admin username"
-        },
-        "vscode-eda.kcPassword": {
-          "type": "string",
-          "default": "admin",
-          "description": "Keycloak admin password"
         },
         "vscode-eda.clientId": {
           "type": "string",
