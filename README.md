@@ -82,6 +82,8 @@ In VS Code settings (`File → Preferences → Settings`), navigate to `Extensio
   - `3` = Error
 - **`vscode-eda.skipTlsVerify`**
   When enabled, the extension skips TLS certificate validation when connecting to the EDA API. This is helpful in development environments with self-signed certificates. The same behavior can be toggled via the `EDA_SKIP_TLS_VERIFY=true` environment variable.
+- **`vscode-eda.disableKubernetes`**
+  When enabled, all Kubernetes-related features are disabled and the extension communicates exclusively with the EDA API. You can also set `EDA_DISABLE_K8S=true` as an environment variable.
 
 ---
 

@@ -150,26 +150,28 @@ export async function activate(context: vscode.ExtensionContext) {
   const clientId = config.get<string>('clientId', 'eda');
   const clientSecret = config.get<string>('clientSecret', '');
   const skipTlsVerify = config.get<boolean>('skipTlsVerify', false);
+  const disableKubernetes = config.get<boolean>('disableKubernetes', false) || process.env.EDA_DISABLE_K8S === 'true';
 
-
-  // Create a status bar item for showing current Kubernetes context:
-  contextStatusBarItem = vscode.window.createStatusBarItem(
-    vscode.StatusBarAlignment.Left,
-    100
-  );
-  // Clicking the status bar item will trigger our switchContext command:
-  contextStatusBarItem.command = 'vscode-eda.switchContext';
-  contextStatusBarItem.text = '$(kubernetes) EDA: unknown';
-  contextStatusBarItem.tooltip = 'Switch the current Kubernetes context';
-  contextStatusBarItem.show();
-  context.subscriptions.push(contextStatusBarItem);
+  if (!disableKubernetes) {
+    // Create a status bar item for showing current Kubernetes context:
+    contextStatusBarItem = vscode.window.createStatusBarItem(
+      vscode.StatusBarAlignment.Left,
+      100
+    );
+    // Clicking the status bar item will trigger our switchContext command:
+    contextStatusBarItem.command = 'vscode-eda.switchContext';
+    contextStatusBarItem.text = '$(kubernetes) EDA: unknown';
+    contextStatusBarItem.tooltip = 'Switch the current Kubernetes context';
+    contextStatusBarItem.show();
+    context.subscriptions.push(contextStatusBarItem);
+  }
 //
   try {
     log('Initializing service architecture...', LogLevel.INFO, true);
 
     // 1) Create the clients independently
 
-    const k8sClient = new KubernetesClient();
+    const k8sClient = disableKubernetes ? undefined : new KubernetesClient();
     const edaClient = new EdaClient(edaUrl, {
       edaUsername,
       edaPassword,
@@ -179,41 +181,46 @@ export async function activate(context: vscode.ExtensionContext) {
       clientSecret: clientSecret || undefined,
       skipTlsVerify
     });
-    const currentContext = k8sClient.getCurrentContext();
-    contextStatusBarItem.text = `$(kubernetes) EDA: ${currentContext}`;
+    if (k8sClient && contextStatusBarItem) {
+      const currentContext = k8sClient.getCurrentContext();
+      contextStatusBarItem.text = `$(kubernetes) EDA: ${currentContext}`;
+    }
 
     // 2) Optionally register them in your ServiceManager
     serviceManager.registerClient('eda', edaClient);
-    serviceManager.registerClient('kubernetes', k8sClient);
-
-    await verifyKubernetesContext(edaClient, k8sClient);
-
-    const resourceService = new ResourceService(k8sClient);
-    serviceManager.registerService('kubernetes-resources', resourceService);
+    if (k8sClient) {
+      serviceManager.registerClient('kubernetes', k8sClient);
+      await verifyKubernetesContext(edaClient, k8sClient);
+    }
 
     const resourceStatusService = new ResourceStatusService(k8sClient);
     serviceManager.registerService('resource-status', resourceStatusService);
     void resourceStatusService.initialize(context);
 
-    resourceViewProvider = new ResourceViewDocumentProvider();
-    context.subscriptions.push(
-      vscode.workspace.registerFileSystemProvider('k8s-view', resourceViewProvider, { isCaseSensitive: true })
-    );
-    registerResourceViewCommands(context, resourceViewProvider);
+    if (k8sClient) {
+      const resourceService = new ResourceService(k8sClient);
+      serviceManager.registerService('kubernetes-resources', resourceService);
 
-    resourceEditProvider = new ResourceEditDocumentProvider();
-    context.subscriptions.push(
-      vscode.workspace.registerFileSystemProvider('k8s', resourceEditProvider, { isCaseSensitive: true })
-    );
-    registerResourceCreateCommand(context, resourceEditProvider);
-    registerResourceEditCommands(context, resourceEditProvider, resourceViewProvider);
+      resourceViewProvider = new ResourceViewDocumentProvider();
+      context.subscriptions.push(
+        vscode.workspace.registerFileSystemProvider('k8s-view', resourceViewProvider, { isCaseSensitive: true })
+      );
+      registerResourceViewCommands(context, resourceViewProvider);
 
-    podDescribeProvider = new PodDescribeDocumentProvider();
-    context.subscriptions.push(
-      vscode.workspace.registerFileSystemProvider('k8s-describe', podDescribeProvider, { isCaseSensitive: true })
-    );
-    registerPodCommands(context, podDescribeProvider);
-    registerDeploymentCommands(context);
+      resourceEditProvider = new ResourceEditDocumentProvider();
+      context.subscriptions.push(
+        vscode.workspace.registerFileSystemProvider('k8s', resourceEditProvider, { isCaseSensitive: true })
+      );
+      registerResourceCreateCommand(context, resourceEditProvider);
+      registerResourceEditCommands(context, resourceEditProvider, resourceViewProvider);
+
+      podDescribeProvider = new PodDescribeDocumentProvider();
+      context.subscriptions.push(
+        vscode.workspace.registerFileSystemProvider('k8s-describe', podDescribeProvider, { isCaseSensitive: true })
+      );
+      registerPodCommands(context, podDescribeProvider);
+      registerDeploymentCommands(context);
+    }
 
     const schemaProviderService = new SchemaProviderService();
     serviceManager.registerService('schema-provider', schemaProviderService);
@@ -328,36 +335,40 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.window.showErrorMessage(`Failed to initialize EDA extension: ${error}`);
   }
 
-  const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
+  if (!disableKubernetes) {
+    const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
 
-  context.subscriptions.push(
-    vscode.commands.registerCommand('vscode-eda.switchContext', async () => {
-      try {
-        const contexts = k8sClient.getAvailableContexts();
-        if (!contexts || contexts.length === 0) {
-          vscode.window.showWarningMessage('No Kubernetes contexts found in your kubeconfig.');
-          return;
+    context.subscriptions.push(
+      vscode.commands.registerCommand('vscode-eda.switchContext', async () => {
+        try {
+          const contexts = k8sClient.getAvailableContexts();
+          if (!contexts || contexts.length === 0) {
+            vscode.window.showWarningMessage('No Kubernetes contexts found in your kubeconfig.');
+            return;
+          }
+
+          const newContext = await vscode.window.showQuickPick(contexts, {
+            placeHolder: 'Select the new Kubernetes context'
+          });
+          if (!newContext) {
+            return;
+          }
+
+          await k8sClient.switchContext(newContext);
+          if (contextStatusBarItem) {
+            contextStatusBarItem.text = `$(kubernetes) EDA: ${k8sClient.getCurrentContext()}`;
+          }
+
+          const rs = serviceManager.getService<ResourceService>('kubernetes-resources');
+          rs.forceRefresh();
+
+          vscode.window.showInformationMessage(`Switched to Kubernetes context: ${newContext}`);
+        } catch (error) {
+          vscode.window.showErrorMessage(`Error switching context: ${error}`);
         }
-
-        const newContext = await vscode.window.showQuickPick(contexts, {
-          placeHolder: 'Select the new Kubernetes context'
-        });
-        if (!newContext) {
-          return;
-        }
-
-        await k8sClient.switchContext(newContext);
-        contextStatusBarItem.text = `$(kubernetes) EDA: ${k8sClient.getCurrentContext()}`;
-
-        const rs = serviceManager.getService<ResourceService>('kubernetes-resources');
-        rs.forceRefresh();
-
-        vscode.window.showInformationMessage(`Switched to Kubernetes context: ${newContext}`);
-      } catch (error) {
-        vscode.window.showErrorMessage(`Error switching context: ${error}`);
-      }
-    })
-  );
+      })
+    );
+  }
 
 
   // log('EDA extension activated', LogLevel.INFO, true);

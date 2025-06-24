@@ -16,9 +16,9 @@ export class ResourceStatusService extends CoreService {
 
   // Extension context for resource loading
   private extensionContext?: vscode.ExtensionContext;
-  private k8sClient: KubernetesClient;
+  private k8sClient?: KubernetesClient;
 
-  constructor(k8sClient: KubernetesClient) {
+  constructor(k8sClient?: KubernetesClient) {
     super();
     this.k8sClient = k8sClient;
     log('Initializing ResourceStatusService', LogLevel.INFO);

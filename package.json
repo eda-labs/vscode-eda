@@ -450,7 +450,7 @@
         "vscode-eda.disableKubernetes": {
           "type": "boolean",
           "default": false,
-          "description": "Disable all Kubernetes features when only using the EDA API"
+          "description": "Disable all Kubernetes features and operate in EDA API only mode"
         }
       }
     },
