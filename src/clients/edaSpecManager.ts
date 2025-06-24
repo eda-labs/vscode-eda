@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import openapiTS, { astToString, COMMENT_HEADER } from 'openapi-typescript';
 import { LogLevel, log } from '../extension';
-import { EdaApiClient } from './edaApiClient';
+import type { EdaApiClient } from './edaApiClient';
 import { StreamEndpoint } from './edaStreamClient';
 
 interface NamespaceData {
@@ -24,8 +24,10 @@ export class EdaSpecManager {
   private streamEndpoints: StreamEndpoint[] = [];
   private namespaceSet: Set<string> = new Set();
   private initPromise: Promise<void> = Promise.resolve();
+  private apiClient: EdaApiClient;
 
-  constructor(private apiClient: EdaApiClient) {
+  constructor(apiClient: EdaApiClient) {
+    this.apiClient = apiClient;
     log('EdaSpecManager initialized', LogLevel.DEBUG);
     this.initPromise = this.initializeSpecs();
   }

@@ -1,12 +1,15 @@
 import { fetch } from 'undici';
 import { LogLevel, log } from '../extension';
-import { EdaAuthClient } from './edaAuthClient';
+import type { EdaAuthClient } from './edaAuthClient';
 
 /**
  * Client for EDA REST API operations
  */
 export class EdaApiClient {
-  constructor(private authClient: EdaAuthClient) {
+  private authClient: EdaAuthClient;
+
+  constructor(authClient: EdaAuthClient) {
+    this.authClient = authClient;
     log('EdaApiClient initialized', LogLevel.DEBUG);
   }
 
