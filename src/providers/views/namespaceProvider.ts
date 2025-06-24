@@ -18,7 +18,7 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
   private expandAll: boolean = false;
 
   private k8sClient?: KubernetesClient;
-  private edactlClient: EdaClient;
+  private edaClient: EdaClient;
   private resourceService?: ResourceService;
   private statusService?: ResourceStatusService;
 
@@ -39,7 +39,7 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
     if (this.k8sClient) {
       this.k8sStreams = this.k8sClient.getWatchedResourceTypes();
     }
-    this.edactlClient = serviceManager.getClient<EdaClient>('edactl');
+    this.edaClient = serviceManager.getClient<EdaClient>('eda');
     try {
       this.resourceService = serviceManager.getService<ResourceService>('kubernetes-resources');
     } catch {
@@ -54,15 +54,15 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
     this.setupEventListeners();
     void this.loadStreams();
 
-    this.cachedNamespaces = this.edactlClient.getCachedNamespaces();
+    this.cachedNamespaces = this.edaClient.getCachedNamespaces();
     if (!this.cachedNamespaces.includes('eda-system')) {
       this.cachedNamespaces.push('eda-system');
     }
     this.k8sClient?.setWatchedNamespaces(this.cachedNamespaces);
 
-    void this.edactlClient.streamEdaNamespaces();
+    void this.edaClient.streamEdaNamespaces();
 
-    this.edactlClient.onStreamMessage((stream, msg) => {
+    this.edaClient.onStreamMessage((stream, msg) => {
       if (stream === 'namespaces') {
         this.handleNamespaceMessage(msg);
       } else {
@@ -92,7 +92,7 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
 
   private async loadStreams(): Promise<void> {
     try {
-      this.cachedStreamGroups = await this.edactlClient.getStreamGroups();
+      this.cachedStreamGroups = await this.edaClient.getStreamGroups();
       const groupList = Object.keys(this.cachedStreamGroups).join(', ');
       log(`Discovered stream groups: ${groupList}`, LogLevel.DEBUG);
       if (this.k8sStreams.length > 0) {
@@ -474,7 +474,7 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
       }
     }
     if (changed) {
-      this.edactlClient.setCachedNamespaces(this.cachedNamespaces);
+      this.edaClient.setCachedNamespaces(this.cachedNamespaces);
       this.k8sClient?.setWatchedNamespaces(this.cachedNamespaces);
       this.refresh();
     }

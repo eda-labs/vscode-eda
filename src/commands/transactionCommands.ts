@@ -15,7 +15,7 @@ function extractTransactionId(treeItem: any): string | undefined {
 }
 
 export function registerTransactionCommands(context: vscode.ExtensionContext): void {
-  const edaClient = serviceManager.getClient<EdaClient>('edactl');
+  const edaClient = serviceManager.getClient<EdaClient>('eda');
 
   const revertCmd = vscode.commands.registerCommand('vscode-eda.revertTransaction', async (treeItem) => {
     const transactionId = extractTransactionId(treeItem);

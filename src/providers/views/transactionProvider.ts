@@ -7,7 +7,7 @@ import { ResourceStatusService } from '../../services/resourceStatusService';
 import { log, LogLevel } from '../../extension';
 
 export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTreeItem> {
-  private edactlClient: EdaClient;
+  private edaClient: EdaClient;
   private statusService: ResourceStatusService;
   private cachedTransactions: any[] = [];
 
@@ -41,10 +41,10 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
 
   constructor() {
     super();
-    this.edactlClient = serviceManager.getClient<EdaClient>('edactl');
+    this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
-    void this.edactlClient.streamEdaTransactions(50);
-    this.edactlClient.onStreamMessage((stream, msg) => {
+    void this.edaClient.streamEdaTransactions(50);
+    this.edaClient.onStreamMessage((stream, msg) => {
       if (stream === 'summary') {
         this.processTransactionMessage(msg);
       }
@@ -52,7 +52,7 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
   }
 
   public dispose(): void {
-    this.edactlClient.closeTransactionStream();
+    this.edaClient.closeTransactionStream();
 
     if (this._refreshDebounceTimer) {
       clearTimeout(this._refreshDebounceTimer);

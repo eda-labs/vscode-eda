@@ -6,17 +6,17 @@ import { EdaClient } from '../../clients/edaClient';
 import { ResourceStatusService } from '../../services/resourceStatusService';
 
 export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
-  private edactlClient: EdaClient;
+  private edaClient: EdaClient;
   private statusService: ResourceStatusService;
   private alarms: Map<string, any> = new Map();
 
   constructor() {
     super();
-    this.edactlClient = serviceManager.getClient<EdaClient>('edactl');
+    this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
 
-    void this.edactlClient.streamEdaAlarms();
-    this.edactlClient.onStreamMessage((stream, msg) => {
+    void this.edaClient.streamEdaAlarms();
+    this.edaClient.onStreamMessage((stream, msg) => {
       if (stream === 'current-alarms') {
         this.processAlarmMessage(msg);
       }

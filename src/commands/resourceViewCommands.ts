@@ -63,8 +63,8 @@ export function registerResourceViewCommands(
 ) {
   /**
    * Main command: opens a resource in read-only YAML view.
-   *  - If apiVersion ends with ".eda.nokia.com", we try `edactl get ... -o yaml`.
-   *  - Otherwise we do `kubectl get ... -o yaml`.
+   *  - If apiVersion ends with ".eda.nokia.com", we fetch it via the EDA API.
+   *  - Otherwise we use `kubectl get ... -o yaml`.
    */
   const viewResourceCmd = vscode.commands.registerCommand(
     'vscode-eda.viewResource',
@@ -131,51 +131,28 @@ export function registerResourceViewCommands(
           return;
         }
 
-        // 2) If we have an apiVersion and it looks EDA, try edactl first
+        // 2) If we have an apiVersion and it looks EDA, use the EDA client
         let finalYaml = '';
-        const edactlClient = serviceManager.getClient<EdaClient>('edactl');
+        const edaClient = serviceManager.getClient<EdaClient>('eda');
 
         if (possibleApiVersion && isEdaGroup(possibleApiVersion)) {
-          // If recognized as EDA, attempt an edactl fetch:
-          log(`Detected EDA group from apiVersion=${possibleApiVersion}. Trying edactl...`, LogLevel.DEBUG);
+          // If recognized as EDA, fetch via the API
+          log(`Detected EDA group from apiVersion=${possibleApiVersion}. Fetching via EDA API...`, LogLevel.DEBUG);
 
-          let edaYaml = '';
           try {
-            edaYaml = await edactlClient.getEdaResourceYaml(resourceKind, resourceName, resourceNamespace);
-          } catch (error) {
-            log(`Error while fetching with edactl, will fall back to kubectl: ${error}`, LogLevel.WARN);
-            edaYaml = ''; // Ensure we fallback
-          }
+            const edaYaml = await edaClient.getEdaResourceYaml(resourceKind, resourceName, resourceNamespace);
 
-          // Check if the result from edactl is valid and not containing error messages
-          if (edaYaml && edaYaml.trim().length > 0 &&
-              !edaYaml.includes('NotFound') && !edaYaml.includes('error:')) {
-
-            // Check if the YAML has apiVersion (might be missing in edactl output)
             const hasApiVersion = edaYaml.includes('apiVersion:');
-
             if (!hasApiVersion) {
-              // Add the appropriate apiVersion based on the kind
               const apiVersion = getApiVersionForKind(resourceKind);
               log(`Adding missing apiVersion: ${apiVersion} to EDA YAML`, LogLevel.INFO);
               finalYaml = `apiVersion: ${apiVersion}\n${edaYaml}`;
             } else {
               finalYaml = edaYaml;
             }
-          } else {
-            // If edactl returned empty or error message, fallback to kubectl
-            log(`edactl failed for ${resourceKind}/${resourceName}, falling back to kubectl get -o yaml...`, LogLevel.INFO);
-            try {
-              finalYaml = runKubectl(
-                'kubectl',
-                ['get', resourceKind.toLowerCase(), resourceName, '-o', 'yaml'],
-                { namespace: resourceNamespace }
-              );
-              log(`Successfully fetched ${resourceKind}/${resourceName} via kubectl fallback`, LogLevel.INFO);
-            } catch (kubectlError) {
-              log(`Both edactl and kubectl failed for ${resourceKind}/${resourceName}: ${kubectlError}`, LogLevel.ERROR);
-              finalYaml = `# Error fetching ${resourceKind}/${resourceName}:\n# ${kubectlError}\n# Original edactl error: ${edaYaml}`;
-            }
+          } catch (error) {
+            log(`Error fetching resource via EDA API: ${error}`, LogLevel.ERROR);
+            finalYaml = `# Error fetching ${resourceKind}/${resourceName}: ${error}`;
           }
         }
         else {

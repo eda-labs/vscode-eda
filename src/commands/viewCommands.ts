@@ -28,7 +28,7 @@ export function registerViewCommands(
 
       try {
         // Get EdaClient from service manager
-        const edaClient = serviceManager.getClient<EdaClient>('edactl');
+        const edaClient = serviceManager.getClient<EdaClient>('eda');
 
         // Retrieve transaction details and summary JSON
         const [detailsObj, summaryObj] = await Promise.all([
@@ -198,7 +198,7 @@ export function registerViewCommands(
       const name = deviation.name || deviation.metadata?.name;
       const namespace =
         deviation["namespace.name"] || deviation.namespace || deviation.metadata?.namespace;
-      const edactlClient = serviceManager.getClient<EdaClient>('edactl');
+      const edaClient = serviceManager.getClient<EdaClient>('eda');
 
       // Prepare base template variables
       const templateVars: Record<string, any> = {
@@ -210,7 +210,7 @@ export function registerViewCommands(
 
       try {
         // Fetch the YAML for the deviation
-        const resourceYaml = await edactlClient.executeEdactl(`get deviation ${name} -n ${namespace} -o yaml`);
+        const resourceYaml = await edaClient.getEdaResourceYaml('deviation', name, namespace);
         templateVars.resourceYaml = resourceYaml;
       } catch (error) {
         // Add error message if we couldn't get the YAML

@@ -32,7 +32,7 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
 
   constructor() {
     super();
-    this.edaClient = serviceManager.getClient<EdaClient>('edactl');
+    this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
     void this.edaClient.streamEdaDeviations();
     this.edaClient.onStreamMessage((stream, msg) => {

@@ -23,7 +23,7 @@ function getDeviationNamespace(dev: Deviation): string | undefined {
 export function registerDeviationCommands(
   context: vscode.ExtensionContext,
 ): void {
-  const edaClient = serviceManager.getClient<EdaClient>('edactl');
+  const edaClient = serviceManager.getClient<EdaClient>('eda');
 
   async function handleAction(
     dev: Deviation,

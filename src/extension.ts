@@ -144,7 +144,7 @@ export async function activate(context: vscode.ExtensionContext) {
     // 1) Create the clients independently
 
     const k8sClient = new KubernetesClient();
-    const edactlClient = new EdaClient(edaUrl, {
+    const edaClient = new EdaClient(edaUrl, {
       edaUsername,
       edaPassword,
       kcUsername,
@@ -157,7 +157,7 @@ export async function activate(context: vscode.ExtensionContext) {
     contextStatusBarItem.text = `$(kubernetes) EDA: ${currentContext}`;
 
     // 2) Optionally register them in your ServiceManager
-    serviceManager.registerClient('edactl', edactlClient);
+    serviceManager.registerClient('eda', edaClient);
     serviceManager.registerClient('kubernetes', k8sClient);
 
     const resourceService = new ResourceService(k8sClient);

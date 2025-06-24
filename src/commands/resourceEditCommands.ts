@@ -36,7 +36,7 @@ export function registerResourceEditCommands(
   resourceEditProvider: ResourceEditDocumentProvider,
   resourceViewProvider: ResourceViewDocumentProvider
 ) {
-  const edactlClient = serviceManager.getClient<EdaClient>('edactl');
+  const edaClient = serviceManager.getClient<EdaClient>('eda');
 
   // Switch from read-only view to editable
   const switchToEditCommand = vscode.commands.registerCommand(
@@ -297,7 +297,7 @@ export function registerResourceEditCommands(
         // If we have an explicit option (dry run or direct apply), skip the initial prompt
         if (options.skipPrompt) {
           if (options.dryRun) {
-            return await validateAndPromptForApply(edactlClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
+            return await validateAndPromptForApply(edaClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
           } else {
             // Direct apply - still show diff first
             const shouldContinue = await showResourceDiff(resourceEditProvider, documentUri);
@@ -308,7 +308,7 @@ export function registerResourceEditCommands(
             // Confirm and apply
             const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
             if (confirmed) {
-              const result = await applyResource(documentUri, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
+              const result = await applyResource(documentUri, edaClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
               if (result) {
                 // Update both providers with the applied resource
                 resourceEditProvider.setOriginalResource(documentUri, resource);
@@ -361,12 +361,12 @@ export function registerResourceEditCommands(
 
           if (nextAction === 'validate') {
             // Validate and then ask for apply
-            return await validateAndPromptForApply(edactlClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
+            return await validateAndPromptForApply(edaClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
           } else {
             // Direct apply after diff
             const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
             if (confirmed) {
-              const result = await applyResource(documentUri, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
+              const result = await applyResource(documentUri, edaClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
               if (result) {
                 // Update both providers
                 resourceEditProvider.setOriginalResource(documentUri, resource);
@@ -395,7 +395,7 @@ export function registerResourceEditCommands(
           }
         } else if (action === 'validate') {
           // Validate and then ask for apply
-          return await validateAndPromptForApply(edactlClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
+          return await validateAndPromptForApply(edaClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
         } else {
           // Direct apply - still show diff first as a safeguard
           const shouldContinue = await showResourceDiff(resourceEditProvider, documentUri);
@@ -406,7 +406,7 @@ export function registerResourceEditCommands(
           // Confirm and apply
           const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
           if (confirmed) {
-            const result = await applyResource(documentUri, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
+            const result = await applyResource(documentUri, edaClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
             if (result) {
               // Update both providers
               resourceEditProvider.setOriginalResource(documentUri, resource);
@@ -566,7 +566,7 @@ async function promptForNextAction(resource: any, currentStep: string): Promise<
 
 // Validate and then prompt for apply
 async function validateAndPromptForApply(
-  edactlClient: EdaClient,
+  edaClient: EdaClient,
   resourceEditProvider: ResourceEditDocumentProvider,
   resourceViewProvider: ResourceViewDocumentProvider,
   documentUri: vscode.Uri,
@@ -585,7 +585,7 @@ async function validateAndPromptForApply(
   }
 
   // Perform validation (dry run)
-  const validationResult = await applyResource(documentUri, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: true });
+  const validationResult = await applyResource(documentUri, edaClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: true });
 
   if (validationResult) {
     // Show success message for validation
@@ -596,7 +596,7 @@ async function validateAndPromptForApply(
 
     if (validationAction === 'Apply Changes') {
       // Now apply the changes
-      const applyResult = await applyResource(documentUri, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
+      const applyResult = await applyResource(documentUri, edaClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
       if (applyResult) {
         resourceEditProvider.setOriginalResource(documentUri, resource);
 
@@ -778,7 +778,7 @@ async function confirmResourceUpdate(kind: string, name: string, dryRun: boolean
 // Apply the resource changes to the cluster
 async function applyResource(
   documentUri: vscode.Uri,
-  edactlClient: EdaClient,
+  edaClient: EdaClient,
   resourceEditProvider: ResourceEditDocumentProvider,
   resourceViewProvider: ResourceViewDocumentProvider,
   resource: any,
@@ -812,7 +812,7 @@ async function applyResource(
         dryRun: isDryRun,
       };
 
-      const txId = await edactlClient.runTransaction(tx);
+      const txId = await edaClient.runTransaction(tx);
       log(
         `Transaction ${txId} created for ${resource.kind}/${resource.metadata.name}`,
         LogLevel.INFO,

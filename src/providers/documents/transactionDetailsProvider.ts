@@ -4,7 +4,7 @@ import { BaseDocumentProvider } from './baseDocumentProvider';
 
 /**
  * A read-only provider for "eda-transaction:" URIs that displays
- * EDA transaction details text from `edactl transaction <id>`.
+ * EDA transaction details text retrieved from the EDA API.
  */
 export class TransactionDetailsDocumentProvider extends BaseDocumentProvider {
   public setTransactionContent(uri: vscode.Uri, text: string): void {

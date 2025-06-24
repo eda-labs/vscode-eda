@@ -47,7 +47,7 @@ export function registerResourceCreateCommand(
 ): void {
   const cmd = vscode.commands.registerCommand('vscode-eda.createResource', async () => {
     try {
-      const edaClient = serviceManager.getClient<EdaClient>('edactl');
+      const edaClient = serviceManager.getClient<EdaClient>('eda');
       const schemaService = serviceManager.getService<SchemaProviderService>('schema-provider');
 
       const crds = await schemaService.getCustomResourceDefinitions();
