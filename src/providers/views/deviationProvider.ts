@@ -5,6 +5,7 @@ import { serviceManager } from '../../services/serviceManager';
 import { EdaClient } from '../../clients/edaClient';
 import { ResourceStatusService } from '../../services/resourceStatusService';
 import { log, LogLevel } from '../../extension';
+import { parseUpdateKey } from '../../utils/parseUpdateKey';
 
 interface EdaDeviation {
   name?: string;
@@ -166,13 +167,9 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
       let name: string | undefined = up.data?.metadata?.name || up.data?.name;
       let ns: string | undefined = up.data?.metadata?.namespace;
       if ((!name || !ns) && up.key) {
-        const nameMatch = String(up.key).match(/\.name=="([^"]+)"/g);
-        if (nameMatch && nameMatch.length) {
-          const last = nameMatch[nameMatch.length - 1].match(/\.name=="([^"]+)"/);
-          if (last) name = last[1];
-        }
-        const nsMatch = String(up.key).match(/namespace\{\.name=="([^"]+)"\}/);
-        if (nsMatch) ns = nsMatch[1];
+        const parsed = parseUpdateKey(String(up.key));
+        if (!name) name = parsed.name;
+        if (!ns) ns = parsed.namespace;
       }
       if (!name || !ns) continue;
       const key = `${ns}/${name}`;

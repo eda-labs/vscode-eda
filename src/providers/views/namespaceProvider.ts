@@ -9,6 +9,7 @@ import { EdaClient } from '../../clients/edaClient';
 import { ResourceService } from '../../services/resourceService';
 import { ResourceStatusService } from '../../services/resourceStatusService';
 import { log, LogLevel } from '../../extension';
+import { parseUpdateKey } from '../../utils/parseUpdateKey';
 
 /**
  * TreeDataProvider for the EDA Namespaces view
@@ -457,10 +458,8 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
     for (const up of updates) {
       let name: string | undefined = up.data?.metadata?.name || up.data?.name;
       if (!name && up.key) {
-        const matches = [...String(up.key).matchAll(/namespace\{\.name=="([^"]+)"\}/g)];
-        if (matches.length > 0) {
-          name = matches[matches.length - 1][1];
-        }
+        const parsed = parseUpdateKey(String(up.key));
+        name = parsed.name;
       }
       if (!name) continue;
       if (up.data === null) {
@@ -485,19 +484,13 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
   private extractNames(update: any): { name?: string; namespace?: string } {
     let name = update.data?.metadata?.name;
     let namespace = update.data?.metadata?.namespace;
-    if (!name && update.key) {
-      const matches = String(update.key).match(/\.name=="([^"]+)"/g);
-      if (matches && matches.length > 0) {
-        const last = matches[matches.length - 1].match(/\.name=="([^"]+)"/);
-        if (last) {
-          name = last[1];
-        }
+    if ((!name || !namespace) && update.key) {
+      const parsed = parseUpdateKey(String(update.key));
+      if (!name) {
+        name = parsed.name;
       }
-    }
-    if (!namespace && update.key) {
-      const nsMatch = String(update.key).match(/namespace\{\.name=="([^"]+)"\}/);
-      if (nsMatch) {
-        namespace = nsMatch[1];
+      if (!namespace) {
+        namespace = parsed.namespace;
       }
     }
     return { name, namespace };
