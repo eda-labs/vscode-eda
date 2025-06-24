@@ -2,7 +2,7 @@
 import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
 import { BaseDocumentProvider } from './baseDocumentProvider';
-import type { EdaCrd } from '../../clients/edaClient';
+import type { EdaCrd } from '../../types';
 
 /**
  * A file system provider for the "k8s:" scheme, handling the editable version

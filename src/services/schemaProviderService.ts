@@ -7,6 +7,7 @@ import { CoreService } from './coreService';
 import { log, LogLevel } from '../extension';
 import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
 import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
+import { EdaCrd } from '../types';
 
 export class SchemaProviderService extends CoreService {
   private schemaCacheDir: string;
@@ -188,6 +189,70 @@ export class SchemaProviderService extends CoreService {
       log(`Error loading schema content ${schemaUri}: ${err}`, LogLevel.ERROR);
     }
     return undefined;
+  }
+
+  /** Return CRD metadata discovered from cached OpenAPI specs */
+  public async getCustomResourceDefinitions(): Promise<EdaCrd[]> {
+    const specDir = await this.findSpecDir();
+    const results: EdaCrd[] = [];
+    try {
+      const categories = await fs.promises.readdir(specDir, { withFileTypes: true });
+      for (const cat of categories) {
+        if (!cat.isDirectory()) continue;
+        const catDir = path.join(specDir, cat.name);
+        const files = await fs.promises.readdir(catDir);
+        for (const file of files) {
+          if (!file.endsWith('.json')) continue;
+          const specPath = path.join(catDir, file);
+          try {
+            const raw = await fs.promises.readFile(specPath, 'utf8');
+            const spec = JSON.parse(raw);
+            for (const [p, methods] of Object.entries<any>(spec.paths ?? {})) {
+              const post = (methods as any).post;
+              if (!post || !post.requestBody) continue;
+              const match = p.match(/^\/apps\/([^/]+)\/([^/]+)(?:\/namespaces\/{namespace\})?\/([^/]+)$/);
+              if (!match) continue;
+              const [, group, version, plural] = match;
+              const namespaced = p.includes('/namespaces/{namespace}/');
+              let kind: string | undefined;
+              let description: string | undefined = post.description || post.summary;
+              const ref = post.requestBody.content?.['application/json']?.schema?.['$ref'];
+              if (typeof ref === 'string') {
+                const m = /\.([^./]+)$/.exec(ref);
+                if (m) {
+                  kind = m[1];
+                  description = description ?? spec.components?.schemas?.[m[1]]?.description;
+                }
+              }
+              if (!kind) {
+                kind = plural.replace(/s$/, '').replace(/(^|[-_])(\w)/g, (_, __, ch) => ch.toUpperCase());
+              }
+              results.push({ kind, group, version, plural, namespaced, description });
+            }
+          } catch (err) {
+            log(`Failed to parse spec ${specPath}: ${err}`, LogLevel.WARN);
+          }
+        }
+      }
+    } catch (err) {
+      log(`Failed to load CRD definitions: ${err}`, LogLevel.WARN);
+    }
+    results.sort((a, b) => a.kind.localeCompare(b.kind));
+    return results;
+  }
+
+  /** Get JSON schema for a given resource kind */
+  public async getSchemaForKind(kind: string): Promise<any | null> {
+    if (!this.schemaCache.has(kind)) {
+      return null;
+    }
+    const schemaPath = this.schemaCache.get(kind) as string;
+    try {
+      const raw = await fs.promises.readFile(schemaPath, 'utf8');
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
   }
 
   public dispose(): void {

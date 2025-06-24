@@ -48,8 +48,9 @@ export function registerResourceCreateCommand(
   const cmd = vscode.commands.registerCommand('vscode-eda.createResource', async () => {
     try {
       const edaClient = serviceManager.getClient<EdaClient>('edactl');
+      const schemaService = serviceManager.getService<SchemaProviderService>('schema-provider');
 
-      const crds = await edaClient.getCustomResourceDefinitions();
+      const crds = await schemaService.getCustomResourceDefinitions();
       if (!crds || crds.length === 0) {
         vscode.window.showErrorMessage('No Custom Resources available.');
         return;
@@ -90,7 +91,7 @@ export function registerResourceCreateCommand(
 
       const { group, version, namespaced } = selected.crd;
 
-      const schema = await edaClient.getSchemaForKind(selected.crd.kind);
+      const schema = await schemaService.getSchemaForKind(selected.crd.kind);
       const specSkeleton = schema?.properties?.spec
         ? buildSkeletonFromSchema(schema.properties.spec)
         : {};
