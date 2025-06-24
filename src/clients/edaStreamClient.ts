@@ -32,6 +32,18 @@ export class EdaStreamClient {
   private authClient: EdaAuthClient | undefined;
   private streamEndpoints: StreamEndpoint[] = [];
 
+  // Stream names that should not be automatically subscribed to
+  private static readonly AUTO_EXCLUDE = new Set([
+    'alarms',
+    'summary',
+    'resultsummary',
+    'v1',
+    'eql',
+    'nql',
+    'directory',
+    'file',
+  ]);
+
   constructor(messageIntervalMs = 500) {
     this.messageIntervalMs = messageIntervalMs;
     log('EdaStreamClient initialized', LogLevel.DEBUG);
@@ -88,7 +100,7 @@ export class EdaStreamClient {
         ...this.activeStreams,
         ...this.streamEndpoints
           .map(e => e.stream)
-          .filter(s => s !== 'alarms' && s !== 'summary'),
+          .filter(s => !EdaStreamClient.AUTO_EXCLUDE.has(s)),
       ]);
       this.activeStreams = allStreams;
 
@@ -118,7 +130,7 @@ export class EdaStreamClient {
             this.eventClient = client;
             log(`WS eventclient id = ${this.eventClient}`, LogLevel.DEBUG);
             for (const ep of this.streamEndpoints) {
-              if (ep.stream === 'alarms' || ep.stream === 'summary') continue;
+              if (EdaStreamClient.AUTO_EXCLUDE.has(ep.stream)) continue;
               void this.startStream(this.eventClient, ep);
             }
             if (this.activeStreams.has('current-alarms')) {
