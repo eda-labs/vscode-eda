@@ -446,6 +446,11 @@
           "type": "boolean",
           "default": false,
           "description": "Skip TLS certificate verification when connecting to the EDA API"
+        },
+        "vscode-eda.disableKubernetes": {
+          "type": "boolean",
+          "default": false,
+          "description": "Disable all Kubernetes features when only using the EDA API"
         }
       }
     },
