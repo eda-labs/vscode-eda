@@ -63,11 +63,6 @@
     },
     "commands": [
       {
-        "command": "vscode-eda.refreshResources",
-        "title": "EDA: Refresh Resources",
-        "icon": "$(refresh)"
-      },
-      {
         "command": "vscode-eda.patchEngineConfig",
         "title": "EDA: Patch Engine Config (Enable ETCD Dumps)",
         "icon": "$(database)"

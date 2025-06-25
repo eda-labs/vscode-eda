@@ -258,11 +258,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(namespaceTreeView);
   context.subscriptions.push(alarmTreeView);
-  context.subscriptions.push(
-    vscode.commands.registerCommand('vscode-eda.refreshResources', () => {
-      namespaceProvider.refresh();
-    })
-  );
+
 
   // Allow the user to filter all tree views
   context.subscriptions.push(
@@ -296,11 +292,6 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(deviationTreeView, { dispose: () => edaDeviationProvider.dispose() });
   context.subscriptions.push(transactionTreeView, { dispose: () => edaTransactionProvider.dispose() });
 
-  //   context.subscriptions.push(
-  //     vscode.commands.registerCommand('vscode-eda.refreshResources', () => {
-  //       namespaceProvider.refresh();
-  //     })
-  //   );
 
   const crdFsProvider = new CrdDefinitionFileSystemProvider();
   const transactionDetailsProviderLocal = new TransactionDetailsDocumentProvider();
