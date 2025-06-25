@@ -378,7 +378,14 @@ export class KubernetesClient {
                   const map = (this as any)[cacheName] as Map<string, any[]>;
                   const arr = map.get(namespace!) || [];
                   if (evt.type === 'DELETED') {
-                    map.set(namespace!, arr.filter(r => r.metadata?.uid !== obj.metadata?.uid));
+                    map.set(
+                      namespace!,
+                      arr.filter(
+                        r =>
+                          r.metadata?.uid !== obj.metadata?.uid &&
+                          r.metadata?.name !== obj.metadata?.name
+                      )
+                    );
                   } else {
                     const idx = arr.findIndex(r => r.metadata?.uid === obj.metadata?.uid);
                     if (idx >= 0) arr[idx] = obj; else arr.push(obj);
@@ -387,7 +394,11 @@ export class KubernetesClient {
                 } else {
                   const arr = (this as any)[cacheName] as any[];
                   if (evt.type === 'DELETED') {
-                    (this as any)[cacheName] = arr.filter((r: any) => r.metadata?.uid !== obj.metadata?.uid);
+                    (this as any)[cacheName] = arr.filter(
+                      (r: any) =>
+                        r.metadata?.uid !== obj.metadata?.uid &&
+                        r.metadata?.name !== obj.metadata?.name
+                    );
                   } else {
                     const idx = arr.findIndex((r: any) => r.metadata?.uid === obj.metadata?.uid);
                     if (idx >= 0) arr[idx] = obj; else arr.push(obj);

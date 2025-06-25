@@ -102,10 +102,7 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
       log('Setting up Kubernetes client listener', LogLevel.DEBUG);
       const disposable = this.k8sClient.onResourceChanged(() => {
         log('Kubernetes resource changed EVENT FIRED, refreshing namespaces view', LogLevel.DEBUG);
-        setTimeout(() => {
-          log('Executing refresh after timeout', LogLevel.DEBUG);
-          this.refresh();
-        }, 0);
+        this.refresh();
       });
       log(`K8s listener registered, disposable: ${disposable ? 'YES' : 'NO'}`, LogLevel.DEBUG);
     } else {
