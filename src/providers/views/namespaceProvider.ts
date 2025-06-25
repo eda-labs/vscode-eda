@@ -31,9 +31,13 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
 
   constructor() {
     super();
+    // Debug log constructor start
+    log('EdaNamespaceProvider constructor starting', LogLevel.DEBUG);
     try {
       this.k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
-    } catch {
+      log(`Kubernetes client obtained: ${this.k8sClient ? 'YES' : 'NO'}`, LogLevel.DEBUG);
+    } catch (err) {
+      log(`Failed to get Kubernetes client: ${err}`, LogLevel.DEBUG);
       this.k8sClient = undefined;
     }
     if (this.k8sClient) {
@@ -52,6 +56,11 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
     }
 
     this.setupEventListeners();
+    if (this.k8sClient) {
+      log('Kubernetes client event listeners should be set up', LogLevel.DEBUG);
+    } else {
+      log('No Kubernetes client - event listeners NOT set up', LogLevel.WARN);
+    }
     void this.loadStreams();
 
     this.cachedNamespaces = this.edaClient.getCachedNamespaces();
@@ -75,19 +84,32 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
    * Listen for changes in resources so we can refresh
    */
   private setupEventListeners(): void {
+    log('Setting up event listeners in namespace provider', LogLevel.DEBUG);
+
     if (this.resourceService) {
+      log('Setting up resource service listener', LogLevel.DEBUG);
       this.resourceService.onDidChangeResources(async summary => {
         const msg = summary ? `Resource change detected (${summary}), refreshing tree view` :
           'Resource change detected, refreshing tree view';
         log(msg, LogLevel.DEBUG);
         this.refresh();
       });
+    } else {
+      log('No resource service available', LogLevel.DEBUG);
     }
+
     if (this.k8sClient) {
-      this.k8sClient.onResourceChanged(() => {
-        log('Kubernetes resource changed, refreshing namespaces view', LogLevel.DEBUG);
-        setTimeout(() => this.refresh(), 0);
+      log('Setting up Kubernetes client listener', LogLevel.DEBUG);
+      const disposable = this.k8sClient.onResourceChanged(() => {
+        log('Kubernetes resource changed EVENT FIRED, refreshing namespaces view', LogLevel.DEBUG);
+        setTimeout(() => {
+          log('Executing refresh after timeout', LogLevel.DEBUG);
+          this.refresh();
+        }, 0);
       });
+      log(`K8s listener registered, disposable: ${disposable ? 'YES' : 'NO'}`, LogLevel.DEBUG);
+    } else {
+      log('No Kubernetes client available for event listener', LogLevel.WARN);
     }
   }
 
