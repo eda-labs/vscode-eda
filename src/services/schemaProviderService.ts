@@ -53,8 +53,7 @@ export class SchemaProviderService extends CoreService {
     } catch {
       // ignore
     }
-    // fallback to bundled example specs
-    return this.context.asAbsolutePath(path.join('spec_example', '.eda', 'v25.4.1'));
+    throw new Error(`No EDA specifications found in ${baseDir}`);
   }
 
   private async loadSchemas(): Promise<void> {
