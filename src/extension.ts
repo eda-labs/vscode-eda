@@ -127,7 +127,16 @@ export async function activate(context: vscode.ExtensionContext) {
   currentLogLevel = config.get<LogLevel>('logLevel', LogLevel.INFO);
 
   log('EDA extension activating...', LogLevel.INFO, true);
-  const edaUrl = config.get<string>('edaUrl', 'https://eda-api');
+  let edaUrl = 'https://eda-api';
+  let edaContext: string | undefined;
+  const edaTargetsCfg = config.get<Record<string, string | undefined>>('edaTargets');
+  const targetEntries = edaTargetsCfg ? Object.entries(edaTargetsCfg) : [];
+  if (targetEntries.length > 0) {
+    const idx = context.globalState.get<number>('selectedEdaTarget', 0) ?? 0;
+    const sel = targetEntries[Math.min(idx, targetEntries.length - 1)];
+    edaUrl = sel[0];
+    edaContext = sel[1] || undefined;
+  }
   const edaUsername = config.get<string>('edaUsername', 'admin');
   const kcUsername = config.get<string>('kcUsername', 'admin');
   const edaPasswordCfg = config.get<string>('edaPassword');
@@ -187,21 +196,22 @@ export async function activate(context: vscode.ExtensionContext) {
   const clientId = config.get<string>('clientId', 'eda');
   const clientSecret = config.get<string>('clientSecret', '');
   const skipTlsVerify = config.get<boolean>('skipTlsVerify', false);
-  const disableKubernetes = config.get<boolean>('disableKubernetes', false) || process.env.EDA_DISABLE_K8S === 'true';
+  const disableKubernetes =
+    !edaContext ||
+    config.get<boolean>('disableKubernetes', false) ||
+    process.env.EDA_DISABLE_K8S === 'true';
 
-  if (!disableKubernetes) {
-    // Create a status bar item for showing current Kubernetes context:
-    contextStatusBarItem = vscode.window.createStatusBarItem(
-      vscode.StatusBarAlignment.Left,
-      100
-    );
-    // Clicking the status bar item will trigger our switchContext command:
-    contextStatusBarItem.command = 'vscode-eda.switchContext';
-    contextStatusBarItem.text = '$(kubernetes) EDA: unknown';
-    contextStatusBarItem.tooltip = 'Switch the current Kubernetes context';
-    contextStatusBarItem.show();
-    context.subscriptions.push(contextStatusBarItem);
-  }
+  // Create a status bar item for showing current EDA target
+  contextStatusBarItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Left,
+    100
+  );
+  // Clicking the status bar item will trigger our switchTarget command:
+  contextStatusBarItem.command = 'vscode-eda.switchContext';
+  contextStatusBarItem.tooltip =
+    'Switch the current EDA API URL and Kubernetes context';
+  contextStatusBarItem.show();
+  context.subscriptions.push(contextStatusBarItem);
 //
   try {
     log('Initializing service architecture...', LogLevel.INFO, true);
@@ -218,9 +228,19 @@ export async function activate(context: vscode.ExtensionContext) {
       clientSecret: clientSecret || undefined,
       skipTlsVerify
     });
-    if (k8sClient && contextStatusBarItem) {
-      const currentContext = k8sClient.getCurrentContext();
-      contextStatusBarItem.text = `$(kubernetes) EDA: ${currentContext}`;
+    if (k8sClient && edaContext) {
+      await k8sClient.switchContext(edaContext);
+    }
+    if (contextStatusBarItem) {
+      const host = (() => {
+        try {
+          return new URL(edaUrl).host;
+        } catch {
+          return edaUrl;
+        }
+      })();
+      const ctxText = edaContext ? ` (${edaContext})` : '';
+      contextStatusBarItem.text = `$(server) ${host}${ctxText}`;
     }
 
     // 2) Optionally register them in your ServiceManager
@@ -363,40 +383,50 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.window.showErrorMessage(`Failed to initialize EDA extension: ${error}`);
   }
 
-  if (!disableKubernetes) {
-    const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
+  const switchCmd = vscode.commands.registerCommand('vscode-eda.switchContext', async () => {
+    const targetsMap = config.get<Record<string, string | undefined>>('edaTargets') || {};
+    const entries = Object.entries(targetsMap);
+    if (entries.length === 0) {
+      vscode.window.showInformationMessage('No EDA targets configured.');
+      return;
+    }
+    const items = entries.map(([url, ctx], i) => ({
+      label: url,
+      description: ctx ? `context: ${ctx}` : 'no kubernetes',
+      index: i
+    }));
 
-    context.subscriptions.push(
-      vscode.commands.registerCommand('vscode-eda.switchContext', async () => {
+    const choice = await vscode.window.showQuickPick(items, {
+      placeHolder: 'Select the EDA API URL and optional context'
+    });
+    if (!choice) {
+      return;
+    }
+
+    await context.globalState.update('selectedEdaTarget', choice.index);
+    edaUrl = entries[choice.index][0];
+    edaContext = entries[choice.index][1] || undefined;
+    if (contextStatusBarItem) {
+      const ctx = entries[choice.index][1];
+      const host = (() => {
         try {
-          const contexts = k8sClient.getAvailableContexts();
-          if (!contexts || contexts.length === 0) {
-            vscode.window.showWarningMessage('No Kubernetes contexts found in your kubeconfig.');
-            return;
-          }
-
-          const newContext = await vscode.window.showQuickPick(contexts, {
-            placeHolder: 'Select the new Kubernetes context'
-          });
-          if (!newContext) {
-            return;
-          }
-
-          await k8sClient.switchContext(newContext);
-          if (contextStatusBarItem) {
-            contextStatusBarItem.text = `$(kubernetes) EDA: ${k8sClient.getCurrentContext()}`;
-          }
-
-          const rs = serviceManager.getService<ResourceService>('kubernetes-resources');
-          rs.forceRefresh();
-
-          vscode.window.showInformationMessage(`Switched to Kubernetes context: ${newContext}`);
-        } catch (error) {
-          vscode.window.showErrorMessage(`Error switching context: ${error}`);
+          return new URL(entries[choice.index][0]).host;
+        } catch {
+          return entries[choice.index][0];
         }
-      })
-    );
-  }
+      })();
+      const ctxText = ctx ? ` (${ctx})` : '';
+      contextStatusBarItem.text = `$(server) ${host}${ctxText}`;
+    }
+
+    vscode.window.showInformationMessage('EDA target updated. Reload window to apply.', 'Reload').then(value => {
+      if (value === 'Reload') {
+        void vscode.commands.executeCommand('workbench.action.reloadWindow');
+      }
+    });
+  });
+
+  context.subscriptions.push(switchCmd);
 
 
   // log('EDA extension activated', LogLevel.INFO, true);

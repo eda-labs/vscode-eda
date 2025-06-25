@@ -412,10 +412,13 @@
           ],
           "description": "Controls the level of detail in the EDA output logs"
         },
-        "vscode-eda.edaUrl": {
-          "type": "string",
-          "default": "https://eda-api",
-          "description": "Base URL of the EDA API server"
+        "vscode-eda.edaTargets": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "markdownDescription": "Optional Kubernetes context for this URL. Leave blank to disable Kubernetes."
+          },
+          "markdownDescription": "Map EDA API URLs to optional Kubernetes contexts. Use an empty value to disable Kubernetes for a URL."
         },
         "vscode-eda.edaUsername": {
           "type": "string",
