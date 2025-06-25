@@ -63,16 +63,6 @@
     },
     "commands": [
       {
-        "command": "vscode-eda.patchEngineConfig",
-        "title": "EDA: Patch Engine Config (Enable ETCD Dumps)",
-        "icon": "$(database)"
-      },
-      {
-        "command": "vscode-eda.undoPatchEngineConfig",
-        "title": "EDA: Undo Patch Engine Config",
-        "icon": "$(database-stop)"
-      },
-      {
         "command": "vscode-eda.showTransactionDetails",
         "title": "EDA: Show Transaction Details"
       },
@@ -206,14 +196,6 @@
     "menus": {
       "commandPalette": [
         {
-          "command": "vscode-eda.patchEngineConfig",
-          "when": "true"
-        },
-        {
-          "command": "vscode-eda.undoPatchEngineConfig",
-          "when": "true"
-        },
-        {
           "command": "vscode-eda.updateCredentials",
           "when": "true"
         },
@@ -242,16 +224,6 @@
           "command": "vscode-eda.expandAllNamespaces",
           "when": "view == edaNamespaces",
           "group": "navigation@4"
-        },
-        {
-          "command": "vscode-eda.patchEngineConfig",
-          "when": "view == edaNamespaces",
-          "group": "management@1"
-        },
-        {
-          "command": "vscode-eda.undoPatchEngineConfig",
-          "when": "view == edaNamespaces",
-          "group": "management@2"
         }
       ],
       "view/item/context": [

@@ -28,7 +28,6 @@ import { registerResourceCreateCommand } from './commands/resourceCreateCommand'
 import { registerCredentialCommands } from './commands/credentialCommands';
 // import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand';
 // import { registerResourceViewCommands } from './commands/resourceViewCommands';
-// import { registerEngineConfigCommands } from './commands/engineConfigCommands';
 // import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 
 export interface EdaTargetConfig {
