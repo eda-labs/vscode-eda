@@ -427,6 +427,18 @@
           "default": "admin",
           "description": "Keycloak admin username"
         },
+        "vscode-eda.edaPassword": {
+          "type": "string",
+          "default": "",
+          "format": "password",
+          "description": "Password for the EDA realm. Cleared after being moved to Secret Storage"
+        },
+        "vscode-eda.kcPassword": {
+          "type": "string",
+          "default": "",
+          "format": "password",
+          "description": "Keycloak admin password. Cleared after being moved to Secret Storage"
+        },
         "vscode-eda.clientId": {
           "type": "string",
           "default": "eda",

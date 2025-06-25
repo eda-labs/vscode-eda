@@ -46,8 +46,12 @@
 
 On first activation the extension prompts for your EDA and Keycloak passwords.
 The values are stored in VS Code's Secret Storage so they persist securely
-between sessions. You can update the stored passwords later via the
-`EDA: Update Stored Credentials` command from the Command Palette.
+between sessions. Alternatively, you can set them once in the
+`vscode-eda.edaPassword` and `vscode-eda.kcPassword` settings, which are masked
+in the Settings UI. Any values provided here override previously stored
+passwords. When the extension activates it moves these values to Secret Storage
+and clears them from your `settings.json`. You can update the stored passwords
+later via the `EDA: Update Stored Credentials` command from the Command Palette.
 
 ---
 

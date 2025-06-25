@@ -127,12 +127,22 @@ export async function activate(context: vscode.ExtensionContext) {
   currentLogLevel = config.get<LogLevel>('logLevel', LogLevel.INFO);
 
   log('EDA extension activating...', LogLevel.INFO, true);
-  const edaUrl = config.get<string>("edaUrl", "https://eda-api");
+  const edaUrl = config.get<string>('edaUrl', 'https://eda-api');
   const edaUsername = config.get<string>('edaUsername', 'admin');
   const kcUsername = config.get<string>('kcUsername', 'admin');
+  const edaPasswordCfg = config.get<string>('edaPassword');
+  const kcPasswordCfg = config.get<string>('kcPassword');
   const secrets = context.secrets;
 
-  async function getOrPromptSecret(key: string, prompt: string): Promise<string> {
+  async function getOrPromptSecret(
+    key: string,
+    prompt: string,
+    cfgVal?: string
+  ): Promise<string> {
+    if (cfgVal) {
+      await secrets.store(key, cfgVal);
+      return cfgVal;
+    }
     let val = await secrets.get(key);
     if (!val) {
       val = await vscode.window.showInputBox({ prompt, password: true, ignoreFocusOut: true });
@@ -145,8 +155,35 @@ export async function activate(context: vscode.ExtensionContext) {
     return val;
   }
 
-  const edaPassword = await getOrPromptSecret('edaPassword', 'Enter EDA password');
-  const kcPassword = await getOrPromptSecret('kcPassword', 'Enter Keycloak admin password');
+  const edaPassword = await getOrPromptSecret('edaPassword', 'Enter EDA password', edaPasswordCfg);
+  const kcPassword = await getOrPromptSecret('kcPassword', 'Enter Keycloak admin password', kcPasswordCfg);
+
+  // Remove plaintext passwords from configuration after storing them in secrets
+  if (edaPasswordCfg) {
+    const inspect = config.inspect<string>('edaPassword');
+    if (inspect?.globalValue !== undefined) {
+      await config.update('edaPassword', undefined, vscode.ConfigurationTarget.Global);
+    }
+    if (inspect?.workspaceValue !== undefined) {
+      await config.update('edaPassword', undefined, vscode.ConfigurationTarget.Workspace);
+    }
+    if (inspect?.workspaceFolderValue !== undefined) {
+      await config.update('edaPassword', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
+    }
+  }
+
+  if (kcPasswordCfg) {
+    const inspect = config.inspect<string>('kcPassword');
+    if (inspect?.globalValue !== undefined) {
+      await config.update('kcPassword', undefined, vscode.ConfigurationTarget.Global);
+    }
+    if (inspect?.workspaceValue !== undefined) {
+      await config.update('kcPassword', undefined, vscode.ConfigurationTarget.Workspace);
+    }
+    if (inspect?.workspaceFolderValue !== undefined) {
+      await config.update('kcPassword', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
+    }
+  }
   const clientId = config.get<string>('clientId', 'eda');
   const clientSecret = config.get<string>('clientSecret', '');
   const skipTlsVerify = config.get<boolean>('skipTlsVerify', false);
