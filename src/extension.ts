@@ -236,8 +236,7 @@ export async function activate(context: vscode.ExtensionContext) {
   try {
     log('Initializing service architecture...', LogLevel.INFO, true);
 
-    // 1) Create the clients independently
-
+    // 1) Create the clients
     const k8sClient = disableKubernetes ? undefined : new KubernetesClient();
     const edaClient = new EdaClient(edaUrl, {
       edaUsername,
@@ -248,9 +247,24 @@ export async function activate(context: vscode.ExtensionContext) {
       clientSecret: clientSecret || undefined,
       skipTlsVerify
     });
+
+    // 2) Register clients FIRST - before any providers are created
+    serviceManager.registerClient('eda', edaClient);
+    if (k8sClient) {
+      serviceManager.registerClient('kubernetes', k8sClient);
+    }
+
+    // 3) Switch context if needed
     if (k8sClient && edaContext) {
       await k8sClient.switchContext(edaContext);
     }
+
+    // 4) Verify context
+    if (k8sClient) {
+      await verifyKubernetesContext(edaClient, k8sClient);
+    }
+
+    // 5) Update status bar
     if (contextStatusBarItem) {
       const host = (() => {
         try {
@@ -263,13 +277,7 @@ export async function activate(context: vscode.ExtensionContext) {
       contextStatusBarItem.text = `$(server) ${host}${ctxText}`;
     }
 
-    // 2) Optionally register them in your ServiceManager
-    serviceManager.registerClient('eda', edaClient);
-    if (k8sClient) {
-      serviceManager.registerClient('kubernetes', k8sClient);
-      await verifyKubernetesContext(edaClient, k8sClient);
-    }
-
+    // 6) Register services
     const resourceStatusService = new ResourceStatusService();
     serviceManager.registerService('resource-status', resourceStatusService);
     void resourceStatusService.initialize(context);
@@ -277,7 +285,10 @@ export async function activate(context: vscode.ExtensionContext) {
     if (k8sClient) {
       const resourceService = new ResourceService(k8sClient);
       serviceManager.registerService('kubernetes-resources', resourceService);
+    }
 
+    // 7) Register file system providers
+    if (k8sClient) {
       resourceViewProvider = new ResourceViewDocumentProvider();
       context.subscriptions.push(
         vscode.workspace.registerFileSystemProvider('k8s-view', resourceViewProvider, { isCaseSensitive: true })
@@ -305,35 +316,30 @@ export async function activate(context: vscode.ExtensionContext) {
     serviceManager.registerService('schema-provider', schemaProviderService);
     await schemaProviderService.initialize(context);
 
-  //   const namespaceProvider = new EdaNamespaceProvider();
-  //   const namespaceTreeView = vscode.window.createTreeView('edaNamespaces', {
-  //     treeDataProvider: namespaceProvider,
-  //     showCollapseAll: true
-  //   });
+    // 8) NOW create the tree providers - AFTER all clients and services are registered
+    const namespaceProvider = new EdaNamespaceProvider();
+    const namespaceTreeView = vscode.window.createTreeView('edaNamespaces', {
+      treeDataProvider: namespaceProvider,
+      showCollapseAll: true
+    });
 
-  const namespaceProvider = new EdaNamespaceProvider();
-  const namespaceTreeView = vscode.window.createTreeView('edaNamespaces', {
-    treeDataProvider: namespaceProvider,
-    showCollapseAll: true
-  });
+    const alarmProvider = new EdaAlarmProvider();
+    const alarmTreeView = vscode.window.createTreeView('edaAlarms', {
+      treeDataProvider: alarmProvider,
+      showCollapseAll: true
+    });
 
-  const alarmProvider = new EdaAlarmProvider();
-  const alarmTreeView = vscode.window.createTreeView('edaAlarms', {
-    treeDataProvider: alarmProvider,
-    showCollapseAll: true
-  });
+    edaDeviationProvider = new EdaDeviationProvider();
+    const deviationTreeView = vscode.window.createTreeView('edaDeviations', {
+      treeDataProvider: edaDeviationProvider,
+      showCollapseAll: true
+    });
 
-  edaDeviationProvider = new EdaDeviationProvider();
-  const deviationTreeView = vscode.window.createTreeView('edaDeviations', {
-    treeDataProvider: edaDeviationProvider,
-    showCollapseAll: true
-  });
-
-  edaTransactionProvider = new EdaTransactionProvider();
-  const transactionTreeView = vscode.window.createTreeView('edaTransactions', {
-    treeDataProvider: edaTransactionProvider,
-    showCollapseAll: true
-  });
+    edaTransactionProvider = new EdaTransactionProvider();
+    const transactionTreeView = vscode.window.createTreeView('edaTransactions', {
+      treeDataProvider: edaTransactionProvider,
+      showCollapseAll: true
+    });
 
   context.subscriptions.push(namespaceTreeView);
   context.subscriptions.push(alarmTreeView);
