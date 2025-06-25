@@ -14,7 +14,6 @@ export class SchemaProviderService extends CoreService {
   private disposables: vscode.Disposable[] = [];
   private schemaCache = new Map<string, string>();
   private yamlApi: any | null = null;
-  private context!: vscode.ExtensionContext;
 
   constructor() {
     super();
@@ -25,7 +24,6 @@ export class SchemaProviderService extends CoreService {
   }
 
   public async initialize(context: vscode.ExtensionContext): Promise<void> {
-    this.context = context;
     this.disposables.push(
       vscode.commands.registerCommand('vscode-eda.refreshSchemas', async () => {
         await this.loadSchemas();

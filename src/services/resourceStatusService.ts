@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { CoreService } from './coreService';
-import { KubernetesClient } from '../clients/kubernetesClient';
 import { LogLevel, log } from '../extension';
 
 /**
@@ -16,11 +15,9 @@ export class ResourceStatusService extends CoreService {
 
   // Extension context for resource loading
   private extensionContext?: vscode.ExtensionContext;
-  private k8sClient?: KubernetesClient;
 
-  constructor(k8sClient?: KubernetesClient) {
+  constructor() {
     super();
-    this.k8sClient = k8sClient;
     log('Initializing ResourceStatusService', LogLevel.INFO);
   }
 

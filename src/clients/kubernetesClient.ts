@@ -53,39 +53,7 @@ export class KubernetesClient {
   private servicesCache: Map<string, any[]> = new Map();
   private configmapsCache: Map<string, any[]> = new Map();
   private secretsCache: Map<string, any[]> = new Map();
-  private endpointsCache: Map<string, any[]> = new Map();
-  private replicationcontrollersCache: Map<string, any[]> = new Map();
-  private persistentvolumeclaimsCache: Map<string, any[]> = new Map();
-  private serviceaccountsCache: Map<string, any[]> = new Map();
-  private eventsCache: Map<string, any[]> = new Map();
-  private resourcequotasCache: Map<string, any[]> = new Map();
-  private limitrangesCache: Map<string, any[]> = new Map();
-  private controllerrevisionsCache: Map<string, any[]> = new Map();
-  private replicasetsCache: Map<string, any[]> = new Map();
-  private statefulsetsCache: Map<string, any[]> = new Map();
-  private daemonsetsCache: Map<string, any[]> = new Map();
-  private jobsCache: Map<string, any[]> = new Map();
-  private cronjobsCache: Map<string, any[]> = new Map();
-  private horizontalpodautoscalersCache: Map<string, any[]> = new Map();
-  private ingressesCache: Map<string, any[]> = new Map();
-  private networkpoliciesCache: Map<string, any[]> = new Map();
-  private rolesCache: Map<string, any[]> = new Map();
-  private rolebindingsCache: Map<string, any[]> = new Map();
-  private poddisruptionbudgetsCache: Map<string, any[]> = new Map();
-  private leasesCache: Map<string, any[]> = new Map();
 
-  private nodesCache: any[] = [];
-  private persistentvolumesCache: any[] = [];
-  private clusterrolesCache: any[] = [];
-  private clusterrolebindingsCache: any[] = [];
-  private storageclassesCache: any[] = [];
-  private volumeattachmentsCache: any[] = [];
-  private customresourcedefinitionsCache: any[] = [];
-  private apiservicesCache: any[] = [];
-  private mutatingwebhookconfigurationsCache: any[] = [];
-  private validatingwebhookconfigurationsCache: any[] = [];
-  private certificatesigningrequestsCache: any[] = [];
-  private componentstatusesCache: any[] = [];
 
   // Active resource watchers
   private watchControllers: AbortController[] = [];
@@ -102,8 +70,6 @@ export class KubernetesClient {
     { name: 'services', group: '', version: 'v1', plural: 'services', namespaced: true },
     { name: 'configmaps', group: '', version: 'v1', plural: 'configmaps', namespaced: true },
     { name: 'secrets', group: '', version: 'v1', plural: 'secrets', namespaced: true },
-    { name: 'events', group: '', version: 'v1', plural: 'events', namespaced: true },
-    { name: 'nodes', group: '', version: 'v1', plural: 'nodes', namespaced: false },
 
     // apps/v1
     { name: 'deployments', group: 'apps', version: 'v1', plural: 'deployments', namespaced: true }

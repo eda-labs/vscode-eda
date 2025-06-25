@@ -43,15 +43,13 @@ export class EdaClient {
   }
 
   // Stream event forwarding
-  // eslint-disable-next-line no-unused-vars
   public onStreamMessage(cb: (stream: string, msg: any) => void): void {
     this.streamClient.onStreamMessage((event: StreamMessage) => {
       cb(event.stream, event.message);
     });
   }
 
-  // eslint-disable-next-line no-unused-vars
-  public offStreamMessage(cb: (stream: string, msg: any) => void): void {
+  public offStreamMessage(): void {
     // Note: This requires updating EdaStreamClient to support removing listeners
     log('offStreamMessage not yet implemented in new architecture', LogLevel.WARN);
   }

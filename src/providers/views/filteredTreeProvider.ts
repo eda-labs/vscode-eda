@@ -21,8 +21,6 @@ export abstract class FilteredTreeProvider<T extends TreeItemBase> implements vs
     this.refresh();
   }
 
-  // eslint-disable-next-line no-unused-vars
   abstract getTreeItem(element: T): vscode.TreeItem | Promise<vscode.TreeItem>;
-  // eslint-disable-next-line no-unused-vars
   abstract getChildren(element?: T): vscode.ProviderResult<T[]>;
 }

@@ -298,7 +298,7 @@ export function registerResourceEditCommands(
             // Confirm and apply
             const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
             if (confirmed) {
-              const result = await applyResource(documentUri, edaClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
+                const result = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
               if (result) {
                 // Update both providers with the applied resource
                 resourceEditProvider.setOriginalResource(documentUri, resource);
@@ -356,7 +356,7 @@ export function registerResourceEditCommands(
             // Direct apply after diff
             const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
             if (confirmed) {
-              const result = await applyResource(documentUri, edaClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
+            const result = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
               if (result) {
                 // Update both providers
                 resourceEditProvider.setOriginalResource(documentUri, resource);
@@ -396,7 +396,7 @@ export function registerResourceEditCommands(
           // Confirm and apply
           const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
           if (confirmed) {
-            const result = await applyResource(documentUri, edaClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
+            const result = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
             if (result) {
               // Update both providers
               resourceEditProvider.setOriginalResource(documentUri, resource);
@@ -575,7 +575,7 @@ async function validateAndPromptForApply(
   }
 
   // Perform validation (dry run)
-  const validationResult = await applyResource(documentUri, edaClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: true });
+  const validationResult = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: true });
 
   if (validationResult) {
     // Show success message for validation
@@ -586,7 +586,7 @@ async function validateAndPromptForApply(
 
     if (validationAction === 'Apply Changes') {
       // Now apply the changes
-      const applyResult = await applyResource(documentUri, edaClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
+      const applyResult = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
       if (applyResult) {
         resourceEditProvider.setOriginalResource(documentUri, resource);
 
@@ -770,7 +770,6 @@ async function applyResource(
   documentUri: vscode.Uri,
   edaClient: EdaClient,
   resourceEditProvider: ResourceEditDocumentProvider,
-  resourceViewProvider: ResourceViewDocumentProvider,
   resource: any,
   options: { dryRun?: boolean }
 ): Promise<boolean> {
