@@ -10,6 +10,7 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
   private edaClient: EdaClient;
   private statusService: ResourceStatusService;
   private cachedTransactions: any[] = [];
+  private transactionLimit = 50;
 
   /**
    * Merge new transaction updates into the cached list while
@@ -36,19 +37,33 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
       }
       return String(b.id).localeCompare(String(a.id));
     });
-    this.cachedTransactions = merged.slice(0, 50);
+    this.cachedTransactions = merged.slice(0, this.transactionLimit);
   }
 
   constructor() {
     super();
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
-    void this.edaClient.streamEdaTransactions(50);
+    void this.edaClient.streamEdaTransactions(this.transactionLimit);
     this.edaClient.onStreamMessage((stream, msg) => {
       if (stream === 'summary') {
         this.processTransactionMessage(msg);
       }
     });
+  }
+
+  public getTransactionLimit(): number {
+    return this.transactionLimit;
+  }
+
+  public async setTransactionLimit(limit: number): Promise<void> {
+    if (limit <= 0) {
+      return;
+    }
+    this.transactionLimit = limit;
+    this.cachedTransactions = this.cachedTransactions.slice(0, limit);
+    await this.edaClient.streamEdaTransactions(limit);
+    this.refresh();
   }
 
   public dispose(): void {

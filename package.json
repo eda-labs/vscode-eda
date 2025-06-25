@@ -178,6 +178,11 @@
         "icon": "$(debug-step-back)"
       },
       {
+        "command": "vscode-eda.setTransactionLimit",
+        "title": "EDA: Set Transaction Limit",
+        "icon": "$(gear)"
+      },
+      {
         "command": "vscode-eda.viewStreamItem",
         "title": "EDA: View Stream Item",
         "icon": "$(file)"
@@ -224,6 +229,11 @@
           "command": "vscode-eda.expandAllNamespaces",
           "when": "view == edaNamespaces",
           "group": "navigation@4"
+        },
+        {
+          "command": "vscode-eda.setTransactionLimit",
+          "when": "view == edaTransactions",
+          "group": "navigation@5"
         }
       ],
       "view/item/context": [

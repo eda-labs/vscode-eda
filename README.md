@@ -19,7 +19,10 @@
    - View or reject deviations
 
 3. **Transactions**
-   - Browse the last 50 transactions streamed from EDA.
+   - Browse the most recent transactions streamed from EDA (50 by default).
+     Use the **Set Transaction Limit** action in the Transactions view to adjust
+     how many are loaded. The extension will restart the stream and reload the
+     initial transaction list when you change the limit.
    - View detailed information for a transaction directly from the EDA API.
 
 4. **Pod Actions**

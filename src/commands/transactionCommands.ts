@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { serviceManager } from '../services/serviceManager';
 import { EdaClient } from '../clients/edaClient';
-import { edaOutputChannel, log, LogLevel } from '../extension';
+import { edaOutputChannel, log, LogLevel, edaTransactionProvider } from '../extension';
 
 function extractTransactionId(treeItem: any): string | undefined {
   if (treeItem?.resource?.raw?.id) {
@@ -73,5 +73,22 @@ export function registerTransactionCommands(context: vscode.ExtensionContext): v
     }
   });
 
-  context.subscriptions.push(revertCmd, restoreCmd);
+  const setLimitCmd = vscode.commands.registerCommand('vscode-eda.setTransactionLimit', async () => {
+    const current = edaTransactionProvider.getTransactionLimit();
+    const input = await vscode.window.showInputBox({
+      prompt: 'Number of transactions to display',
+      placeHolder: current.toString(),
+      validateInput: (value) => {
+        const n = parseInt(value, 10);
+        return n > 0 ? null : 'Enter a positive number';
+      }
+    });
+    if (input) {
+      const n = parseInt(input, 10);
+      await edaTransactionProvider.setTransactionLimit(n);
+      vscode.window.showInformationMessage(`Streaming last ${n} transactions.`);
+    }
+  });
+
+  context.subscriptions.push(revertCmd, restoreCmd, setLimitCmd);
 }

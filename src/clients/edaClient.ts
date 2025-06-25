@@ -78,8 +78,14 @@ export class EdaClient {
   public async streamEdaTransactions(size = 50): Promise<void> {
     await this.initPromise;
     this.streamClient.setTransactionSummarySize(size);
-    this.streamClient.subscribeToStream('summary');
-    await this.streamClient.connect();
+    if (!this.streamClient.isSubscribed('summary')) {
+      this.streamClient.subscribeToStream('summary');
+    }
+    if (!this.streamClient.isConnected()) {
+      await this.streamClient.connect();
+    } else {
+      await this.streamClient.restartTransactionSummaryStream();
+    }
   }
 
   public closeAlarmStream(): void {

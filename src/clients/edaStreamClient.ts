@@ -1,3 +1,4 @@
+/* global AbortController */
 import WebSocket from 'ws';
 import { fetch } from 'undici';
 import { TextDecoder } from 'util';
@@ -25,6 +26,8 @@ export class EdaStreamClient {
   private activeStreams: Set<string> = new Set();
   private messageIntervalMs = 500;
   private transactionSummarySize = 50;
+  private summaryAbortController: AbortController | undefined;
+  private summaryStreamPromise: Promise<void> | undefined;
 
   private _onStreamMessage = new vscode.EventEmitter<StreamMessage>();
   public readonly onStreamMessage = this._onStreamMessage.event;
@@ -47,6 +50,17 @@ export class EdaStreamClient {
   constructor(messageIntervalMs = 500) {
     this.messageIntervalMs = messageIntervalMs;
     log('EdaStreamClient initialized', LogLevel.DEBUG);
+  }
+
+  public isConnected(): boolean {
+    return (
+      this.eventSocket !== undefined &&
+      this.eventSocket.readyState === WebSocket.OPEN
+    );
+  }
+
+  public isSubscribed(streamName: string): boolean {
+    return this.activeStreams.has(streamName);
   }
 
   /**
@@ -183,6 +197,11 @@ export class EdaStreamClient {
    */
   public unsubscribeFromStream(streamName: string): void {
     this.activeStreams.delete(streamName);
+    if (streamName === 'summary' && this.summaryAbortController) {
+      this.summaryAbortController.abort();
+      // do not clear summaryStreamPromise so a restart can wait for closure
+      this.summaryAbortController = undefined;
+    }
     log(`Unsubscribed from stream: ${streamName}`, LogLevel.DEBUG);
   }
 
@@ -194,9 +213,28 @@ export class EdaStreamClient {
   }
 
   /**
+   * Restart the transaction summary stream with the current size
+   */
+  public async restartTransactionSummaryStream(): Promise<void> {
+    if (this.summaryAbortController) {
+      this.summaryAbortController.abort();
+    }
+    if (this.summaryStreamPromise) {
+      try {
+        await this.summaryStreamPromise;
+      } catch {
+        // ignore errors from aborted stream
+      }
+    }
+    this.summaryAbortController = undefined;
+    this.summaryStreamPromise = undefined;
+    await this.reconnect(false);
+  }
+
+  /**
    * Disconnect the WebSocket
    */
-  public disconnect(): void {
+  public disconnect(clearStreams = true): void {
     if (this.keepAliveTimer) {
       clearInterval(this.keepAliveTimer);
       this.keepAliveTimer = undefined;
@@ -205,14 +243,30 @@ export class EdaStreamClient {
       this.eventSocket.close();
       this.eventSocket = undefined;
     }
+    if (this.summaryAbortController) {
+      this.summaryAbortController.abort();
+    }
+    if (this.summaryStreamPromise) {
+      // wait briefly for the stream to close
+      void this.summaryStreamPromise.catch(() => {});
+      this.summaryStreamPromise = undefined;
+    }
+    this.summaryAbortController = undefined;
     this.eventClient = undefined;
-    this.activeStreams.clear();
+    if (clearStreams) {
+      this.activeStreams.clear();
+    }
+  }
+
+  public async reconnect(clearStreams = false): Promise<void> {
+    this.disconnect(clearStreams);
+    await this.connect();
   }
 
   /**
    * Open a server-sent events connection
    */
-  private async streamSse(url: string): Promise<void> {
+  private async streamSse(url: string, controller?: AbortController): Promise<void> {
     if (!this.authClient) {
       throw new Error('Auth client not set');
     }
@@ -227,7 +281,8 @@ export class EdaStreamClient {
           Accept: 'text/event-stream',
         },
         dispatcher: this.authClient.getAgent(),
-      });
+        signal: controller?.signal,
+      } as any);
     } catch (err) {
       log(`[STREAM] request failed ${err}`, LogLevel.ERROR);
       return;
@@ -286,7 +341,7 @@ export class EdaStreamClient {
     await this.streamSse(url);
   }
 
-  private async startTransactionSummaryStream(client: string): Promise<void> {
+  private startTransactionSummaryStream(client: string): void {
     if (!this.authClient) return;
 
     const ep = this.streamEndpoints.find(e => e.stream === 'summary');
@@ -296,8 +351,10 @@ export class EdaStreamClient {
       `?size=${this.transactionSummarySize}` +
       `&eventclient=${encodeURIComponent(client)}` +
       `&stream=summary`;
-
-    await this.streamSse(url);
+    this.summaryAbortController = new AbortController();
+    this.summaryStreamPromise = this.streamSse(url, this.summaryAbortController).finally(() => {
+      this.summaryStreamPromise = undefined;
+    });
   }
 
   private handleEventMessage(data: string): void {
