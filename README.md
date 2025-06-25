@@ -45,14 +45,7 @@
 ### Authentication
 
 On first activation the extension prompts for your EDA and Keycloak passwords.
-The values are stored in VS Code's Secret Storage so they persist securely
-between sessions. Alternatively, you can set them once in the
-`vscode-eda.edaPassword` and `vscode-eda.kcPassword` settings, which are masked
-in the Settings UI. Any values provided here override previously stored
-passwords. When the extension activates it moves these values to Secret Storage
-and clears them from your `settings.json`. You can update the stored passwords
-later via the `EDA: Update Stored Credentials` command from the Command Palette.
-
+The values are stored in VS Code's Secret Storage and are keyed by the target's host. Use the **EDA: Update Target Credentials** command to change passwords for a specific target.
 ---
 
 ## Usage
@@ -88,6 +81,23 @@ In VS Code settings (`File → Preferences → Settings`), navigate to `Extensio
   When enabled, the extension skips TLS certificate validation when connecting to the EDA API. This is helpful in development environments with self-signed certificates. The same behavior can be toggled via the `EDA_SKIP_TLS_VERIFY=true` environment variable.
 - **`vscode-eda.disableKubernetes`**
   When enabled, all Kubernetes-related features are disabled and the extension communicates exclusively with the EDA API. You can also set `EDA_DISABLE_K8S=true` as an environment variable.
+- **`vscode-eda.edaTargets`**
+  Map EDA API URLs to optional Kubernetes contexts and credentials. Each value may be a simple context string or an object:
+
+  ```jsonc
+  {
+    "https://eda-example.com/": {
+      "context": "kubernetes-admin@kubernetes",
+      "edaUsername": "admin",          // your EDA-realm username for this URL
+      "kcUsername": "admin"            // your Keycloak (KC) admin username
+    },
+    "https://10.10.10.1:9443": {
+      "context": "kind-eda-demo",
+      "edaUsername": "admin",        // whatever user you’ve set up in EDA
+      "kcUsername": "admin"          // your Keycloak admin user
+    }
+  }
+  ```
 
 ---
 

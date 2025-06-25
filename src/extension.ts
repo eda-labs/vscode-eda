@@ -31,6 +31,12 @@ import { registerCredentialCommands } from './commands/credentialCommands';
 // import { registerEngineConfigCommands } from './commands/engineConfigCommands';
 // import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 
+export interface EdaTargetConfig {
+  context?: string;
+  edaUsername?: string;
+  kcUsername?: string;
+}
+
 
 
 /* eslint-disable no-unused-vars */
@@ -129,16 +135,26 @@ export async function activate(context: vscode.ExtensionContext) {
   log('EDA extension activating...', LogLevel.INFO, true);
   let edaUrl = 'https://eda-api';
   let edaContext: string | undefined;
-  const edaTargetsCfg = config.get<Record<string, string | undefined>>('edaTargets');
+  let edaUsername = config.get<string>('edaUsername', 'admin');
+  let kcUsername = config.get<string>('kcUsername', 'admin');
+  const edaTargetsCfg = config.get<Record<string, string | EdaTargetConfig | undefined>>('edaTargets');
   const targetEntries = edaTargetsCfg ? Object.entries(edaTargetsCfg) : [];
   if (targetEntries.length > 0) {
     const idx = context.globalState.get<number>('selectedEdaTarget', 0) ?? 0;
-    const sel = targetEntries[Math.min(idx, targetEntries.length - 1)];
-    edaUrl = sel[0];
-    edaContext = sel[1] || undefined;
+    const [url, val] = targetEntries[Math.min(idx, targetEntries.length - 1)];
+    edaUrl = url;
+    if (typeof val === 'string' || val === null) {
+      edaContext = val || undefined;
+    } else if (val) {
+      edaContext = val.context || undefined;
+      if (val.edaUsername) {
+        edaUsername = val.edaUsername;
+      }
+      if (val.kcUsername) {
+        kcUsername = val.kcUsername;
+      }
+    }
   }
-  const edaUsername = config.get<string>('edaUsername', 'admin');
-  const kcUsername = config.get<string>('kcUsername', 'admin');
   const edaPasswordCfg = config.get<string>('edaPassword');
   const kcPasswordCfg = config.get<string>('kcPassword');
   const secrets = context.secrets;
@@ -164,8 +180,16 @@ export async function activate(context: vscode.ExtensionContext) {
     return val;
   }
 
-  const edaPassword = await getOrPromptSecret('edaPassword', 'Enter EDA password', edaPasswordCfg);
-  const kcPassword = await getOrPromptSecret('kcPassword', 'Enter Keycloak admin password', kcPasswordCfg);
+  const hostKey = (() => {
+    try {
+      return new URL(edaUrl).host;
+    } catch {
+      return edaUrl;
+    }
+  })();
+
+  const edaPassword = await getOrPromptSecret(`edaPassword:${hostKey}`, 'Enter EDA password', edaPasswordCfg);
+  const kcPassword = await getOrPromptSecret(`kcPassword:${hostKey}`, 'Enter Keycloak admin password', kcPasswordCfg);
 
   // Remove plaintext passwords from configuration after storing them in secrets
   if (edaPasswordCfg) {
@@ -384,17 +408,20 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   const switchCmd = vscode.commands.registerCommand('vscode-eda.switchContext', async () => {
-    const targetsMap = config.get<Record<string, string | undefined>>('edaTargets') || {};
+    const targetsMap = config.get<Record<string, string | EdaTargetConfig | undefined>>('edaTargets') || {};
     const entries = Object.entries(targetsMap);
     if (entries.length === 0) {
       vscode.window.showInformationMessage('No EDA targets configured.');
       return;
     }
-    const items = entries.map(([url, ctx], i) => ({
-      label: url,
-      description: ctx ? `context: ${ctx}` : 'no kubernetes',
-      index: i
-    }));
+    const items = entries.map(([url, val], i) => {
+      const ctx = typeof val === 'string' || val === null ? val : val?.context;
+      return {
+        label: url,
+        description: ctx ? `context: ${ctx}` : 'no kubernetes',
+        index: i
+      };
+    });
 
     const choice = await vscode.window.showQuickPick(items, {
       placeHolder: 'Select the EDA API URL and optional context'
@@ -405,9 +432,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
     await context.globalState.update('selectedEdaTarget', choice.index);
     edaUrl = entries[choice.index][0];
-    edaContext = entries[choice.index][1] || undefined;
+    const val = entries[choice.index][1];
+    edaContext = typeof val === 'string' || val === null ? val || undefined : val?.context || undefined;
     if (contextStatusBarItem) {
-      const ctx = entries[choice.index][1];
+      const ctxVal = entries[choice.index][1];
+      const ctx = typeof ctxVal === 'string' || ctxVal === null ? ctxVal : ctxVal?.context;
       const host = (() => {
         try {
           return new URL(entries[choice.index][0]).host;

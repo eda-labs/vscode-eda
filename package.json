@@ -196,6 +196,11 @@
         "command": "vscode-eda.updateCredentials",
         "title": "EDA: Update Stored Credentials",
         "icon": "$(key)"
+      },
+      {
+        "command": "vscode-eda.updateTargetCredentials",
+        "title": "EDA: Update Target Credentials",
+        "icon": "$(key)"
       }
     ],
     "menus": {
@@ -210,6 +215,10 @@
         },
         {
           "command": "vscode-eda.updateCredentials",
+          "when": "true"
+        },
+        {
+          "command": "vscode-eda.updateTargetCredentials",
           "when": "true"
         }
       ],
@@ -414,43 +423,38 @@
         },
         "vscode-eda.edaTargets": {
           "type": "object",
+          "markdownDescription": "Map EDA API URLs to optional Kubernetes contexts and credentials. Example:\n```jsonc\n{\n  \"https://eda-example.com/\": {\n    \"context\": \"kubernetes-admin@kubernetes\",\n    \"edaUsername\": \"admin\",          // your EDA-realm username\n    \"kcUsername\": \"admin\"            // your KC admin username\n  }\n}\n```",
           "additionalProperties": {
-            "type": "string",
-            "markdownDescription": "Optional Kubernetes context for this URL. Leave blank to disable Kubernetes."
-          },
-          "markdownDescription": "Map EDA API URLs to optional Kubernetes contexts. Use an empty value to disable Kubernetes for a URL."
-        },
-        "vscode-eda.edaUsername": {
-          "type": "string",
-          "default": "admin",
-          "description": "Username for the EDA realm"
-        },
-        "vscode-eda.kcUsername": {
-          "type": "string",
-          "default": "admin",
-          "description": "Keycloak admin username"
-        },
-        "vscode-eda.edaPassword": {
-          "type": "string",
-          "default": "",
-          "format": "password",
-          "description": "Password for the EDA realm. Cleared after being moved to Secret Storage"
-        },
-        "vscode-eda.kcPassword": {
-          "type": "string",
-          "default": "",
-          "format": "password",
-          "description": "Keycloak admin password. Cleared after being moved to Secret Storage"
+            "oneOf": [
+              {
+                "type": "string",
+                "markdownDescription": "Optional Kubernetes context for this URL. Leave blank to disable Kubernetes."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "context": {
+                    "type": "string",
+                    "markdownDescription": "Optional Kubernetes context for this URL. Leave blank to disable Kubernetes."
+                  },
+                  "edaUsername": {
+                    "type": "string",
+                    "description": "Username for the EDA realm for this target"
+                  },
+                  "kcUsername": {
+                    "type": "string",
+                    "description": "Keycloak admin username for this target"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
         },
         "vscode-eda.clientId": {
           "type": "string",
           "default": "eda",
           "description": "Keycloak client ID for EDA"
-        },
-        "vscode-eda.clientSecret": {
-          "type": "string",
-          "default": "",
-          "description": "Client secret for the EDA client (optional)"
         },
         "vscode-eda.skipTlsVerify": {
           "type": "boolean",
