@@ -28,6 +28,7 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
   private cachedStreamGroups: Record<string, string[]> = {};
   private streamData: Map<string, Map<string, any>> = new Map();
   private k8sStreams: string[] = [];
+  private disposables: vscode.Disposable[] = [];
 
   constructor() {
     super();
@@ -88,23 +89,31 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
 
     if (this.resourceService) {
       log('Setting up resource service listener', LogLevel.DEBUG);
-      this.resourceService.onDidChangeResources(async summary => {
-        const msg = summary ? `Resource change detected (${summary}), refreshing tree view` :
-          'Resource change detected, refreshing tree view';
+      const disp = this.resourceService.onDidChangeResources(async summary => {
+        const msg = summary
+          ? `Resource change detected (${summary}), refreshing tree view`
+          : 'Resource change detected, refreshing tree view';
         log(msg, LogLevel.DEBUG);
         this.refresh();
       });
+      this.disposables.push(disp);
     } else {
       log('No resource service available', LogLevel.DEBUG);
     }
 
     if (this.k8sClient) {
       log('Setting up Kubernetes client listener', LogLevel.DEBUG);
-      const disposable = this.k8sClient.onResourceChanged(() => {
+      const disp1 = this.k8sClient.onResourceChanged(() => {
         log('Kubernetes resource changed EVENT FIRED, refreshing namespaces view', LogLevel.DEBUG);
         this.refresh();
       });
-      log(`K8s listener registered, disposable: ${disposable ? 'YES' : 'NO'}`, LogLevel.DEBUG);
+      this.disposables.push(disp1);
+      const disp2 = this.k8sClient.onNamespacesChanged(() => {
+        log('Kubernetes namespaces changed, refreshing namespaces view', LogLevel.DEBUG);
+        this.refresh();
+      });
+      this.disposables.push(disp2);
+      log(`K8s listeners registered: ${this.disposables.length}`, LogLevel.DEBUG);
     } else {
       log('No Kubernetes client available for event listener', LogLevel.WARN);
     }
@@ -620,6 +629,17 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
     }
 
     return items;
+  }
+
+  public dispose(): void {
+    for (const d of this.disposables) {
+      try {
+        d.dispose();
+      } catch {
+        // ignore
+      }
+    }
+    this.disposables = [];
   }
 }
 

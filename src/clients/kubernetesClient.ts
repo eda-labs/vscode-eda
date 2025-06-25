@@ -1,4 +1,3 @@
-/* global NodeJS */
 import { fetch, Agent } from 'undici';
 /* global AbortController, TextDecoder */
 import * as fs from 'fs';
@@ -94,8 +93,6 @@ export class KubernetesClient {
   // Poll interval in milliseconds
   private pollInterval: number = 5000;
 
-  // Polling timers
-  private timers: NodeJS.Timeout[] = [];
   private activeWatchers: Map<string, AbortController> = new Map();
   private lastChangeLogTime: Map<string, number> = new Map();
 
@@ -220,29 +217,6 @@ export class KubernetesClient {
     }
   }
 
-  private startGlobalPoller(fn: () => Promise<void>): void {
-    let errorCount = 0;
-    let t: NodeJS.Timeout;
-
-    const run = async () => {
-      try {
-        await fn();
-        errorCount = 0;
-      } catch (err) {
-        errorCount += 1;
-        log(`${err}`, LogLevel.ERROR);
-        if (errorCount >= 5) {
-          clearInterval(t);
-          log('Stopping global poller due to repeated errors', LogLevel.ERROR);
-        }
-      }
-    };
-
-    // Immediately run then poll
-    run();
-    t = setInterval(run, this.pollInterval);
-    this.timers.push(t);
-  }
 
   private updateNamespaceWatchers(namespaces: string[]): void {
     const old = this.namespaceCache;
@@ -285,27 +259,6 @@ export class KubernetesClient {
       log('_onResourceChanged.fire() completed', LogLevel.DEBUG);
     }
   }
-
-  private async preloadNamespaceResources(): Promise<void> {
-    const namespaces = this.namespaceCache;
-
-    for (const ns of namespaces) {
-      try {
-        const [pods, deployments, services] = await Promise.all([
-          this.fetchJSON(`/api/v1/namespaces/${ns}/pods`).then(d => d.items || []),
-          this.fetchJSON(`/apis/apps/v1/namespaces/${ns}/deployments`).then(d => d.items || []),
-          this.fetchJSON(`/api/v1/namespaces/${ns}/services`).then(d => d.items || [])
-        ]);
-        this.podsCache.set(ns, pods);
-        this.deploymentsCache.set(ns, deployments);
-        this.servicesCache.set(ns, services);
-      } catch (err) {
-        log(`Failed to preload resources in namespace ${ns}: ${err}`, LogLevel.WARN);
-      }
-    }
-  }
-
-
 
 
   private watchApiResource(def: { name: string; group: string; version: string; plural: string; namespaced: boolean }, namespace?: string): void {
@@ -514,7 +467,6 @@ export class KubernetesClient {
   }
 
   public dispose(): void {
-    this.timers.forEach(t => clearInterval(t));
     for (const c of this.watchControllers) {
       c.abort();
     }

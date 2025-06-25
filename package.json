@@ -466,7 +466,7 @@
     "compile": "npm run check-types && node ./esbuild.config.mjs",
     "watch": "webpack --mode development --watch --info-verbosity verbose",
     "check-types": "tsc --noEmit",
-    "lint": "eslint --ext .ts,.tsx .",
+    "lint": "npm run check-types && eslint --ext .ts,.tsx .",
     "lint:fix": "npm run lint -- --fix",
     "test": "mocha -r ts-node/register -r ./test/setup.ts test/**/*.test.ts",
     "stream:namespaces": "ts-node namespace-stream.ts",
