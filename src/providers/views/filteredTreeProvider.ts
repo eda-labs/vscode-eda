@@ -6,16 +6,9 @@ export abstract class FilteredTreeProvider<T extends TreeItemBase> implements vs
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
   protected treeFilter = '';
-  protected _refreshDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 
-  refresh(delay = 100): void {
-    if (this._refreshDebounceTimer) {
-      clearTimeout(this._refreshDebounceTimer);
-    }
-    this._refreshDebounceTimer = setTimeout(() => {
-      this._onDidChangeTreeData.fire(undefined);
-      this._refreshDebounceTimer = undefined;
-    }, delay);
+  refresh(): void {
+    this._onDidChangeTreeData.fire(undefined);
   }
 
   setTreeFilter(filter: string): void {

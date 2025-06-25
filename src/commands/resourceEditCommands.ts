@@ -22,9 +22,6 @@ function getResourceKey(namespace: string, kind: string, name: string): string {
   return `${namespace}/${kind}/${name}`;
 }
 
-// Store last command execution timestamp to prevent rapid multiple executions
-let lastCommandTime = 0;
-const COMMAND_DEBOUNCE_MS = 300; // Prevent multiple executions within 300ms
 
 // Define interface for our custom quick pick items
 interface ActionQuickPickItem extends vscode.QuickPickItem {
@@ -245,13 +242,6 @@ export function registerResourceEditCommands(
       bypassChangesCheck?: boolean;
     } = {}) => {
       try {
-        // Debounce protection for multiple rapid calls
-        const now = Date.now();
-        if (now - lastCommandTime < COMMAND_DEBOUNCE_MS) {
-          log(`Command execution debounced (${now - lastCommandTime}ms since last call)`, LogLevel.DEBUG);
-          return;
-        }
-        lastCommandTime = now;
 
         // Get the document by URI
         const document = await vscode.workspace.openTextDocument(documentUri);

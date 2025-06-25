@@ -85,7 +85,8 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
     }
     if (this.k8sClient) {
       this.k8sClient.onResourceChanged(() => {
-        this.refresh();
+        log('Kubernetes resource changed, refreshing namespaces view', LogLevel.DEBUG);
+        setTimeout(() => this.refresh(), 0);
       });
     }
   }
@@ -104,10 +105,10 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
   }
 
   /**
-   * Trigger a debounced refresh
+   * Refresh the tree view immediately
    */
   public refresh(): void {
-    super.refresh(120);
+    super.refresh();
   }
 
   /**

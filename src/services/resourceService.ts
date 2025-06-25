@@ -28,10 +28,8 @@ export class ResourceService extends CoreService {
 
   // In-memory cached results to avoid fetching on tree builds
   private cachedResourceResults: ResourceResult[] = [];
-  private lastRefreshTime: number = 0;
   private resourcesInitialized: boolean = false;
 
-  private pendingRefreshTimeout: ReturnType<typeof setTimeout> | null = null;
   private isRefreshing: boolean = false;
 
   constructor(k8sClient: KubernetesClient) {
@@ -67,25 +65,7 @@ export class ResourceService extends CoreService {
    * Refresh cached resources (called by watchers when resources change)
    */
   private async refreshCachedResources(): Promise<void> {
-    const now = Date.now();
-
-    // If already refreshing, don't start another refresh
     if (this.isRefreshing) {
-      return;
-    }
-
-    // Rate limiting to prevent too frequent refreshes
-    if (now - this.lastRefreshTime < 500) {
-      // Cancel any existing pending refresh
-      if (this.pendingRefreshTimeout) {
-        clearTimeout(this.pendingRefreshTimeout);
-      }
-
-      // Schedule a single refresh for later
-      this.pendingRefreshTimeout = setTimeout(() => {
-        this.pendingRefreshTimeout = null;
-        this.refreshCachedResources();
-      }, 500);
       return;
     }
 
@@ -98,7 +78,6 @@ export class ResourceService extends CoreService {
 
       // Reset resource results
       this.cachedResourceResults = [];
-      this.lastRefreshTime = now;
       this._onDidChangeResources.fire(undefined);
     } catch (error) {
       log(`Error refreshing cached resources: ${error}`, LogLevel.ERROR);

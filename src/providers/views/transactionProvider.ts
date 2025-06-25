@@ -68,11 +68,6 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
 
   public dispose(): void {
     this.edaClient.closeTransactionStream();
-
-    if (this._refreshDebounceTimer) {
-      clearTimeout(this._refreshDebounceTimer);
-      this._refreshDebounceTimer = undefined;
-    }
   }
 
 

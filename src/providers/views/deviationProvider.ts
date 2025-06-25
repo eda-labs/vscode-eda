@@ -44,10 +44,6 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
 
   public dispose(): void {
     this.edaClient.closeDeviationStream();
-    if (this._refreshDebounceTimer) {
-      clearTimeout(this._refreshDebounceTimer);
-      this._refreshDebounceTimer = undefined;
-    }
   }
 
 
