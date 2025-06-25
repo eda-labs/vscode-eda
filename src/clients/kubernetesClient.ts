@@ -133,13 +133,13 @@ export class KubernetesClient {
   }
 
 
-  private loadKubeConfig(): void {
+  private loadKubeConfig(contextName?: string): void {
     try {
       const configPath = process.env.KUBECONFIG || path.join(os.homedir(), '.kube', 'config');
       const content = fs.readFileSync(configPath, 'utf8');
       const kc = yaml.load(content) as KubeConfigFile;
-      this.currentContext = kc['current-context'] || '';
       this.contexts = (kc.contexts || []).map(c => c.name);
+      this.currentContext = contextName || this.currentContext || kc['current-context'] || '';
       const ctx = (kc.contexts || []).find(c => c.name === this.currentContext)?.context;
       const clusterName = ctx?.cluster;
       const userName = ctx?.user;
@@ -197,7 +197,7 @@ export class KubernetesClient {
         }
       }
       this.currentContext = contextName;
-      this.loadKubeConfig();
+      this.loadKubeConfig(contextName);
       await this.startWatchers(prevNamespaces);
     }
   }
