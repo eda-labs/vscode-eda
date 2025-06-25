@@ -205,6 +205,22 @@ export class EdaApiClient {
   }
 
   /**
+   * Delete a custom resource
+   */
+  public async deleteCustomResource(
+    group: string,
+    version: string,
+    namespace: string | undefined,
+    plural: string,
+    name: string,
+    namespaced = true
+  ): Promise<any> {
+    const nsPart = namespaced ? `/namespaces/${namespace}` : '';
+    const path = `/apps/${group}/${version}${nsPart}/${plural}/${name}`;
+    return this.requestJSON('DELETE', path);
+  }
+
+  /**
    * Validate custom resources
    */
   public async validateCustomResources(resources: any[]): Promise<void> {

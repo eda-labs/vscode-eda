@@ -273,7 +273,7 @@
           "group": "inline"
         },
         {
-          "command": "vscode-eda.viewStreamItem",
+          "command": "vscode-eda.deleteResource",
           "when": "viewItem == stream-item",
           "group": "inline"
         },
@@ -289,6 +289,11 @@
         },
         {
           "command": "vscode-eda.viewStreamItem",
+          "when": "viewItem == stream-item",
+          "group": "navigation"
+        },
+        {
+          "command": "vscode-eda.deleteResource",
           "when": "viewItem == stream-item",
           "group": "navigation"
         },

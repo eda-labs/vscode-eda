@@ -140,6 +140,17 @@ export class EdaClient {
     return this.apiClient.updateCustomResource(group, version, namespace, plural, name, body, namespaced, dryRun);
   }
 
+  public async deleteCustomResource(
+    group: string,
+    version: string,
+    namespace: string | undefined,
+    plural: string,
+    name: string,
+    namespaced = true
+  ): Promise<any> {
+    return this.apiClient.deleteCustomResource(group, version, namespace, plural, name, namespaced);
+  }
+
   public async validateCustomResources(resources: any[]): Promise<void> {
     return this.apiClient.validateCustomResources(resources);
   }

@@ -26,7 +26,7 @@ import { registerViewCommands } from './commands/viewCommands';
 import { registerResourceEditCommands } from './commands/resourceEditCommands';
 import { registerResourceCreateCommand } from './commands/resourceCreateCommand';
 import { registerCredentialCommands } from './commands/credentialCommands';
-// import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand';
+import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand';
 // import { registerResourceViewCommands } from './commands/resourceViewCommands';
 // import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 
@@ -301,6 +301,8 @@ export async function activate(context: vscode.ExtensionContext) {
       registerPodCommands(context, podDescribeProvider);
       registerDeploymentCommands(context);
     }
+
+    registerResourceDeleteCommand(context);
 
     const schemaProviderService = new SchemaProviderService();
     serviceManager.registerService('schema-provider', schemaProviderService);
