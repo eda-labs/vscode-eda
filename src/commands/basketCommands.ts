@@ -68,5 +68,16 @@ export function registerBasketCommands(context: vscode.ExtensionContext): void {
     await runBasket(true);
   });
 
-  context.subscriptions.push(discardCmd, commitCmd, dryRunCmd);
+  const removeItemCmd = vscode.commands.registerCommand('vscode-eda.removeBasketItem', async (item: any) => {
+    if (!item || typeof item.basketIndex !== 'number') {
+      return;
+    }
+    const confirmed = await vscode.window.showWarningMessage('Remove item from basket?', 'Yes', 'No');
+    if (confirmed !== 'Yes') {
+      return;
+    }
+    await edaTransactionBasketProvider.removeTransaction(item.basketIndex);
+  });
+
+  context.subscriptions.push(discardCmd, commitCmd, dryRunCmd, removeItemCmd);
 }

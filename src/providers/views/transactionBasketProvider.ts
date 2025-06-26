@@ -76,6 +76,15 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     this.refresh();
   }
 
+  public async removeTransaction(index: number): Promise<void> {
+    if (index < 0 || index >= this.items.length) {
+      return;
+    }
+    this.items.splice(index, 1);
+    await this.saveBasket();
+    this.refresh();
+  }
+
   getTreeItem(element: TransactionBasketItem): vscode.TreeItem {
     return element;
   }
@@ -93,7 +102,7 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     this.items.forEach((tx, txIdx) => {
       if (Array.isArray(tx.crs) && tx.crs.length > 0) {
         tx.crs.forEach((cr: any) => {
-          items.push(this.createCrItem(cr));
+          items.push(this.createCrItem(cr, txIdx));
         });
       } else {
         items.push(this.createTxItem(tx, txIdx));
@@ -115,7 +124,8 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
       label,
       vscode.TreeItemCollapsibleState.None,
       'basket-item',
-      tx
+      tx,
+      idx
     );
     item.description = tx.crs && Array.isArray(tx.crs) ? `${tx.crs.length} resource(s)` : '';
     item.tooltip = JSON.stringify(tx, null, 2);
@@ -128,7 +138,7 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     return item;
   }
 
-  private createCrItem(cr: any): TransactionBasketItem {
+  private createCrItem(cr: any, idx: number): TransactionBasketItem {
     const value =
       cr.type?.create?.value ||
       cr.type?.replace?.value ||
@@ -149,7 +159,8 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
       label,
       vscode.TreeItemCollapsibleState.None,
       'basket-item',
-      cr
+      cr,
+      idx
     );
     item.description = op;
     item.tooltip = JSON.stringify(cr, null, 2);
@@ -183,7 +194,13 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
 }
 
 export class TransactionBasketItem extends TreeItemBase {
-  constructor(label: string, collapsibleState: vscode.TreeItemCollapsibleState, contextValue: string, resource?: any) {
+  constructor(
+    label: string,
+    collapsibleState: vscode.TreeItemCollapsibleState,
+    contextValue: string,
+    resource?: any,
+    public basketIndex?: number
+  ) {
     super(label, collapsibleState, contextValue, resource);
   }
 }

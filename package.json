@@ -219,6 +219,11 @@
         "command": "vscode-eda.discardBasket",
         "title": "EDA: Discard Basket",
         "icon": "$(trash)"
+      },
+      {
+        "command": "vscode-eda.removeBasketItem",
+        "title": "EDA: Remove Basket Item",
+        "icon": "$(trash)"
       }
     ],
     "menus": {
@@ -394,6 +399,16 @@
           "command": "vscode-eda.restoreTransaction",
           "when": "viewItem == transaction",
           "group": "inline"
+        },
+        {
+          "command": "vscode-eda.removeBasketItem",
+          "when": "viewItem == basket-item && view == edaTransactionBasket",
+          "group": "inline"
+        },
+        {
+          "command": "vscode-eda.removeBasketItem",
+          "when": "viewItem == basket-item && view == edaTransactionBasket",
+          "group": "navigation"
         }
       ],
       "editor/title": [
