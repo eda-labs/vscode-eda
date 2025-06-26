@@ -64,6 +64,16 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     }
   }
 
+  public getTransactions(): any[] {
+    return this.items.slice();
+  }
+
+  public async clearBasket(): Promise<void> {
+    this.items = [];
+    await this.saveBasket();
+    this.refresh();
+  }
+
   getTreeItem(element: TransactionBasketItem): vscode.TreeItem {
     return element;
   }

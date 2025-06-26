@@ -204,6 +204,21 @@
         "command": "vscode-eda.updateTargetCredentials",
         "title": "EDA: Update Target Credentials",
         "icon": "$(key)"
+      },
+      {
+        "command": "vscode-eda.commitBasket",
+        "title": "EDA: Commit Basket",
+        "icon": "$(debug-start)"
+      },
+      {
+        "command": "vscode-eda.dryRunBasket",
+        "title": "EDA: Dry Run Basket",
+        "icon": "$(debug-alt)"
+      },
+      {
+        "command": "vscode-eda.discardBasket",
+        "title": "EDA: Discard Basket",
+        "icon": "$(trash)"
       }
     ],
     "menus": {
@@ -242,6 +257,21 @@
           "command": "vscode-eda.setTransactionLimit",
           "when": "view == edaTransactions",
           "group": "navigation@5"
+        },
+        {
+          "command": "vscode-eda.commitBasket",
+          "when": "view == edaTransactionBasket",
+          "group": "navigation@6"
+        },
+        {
+          "command": "vscode-eda.dryRunBasket",
+          "when": "view == edaTransactionBasket",
+          "group": "navigation@7"
+        },
+        {
+          "command": "vscode-eda.discardBasket",
+          "when": "view == edaTransactionBasket",
+          "group": "navigation@8"
         }
       ],
       "view/item/context": [

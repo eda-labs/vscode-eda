@@ -24,6 +24,7 @@ import { registerDeploymentCommands } from './commands/deploymentCommands';
 import { registerResourceViewCommands } from './commands/resourceViewCommands';
 import { registerDeviationCommands } from './commands/deviationCommands';
 import { registerTransactionCommands } from './commands/transactionCommands';
+import { registerBasketCommands } from './commands/basketCommands';
 import { registerViewCommands } from './commands/viewCommands';
 import { registerResourceEditCommands } from './commands/resourceEditCommands';
 import { registerResourceCreateCommand } from './commands/resourceCreateCommand';
@@ -420,6 +421,7 @@ export async function activate(context: vscode.ExtensionContext) {
   );
   registerDeviationCommands(context);
   registerTransactionCommands(context);
+  registerBasketCommands(context);
   registerCredentialCommands(context);
 
   //   log('Service architecture initialized successfully', LogLevel.INFO, true);
