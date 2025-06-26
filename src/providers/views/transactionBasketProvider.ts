@@ -10,23 +10,22 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
   private edaClient: EdaClient;
   private statusService: ResourceStatusService;
   private items: any[] = [];
-  private pollTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor() {
     super();
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
     void this.loadBasket();
-    this.pollTimer = setInterval(() => {
-      void this.loadBasket();
-    }, 5000);
+    void this.edaClient.streamUserStorageFile('Transactions');
+    this.edaClient.onStreamMessage((stream, msg) => {
+      if (stream === 'file' && msg['file-name'] === 'Transactions') {
+        this.processStreamUpdate(msg);
+      }
+    });
   }
 
   public dispose(): void {
-    if (this.pollTimer) {
-      clearInterval(this.pollTimer);
-      this.pollTimer = undefined;
-    }
+    // no periodic polling to clear
   }
 
   private async loadBasket(): Promise<void> {
@@ -158,6 +157,25 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
       arguments: [cr]
     };
     return item;
+  }
+
+  /** Process updates from the user-storage stream */
+  private processStreamUpdate(msg: any): void {
+    const content = msg['file-content'] ?? msg.msg?.['file-content'];
+    if (!content) return;
+    try {
+      const parsed = JSON.parse(content);
+      if (Array.isArray(parsed)) {
+        this.items = parsed;
+      } else if (typeof parsed === 'object' && Object.keys(parsed).length === 0) {
+        this.items = [];
+      } else {
+        this.items = [parsed];
+      }
+      this.refresh();
+    } catch (err) {
+      log(`Failed to process basket stream: ${err}`, LogLevel.ERROR);
+    }
   }
 }
 

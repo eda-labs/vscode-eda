@@ -28,6 +28,7 @@ export class EdaStreamClient {
   private transactionSummarySize = 50;
   private summaryAbortController: AbortController | undefined;
   private summaryStreamPromise: Promise<void> | undefined;
+  private userStorageFiles: Set<string> = new Set();
 
   private _onStreamMessage = new vscode.EventEmitter<StreamMessage>();
   public readonly onStreamMessage = this._onStreamMessage.event;
@@ -37,14 +38,7 @@ export class EdaStreamClient {
 
   // Stream names that should not be automatically subscribed to
   private static readonly AUTO_EXCLUDE = new Set([
-    'alarms',
-    'summary',
-    'resultsummary',
-    'v1',
-    'eql',
-    'nql',
-    'directory',
-    'file',
+    'alarms2',
   ]);
 
   constructor(messageIntervalMs = 500) {
@@ -152,6 +146,9 @@ export class EdaStreamClient {
             }
             if (this.activeStreams.has('summary')) {
               void this.startTransactionSummaryStream(this.eventClient);
+            }
+            for (const file of this.userStorageFiles) {
+              void this.startUserStorageFileStream(this.eventClient, file);
             }
           }
         } catch {
@@ -265,22 +262,39 @@ export class EdaStreamClient {
   }
 
   /**
+   * Add a user-storage file to stream
+   */
+  public async streamUserStorageFile(path: string): Promise<void> {
+    this.userStorageFiles.add(path);
+    await this.connect();
+    if (this.eventClient) {
+      await this.startUserStorageFileStream(this.eventClient, path);
+    }
+  }
+
+  /**
    * Open a server-sent events connection
    */
-  private async streamSse(url: string, controller?: AbortController): Promise<void> {
+  private async streamSse(
+    url: string,
+    controller?: AbortController,
+    extraHeaders: Record<string, string> = {}
+  ): Promise<void> {
     if (!this.authClient) {
       throw new Error('Auth client not set');
     }
 
     let res: any;
     try {
-      // Get the full headers object and use it directly
       const headers = this.authClient.getHeaders();
+      const finalHeaders = {
+        ...headers,
+        Accept: 'text/event-stream',
+        ...extraHeaders,
+      };
+      log(`[STREAM] request ${url} with ${JSON.stringify(finalHeaders)}`, LogLevel.DEBUG);
       res = await fetch(url, {
-        headers: {
-          ...headers,
-          Accept: 'text/event-stream',
-        },
+        headers: finalHeaders,
         dispatcher: this.authClient.getAgent(),
         signal: controller?.signal,
       } as any);
@@ -355,6 +369,19 @@ export class EdaStreamClient {
     this.summaryAbortController = new AbortController();
     this.summaryStreamPromise = this.streamSse(url, this.summaryAbortController).finally(() => {
       this.summaryStreamPromise = undefined;
+    });
+  }
+
+  private async startUserStorageFileStream(client: string, file: string): Promise<void> {
+    if (!this.authClient) return;
+    const url =
+      `${this.authClient.getBaseUrl()}/core/user-storage/v2/file` +
+      `?path=${encodeURIComponent(file)}` +
+      `&eventclient=${encodeURIComponent(client)}` +
+      `&stream=file`;
+    await this.streamSse(url, undefined, {
+      Accept: '*/*',
+      'Accept-Encoding': 'gzip, deflate, br, zsrd',
     });
   }
 

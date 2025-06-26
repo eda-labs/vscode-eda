@@ -184,6 +184,11 @@ export class EdaClient {
     await this.apiClient.putUserStorageFile(path, content);
   }
 
+  public async streamUserStorageFile(path: string): Promise<void> {
+    await this.initPromise;
+    await this.streamClient.streamUserStorageFile(path);
+  }
+
   // Spec manager methods (delegated)
   public getCachedNamespaces(): string[] {
     return this.specManager.getCachedNamespaces();
