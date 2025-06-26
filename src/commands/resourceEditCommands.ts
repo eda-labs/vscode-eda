@@ -6,7 +6,7 @@ import { EdaClient } from '../clients/edaClient';
 import type { ResourceService } from '../services/resourceService';
 import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
 import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
-import { log, LogLevel, edaOutputChannel } from '../extension';
+import { log, LogLevel, edaOutputChannel, edaTransactionBasketProvider } from '../extension';
 
 // Keep track of resource URI pairs (view and edit versions of the same resource)
 interface ResourceURIPair {
@@ -383,6 +383,8 @@ export function registerResourceEditCommands(
               }
             }
           }
+        } else if (action === 'basket') {
+          await addResourceToBasket(documentUri, resourceEditProvider, resource);
         } else if (action === 'validate') {
           // Validate and then ask for apply
           return await validateAndPromptForApply(edaClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
@@ -518,7 +520,8 @@ async function promptForApplyAction(resource: any): Promise<string | undefined> 
   const choices: ActionQuickPickItem[] = [
     { label: '👁 View Changes (Diff)', id: 'diff', description: 'Compare changes before proceeding' },
     { label: '✓ Validate (Dry Run)', id: 'validate', description: 'Check if changes are valid without applying' },
-    { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' }
+    { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' },
+    { label: '🧺 Add to Basket', id: 'basket', description: 'Save changes to the transaction basket' }
   ];
 
   const chosen = await vscode.window.showQuickPick(choices, {
@@ -538,11 +541,13 @@ async function promptForNextAction(resource: any, currentStep: string): Promise<
   if (currentStep === 'diff') {
     choices = [
       { label: '✓ Validate (Dry Run)', id: 'validate', description: 'Check if changes are valid without applying' },
-      { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' }
+      { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' },
+      { label: '🧺 Add to Basket', id: 'basket', description: 'Save changes to the transaction basket' }
     ];
   } else if (currentStep === 'validate') {
     choices = [
-      { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' }
+      { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' },
+      { label: '🧺 Add to Basket', id: 'basket', description: 'Save changes to the transaction basket' }
     ];
   }
 
@@ -869,4 +874,25 @@ async function applyResource(
 
     return false;
   }
+}
+
+// Add resource changes as a transaction to the basket
+async function addResourceToBasket(
+  documentUri: vscode.Uri,
+  resourceEditProvider: ResourceEditDocumentProvider,
+  resource: any
+): Promise<void> {
+  const isNew = resourceEditProvider.isNewResource(documentUri);
+  const tx = {
+    crs: [
+      {
+        type: isNew ? { create: { value: resource } } : { replace: { value: resource } }
+      }
+    ],
+    description: `vscode basket ${resource.kind}/${resource.metadata.name}`,
+    retain: true,
+    dryRun: false
+  };
+  await edaTransactionBasketProvider.addTransaction(tx);
+  vscode.window.showInformationMessage(`Added ${resource.kind} "${resource.metadata?.name}" to transaction basket`);
 }

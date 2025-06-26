@@ -263,4 +263,24 @@ export class EdaApiClient {
     const url = params.length > 0 ? `${path}?${params.join('&')}` : path;
     return this.fetchJSON<any>(url);
   }
+
+  /**
+   * Retrieve a file from the user storage API
+   */
+  public async getUserStorageFile(path: string): Promise<string | undefined> {
+    const res = await this.fetchJSON<any>(`/core/user-storage/v2/file?path=${encodeURIComponent(path)}`);
+    if (typeof res?.['file-content'] === 'string') {
+      return res['file-content'] as string;
+    }
+    return undefined;
+  }
+
+  /**
+   * Save a file via the user storage API
+   */
+  public async putUserStorageFile(path: string, content: string): Promise<void> {
+    await this.requestJSON('PUT', `/core/user-storage/v2/file?path=${encodeURIComponent(path)}`, {
+      'file-content': content
+    });
+  }
 }

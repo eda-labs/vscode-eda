@@ -56,6 +56,10 @@
           "name": "Deviations"
         },
         {
+          "id": "edaTransactionBasket",
+          "name": "Transaction Basket"
+        },
+        {
           "id": "edaTransactions",
           "name": "Transactions"
         }
@@ -212,12 +216,12 @@
       "view/title": [
         {
           "command": "vscode-eda.filterTree",
-          "when": "view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactions",
+          "when": "view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions",
           "group": "navigation@1"
         },
         {
           "command": "vscode-eda.clearFilter",
-          "when": "view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactions || view == edaSystem",
+          "when": "view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions || view == edaSystem",
           "group": "navigation@2"
         },
         {

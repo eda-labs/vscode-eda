@@ -7,6 +7,7 @@ import { ResourceStatusService } from './services/resourceStatusService';
 import { EdaNamespaceProvider } from './providers/views/namespaceProvider';
 import { EdaAlarmProvider } from './providers/views/alarmProvider';
 import { EdaDeviationProvider } from './providers/views/deviationProvider';
+import { TransactionBasketProvider } from './providers/views/transactionBasketProvider';
 import { EdaTransactionProvider } from './providers/views/transactionProvider';
 import { AlarmDetailsDocumentProvider } from './providers/documents/alarmDetailsProvider';
 import { DeviationDetailsDocumentProvider } from './providers/documents/deviationDetailsProvider';
@@ -45,6 +46,7 @@ export enum LogLevel {
 }
 
 export let edaDeviationProvider: EdaDeviationProvider;
+export let edaTransactionBasketProvider: TransactionBasketProvider;
 export let edaTransactionProvider: EdaTransactionProvider;
 export let alarmDetailsProvider: AlarmDetailsDocumentProvider;
 export let deviationDetailsProvider: DeviationDetailsDocumentProvider;
@@ -335,6 +337,12 @@ export async function activate(context: vscode.ExtensionContext) {
       showCollapseAll: true
     });
 
+    edaTransactionBasketProvider = new TransactionBasketProvider();
+    const basketTreeView = vscode.window.createTreeView('edaTransactionBasket', {
+      treeDataProvider: edaTransactionBasketProvider,
+      showCollapseAll: true
+    });
+
     edaTransactionProvider = new EdaTransactionProvider();
     const transactionTreeView = vscode.window.createTreeView('edaTransactions', {
       treeDataProvider: edaTransactionProvider,
@@ -357,6 +365,7 @@ export async function activate(context: vscode.ExtensionContext) {
         namespaceProvider.setTreeFilter(text);
         alarmProvider.setTreeFilter(text);
         edaDeviationProvider.setTreeFilter(text);
+        edaTransactionBasketProvider.setTreeFilter(text);
         edaTransactionProvider.setTreeFilter(text);
       }
     })
@@ -368,6 +377,7 @@ export async function activate(context: vscode.ExtensionContext) {
       namespaceProvider.clearTreeFilter();
       alarmProvider.clearTreeFilter();
       edaDeviationProvider.clearTreeFilter();
+      edaTransactionBasketProvider.clearTreeFilter();
       edaTransactionProvider.clearTreeFilter();
     })
   );
@@ -375,6 +385,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(namespaceTreeView);
   context.subscriptions.push(alarmTreeView);
   context.subscriptions.push(deviationTreeView, { dispose: () => edaDeviationProvider.dispose() });
+  context.subscriptions.push(basketTreeView, { dispose: () => edaTransactionBasketProvider.dispose?.() });
   context.subscriptions.push(transactionTreeView, { dispose: () => edaTransactionProvider.dispose() });
 
 
