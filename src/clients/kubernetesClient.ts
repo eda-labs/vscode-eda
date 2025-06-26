@@ -148,7 +148,7 @@ export class KubernetesClient {
 
   public async switchContext(contextName: string): Promise<void> {
     if (this.contexts.includes(contextName)) {
-      this.dispose();
+      this.clearWatchers();
       const prevNamespaces = this.namespaceCache.slice();
       this.namespaceCache = [];
       for (const def of this.watchDefinitions) {
@@ -432,11 +432,16 @@ export class KubernetesClient {
     return this.watchDefinitions.find(d => d.name === type)?.namespaced ?? true;
   }
 
-  public dispose(): void {
+  private clearWatchers(): void {
     for (const c of this.watchControllers) {
       c.abort();
     }
     this.watchControllers = [];
+    this.activeWatchers.clear();
+  }
+
+  public dispose(): void {
+    this.clearWatchers();
     this._onResourceChanged.dispose();
     this._onDeviationChanged.dispose();
     this._onTransactionChanged.dispose();
