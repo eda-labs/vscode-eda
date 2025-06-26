@@ -29,6 +29,9 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
   private streamData: Map<string, Map<string, any>> = new Map();
   private k8sStreams: string[] = [];
   private disposables: vscode.Disposable[] = [];
+  /** Throttled refresh timer */
+  private refreshHandle?: ReturnType<typeof setTimeout>;
+  private pendingSummary?: string;
 
 constructor() {
     super();
@@ -103,15 +106,11 @@ constructor() {
   private setupEventListeners(): void {
     // initialize listeners for resource and kubernetes events
 
-      if (this.resourceService) {
+    if (this.resourceService) {
       const disp = this.resourceService.onDidChangeResources(async summary => {
-        const msg = summary
-          ? `Resource change detected (${summary}), refreshing tree view`
-          : 'Resource change detected, refreshing tree view';
-        log(msg, LogLevel.DEBUG);
-        this.refresh();
+        this.scheduleRefresh(summary);
       });
-        this.disposables.push(disp);
+      this.disposables.push(disp);
       } else {
         log('No resource service available', LogLevel.DEBUG);
       }
@@ -119,12 +118,12 @@ constructor() {
       if (this.k8sClient) {
         try {
           const disp1 = this.k8sClient.onResourceChanged(() => {
-            this.refresh();
+            this.scheduleRefresh();
           });
           this.disposables.push(disp1);
 
           const disp2 = this.k8sClient.onNamespacesChanged(() => {
-            this.refresh();
+            this.scheduleRefresh();
           });
           this.disposables.push(disp2);
         } catch (err) {
@@ -146,6 +145,27 @@ constructor() {
     } catch (err) {
       log(`Failed to load streams: ${err}`, LogLevel.ERROR);
     }
+  }
+
+  /**
+   * Schedule a refresh and collapse multiple events occurring in quick succession.
+   */
+  private scheduleRefresh(summary?: string): void {
+    if (summary) {
+      this.pendingSummary = summary;
+    }
+    if (this.refreshHandle) {
+      clearTimeout(this.refreshHandle);
+    }
+    this.refreshHandle = setTimeout(() => {
+      const msg = this.pendingSummary
+        ? `Resource change detected (${this.pendingSummary}), refreshing tree view`
+        : 'Resource change detected, refreshing tree view';
+      log(msg, LogLevel.DEBUG);
+      this.refresh();
+      this.pendingSummary = undefined;
+      this.refreshHandle = undefined;
+    }, 500);
   }
 
   /**
