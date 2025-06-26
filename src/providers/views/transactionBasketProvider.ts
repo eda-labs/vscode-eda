@@ -130,10 +130,17 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     const value =
       cr.type?.create?.value ||
       cr.type?.replace?.value ||
+      cr.type?.modify?.value ||
       cr.type?.update?.value ||
-      cr.type?.delete?.value;
-    const kind = value?.kind || cr.basketInfo?.model?.modelName || 'resource';
-    const name = value?.metadata?.name;
+      cr.type?.patch?.value;
+
+    const kind =
+      value?.kind ||
+      cr.type?.delete?.gvk?.kind ||
+      cr.basketInfo?.model?.modelName ||
+      'resource';
+
+    const name = value?.metadata?.name || cr.type?.delete?.name;
     const label = name ? `${kind}/${name}` : kind;
     const op = Object.keys(cr.type || {})[0] || '';
     const item = new TransactionBasketItem(
