@@ -75,29 +75,71 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     if (this.items.length === 0) {
       return [this.emptyItem()];
     }
-    return this.items.map((tx, idx) => {
-      const label = tx.description || `Transaction ${idx + 1}`;
-      const item = new TransactionBasketItem(
-        label,
-        vscode.TreeItemCollapsibleState.None,
-        'basket-item',
-        tx
-      );
-      item.description = tx.crs && Array.isArray(tx.crs) ? `${tx.crs.length} resource(s)` : '';
-      item.tooltip = JSON.stringify(tx, null, 2);
-      item.iconPath = this.statusService.getThemeStatusIcon('blue');
-      item.command = {
-        command: 'vscode-eda.showBasketTransaction',
-        title: 'Show Basket Transaction',
-        arguments: [tx]
-      };
-      return item;
+
+    const items: TransactionBasketItem[] = [];
+
+    this.items.forEach((tx, txIdx) => {
+      if (Array.isArray(tx.crs) && tx.crs.length > 0) {
+        tx.crs.forEach((cr: any) => {
+          items.push(this.createCrItem(cr));
+        });
+      } else {
+        items.push(this.createTxItem(tx, txIdx));
+      }
     });
+
+    return items;
   }
 
   private emptyItem(): TransactionBasketItem {
     const item = new TransactionBasketItem('No items in basket', vscode.TreeItemCollapsibleState.None, 'info');
     item.iconPath = this.statusService.getThemeStatusIcon('gray');
+    return item;
+  }
+
+  private createTxItem(tx: any, idx: number): TransactionBasketItem {
+    const label = tx.description || `Transaction ${idx + 1}`;
+    const item = new TransactionBasketItem(
+      label,
+      vscode.TreeItemCollapsibleState.None,
+      'basket-item',
+      tx
+    );
+    item.description = tx.crs && Array.isArray(tx.crs) ? `${tx.crs.length} resource(s)` : '';
+    item.tooltip = JSON.stringify(tx, null, 2);
+    item.iconPath = this.statusService.getThemeStatusIcon('blue');
+    item.command = {
+      command: 'vscode-eda.showBasketTransaction',
+      title: 'Show Basket Transaction',
+      arguments: [tx]
+    };
+    return item;
+  }
+
+  private createCrItem(cr: any): TransactionBasketItem {
+    const value =
+      cr.type?.create?.value ||
+      cr.type?.replace?.value ||
+      cr.type?.update?.value ||
+      cr.type?.delete?.value;
+    const kind = value?.kind || cr.basketInfo?.model?.modelName || 'resource';
+    const name = value?.metadata?.name;
+    const label = name ? `${kind}/${name}` : kind;
+    const op = Object.keys(cr.type || {})[0] || '';
+    const item = new TransactionBasketItem(
+      label,
+      vscode.TreeItemCollapsibleState.None,
+      'basket-item',
+      cr
+    );
+    item.description = op;
+    item.tooltip = JSON.stringify(cr, null, 2);
+    item.iconPath = this.statusService.getThemeStatusIcon('blue');
+    item.command = {
+      command: 'vscode-eda.showBasketTransaction',
+      title: 'Show Basket Transaction',
+      arguments: [cr]
+    };
     return item;
   }
 }
