@@ -27,9 +27,15 @@ export function registerBasketCommands(context: vscode.ExtensionContext): void {
       return;
     }
     const crs: any[] = [];
-    for (const tx of items) {
-      if (Array.isArray(tx.crs)) {
-        crs.push(...tx.crs);
+    for (const item of items) {
+      if (Array.isArray(item.crs)) {
+        for (const cr of item.crs) {
+          if (cr?.type) {
+            crs.push({ type: cr.type });
+          }
+        }
+      } else if (item?.type) {
+        crs.push({ type: item.type });
       }
     }
     const tx = {
