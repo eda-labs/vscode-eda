@@ -66,13 +66,39 @@ export class KubernetesClient {
 
   private watchDefinitions = [
     // Core/v1
-    { name: 'pods', group: '', version: 'v1', plural: 'pods', namespaced: true },
-    { name: 'services', group: '', version: 'v1', plural: 'services', namespaced: true },
     { name: 'configmaps', group: '', version: 'v1', plural: 'configmaps', namespaced: true },
+    { name: 'endpoints', group: '', version: 'v1', plural: 'endpoints', namespaced: true },
+    { name: 'events', group: '', version: 'v1', plural: 'events', namespaced: true },
+    { name: 'limitranges', group: '', version: 'v1', plural: 'limitranges', namespaced: true },
+    { name: 'persistentvolumeclaims', group: '', version: 'v1', plural: 'persistentvolumeclaims', namespaced: true },
+    { name: 'pods', group: '', version: 'v1', plural: 'pods', namespaced: true },
+    { name: 'podtemplates', group: '', version: 'v1', plural: 'podtemplates', namespaced: true },
+    { name: 'replicationcontrollers', group: '', version: 'v1', plural: 'replicationcontrollers', namespaced: true },
+    { name: 'resourcequotas', group: '', version: 'v1', plural: 'resourcequotas', namespaced: true },
     { name: 'secrets', group: '', version: 'v1', plural: 'secrets', namespaced: true },
+    { name: 'serviceaccounts', group: '', version: 'v1', plural: 'serviceaccounts', namespaced: true },
+    { name: 'services', group: '', version: 'v1', plural: 'services', namespaced: true },
 
     // apps/v1
-    { name: 'deployments', group: 'apps', version: 'v1', plural: 'deployments', namespaced: true }
+    { name: 'deployments', group: 'apps', version: 'v1', plural: 'deployments', namespaced: true },
+    { name: 'replicasets', group: 'apps', version: 'v1', plural: 'replicasets', namespaced: true },
+    { name: 'statefulsets', group: 'apps', version: 'v1', plural: 'statefulsets', namespaced: true },
+    { name: 'daemonsets', group: 'apps', version: 'v1', plural: 'daemonsets', namespaced: true },
+
+    // batch/v1
+    { name: 'jobs', group: 'batch', version: 'v1', plural: 'jobs', namespaced: true },
+    { name: 'cronjobs', group: 'batch', version: 'v1', plural: 'cronjobs', namespaced: true },
+
+    // networking.k8s.io/v1
+    { name: 'ingresses', group: 'networking.k8s.io', version: 'v1', plural: 'ingresses', namespaced: true },
+    { name: 'networkpolicies', group: 'networking.k8s.io', version: 'v1', plural: 'networkpolicies', namespaced: true },
+
+    // Cluster scoped resources
+    { name: 'nodes', group: '', version: 'v1', plural: 'nodes', namespaced: false },
+    { name: 'persistentvolumes', group: '', version: 'v1', plural: 'persistentvolumes', namespaced: false },
+    { name: 'storageclasses', group: 'storage.k8s.io', version: 'v1', plural: 'storageclasses', namespaced: false },
+    { name: 'clusterroles', group: 'rbac.authorization.k8s.io', version: 'v1', plural: 'clusterroles', namespaced: false },
+    { name: 'clusterrolebindings', group: 'rbac.authorization.k8s.io', version: 'v1', plural: 'clusterrolebindings', namespaced: false }
   ];
 
   private _onResourceChanged = new vscode.EventEmitter<void>();
