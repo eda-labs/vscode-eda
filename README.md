@@ -13,22 +13,25 @@
    - Create new resources from CRD skeletons.
    - Switch to edit mode with a single click — then apply or dry-run your changes.
    - Autocompletion, Suggestions and Popups for the ressources
+2. **Kubernetes**
+   - Kubernetes namespaces and resources are listed under a top-level "Kubernetes" item in the Resources view.
+   - Uses a distinct icon to differentiate from EDA resources.
 
-2. **Alarms & Deviations**
+3. **Alarms & Deviations**
    - See active alarms
    - View or reject deviations
 
-3. **Transactions**
+4. **Transactions**
    - Browse the most recent transactions streamed from EDA (50 by default).
      Use the **Set Transaction Limit** action in the Transactions view to adjust
      how many are loaded. The extension will restart the stream and reload the
      initial transaction list when you change the limit.
    - View detailed information for a transaction directly from the EDA API.
 
-4. **Pod Actions**
+5. **Pod Actions**
    - Open a terminal to a Pod, view logs in a terminal, or delete/describe a Pod.
 
-5. **Filtering**
+6. **Filtering**
    - Quick filter at the top-level views (`Alt+Shift+F` by default).
    - Clear filter to revert to full tree.
 

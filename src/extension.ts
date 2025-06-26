@@ -338,6 +338,7 @@ export async function activate(context: vscode.ExtensionContext) {
       showCollapseAll: true
     });
 
+
     const alarmProvider = new EdaAlarmProvider();
     const alarmTreeView = vscode.window.createTreeView('edaAlarms', {
       treeDataProvider: alarmProvider,
@@ -362,8 +363,7 @@ export async function activate(context: vscode.ExtensionContext) {
       showCollapseAll: true
     });
 
-  context.subscriptions.push(namespaceTreeView);
-  context.subscriptions.push(alarmTreeView);
+
 
 
   // Allow the user to filter all tree views

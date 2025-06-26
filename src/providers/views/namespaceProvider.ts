@@ -18,6 +18,7 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
   private expandAll: boolean = false;
 
   private k8sClient?: KubernetesClient;
+  private readonly kubernetesIcon: vscode.ThemeIcon;
   private edaClient: EdaClient;
   private resourceService?: ResourceService;
   private statusService?: ResourceStatusService;
@@ -35,6 +36,7 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
 
 constructor() {
     super();
+    this.kubernetesIcon = new vscode.ThemeIcon('layers');
     // Debug log constructor start
     log('EdaNamespaceProvider constructor starting', LogLevel.DEBUG);
 
@@ -282,10 +284,18 @@ constructor() {
    */
   async getChildren(element?: TreeItemBase): Promise<TreeItemBase[]> {
     if (!element) {
-      // Root level: list EDA namespaces (unfiltered)
-      return this.getNamespaces();
+      const items = this.getNamespaces();
+      const kRoot = this.getKubernetesRoot();
+      if (kRoot) {
+        items.push(kRoot);
+      }
+      return items;
     } else if (element.contextValue === 'namespace') {
       return this.getStreamGroups(element.label as string);
+    } else if (element.contextValue === 'k8s-root') {
+      return this.getKubernetesNamespaces();
+    } else if (element.contextValue === 'k8s-namespace') {
+      return this.getKubernetesStreams(element.label as string);
     } else if (element.contextValue === 'stream-group') {
       return this.getStreamsForGroup(element.namespace!, element.streamGroup!);
     } else if (element.contextValue === 'stream') {
@@ -298,8 +308,10 @@ constructor() {
    * Implementation of TreeDataProvider: gets the parent of a tree item
    */
   getParent(element: TreeItemBase): vscode.ProviderResult<TreeItemBase> {
-    if (element.contextValue === 'namespace' || element.contextValue === 'message') {
+    if (element.contextValue === 'namespace' || element.contextValue === 'message' || element.contextValue === 'k8s-root') {
       return null;
+    } else if (element.contextValue === 'k8s-namespace') {
+      return this.getKubernetesRoot();
     } else if (element.contextValue === 'stream-group') {
       const namespaces = this.getNamespaces();
       return namespaces.find(ns => ns.label === element.namespace);
@@ -309,6 +321,10 @@ constructor() {
         const namespaces = this.getNamespaces();
         return namespaces.find(ns => ns.label === element.namespace);
       }
+      if (group === 'kubernetes') {
+        const namespaces = this.getKubernetesNamespaces();
+        return namespaces.find(ns => ns.label === element.namespace);
+      }
       const groups = this.getStreamGroups(element.namespace!);
       return groups.find(g => g.streamGroup === element.streamGroup);
     } else if (element.contextValue === 'stream-item') {
@@ -316,6 +332,10 @@ constructor() {
       if (this.isGroupRedundant(group)) {
         const flattened = this.getStreamGroups(element.namespace!);
         return flattened.find(s => s.label === element.resourceType);
+      }
+      if (group === 'kubernetes') {
+        const streamItems = this.getKubernetesStreams(element.namespace!);
+        return streamItems.find(s => s.label === element.resourceType);
       }
       const streamItems = this.getStreamsForGroup(element.namespace!, element.streamGroup!);
       return streamItems.find(s => s.label === element.resourceType);
@@ -336,6 +356,16 @@ constructor() {
         for (const group of groups) {
           await treeView.reveal(group, { expand: 2 });
           const streams = await this.getChildren(group);
+          for (const stream of streams) {
+            await treeView.reveal(stream, { expand: 3 });
+          }
+        }
+      } else if (namespace.contextValue === 'k8s-root') {
+        await treeView.reveal(namespace, { expand: 1 });
+        const kNamespaces = await this.getChildren(namespace);
+        for (const kns of kNamespaces) {
+          await treeView.reveal(kns, { expand: 2 });
+          const streams = await this.getChildren(kns);
           for (const stream of streams) {
             await treeView.reveal(stream, { expand: 3 });
           }
@@ -370,9 +400,52 @@ constructor() {
     });
   }
 
+  private getKubernetesRoot(): TreeItemBase | undefined {
+    if (!this.k8sClient) {
+      return undefined;
+    }
+    const item = new TreeItemBase(
+      'Kubernetes',
+      vscode.TreeItemCollapsibleState.Collapsed,
+      'k8s-root'
+    );
+    item.iconPath = this.kubernetesIcon;
+    return item;
+  }
+
+  private getKubernetesNamespaces(): TreeItemBase[] {
+    if (!this.k8sClient) {
+      return [];
+    }
+    const namespaces = this.k8sClient.getCachedNamespaces();
+    if (namespaces.length === 0) {
+      const msgItem = new TreeItemBase(
+        'No Kubernetes namespaces found',
+        vscode.TreeItemCollapsibleState.None,
+        'message'
+      );
+      msgItem.iconPath = new vscode.ThemeIcon('warning');
+      return [msgItem];
+    }
+    return namespaces.map(ns => {
+      const item = new TreeItemBase(
+        ns,
+        vscode.TreeItemCollapsibleState.Collapsed,
+        'k8s-namespace'
+      );
+      item.iconPath = this.kubernetesIcon;
+      item.namespace = ns;
+      return item;
+    });
+  }
+
+  private getKubernetesStreams(namespace: string): TreeItemBase[] {
+    return this.getStreamsForGroup(namespace, 'kubernetes');
+  }
+
   /** Get stream group items under a namespace */
   private getStreamGroups(namespace: string): TreeItemBase[] {
-    const groups = Object.keys(this.cachedStreamGroups);
+    const groups = Object.keys(this.cachedStreamGroups).filter(g => g !== 'kubernetes');
     if (groups.length === 0) {
       const item = new TreeItemBase(
         'No streams found',
