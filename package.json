@@ -150,6 +150,10 @@
         "icon": "$(trash)"
       },
       {
+        "command": "vscode-eda.addDeleteToBasket",
+        "title": "EDA: Add Delete To Basket"
+      },
+      {
         "command": "vscode-eda.showAlarmDetails",
         "title": "EDA: Show Alarm Details"
       },
