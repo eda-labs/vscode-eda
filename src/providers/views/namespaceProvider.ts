@@ -407,7 +407,7 @@ constructor() {
           vscode.TreeItemCollapsibleState.Collapsed,
           'stream'
         );
-        ti.iconPath = new vscode.ThemeIcon('symbol-event');
+        ti.iconPath = new vscode.ThemeIcon('search-expand-results');
         ti.namespace = namespace;
         ti.streamGroup = g;
         items.push(ti);
@@ -453,7 +453,7 @@ constructor() {
           vscode.TreeItemCollapsibleState.Collapsed,
           'stream'
         );
-        ti.iconPath = new vscode.ThemeIcon('symbol-event');
+        ti.iconPath = new vscode.ThemeIcon('search-expand-results');
         ti.namespace = namespace;
         ti.streamGroup = group;
         items.push(ti);
@@ -468,7 +468,7 @@ constructor() {
         vscode.TreeItemCollapsibleState.Collapsed,
         'stream'
       );
-      ti.iconPath = new vscode.ThemeIcon('symbol-event');
+      ti.iconPath = new vscode.ThemeIcon('search-expand-results');
       ti.namespace = namespace;
       ti.streamGroup = group;
       items.push(ti);
