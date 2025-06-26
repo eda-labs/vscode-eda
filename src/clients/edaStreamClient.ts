@@ -205,6 +205,7 @@ export class EdaStreamClient {
     log(`Unsubscribed from stream: ${streamName}`, LogLevel.DEBUG);
   }
 
+
   /**
    * Set transaction summary size
    */
@@ -356,6 +357,7 @@ export class EdaStreamClient {
       this.summaryStreamPromise = undefined;
     });
   }
+
 
   private handleEventMessage(data: string): void {
     log(`WS message: ${data}`, LogLevel.DEBUG);

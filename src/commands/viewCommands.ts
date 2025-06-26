@@ -8,6 +8,7 @@ import { CrdDefinitionFileSystemProvider } from '../providers/documents/crdDefin
 import { TransactionDetailsDocumentProvider } from '../providers/documents/transactionDetailsProvider';
 import { AlarmDetailsDocumentProvider } from '../providers/documents/alarmDetailsProvider';
 import { DeviationDetailsDocumentProvider } from '../providers/documents/deviationDetailsProvider';
+import { BasketTransactionDocumentProvider } from '../providers/documents/basketTransactionProvider';
 import { loadTemplate } from '../utils/templateLoader';
 
 export function registerViewCommands(
@@ -15,7 +16,8 @@ export function registerViewCommands(
   crdFsProvider: CrdDefinitionFileSystemProvider,
   transactionDetailsProvider: TransactionDetailsDocumentProvider,
   alarmDetailsProvider: AlarmDetailsDocumentProvider,
-  deviationDetailsProvider: DeviationDetailsDocumentProvider
+  deviationDetailsProvider: DeviationDetailsDocumentProvider,
+  basketProvider: BasketTransactionDocumentProvider
 ) {
   // Show transaction details command
   const showTransactionDetailsCommand = vscode.commands.registerCommand(
@@ -231,5 +233,17 @@ export function registerViewCommands(
     }
   });
 
-  context.subscriptions.push(showTransactionDetailsCommand, showCRDDefinitionCommand);
+  const showBasketTxCommand = vscode.commands.registerCommand('vscode-eda.showBasketTransaction', async (tx: any) => {
+    if (!tx) {
+      vscode.window.showErrorMessage('No transaction details available.');
+      return;
+    }
+    const docUri = vscode.Uri.parse(`basket-tx:/${Date.now()}`);
+    basketProvider.setContentForUri(docUri, JSON.stringify(tx, null, 2));
+    const doc = await vscode.workspace.openTextDocument(docUri);
+    await vscode.languages.setTextDocumentLanguage(doc, 'json');
+    await vscode.window.showTextDocument(doc, { preview: true });
+  });
+
+  context.subscriptions.push(showTransactionDetailsCommand, showCRDDefinitionCommand, showBasketTxCommand);
 }

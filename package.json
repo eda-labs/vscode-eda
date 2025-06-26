@@ -71,6 +71,10 @@
         "title": "EDA: Show Transaction Details"
       },
       {
+        "command": "vscode-eda.showBasketTransaction",
+        "title": "EDA: Show Basket Transaction"
+      },
+      {
         "command": "vscode-eda.deletePod",
         "title": "EDA: Delete Pod",
         "icon": "$(trash)"

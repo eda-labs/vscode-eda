@@ -12,6 +12,7 @@ import { EdaTransactionProvider } from './providers/views/transactionProvider';
 import { AlarmDetailsDocumentProvider } from './providers/documents/alarmDetailsProvider';
 import { DeviationDetailsDocumentProvider } from './providers/documents/deviationDetailsProvider';
 import { TransactionDetailsDocumentProvider } from './providers/documents/transactionDetailsProvider';
+import { BasketTransactionDocumentProvider } from './providers/documents/basketTransactionProvider';
 import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 import { ResourceEditDocumentProvider } from './providers/documents/resourceEditProvider';
 import { ResourceViewDocumentProvider } from './providers/documents/resourceViewProvider';
@@ -51,6 +52,7 @@ export let edaTransactionProvider: EdaTransactionProvider;
 export let alarmDetailsProvider: AlarmDetailsDocumentProvider;
 export let deviationDetailsProvider: DeviationDetailsDocumentProvider;
 export let transactionDetailsProvider: TransactionDetailsDocumentProvider;
+export let basketTransactionProvider: BasketTransactionDocumentProvider;
 export let resourceViewProvider: ResourceViewDocumentProvider;
 export let resourceEditProvider: ResourceEditDocumentProvider;
 export let podDescribeProvider: PodDescribeDocumentProvider;
@@ -391,16 +393,19 @@ export async function activate(context: vscode.ExtensionContext) {
 
   const crdFsProvider = new CrdDefinitionFileSystemProvider();
   const transactionDetailsProviderLocal = new TransactionDetailsDocumentProvider();
+  const basketProviderLocal = new BasketTransactionDocumentProvider();
   const alarmDetailsProviderLocal = new AlarmDetailsDocumentProvider();
   const deviationDetailsProviderLocal = new DeviationDetailsDocumentProvider();
 
   alarmDetailsProvider = alarmDetailsProviderLocal;
   deviationDetailsProvider = deviationDetailsProviderLocal;
   transactionDetailsProvider = transactionDetailsProviderLocal;
+  basketTransactionProvider = basketProviderLocal;
 
   context.subscriptions.push(
     vscode.workspace.registerFileSystemProvider('crd', crdFsProvider, { isCaseSensitive: true }),
     vscode.workspace.registerFileSystemProvider('eda-transaction', transactionDetailsProviderLocal, { isCaseSensitive: true }),
+    vscode.workspace.registerFileSystemProvider('basket-tx', basketProviderLocal, { isCaseSensitive: true }),
     vscode.workspace.registerFileSystemProvider('eda-alarm', alarmDetailsProviderLocal, { isCaseSensitive: true }),
     vscode.workspace.registerFileSystemProvider('eda-deviation', deviationDetailsProviderLocal, { isCaseSensitive: true })
   );
@@ -410,7 +415,8 @@ export async function activate(context: vscode.ExtensionContext) {
     crdFsProvider,
     transactionDetailsProviderLocal,
     alarmDetailsProviderLocal,
-    deviationDetailsProviderLocal
+    deviationDetailsProviderLocal,
+    basketProviderLocal
   );
   registerDeviationCommands(context);
   registerTransactionCommands(context);

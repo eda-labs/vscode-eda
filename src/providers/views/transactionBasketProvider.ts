@@ -10,16 +10,23 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
   private edaClient: EdaClient;
   private statusService: ResourceStatusService;
   private items: any[] = [];
+  private pollTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor() {
     super();
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
     void this.loadBasket();
+    this.pollTimer = setInterval(() => {
+      void this.loadBasket();
+    }, 5000);
   }
 
   public dispose(): void {
-    // no-op for now
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = undefined;
+    }
   }
 
   private async loadBasket(): Promise<void> {
@@ -27,7 +34,13 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
       const content = await this.edaClient.getUserStorageFile('Transactions');
       if (content) {
         const parsed = JSON.parse(content);
-        this.items = Array.isArray(parsed) ? parsed : [parsed];
+        if (Array.isArray(parsed)) {
+          this.items = parsed;
+        } else if (typeof parsed === 'object' && Object.keys(parsed).length === 0) {
+          this.items = [];
+        } else {
+          this.items = [parsed];
+        }
       } else {
         this.items = [];
       }
@@ -64,10 +77,20 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     }
     return this.items.map((tx, idx) => {
       const label = tx.description || `Transaction ${idx + 1}`;
-      const item = new TransactionBasketItem(label, vscode.TreeItemCollapsibleState.None, 'basket-item', tx);
+      const item = new TransactionBasketItem(
+        label,
+        vscode.TreeItemCollapsibleState.None,
+        'basket-item',
+        tx
+      );
       item.description = tx.crs && Array.isArray(tx.crs) ? `${tx.crs.length} resource(s)` : '';
       item.tooltip = JSON.stringify(tx, null, 2);
       item.iconPath = this.statusService.getThemeStatusIcon('blue');
+      item.command = {
+        command: 'vscode-eda.showBasketTransaction',
+        title: 'Show Basket Transaction',
+        arguments: [tx]
+      };
       return item;
     });
   }
