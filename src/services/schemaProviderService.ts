@@ -17,7 +17,7 @@ export class SchemaProviderService extends CoreService {
 
   constructor() {
     super();
-    this.schemaCacheDir = path.join(os.tmpdir(), 'vscode-eda-schemas');
+    this.schemaCacheDir = path.join(os.homedir(), '.eda', 'schemas');
     if (!fs.existsSync(this.schemaCacheDir)) {
       fs.mkdirSync(this.schemaCacheDir, { recursive: true });
     }
