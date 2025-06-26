@@ -497,6 +497,10 @@
       {
         "command": "vscode-eda.filterTree",
         "key": "alt+shift+f"
+      },
+      {
+        "command": "vscode-eda.createResource",
+        "key": "alt+shift+a"
       }
     ]
   },
