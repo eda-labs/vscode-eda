@@ -189,8 +189,18 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   })();
 
-  const edaPassword = await getOrPromptSecret(`edaPassword:${hostKey}`, 'Enter EDA password', edaPasswordCfg);
-  const kcPassword = await getOrPromptSecret(`kcPassword:${hostKey}`, 'Enter Keycloak admin password', kcPasswordCfg);
+  const edaPasswordPrompt = `Enter EDA password for ${edaUsername} at ${edaUrl}`;
+  const edaPassword = await getOrPromptSecret(
+    `edaPassword:${hostKey}`,
+    edaPasswordPrompt,
+    edaPasswordCfg
+  );
+  const kcPasswordPrompt = `Enter Keycloak admin password for ${kcUsername} at ${edaUrl}`;
+  const kcPassword = await getOrPromptSecret(
+    `kcPassword:${hostKey}`,
+    kcPasswordPrompt,
+    kcPasswordCfg
+  );
 
   // Remove plaintext passwords from configuration after storing them in secrets
   if (edaPasswordCfg) {
