@@ -18,8 +18,11 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     void this.loadBasket();
     void this.edaClient.streamUserStorageFile('Transactions');
     this.edaClient.onStreamMessage((stream, msg) => {
-      if (stream === 'file' && msg['file-name'] === 'Transactions') {
-        this.processStreamUpdate(msg);
+      if (stream === 'file') {
+        const fileName = (msg['file-name'] ?? msg.msg?.['file-name'])?.replace(/^\//, '');
+        if (fileName === 'Transactions') {
+          this.processStreamUpdate(msg);
+        }
       }
     });
   }
