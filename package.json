@@ -1,12 +1,12 @@
 {
   "name": "vscode-eda",
   "publisher": "eda-labs",
-  "displayName": "Event Driven Automation (Nokia)",
+  "displayName": "Nokia EDA",
   "icon": "resources/eda.png",
-  "description": "Manage and monitor EDA (Event Driven Automation by Nokai) resources via the EDA API",
+  "description": "Manage and monitor Nokia EDA (Event Driven Automation) resources via the EDA API",
   "author": "EDA Labs",
   "homepage": "https://docs.eda.dev/",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "engines": {
     "vscode": "^1.100.0"
   },

@@ -1,4 +1,4 @@
-# Event Driven Automation (EDA) - VS Code Extension
+# Nokia EDA (Event Driven Automation) - VS Code Extension
 
 **Manage and monitor [EDA (Event Driven Automation by Nokia)](https://docs.eda.dev/) resources directly through the EDA API from Visual Studio Code.** Whenever possible data is streamed over WebSockets for a more responsive experience. This extension provides a convenient UI to view EDA namespaces, CRDs, system components, pods, alarms, deviations, and transactions — plus handy commands for editing and applying resources.
 
