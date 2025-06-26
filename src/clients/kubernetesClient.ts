@@ -246,9 +246,7 @@ export class KubernetesClient {
 
     if (JSON.stringify(namespaces) !== JSON.stringify(old)) {
       this._onNamespacesChanged.fire();
-      log(`Firing _onResourceChanged event (listeners: ${(this._onResourceChanged as any).event ? 'YES' : 'NO'})`, LogLevel.DEBUG);
       this._onResourceChanged.fire();
-      log('_onResourceChanged.fire() completed', LogLevel.DEBUG);
     }
   }
 
@@ -362,9 +360,7 @@ export class KubernetesClient {
                   );
                   this.lastChangeLogTime.set(origin, now);
                 }
-                log(`Firing _onResourceChanged event (listeners: ${(this._onResourceChanged as any).event ? 'YES' : 'NO'})`, LogLevel.DEBUG);
                 this._onResourceChanged.fire();
-                log('_onResourceChanged.fire() completed', LogLevel.DEBUG);
               } catch (err) {
                 log(`Error processing ${def.name} watch event: ${err}`, LogLevel.ERROR);
               }

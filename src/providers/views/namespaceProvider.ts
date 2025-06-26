@@ -101,48 +101,35 @@ constructor() {
    * Listen for changes in resources so we can refresh
    */
   private setupEventListeners(): void {
-      log('Setting up event listeners in namespace provider', LogLevel.DEBUG);
-      log(`k8sClient is: ${this.k8sClient ? 'defined' : 'undefined'}`, LogLevel.DEBUG);
+    // initialize listeners for resource and kubernetes events
 
       if (this.resourceService) {
-        log('Setting up resource service listener', LogLevel.DEBUG);
-        const disp = this.resourceService.onDidChangeResources(async summary => {
-          const msg = summary
-            ? `Resource change detected (${summary}), refreshing tree view`
-            : 'Resource change detected, refreshing tree view';
-          log(msg, LogLevel.DEBUG);
-          this.refresh();
-        });
+      const disp = this.resourceService.onDidChangeResources(async summary => {
+        const msg = summary
+          ? `Resource change detected (${summary}), refreshing tree view`
+          : 'Resource change detected, refreshing tree view';
+        log(msg, LogLevel.DEBUG);
+        this.refresh();
+      });
         this.disposables.push(disp);
       } else {
         log('No resource service available', LogLevel.DEBUG);
       }
 
       if (this.k8sClient) {
-        log('Setting up Kubernetes client listener', LogLevel.DEBUG);
-
         try {
           const disp1 = this.k8sClient.onResourceChanged(() => {
-            log('Kubernetes resource changed EVENT FIRED, refreshing namespaces view', LogLevel.DEBUG);
-            log(`Current namespace cache: ${this.cachedNamespaces.join(', ')}`, LogLevel.DEBUG);
-            log(`Current k8sStreams: ${this.k8sStreams.join(', ')}`, LogLevel.DEBUG);
             this.refresh();
           });
           this.disposables.push(disp1);
-          log('K8s onResourceChanged listener successfully attached', LogLevel.DEBUG);
 
           const disp2 = this.k8sClient.onNamespacesChanged(() => {
-            log('Kubernetes namespaces changed, refreshing namespaces view', LogLevel.DEBUG);
             this.refresh();
           });
           this.disposables.push(disp2);
-          log('K8s onNamespacesChanged listener successfully attached', LogLevel.DEBUG);
-
         } catch (err) {
           log(`Error setting up K8s listeners: ${err}`, LogLevel.ERROR);
         }
-
-        log(`K8s listeners registered: ${this.disposables.length}`, LogLevel.DEBUG);
       } else {
         log('No Kubernetes client available for event listener', LogLevel.WARN);
       }
@@ -165,9 +152,7 @@ constructor() {
    * Refresh the tree view immediately
    */
   public refresh(): void {
-      log('EdaNamespaceProvider.refresh() called', LogLevel.DEBUG);
       super.refresh();
-      log('Tree data change event fired', LogLevel.DEBUG);
   }
   /**
    * Set whether all tree items should be expanded

@@ -69,7 +69,6 @@ export class ResourceService extends CoreService {
 
     try {
       this.isRefreshing = true;
-      log('Refreshing cached resources...', LogLevel.DEBUG);
 
       // Update namespaces
       this.namespaceCache = this.k8sClient.getCachedNamespaces();
