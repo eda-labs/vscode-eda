@@ -409,9 +409,13 @@ export class NodeConfigPanel {
       // Track where sections start for better visual organization
       let lastMainSection = '';
       
+      let previousAnnotation = '';
+
       lines.forEach((line, index) => {
         const lineNum = index + 1;
         const annotationName = annotationMap[index] || '';
+        const showLabel = annotationName && annotationName !== previousAnnotation;
+        previousAnnotation = annotationName;
         
         // Update context tracking
         updateContext(line, currentContext);
@@ -426,7 +430,7 @@ export class NodeConfigPanel {
         
         const annotationEl = document.createElement('div');
         annotationEl.className = 'line-annotation';
-        annotationEl.textContent = annotationName;
+        annotationEl.textContent = showLabel ? annotationName : '';
         annotationEl.dataset.annotation = annotationName;
         
         const numEl = document.createElement('div');
@@ -624,27 +628,63 @@ export class NodeConfigPanel {
     }
     
     function buildAnnotationMap(numLines, annotations) {
-      const annMap = Array(numLines).fill('');
-      
+      const annMap = Array(numLines)
+        .fill(null)
+        .map(() => ({ label: '', size: Infinity }));
+      annotationLineMap.clear();
+
       for (const ann of annotations) {
         const label = ann.cr?.name || 'unknown';
-        
+
         if (!annotationLineMap.has(label)) {
           annotationLineMap.set(label, []);
         }
-        
+
         for (const range of ann.lines) {
-          const start = range.startLine ?? range.endLine ?? 0;
-          const end = range.endLine ?? range.startLine ?? start;
-          
-          for (let i = Math.max(0, start - 1); i < Math.min(numLines, end); i++) {
-            annMap[i] = label;
-            annotationLineMap.get(label).push(i + 1);
+          let start = range.startLine;
+          let end = range.endLine;
+
+          if (start === undefined && end !== undefined) {
+            start = 1;
+          }
+
+          if (end === undefined && start !== undefined) {
+            end = start;
+          }
+
+          if (start === undefined || end === undefined) {
+            continue;
+          }
+
+          if (start > end) {
+            const tmp = start;
+            start = end;
+            end = tmp;
+          }
+
+          const size = end - start + 1;
+
+          for (
+            let i = Math.max(0, start - 1);
+            i <= Math.min(numLines - 1, end - 1);
+            i++
+          ) {
+            if (size <= annMap[i].size) {
+              annMap[i] = { label, size };
+            }
           }
         }
       }
-      
-      return annMap;
+
+      const finalMap = Array(numLines).fill('');
+      annMap.forEach((entry, idx) => {
+        if (entry.label) {
+          finalMap[idx] = entry.label;
+          annotationLineMap.get(entry.label).push(idx + 1);
+        }
+      });
+
+      return finalMap;
     }
     
     function setupEventListeners() {
