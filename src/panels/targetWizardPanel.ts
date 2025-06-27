@@ -15,39 +15,45 @@ function getNonce(): string {
   return Array.from({ length: 32 }, () => possible.charAt(Math.floor(Math.random() * possible.length))).join('');
 }
 
-function getHtml(contexts: string[], nonce: string, cspSource: string): string {
+function getHtml(contexts: string[], nonce: string, cspSource: string, logo: string): string {
   const options = contexts.map(c => `<option value="${c}">${c}</option>`).join('');
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' ${cspSource}; script-src 'nonce-${nonce}';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' ${cspSource}; img-src ${cspSource}; script-src 'nonce-${nonce}';">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); background-color: var(--vscode-editor-background); padding: 20px; }
+    .container { max-width: 500px; margin: auto; }
+    img { display: block; margin: 0 auto 16px; width: 150px; }
     input, select { width: 100%; margin-bottom: 12px; padding: 4px; color: var(--vscode-input-foreground); background-color: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); }
     button { background-color: var(--vscode-button-background); color: var(--vscode-button-foreground); border: 1px solid var(--vscode-button-border); padding: 6px 16px; cursor: pointer; }
     button:hover { background-color: var(--vscode-button-hoverBackground); }
   </style>
 </head>
 <body>
-  <h2>Configure EDA Target</h2>
-  <label>EDA API URL</label>
-  <input id="url" type="text" placeholder="https://eda.example.com">
-  <label>Kubernetes Context</label>
-  <select id="context">
-    <option value="">None</option>
-    ${options}
-  </select>
-  <label>EDA Username</label>
-  <input id="edaUser" type="text" value="admin">
-  <label>EDA Password</label>
-  <input id="edaPass" type="password" value="admin">
-  <label>Keycloak Admin Username</label>
-  <input id="kcUser" type="text" value="admin">
-  <label>Keycloak Admin Password</label>
-  <input id="kcPass" type="password" value="admin">
-  <button id="save">Save</button>
+  <div class="container">
+    <img src="${logo}" alt="EDA">
+    <h2>Configure EDA Target</h2>
+    <p>Provide the URL of your EDA API and optional Kubernetes context. Credentials are stored securely.</p>
+    <label>EDA API URL</label>
+    <input id="url" type="text" placeholder="https://eda.example.com">
+    <label>Kubernetes Context</label>
+    <select id="context">
+      <option value="">None</option>
+      ${options}
+    </select>
+    <label>EDA Username</label>
+    <input id="edaUser" type="text" value="admin">
+    <label>EDA Password</label>
+    <input id="edaPass" type="password" value="admin">
+    <label>Keycloak Admin Username</label>
+    <input id="kcUser" type="text" value="admin">
+    <label>Keycloak Admin Password</label>
+    <input id="kcPass" type="password" value="admin">
+    <button id="save">Save</button>
+  </div>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     document.getElementById('save').addEventListener('click', () => {
@@ -78,7 +84,8 @@ export async function configureTargets(context: vscode.ExtensionContext): Promis
   const contexts = k8sClient.getAvailableContexts();
   const panel = vscode.window.createWebviewPanel('edaTargetWizard', 'Configure EDA Targets', vscode.ViewColumn.Active, { enableScripts: true });
   const nonce = getNonce();
-  panel.webview.html = getHtml(contexts, nonce, panel.webview.cspSource);
+  const logoUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda.png'));
+  panel.webview.html = getHtml(contexts, nonce, panel.webview.cspSource, logoUri.toString());
 
   return new Promise(resolve => {
     panel.webview.onDidReceiveMessage(async (msg: any) => {
