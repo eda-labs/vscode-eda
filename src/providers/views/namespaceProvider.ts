@@ -694,6 +694,8 @@ constructor() {
         ti.contextValue = 'pod';
       } else if (stream === 'deployments') {
         ti.contextValue = 'k8s-deployment-instance';
+      } else if (streamGroup === 'core' && stream === 'toponodes') {
+        ti.contextValue = 'toponode';
       }
       ti.namespace = namespace;
       ti.resourceType = stream;

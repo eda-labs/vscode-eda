@@ -189,6 +189,10 @@ export class EdaClient {
     await this.streamClient.streamUserStorageFile(path);
   }
 
+  public async getNodeConfig(namespace: string, node: string): Promise<any> {
+    return this.apiClient.getNodeConfig(namespace, node);
+  }
+
   // Spec manager methods (delegated)
   public getCachedNamespaces(): string[] {
     return this.specManager.getCachedNamespaces();

@@ -283,4 +283,12 @@ export class EdaApiClient {
       'file-content': content
     });
   }
+
+  /**
+   * Fetch the running configuration for a node
+   */
+  public async getNodeConfig(namespace: string, node: string): Promise<any> {
+    const path = `/core/nodeconfig/v2/namespaces/${namespace}/nodes/${node}`;
+    return this.fetchJSON<any>(path);
+  }
 }

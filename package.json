@@ -101,6 +101,11 @@
         "icon": "$(info)"
       },
       {
+        "command": "vscode-eda.viewNodeConfig",
+        "title": "EDA: Get Node Config",
+        "icon": "$(file-text)"
+      },
+      {
         "command": "vscode-eda.switchToEditResource",
         "title": "EDA: Switch to Edit Mode",
         "icon": "$(edit)"
@@ -353,6 +358,16 @@
         {
           "command": "vscode-eda.viewStreamItem",
           "when": "viewItem == stream-item",
+          "group": "navigation"
+        },
+        {
+          "command": "vscode-eda.viewNodeConfig",
+          "when": "viewItem == toponode",
+          "group": "inline"
+        },
+        {
+          "command": "vscode-eda.viewNodeConfig",
+          "when": "viewItem == toponode",
           "group": "navigation"
         },
         {
