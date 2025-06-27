@@ -148,6 +148,10 @@ export class NodeConfigPanel {
     .annotations-hidden .line-annotation {
       display: none;
     }
+
+    .annotations-hidden .divider {
+      display: none;
+    }
     
     .line-num {
       text-align: right;
