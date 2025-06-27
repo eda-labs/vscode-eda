@@ -443,7 +443,11 @@ constructor() {
       }
 
       const streams = this.cachedStreamGroups[g] || [];
-      const visible = streams.filter(s => this.streamMatches(namespace, s));
+      const groupMatched =
+        !!this.treeFilter && g.toLowerCase().includes(this.treeFilter);
+      const visible = groupMatched
+        ? streams
+        : streams.filter(s => this.streamMatches(namespace, s));
       const withData = visible.filter(s => this.streamHasData(namespace, s));
 
       if (withData.length === 0) {
@@ -497,8 +501,10 @@ constructor() {
   private getStreamsForGroup(namespace: string, group: string): TreeItemBase[] {
     const streams = this.cachedStreamGroups[group] || [];
     const items: TreeItemBase[] = [];
+    const parentMatched =
+      !!this.treeFilter && group.toLowerCase().includes(this.treeFilter);
     for (const s of streams) {
-      if (!this.streamMatches(namespace, s)) {
+      if (!parentMatched && !this.streamMatches(namespace, s)) {
         continue;
       }
       if (group === 'kubernetes') {
@@ -631,9 +637,13 @@ constructor() {
         return [it];
       }
       const out: TreeItemBase[] = [];
+      const parentMatched =
+        !!this.treeFilter &&
+        (stream.toLowerCase().includes(this.treeFilter) ||
+          (streamGroup && streamGroup.toLowerCase().includes(this.treeFilter)));
       for (const resource of items) {
         const name = resource.metadata?.name || 'unknown';
-        if (this.treeFilter && !name.toLowerCase().includes(this.treeFilter)) {
+        if (!parentMatched && this.treeFilter && !name.toLowerCase().includes(this.treeFilter)) {
           continue;
         }
         const ti = new TreeItemBase(name, vscode.TreeItemCollapsibleState.None, 'stream-item', resource);
@@ -660,7 +670,7 @@ constructor() {
         }
         out.push(ti);
       }
-      if (out.length === 0 && this.treeFilter) {
+      if (out.length === 0 && this.treeFilter && !parentMatched) {
         const ni = new TreeItemBase(`No items match "${this.treeFilter}"`, vscode.TreeItemCollapsibleState.None, 'message');
         ni.iconPath = new vscode.ThemeIcon('info');
         return [ni];
@@ -680,8 +690,12 @@ constructor() {
       return [item];
     }
     const items: TreeItemBase[] = [];
+    const parentMatched =
+      !!this.treeFilter &&
+      (stream.toLowerCase().includes(this.treeFilter) ||
+        (streamGroup && streamGroup.toLowerCase().includes(this.treeFilter)));
     for (const [name, resource] of Array.from(map.entries()).sort()) {
-      if (this.treeFilter && !name.toLowerCase().includes(this.treeFilter)) {
+      if (!parentMatched && this.treeFilter && !name.toLowerCase().includes(this.treeFilter)) {
         continue;
       }
       const ti = new TreeItemBase(
@@ -716,7 +730,7 @@ constructor() {
       items.push(ti);
     }
 
-    if (items.length === 0 && this.treeFilter) {
+    if (items.length === 0 && this.treeFilter && !parentMatched) {
       const noItem = new TreeItemBase(
         `No items match "${this.treeFilter}"`,
         vscode.TreeItemCollapsibleState.None,
