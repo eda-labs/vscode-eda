@@ -344,34 +344,10 @@ constructor() {
   }
 
   public async expandAllNamespaces(treeView: vscode.TreeView<TreeItemBase>): Promise<void> {
-    // Get namespaces
-    const namespaces = await this.getChildren();
-
-    // First reveal all namespaces
-    for (const namespace of namespaces) {
-      if (namespace.contextValue === 'namespace') {
-        await treeView.reveal(namespace, { expand: 1 });
-
-        const groups = await this.getChildren(namespace);
-        for (const group of groups) {
-          await treeView.reveal(group, { expand: 2 });
-          const streams = await this.getChildren(group);
-          for (const stream of streams) {
-            await treeView.reveal(stream, { expand: 3 });
-          }
-        }
-      } else if (namespace.contextValue === 'k8s-root') {
-        await treeView.reveal(namespace, { expand: 1 });
-        const kNamespaces = await this.getChildren(namespace);
-        for (const kns of kNamespaces) {
-          await treeView.reveal(kns, { expand: 2 });
-          const streams = await this.getChildren(kns);
-          for (const stream of streams) {
-            await treeView.reveal(stream, { expand: 3 });
-          }
-        }
-      }
-    }
+    const roots = await this.getChildren();
+    await Promise.all(
+      roots.map(item => treeView.reveal(item, { expand: 3 }))
+    );
   }
 
   /**
@@ -406,7 +382,9 @@ constructor() {
     }
     const item = new TreeItemBase(
       'Kubernetes',
-      vscode.TreeItemCollapsibleState.Collapsed,
+      this.expandAll
+        ? vscode.TreeItemCollapsibleState.Expanded
+        : vscode.TreeItemCollapsibleState.Collapsed,
       'k8s-root'
     );
     item.iconPath = this.kubernetesIcon;
@@ -430,7 +408,9 @@ constructor() {
     return namespaces.map(ns => {
       const item = new TreeItemBase(
         ns,
-        vscode.TreeItemCollapsibleState.Collapsed,
+        this.expandAll
+          ? vscode.TreeItemCollapsibleState.Expanded
+          : vscode.TreeItemCollapsibleState.Collapsed,
         'k8s-namespace'
       );
       item.iconPath = this.kubernetesIcon;
@@ -477,7 +457,9 @@ constructor() {
         }
         const ti = new TreeItemBase(
           s,
-          vscode.TreeItemCollapsibleState.Collapsed,
+          this.expandAll
+            ? vscode.TreeItemCollapsibleState.Expanded
+            : vscode.TreeItemCollapsibleState.Collapsed,
           'stream'
         );
         ti.iconPath = new vscode.ThemeIcon('search-expand-results');
@@ -487,7 +469,9 @@ constructor() {
       } else {
         const ti = new TreeItemBase(
           g,
-          vscode.TreeItemCollapsibleState.Collapsed,
+          this.expandAll
+            ? vscode.TreeItemCollapsibleState.Expanded
+            : vscode.TreeItemCollapsibleState.Collapsed,
           'stream-group'
         );
         ti.iconPath = new vscode.ThemeIcon('folder-library');
@@ -523,7 +507,9 @@ constructor() {
         }
         const ti = new TreeItemBase(
           s,
-          vscode.TreeItemCollapsibleState.Collapsed,
+          this.expandAll
+            ? vscode.TreeItemCollapsibleState.Expanded
+            : vscode.TreeItemCollapsibleState.Collapsed,
           'stream'
         );
         ti.iconPath = new vscode.ThemeIcon('search-expand-results');
@@ -538,7 +524,9 @@ constructor() {
       }
       const ti = new TreeItemBase(
         s,
-        vscode.TreeItemCollapsibleState.Collapsed,
+        this.expandAll
+          ? vscode.TreeItemCollapsibleState.Expanded
+          : vscode.TreeItemCollapsibleState.Collapsed,
         'stream'
       );
       ti.iconPath = new vscode.ThemeIcon('search-expand-results');

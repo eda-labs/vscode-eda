@@ -395,6 +395,22 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'vscode-eda.expandAllNamespaces',
+      async () => {
+        try {
+          namespaceProvider.setExpandAll(true);
+          await namespaceProvider.expandAllNamespaces(namespaceTreeView);
+        } catch (err: any) {
+          vscode.window.showErrorMessage(
+            `Failed to expand namespaces: ${err.message || err}`
+          );
+        }
+      }
+    )
+  );
+
   context.subscriptions.push(namespaceTreeView);
   context.subscriptions.push(alarmTreeView);
   context.subscriptions.push(deviationTreeView, { dispose: () => edaDeviationProvider.dispose() });
