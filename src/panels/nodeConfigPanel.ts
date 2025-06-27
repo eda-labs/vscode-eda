@@ -118,7 +118,7 @@ export class NodeConfigPanel {
     
     /* --- Layout States --- */
     .config-view.annotations-visible {
-      grid-template-columns: minmax(150px, max-content) auto 1fr;
+      grid-template-columns: max-content auto 1fr;
     }
     
     .config-view.annotations-hidden {
@@ -138,12 +138,11 @@ export class NodeConfigPanel {
       color: var(--vscode-descriptionForeground);
       background-color: var(--vscode-editorWidget-background);
       text-align: right;
-      overflow: hidden;
-      text-overflow: ellipsis;
       cursor: default;
       user-select: none;
       border-right: 1px solid var(--vscode-side-bar-border, #2d2d2d);
       transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+      white-space: pre;
     }
     
     .annotations-hidden .line-annotation {
@@ -346,6 +345,7 @@ export class NodeConfigPanel {
     const toastMessage = document.getElementById('toastMessage');
     
     const annotationLineMap = new Map();
+    const annotationInfoMap = new Map();
     let isAnnotationsVisible = true;
     let configText = '';
     
@@ -441,7 +441,15 @@ export class NodeConfigPanel {
         
         const annotationEl = document.createElement('div');
         annotationEl.className = 'line-annotation';
-        annotationEl.textContent = showLabel ? annotationName : '';
+        if (showLabel) {
+          const info = annotationInfoMap.get(annotationName);
+          annotationEl.textContent = annotationName;
+          if (info) {
+            annotationEl.title = \`\${info.name}\\n\${info.group}\\n\${info.version}\\n\${info.kind}\`;
+          }
+        } else {
+          annotationEl.textContent = '';
+        }
         annotationEl.dataset.annotation = annotationName;
         
         const numEl = document.createElement('div');
@@ -631,12 +639,20 @@ export class NodeConfigPanel {
         .fill(null)
         .map(() => ({ label: '', size: Infinity }));
       annotationLineMap.clear();
+      annotationInfoMap.clear();
 
       for (const ann of annotations) {
         const label = ann.cr?.name || 'unknown';
+        const info = {
+          name: ann.cr?.name || 'unknown',
+          group: ann.cr?.gvk?.group || '',
+          version: ann.cr?.gvk?.version || '',
+          kind: ann.cr?.gvk?.kind || '',
+        };
 
         if (!annotationLineMap.has(label)) {
           annotationLineMap.set(label, []);
+          annotationInfoMap.set(label, info);
         }
 
         for (const range of ann.lines) {
