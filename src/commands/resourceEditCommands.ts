@@ -38,9 +38,34 @@ export function registerResourceEditCommands(
   // Switch from read-only view to editable
   const switchToEditCommand = vscode.commands.registerCommand(
     'vscode-eda.switchToEditResource',
-    async (viewDocumentUri: vscode.Uri) => {
+    async (arg: any) => {
       try {
-        // If no URI is provided, use the active editor
+        let viewDocumentUri: vscode.Uri | undefined;
+        let namespace: string;
+        let kind: string;
+        let name: string;
+        let resourceObject: any | undefined;
+
+        if (arg) {
+          // Case 1: Invoked with a URI (from active editor or command palette)
+          if (arg instanceof vscode.Uri || (arg.scheme && typeof arg.scheme === 'string')) {
+            viewDocumentUri = arg as vscode.Uri;
+          } else {
+            // Case 2: Invoked from a tree item/resource data
+            resourceObject = arg.raw || arg.rawResource || arg.resource?.raw;
+            if (!resourceObject) {
+              throw new Error('No resource data found');
+            }
+            namespace = resourceObject.metadata?.namespace || arg.namespace || 'default';
+            kind = resourceObject.kind || arg.kind || arg.resourceType || 'Resource';
+            name = resourceObject.metadata?.name || arg.name || arg.label || 'unknown';
+
+            viewDocumentUri = ResourceViewDocumentProvider.createUri(namespace, kind, name);
+            const yamlText = yaml.dump(resourceObject, { indent: 2 });
+            resourceViewProvider.setResourceContent(viewDocumentUri, yamlText);
+          }
+        }
+
         if (!viewDocumentUri) {
           const activeEditor = vscode.window.activeTextEditor;
           if (!activeEditor || activeEditor.document.uri.scheme !== 'k8s-view') {
@@ -49,13 +74,11 @@ export function registerResourceEditCommands(
           viewDocumentUri = activeEditor.document.uri;
         }
 
-        // 1) Ensure this is a k8s-view document
         if (viewDocumentUri.scheme !== 'k8s-view') {
           throw new Error('Not a Kubernetes resource read-only view');
         }
 
-        // 2) Parse the read-only URI to get resource info (namespace/kind/name)
-        const { namespace, kind, name } = ResourceViewDocumentProvider.parseUri(viewDocumentUri);
+        ({ namespace, kind, name } = ResourceViewDocumentProvider.parseUri(viewDocumentUri));
         const resourceKey = getResourceKey(namespace, kind, name);
 
         // 3) Check if we already have an edit URI for this resource
@@ -70,16 +93,15 @@ export function registerResourceEditCommands(
           // Create a new edit URI and track the pair
           editUri = ResourceEditDocumentProvider.createUri(namespace, kind, name);
 
-          // Open the *existing* (read-only) doc so we can read its text
-          const readOnlyDoc = await vscode.workspace.openTextDocument(viewDocumentUri);
-          const readOnlyYaml = readOnlyDoc.getText();
-
-          // Parse the YAML to verify it's valid and remove status field
-          let resourceObject: any;
-          try {
-            resourceObject = yaml.load(readOnlyYaml);
-          } catch (parseErr) {
-            throw new Error(`Invalid YAML in read-only view: ${parseErr}`);
+          let readOnlyYaml: string;
+          if (!resourceObject) {
+            const readOnlyDoc = await vscode.workspace.openTextDocument(viewDocumentUri);
+            readOnlyYaml = readOnlyDoc.getText();
+            try {
+              resourceObject = yaml.load(readOnlyYaml);
+            } catch (parseErr) {
+              throw new Error(`Invalid YAML in read-only view: ${parseErr}`);
+            }
           }
 
           if (resourceObject && typeof resourceObject === 'object') {
@@ -262,8 +284,28 @@ export function registerResourceEditCommands(
           return;
         }
 
-        // Get the original resource
-        const originalResource = resourceEditProvider.getOriginalResource(documentUri);
+        // Get the original resource. If it's missing (e.g. document was reopened),
+        // fall back to the cached pair or reconstruct it from the current YAML.
+        let originalResource = resourceEditProvider.getOriginalResource(documentUri);
+        if (!originalResource) {
+          const { namespace, kind, name } = ResourceEditDocumentProvider.parseUri(documentUri);
+          const pair = resourcePairs.get(getResourceKey(namespace, kind, name));
+          originalResource = pair?.originalResource;
+          if (!originalResource) {
+            // As a last resort, parse the current document content as the baseline
+            try {
+              originalResource = yaml.load(docText);
+            } catch {
+              originalResource = undefined;
+            }
+          }
+          if (originalResource) {
+            resourceEditProvider.setOriginalResource(documentUri, originalResource);
+            if (pair) {
+              pair.originalResource = originalResource;
+            }
+          }
+        }
         if (!originalResource) {
           throw new Error('Could not find original resource data');
         }

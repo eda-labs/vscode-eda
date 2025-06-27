@@ -336,6 +336,11 @@
           "group": "inline"
         },
         {
+          "command": "vscode-eda.switchToEditResource",
+          "when": "viewItem == stream-item",
+          "group": "inline"
+        },
+        {
           "command": "vscode-eda.showCRDDefinition",
           "when": "viewItem == crd-instance",
           "group": "inline"
@@ -357,6 +362,11 @@
         },
         {
           "command": "vscode-eda.deleteResource",
+          "when": "viewItem == crd-instance",
+          "group": "inline"
+        },
+        {
+          "command": "vscode-eda.switchToEditResource",
           "when": "viewItem == crd-instance",
           "group": "inline"
         },

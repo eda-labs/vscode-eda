@@ -132,6 +132,15 @@ export class ResourceEditDocumentProvider extends BaseDocumentProvider {
   }
 
   /**
+   * VS Code may attempt to create directories when saving. Since our provider
+   * is backed by an in-memory map, we simply ignore these calls instead of
+   * throwing a read-only error.
+   */
+  public createDirectory(_uri: vscode.Uri): void {
+    // no-op
+  }
+
+  /**
    * Override to allow write operations for k8s resources
    */
   writeFile(uri: vscode.Uri, content: Uint8Array, options: { create: boolean; overwrite: boolean }): void {
