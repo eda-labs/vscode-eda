@@ -23,6 +23,7 @@ export class EdaSpecManager {
   private apiVersion = 'unknown';
   private streamEndpoints: StreamEndpoint[] = [];
   private namespaceSet: Set<string> = new Set();
+  private operationMap: Map<string, string> = new Map();
   private initPromise: Promise<void> = Promise.resolve();
   private apiClient: EdaApiClient;
 
@@ -97,6 +98,18 @@ export class EdaSpecManager {
     return result;
   }
 
+  /**
+   * Look up the API path for the given operationId
+   */
+  public async getPathByOperationId(opId: string): Promise<string> {
+    await this.initPromise;
+    const path = this.operationMap.get(opId);
+    if (!path) {
+      throw new Error(`operationId '${opId}' not found`);
+    }
+    return path;
+  }
+
   private async initializeSpecs(): Promise<void> {
     log('Initializing API specs...', LogLevel.INFO);
     try {
@@ -109,6 +122,7 @@ export class EdaSpecManager {
       }
       const coreUrl = `${baseUrl}${(coreEntry[1] as any).serverRelativeURL}`;
       const coreSpec = await this.apiClient.fetchJsonUrl(coreUrl);
+      this.collectOperationPaths(coreSpec);
       const nsPath = this.findPathByOperationId(coreSpec, 'accessGetNamespaces');
       const versionPath = this.findPathByOperationId(coreSpec, 'versionGet');
       this.apiVersion = await this.fetchVersion(versionPath);
@@ -166,6 +180,17 @@ export class EdaSpecManager {
     return eps;
   }
 
+  /** Collect operationId to path mappings */
+  private collectOperationPaths(spec: any): void {
+    for (const [p, methods] of Object.entries<any>(spec.paths ?? {})) {
+      for (const m of Object.values<any>(methods as any)) {
+        if (m && typeof m === 'object' && m.operationId) {
+          this.operationMap.set(m.operationId as string, p);
+        }
+      }
+    }
+  }
+
   /** Deduplicate endpoints, preferring '/apps' paths when duplicates exist */
   private deduplicateEndpoints(endpoints: StreamEndpoint[]): StreamEndpoint[] {
     const result = new Map<string, StreamEndpoint>();
@@ -197,6 +222,7 @@ export class EdaSpecManager {
           try {
             const raw = await fs.promises.readFile(specPath, 'utf8');
             const spec = JSON.parse(raw);
+            this.collectOperationPaths(spec);
             endpoints.push(...this.collectStreamEndpoints(spec));
           } catch (err) {
             log(`Failed to read cached spec ${specPath}: ${err}`, LogLevel.WARN);
@@ -239,6 +265,7 @@ export class EdaSpecManager {
       const spec = await this.apiClient.fetchJsonUrl(url);
       const { category, name } = this.parseApiPath(apiPath);
       await this.writeSpecAndTypes(spec, name, version, category);
+      this.collectOperationPaths(spec);
       all.push(...this.collectStreamEndpoints(spec));
     }
     return all;

@@ -29,6 +29,7 @@ export class EdaClient {
     this.apiClient = new EdaApiClient(this.authClient);
     this.streamClient = new EdaStreamClient(opts.messageIntervalMs);
     this.specManager = new EdaSpecManager(this.apiClient);
+    this.apiClient.setSpecManager(this.specManager);
 
     // Connect components
     this.streamClient.setAuthClient(this.authClient);

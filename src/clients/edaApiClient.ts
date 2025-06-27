@@ -1,16 +1,22 @@
 import { fetch } from 'undici';
 import { LogLevel, log } from '../extension';
 import type { EdaAuthClient } from './edaAuthClient';
+import type { EdaSpecManager } from './edaSpecManager';
 
 /**
  * Client for EDA REST API operations
  */
 export class EdaApiClient {
   private authClient: EdaAuthClient;
+  private specManager?: EdaSpecManager;
 
   constructor(authClient: EdaAuthClient) {
     this.authClient = authClient;
     log('EdaApiClient initialized', LogLevel.DEBUG);
+  }
+
+  public setSpecManager(specManager: EdaSpecManager): void {
+    this.specManager = specManager;
   }
 
   /**
@@ -288,7 +294,15 @@ export class EdaApiClient {
    * Fetch the running configuration for a node
    */
   public async getNodeConfig(namespace: string, node: string): Promise<any> {
-    const path = `/core/nodeconfig/v2/namespaces/${namespace}/nodes/${node}`;
+    if (!this.specManager) {
+      throw new Error('Spec manager not initialized');
+    }
+    const template = await this.specManager.getPathByOperationId('toolsGetNodeConfig');
+    const path = template
+      .replace('{nsName}', namespace)
+      .replace('{namespace}', namespace)
+      .replace('{nodeName}', node)
+      .replace('{node}', node);
     return this.fetchJSON<any>(path);
   }
 }
