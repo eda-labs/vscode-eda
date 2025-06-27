@@ -7,6 +7,7 @@ import { EdaClient } from '../clients/edaClient';
 import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
 import { runKubectl } from '../utils/kubectlRunner';
 import * as yaml from 'js-yaml';
+import { stripManagedFieldsFromYaml, sanitizeResource } from '../utils/yamlUtils';
 
 /**
  * Decide if the given apiVersion is an EDA group (ends with ".eda.nokia.com")
@@ -170,6 +171,8 @@ export function registerResourceViewCommands(
           }
         }
 
+        finalYaml = stripManagedFieldsFromYaml(finalYaml);
+
         if (!finalYaml || finalYaml.trim().length === 0) {
           finalYaml = `# No data found for ${resourceKind}/${resourceName} in namespace ${resourceNamespace}`;
         }
@@ -210,7 +213,7 @@ export function registerResourceViewCommands(
           resource.kind || arg.resourceType || arg.kind || 'Resource';
         const name = resource.metadata?.name || arg.name || arg.label || 'unknown';
 
-        const yamlText = yaml.dump(resource, { indent: 2 });
+        const yamlText = yaml.dump(sanitizeResource(resource), { indent: 2 });
 
         const viewUri = vscode.Uri.parse(
           `k8s-view:/${namespace}/${kind}/${name}?ts=${Date.now()}`
