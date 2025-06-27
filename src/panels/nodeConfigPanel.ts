@@ -67,7 +67,7 @@ export class NodeConfigPanel {
     .toolbar {
       padding: 12px;
       background-color: var(--vscode-side-bar-background);
-      border-bottom: 1px solid var(--vscode-side-bar-border, #2d2d2d);
+      border-bottom: 1px solid var(--vscode-sideBar-border);
       display: flex;
       align-items: center;
       gap: 10px;
@@ -106,7 +106,7 @@ export class NodeConfigPanel {
     }
     
     .copy-success {
-      background-color: var(--vscode-debugConsole-infoForeground, #3794ff) !important;
+      background-color: var(--vscode-debugConsole-infoForeground) !important;
     }
     
     .config-view {
@@ -140,7 +140,7 @@ export class NodeConfigPanel {
       text-align: right;
       cursor: default;
       user-select: none;
-      border-right: 1px solid var(--vscode-side-bar-border, #2d2d2d);
+      border-right: 1px solid var(--vscode-sideBar-border);
       transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
       white-space: pre;
     }
@@ -182,91 +182,91 @@ export class NodeConfigPanel {
     /* --- Enhanced Syntax Highlighting --- */
     /* Main sections */
     .section-keyword {
-      color: #ff79c6;
+      color: var(--vscode-charts-purple);
       font-weight: bold;
     }
     
     /* Interface types */
     .interface-type {
-      color: #bd93f9;
+      color: var(--vscode-charts-purple);
       font-weight: bold;
     }
     
     /* Properties */
     .property {
-      color: #8be9fd;
+      color: var(--vscode-charts-blue);
     }
     
     /* Interface names */
     .interface-name {
-      color: #50fa7b;
+      color: var(--vscode-charts-green);
       font-weight: bold;
     }
     
     /* Brackets */
     .bracket {
-      color: #f8f8f2;
+      color: var(--vscode-editor-foreground);
     }
     
     /* Values */
     .value {
-      color: #f1fa8c;
+      color: var(--vscode-charts-yellow);
     }
     
     /* Boolean values */
     .boolean {
-      color: #bd93f9;
+      color: var(--vscode-charts-purple);
       font-weight: bold;
     }
     
     /* Numbers */
     .number {
-      color: #ff5555;
+      color: var(--vscode-charts-red);
     }
     
     /* Strings */
     .string {
-      color: #f1fa8c;
+      color: var(--vscode-charts-yellow);
     }
     
     /* Special values (like IP addresses) */
     .ip-address {
-      color: #ffb86c;
+      color: var(--vscode-charts-orange);
     }
     
     /* Config parameters */
     .parameter {
-      color: #8be9fd;
+      color: var(--vscode-charts-blue);
     }
     
     /* Network specific keywords */
     .network-keyword {
-      color: #ff79c6;
+      color: var(--vscode-charts-purple);
     }
     
     /* VLAN related */
     .vlan {
-      color: #bd93f9;
+      color: var(--vscode-charts-purple);
     }
     
     /* Protocol related */
     .protocol {
-      color: #50fa7b;
+      color: var(--vscode-charts-green);
     }
     
     /* BGP specific */
     .bgp {
-      color: #ff5555;
+      color: var(--vscode-charts-red);
     }
     
     /* Route related */
     .route {
-      color: #ffb86c;
+      color: var(--vscode-charts-orange);
     }
     
     /* Comments */
     .comment {
-      color: #6272a4;
+      color: var(--vscode-descriptionForeground);
       font-style: italic;
     }
     
@@ -274,7 +274,7 @@ export class NodeConfigPanel {
     .indentation-guide {
       display: inline-block;
       width: 8px;
-      border-left: 1px solid rgba(248, 248, 242, 0.1);
+      border-left: 1px solid var(--vscode-editorIndentGuide-background);
       height: 100%;
       position: absolute;
       left: 0;
@@ -286,8 +286,8 @@ export class NodeConfigPanel {
       position: fixed;
       bottom: 20px;
       right: 20px;
-      background-color: var(--vscode-notificationToast-background, #333);
-      color: var(--vscode-notificationToast-foreground, #fff);
+      background-color: var(--vscode-notificationToast-background);
+      color: var(--vscode-notificationToast-foreground);
       padding: 10px 16px;
       border-radius: 4px;
       box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
@@ -307,7 +307,7 @@ export class NodeConfigPanel {
     
     /* Divider for sections */
     .divider {
-      border-bottom: 1px solid rgba(248, 248, 242, 0.2);
+      border-bottom: 1px solid var(--vscode-textSeparator-foreground);
       margin: 10px 0;
     }
   </style>
