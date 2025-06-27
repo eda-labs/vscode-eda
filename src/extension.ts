@@ -31,6 +31,7 @@ import { registerResourceEditCommands } from './commands/resourceEditCommands';
 import { registerResourceCreateCommand } from './commands/resourceCreateCommand';
 import { registerCredentialCommands } from './commands/credentialCommands';
 import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand';
+import { configureTargets } from './panels/targetWizardPanel';
 // import { registerResourceViewCommands } from './commands/resourceViewCommands';
 // import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 
@@ -141,6 +142,10 @@ export async function activate(context: vscode.ExtensionContext) {
   let kcUsername = config.get<string>('kcUsername', 'admin');
   const edaTargetsCfg = config.get<Record<string, string | EdaTargetConfig | undefined>>('edaTargets');
   const targetEntries = edaTargetsCfg ? Object.entries(edaTargetsCfg) : [];
+  if (targetEntries.length === 0) {
+    await configureTargets(context);
+    return;
+  }
   if (targetEntries.length > 0) {
     const idx = context.globalState.get<number>('selectedEdaTarget', 0) ?? 0;
     const [url, val] = targetEntries[Math.min(idx, targetEntries.length - 1)];
@@ -508,6 +513,11 @@ export async function activate(context: vscode.ExtensionContext) {
   });
 
   context.subscriptions.push(switchCmd);
+
+  const configCmd = vscode.commands.registerCommand('vscode-eda.configureTargets', async () => {
+    await configureTargets(context);
+  });
+  context.subscriptions.push(configCmd);
 
 
   // log('EDA extension activated', LogLevel.INFO, true);

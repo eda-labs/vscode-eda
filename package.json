@@ -29,7 +29,14 @@
     "sros"
   ],
   "license": "Apache-2.0",
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:vscode-eda.configureTargets",
+    "onView:edaNamespaces",
+    "onView:edaAlarms",
+    "onView:edaDeviations",
+    "onView:edaTransactionBasket",
+    "onView:edaTransactions"
+  ],
   "main": "./dist/extension",
   "contributes": {
     "viewsContainers": {
@@ -216,6 +223,11 @@
         "icon": "$(key)"
       },
       {
+        "command": "vscode-eda.configureTargets",
+        "title": "EDA: Configure Targets",
+        "icon": "$(gear)"
+      },
+      {
         "command": "vscode-eda.commitBasket",
         "title": "EDA: Commit Basket",
         "icon": "$(debug-start)"
@@ -244,6 +256,11 @@
         },
         {
           "command": "vscode-eda.updateTargetCredentials",
+          "when": "true"
+        }
+        ,
+        {
+          "command": "vscode-eda.configureTargets",
           "when": "true"
         }
       ],
