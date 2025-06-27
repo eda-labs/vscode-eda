@@ -552,6 +552,12 @@
           "type": "boolean",
           "default": false,
           "description": "Disable all Kubernetes features and operate in EDA API only mode"
+        },
+        "vscode-eda.nodeConfigColorMode": {
+          "type": "string",
+          "enum": ["full", "less", "none"],
+          "default": "full",
+          "description": "Color mode for node configuration views"
         }
       }
     },

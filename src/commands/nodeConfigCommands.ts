@@ -15,7 +15,12 @@ export function registerNodeConfigCommands(context: vscode.ExtensionContext) {
       }
       const edaClient = serviceManager.getClient<EdaClient>('eda');
       const result = await edaClient.getNodeConfig(namespace, nodeName);
-      NodeConfigPanel.show(result.running || '', (result.annotations || []) as Annotation[], nodeName);
+      NodeConfigPanel.show(
+        context,
+        result.running || '',
+        (result.annotations || []) as Annotation[],
+        nodeName
+      );
     } catch (err: any) {
       log(`Failed to load node config: ${err}`, LogLevel.ERROR, true);
       vscode.window.showErrorMessage(`Failed to load node config: ${err.message || err}`);

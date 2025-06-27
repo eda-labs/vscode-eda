@@ -19,8 +19,20 @@ export interface Annotation {
 
 export class NodeConfigPanel {
   private panel: vscode.WebviewPanel;
+  private context: vscode.ExtensionContext;
+  private static colorMode: 'full' | 'less' | 'none' = 'full';
 
-  constructor(config: string, annotations: Annotation[], title: string) {
+  constructor(
+    context: vscode.ExtensionContext,
+    config: string,
+    annotations: Annotation[],
+    title: string
+  ) {
+    this.context = context;
+    NodeConfigPanel.colorMode = context.globalState.get<'full' | 'less' | 'none'>(
+      'nodeConfigColorMode',
+      vscode.workspace.getConfiguration('vscode-eda').get<'full' | 'less' | 'none'>('nodeConfigColorMode', 'full')
+    );
     this.panel = vscode.window.createWebviewPanel(
       'nodeConfig',
       `Node Config: ${title}`,
@@ -31,16 +43,24 @@ export class NodeConfigPanel {
       }
     );
 
-    this.panel.webview.html = this.getHtml();
+    this.panel.webview.html = this.getHtml(NodeConfigPanel.colorMode);
+
+    this.panel.webview.onDidReceiveMessage(message => {
+      if (message.command === 'saveColorMode') {
+        NodeConfigPanel.colorMode = message.colorMode;
+        this.context.globalState.update('nodeConfigColorMode', NodeConfigPanel.colorMode);
+      }
+    });
 
     this.panel.webview.postMessage({
       command: 'loadData',
       config,
       annotations,
+      colorMode: NodeConfigPanel.colorMode,
     });
   }
 
-  private getHtml(): string {
+  private getHtml(colorMode: string): string {
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -103,6 +123,14 @@ export class NodeConfigPanel {
     .button-icon {
       font-size: 14px;
       line-height: 1;
+    }
+
+    .select {
+      background-color: var(--vscode-input-background);
+      color: var(--vscode-input-foreground);
+      border: 1px solid var(--vscode-input-border);
+      border-radius: 4px;
+      padding: 4px 8px;
     }
     
     .copy-success {
@@ -284,6 +312,40 @@ export class NodeConfigPanel {
       left: 0;
       top: 0;
     }
+
+    body.color-mode-less .section-keyword,
+    body.color-mode-less .interface-type,
+    body.color-mode-less .property,
+    body.color-mode-less .interface-name,
+    body.color-mode-less .value,
+    body.color-mode-less .string,
+    body.color-mode-less .ip-address,
+    body.color-mode-less .parameter,
+    body.color-mode-less .network-keyword,
+    body.color-mode-less .vlan,
+    body.color-mode-less .protocol,
+    body.color-mode-less .bgp,
+    body.color-mode-less .route {
+      color: var(--vscode-editor-foreground);
+    }
+
+    body.color-mode-none .section-keyword,
+    body.color-mode-none .interface-type,
+    body.color-mode-none .property,
+    body.color-mode-none .interface-name,
+    body.color-mode-none .value,
+    body.color-mode-none .string,
+    body.color-mode-none .ip-address,
+    body.color-mode-none .parameter,
+    body.color-mode-none .network-keyword,
+    body.color-mode-none .vlan,
+    body.color-mode-none .protocol,
+    body.color-mode-none .bgp,
+    body.color-mode-none .route,
+    body.color-mode-none .boolean,
+    body.color-mode-none .number {
+      color: var(--vscode-editor-foreground);
+    }
     
     /* --- Toast Notification --- */
     .toast {
@@ -328,6 +390,11 @@ export class NodeConfigPanel {
         <span class="button-icon">⧉</span>
         <span>Copy Config</span>
       </button>
+      <select id="colorModeSelect" class="select">
+        <option value="full">Full Color</option>
+        <option value="less">Less Color</option>
+        <option value="none">No Color</option>
+      </select>
     </div>
     
     <div id="configView" class="config-view annotations-visible">
@@ -347,6 +414,10 @@ export class NodeConfigPanel {
     const copyBtn = document.getElementById('copyConfig');
     const toast = document.getElementById('toast');
     const toastMessage = document.getElementById('toastMessage');
+    const colorModeSelect = document.getElementById('colorModeSelect');
+    let colorMode = '${colorMode}';
+    document.body.classList.add(\`color-mode-\${colorMode}\`);
+    colorModeSelect.value = colorMode;
     
     const annotationLineMap = new Map();
     const annotationInfoMap = new Map();
@@ -357,6 +428,12 @@ export class NodeConfigPanel {
       const message = event.data;
       if (message.command === 'loadData') {
         configText = message.config;
+        if (message.colorMode) {
+          colorMode = message.colorMode;
+          document.body.classList.remove('color-mode-full', 'color-mode-less', 'color-mode-none');
+          document.body.classList.add(\`color-mode-\${colorMode}\`);
+          colorModeSelect.value = colorMode;
+        }
         render(message.config, message.annotations);
       }
     });
@@ -379,11 +456,18 @@ export class NodeConfigPanel {
       navigator.clipboard.writeText(configText).then(() => {
         showToast('Config copied to clipboard');
         copyBtn.classList.add('copy-success');
-        
+
         setTimeout(() => {
           copyBtn.classList.remove('copy-success');
         }, 1000);
       });
+    });
+
+    colorModeSelect.addEventListener('change', () => {
+      const mode = colorModeSelect.value;
+      document.body.classList.remove('color-mode-full', 'color-mode-less', 'color-mode-none');
+      document.body.classList.add(\`color-mode-\${mode}\`);
+      vscode.postMessage({ command: 'saveColorMode', colorMode: mode });
     });
     
     function showToast(message) {
@@ -580,6 +664,8 @@ export class NodeConfigPanel {
             // Format based on value type
             if (value === 'true' || value === 'false') {
               return space + '<span class="property">' + property + '</span> <span class="boolean">' + value + '</span>';
+            } else if (value === 'enable' || value === 'disable' || value === 'up' || value === 'down') {
+              return space + '<span class="property">' + property + '</span> <span class="boolean">' + value + '</span>';
             } else if (value.match(/^\\d+$/)) {
               return space + '<span class="property">' + property + '</span> <span class="number">' + value + '</span>';
             } else if (value.match(/^".*"$/)) {
@@ -611,10 +697,13 @@ export class NodeConfigPanel {
           processedLine = processedLine.replace(/^(\\s*)\\]$/, '$1<span class="bracket">]</span>');
         }
         else if (processedLine.match(/^(\\s*)(\\w.*)$/)) {
-          if (processedLine.trim().match(/^\\d+$/)) {
+          const trimmed = processedLine.trim();
+          if (trimmed.match(/^\\d+$/)) {
             processedLine = processedLine.replace(/^(\\s*)(\\w.*)$/, '$1<span class="number">$2</span>');
-          } else if (processedLine.trim().match(/^\\d+\\.\\d+\\.\\d+\\.\\d+$/)) {
+          } else if (trimmed.match(/^\\d+\\.\\d+\\.\\d+\\.\\d+$/)) {
             processedLine = processedLine.replace(/^(\\s*)(\\w.*)$/, '$1<span class="ip-address">$2</span>');
+          } else if (trimmed === 'enable' || trimmed === 'disable' || trimmed === 'up' || trimmed === 'down') {
+            processedLine = processedLine.replace(/^(\\s*)(\\w.*)$/, '$1<span class="boolean">$2</span>');
           } else {
             processedLine = processedLine.replace(/^(\\s*)(\\w.*)$/, '$1<span class="value">$2</span>');
           }
@@ -743,7 +832,12 @@ export class NodeConfigPanel {
 </html>`;
   }
 
-  static show(config: string, annotations: Annotation[], node: string): void {
-    new NodeConfigPanel(config, annotations, node);
+  static show(
+    context: vscode.ExtensionContext,
+    config: string,
+    annotations: Annotation[],
+    node: string
+  ): void {
+    new NodeConfigPanel(context, config, annotations, node);
   }
 }
