@@ -146,7 +146,11 @@ export class EdaApiClient {
    * Restore system configuration to the specified transaction
    */
   public async restoreTransaction(transactionId: string | number): Promise<any> {
-    const path = `/core/transaction/v2/restore/${transactionId}`;
+    if (!this.specManager) {
+      throw new Error('Spec manager not initialized');
+    }
+    const template = await this.specManager.getPathByOperationId('transRestoreTransaction');
+    const path = template.replace('{transactionId}', String(transactionId));
     return this.requestJSON('POST', path);
   }
 
@@ -154,7 +158,11 @@ export class EdaApiClient {
    * Revert the specified transaction
    */
   public async revertTransaction(transactionId: string | number): Promise<any> {
-    const path = `/core/transaction/v2/revert/${transactionId}`;
+    if (!this.specManager) {
+      throw new Error('Spec manager not initialized');
+    }
+    const template = await this.specManager.getPathByOperationId('transRevertTransaction');
+    const path = template.replace('{transactionId}', String(transactionId));
     return this.requestJSON('POST', path);
   }
 
@@ -237,7 +245,10 @@ export class EdaApiClient {
    * Fetch transaction summary results
    */
   public async getEdaTransactions(size = 50): Promise<any[]> {
-    const path = '/core/transaction/v2/result/summary';
+    if (!this.specManager) {
+      throw new Error('Spec manager not initialized');
+    }
+    const path = await this.specManager.getPathByOperationId('transGetSummaryResultList');
     const data = await this.fetchJSON<any>(`${path}?size=${size}`);
     return Array.isArray(data?.results) ? data.results : [];
   }
@@ -246,7 +257,11 @@ export class EdaApiClient {
    * Fetch summary information for a single transaction
    */
   public async getTransactionSummary(transactionId: string | number): Promise<any> {
-    const path = `/core/transaction/v2/result/summary/${transactionId}`;
+    if (!this.specManager) {
+      throw new Error('Spec manager not initialized');
+    }
+    const template = await this.specManager.getPathByOperationId('transGetSummaryResult');
+    const path = template.replace('{transactionId}', String(transactionId));
     return this.fetchJSON<any>(path);
   }
 
@@ -258,7 +273,11 @@ export class EdaApiClient {
     waitForComplete = false,
     failOnErrors = false
   ): Promise<any> {
-    const path = `/core/alltransaction/v1/details/${transactionId}`;
+    if (!this.specManager) {
+      throw new Error('Spec manager not initialized');
+    }
+    const template = await this.specManager.getPathByOperationId('transGetAllDetails');
+    const path = template.replace('{transactionId}', String(transactionId));
     const params: string[] = [];
     if (waitForComplete) {
       params.push('waitForComplete=true');
