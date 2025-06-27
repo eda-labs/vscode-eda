@@ -406,16 +406,27 @@ export class NodeConfigPanel {
         level: 0
       };
       
-      // Track where sections start for better visual organization
-      let lastMainSection = '';
-      
+      // Track the previous annotation for section dividers
+      let lastAnnotation = '';
       let previousAnnotation = '';
 
       lines.forEach((line, index) => {
         const lineNum = index + 1;
         const annotationName = annotationMap[index] || '';
         const showLabel = annotationName && annotationName !== previousAnnotation;
+
+        // Add section divider when annotation changes
+        if (showLabel && lastAnnotation) {
+          const divider = document.createElement('div');
+          divider.className = 'divider';
+          divider.style.gridColumn = '1 / -1';
+          fragment.appendChild(divider);
+        }
+
         previousAnnotation = annotationName;
+        if (annotationName) {
+          lastAnnotation = annotationName;
+        }
         
         // Update context tracking
         updateContext(line, currentContext);
@@ -440,18 +451,6 @@ export class NodeConfigPanel {
         const codeEl = document.createElement('div');
         codeEl.className = 'line-code';
         codeEl.innerHTML = applySyntaxHighlighting(line, currentContext);
-        
-        // Add section dividers for visual organization
-        if (currentContext.level === 0 && currentContext.section !== lastMainSection && lastMainSection !== '') {
-          const divider = document.createElement('div');
-          divider.className = 'divider';
-          divider.style.gridColumn = '1 / -1';
-          fragment.appendChild(divider);
-        }
-        
-        if (currentContext.level === 0 && currentContext.section !== '') {
-          lastMainSection = currentContext.section;
-        }
         
         lineEl.appendChild(annotationEl);
         lineEl.appendChild(numEl);
@@ -645,7 +644,8 @@ export class NodeConfigPanel {
           let end = range.endLine;
 
           if (start === undefined && end !== undefined) {
-            start = 1;
+            // API uses zero-based indexing
+            start = 0;
           }
 
           if (end === undefined && start !== undefined) {
@@ -665,8 +665,8 @@ export class NodeConfigPanel {
           const size = end - start + 1;
 
           for (
-            let i = Math.max(0, start - 1);
-            i <= Math.min(numLines - 1, end - 1);
+            let i = Math.max(0, start);
+            i <= Math.min(numLines - 1, end);
             i++
           ) {
             if (size <= annMap[i].size) {
