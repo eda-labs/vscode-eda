@@ -33,7 +33,7 @@ import { registerResourceCreateCommand } from './commands/resourceCreateCommand'
 import { registerCredentialCommands } from './commands/credentialCommands';
 import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand';
 // import { registerDashboardCommands } from './commands/dashboardCommands';
-import { configureTargets } from './panels/targetWizardPanel';
+import { configureTargets } from './panels/targetWizard/targetWizardPanel';
 // import { registerResourceViewCommands } from './commands/resourceViewCommands';
 // import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 

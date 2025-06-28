@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
-import { BasePanel } from './basePanel';
+import { BasePanel } from '../basePanel';
 import { targetWizardStyles } from './targetWizardPanel.styles';
 import { targetWizardHtml } from './targetWizardPanel.html';
 import { targetWizardScripts } from './targetWizardPanel.scripts';
-import { KubernetesClient } from '../clients/kubernetesClient';
+import { KubernetesClient } from '../../clients/kubernetesClient';
 
 export interface TargetWizardResult {
   url: string;

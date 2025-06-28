@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { DashboardPanel } from '../panels/dashboardPanel';
+import { DashboardPanel } from '../panels/dashboard/dashboardPanel';
 
 export function registerDashboardCommands(context: vscode.ExtensionContext): void {
   const cmd = vscode.commands.registerCommand('vscode-eda.showDashboard', (name: string) => {

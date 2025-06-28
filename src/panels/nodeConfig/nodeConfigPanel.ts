@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { BasePanel } from './basePanel';
+import { BasePanel } from '../basePanel';
 import { nodeConfigStyles } from './nodeConfigPanel.styles';
 import { nodeConfigHtml } from './nodeConfigPanel.html';
 import { nodeConfigScripts } from './nodeConfigPanel.scripts';

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { BasePanel } from './basePanel';
+import { BasePanel } from '../basePanel';
 import { dashboardStyles } from './dashboardPanel.styles';
 import { dashboardHtml } from './dashboardPanel.html';
 import { dashboardScripts } from './dashboardPanel.scripts';
