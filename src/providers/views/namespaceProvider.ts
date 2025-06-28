@@ -89,7 +89,7 @@ constructor() {
     if (!this.cachedNamespaces.includes('eda-system')) {
       this.cachedNamespaces.push('eda-system');
     }
-    this.k8sClient?.setWatchedNamespaces(this.cachedNamespaces);
+    void this.initializeKubernetesNamespaces();
 
     void this.edaClient.streamEdaNamespaces();
 
@@ -146,6 +146,25 @@ constructor() {
       }
     } catch (err) {
       log(`Failed to load streams: ${err}`, LogLevel.ERROR);
+    }
+  }
+
+  /**
+   * Load all Kubernetes namespaces and start watchers for them
+   */
+  private async initializeKubernetesNamespaces(): Promise<void> {
+    if (!this.k8sClient) {
+      return;
+    }
+    try {
+      const nsObjs = await this.k8sClient.listNamespaces();
+      const ns = nsObjs
+        .map(n => n?.metadata?.name)
+        .filter((n): n is string => typeof n === 'string');
+      const all = Array.from(new Set([...ns, ...this.cachedNamespaces]));
+      await this.k8sClient.setWatchedNamespaces(all);
+    } catch (err) {
+      log(`Failed to initialize Kubernetes namespaces: ${err}`, LogLevel.WARN);
     }
   }
 
@@ -606,7 +625,11 @@ constructor() {
     }
     if (changed) {
       this.edaClient.setCachedNamespaces(this.cachedNamespaces);
-      this.k8sClient?.setWatchedNamespaces(this.cachedNamespaces);
+      if (this.k8sClient) {
+        const existing = this.k8sClient.getCachedNamespaces();
+        const all = Array.from(new Set([...existing, ...this.cachedNamespaces]));
+        void this.k8sClient.setWatchedNamespaces(all);
+      }
       this.refresh();
     }
   }
