@@ -311,19 +311,21 @@ export async function activate(context: vscode.ExtensionContext) {
     }
 
     // 7) Register file system providers
-    if (k8sClient) {
-      resourceViewProvider = new ResourceViewDocumentProvider();
-      context.subscriptions.push(
-        vscode.workspace.registerFileSystemProvider('k8s-view', resourceViewProvider, { isCaseSensitive: true })
-      );
-      registerResourceViewCommands(context, resourceViewProvider);
+    resourceViewProvider = new ResourceViewDocumentProvider();
+    context.subscriptions.push(
+      vscode.workspace.registerFileSystemProvider('k8s-view', resourceViewProvider, { isCaseSensitive: true })
+    );
 
-      resourceEditProvider = new ResourceEditDocumentProvider();
-      context.subscriptions.push(
-        vscode.workspace.registerFileSystemProvider('k8s', resourceEditProvider, { isCaseSensitive: true })
-      );
-      registerResourceCreateCommand(context, resourceEditProvider);
-      registerResourceEditCommands(context, resourceEditProvider, resourceViewProvider);
+    resourceEditProvider = new ResourceEditDocumentProvider();
+    context.subscriptions.push(
+      vscode.workspace.registerFileSystemProvider('k8s', resourceEditProvider, { isCaseSensitive: true })
+    );
+
+    registerResourceCreateCommand(context, resourceEditProvider);
+    registerResourceEditCommands(context, resourceEditProvider, resourceViewProvider);
+
+    if (k8sClient) {
+      registerResourceViewCommands(context, resourceViewProvider);
 
       podDescribeProvider = new PodDescribeDocumentProvider();
       context.subscriptions.push(
