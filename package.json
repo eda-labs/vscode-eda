@@ -31,12 +31,14 @@
   "license": "Apache-2.0",
   "activationEvents": [
     "onCommand:vscode-eda.configureTargets",
-    "onView:edaDashboards",
     "onView:edaNamespaces",
     "onView:edaAlarms",
     "onView:edaDeviations",
     "onView:edaTransactionBasket",
     "onView:edaTransactions"
+  ],
+  "_disabledActivationEvents": [
+    "onView:edaDashboards"
   ],
   "main": "./dist/extension",
   "contributes": {
@@ -51,10 +53,6 @@
     },
     "views": {
       "edaExplorerViewContainer": [
-        {
-          "id": "edaDashboards",
-          "name": "Dashboards"
-        },
         {
           "id": "edaNamespaces",
           "name": "Resources"
@@ -77,11 +75,15 @@
         }
       ]
     },
+    "_disabledViews": {
+      "edaExplorerViewContainer": [
+        {
+          "id": "edaDashboards",
+          "name": "Dashboards"
+        }
+      ]
+    },
     "commands": [
-      {
-        "command": "vscode-eda.showDashboard",
-        "title": "EDA: Show Dashboard"
-      },
       {
         "command": "vscode-eda.showTransactionDetails",
         "title": "EDA: Show Transaction Details"
@@ -256,6 +258,12 @@
         "icon": "$(trash)"
       }
     ],
+    "_disabledCommands": [
+      {
+        "command": "vscode-eda.showDashboard",
+        "title": "EDA: Show Dashboard"
+      }
+    ],
     "menus": {
       "commandPalette": [
         {
@@ -272,16 +280,6 @@
         }
       ],
       "view/title": [
-        {
-          "command": "vscode-eda.filterTree",
-          "when": "view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions",
-          "group": "navigation@1"
-        },
-        {
-          "command": "vscode-eda.clearFilter",
-          "when": "view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions || view == edaSystem",
-          "group": "navigation@2"
-        },
         {
           "command": "vscode-eda.createResource",
           "when": "view == edaNamespaces",
@@ -337,12 +335,12 @@
         {
           "command": "vscode-eda.logsPod",
           "when": "viewItem == pod || viewItem == npp-pod",
-          "group": "navigation"
+          "group": "navigation@1"
         },
         {
           "command": "vscode-eda.describePod",
           "when": "viewItem == pod || viewItem == npp-pod",
-          "group": "navigation"
+          "group": "navigation@2"
         },
         {
           "command": "vscode-eda.terminalPod",
@@ -492,6 +490,20 @@
           "command": "vscode-eda.switchToEditResource",
           "when": "resourceScheme == k8s-view",
           "group": "1_modification@1"
+        }
+      ]
+    },
+    "_disabledMenus": {
+      "view/title": [
+        {
+          "command": "vscode-eda.filterTree",
+          "when": "view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions",
+          "group": "navigation@1"
+        },
+        {
+          "command": "vscode-eda.clearFilter",
+          "when": "view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions || view == edaSystem",
+          "group": "navigation@2"
         }
       ]
     },
