@@ -70,7 +70,6 @@
           "id": "edaTransactions",
           "name": "Transactions"
         }
-
       ]
     },
     "commands": [
@@ -257,8 +256,7 @@
         {
           "command": "vscode-eda.updateTargetCredentials",
           "when": "true"
-        }
-        ,
+        },
         {
           "command": "vscode-eda.configureTargets",
           "when": "true"
@@ -555,7 +553,11 @@
         },
         "vscode-eda.nodeConfigColorMode": {
           "type": "string",
-          "enum": ["full", "less", "none"],
+          "enum": [
+            "full",
+            "less",
+            "none"
+          ],
           "default": "full",
           "description": "Color mode for node configuration views"
         }
@@ -620,5 +622,8 @@
     "webpack": "^5.99.7",
     "webpack-cli": "^6.0.1",
     "ws": "^8.18.2"
+  },
+  "dependencies": {
+    "echarts": "^5.6.0"
   }
 }
