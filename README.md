@@ -12,7 +12,8 @@
    - Browse resources in each EDA-managed namespace.
    - Create new resources from CRD skeletons.
    - Switch to edit mode with a single click — then apply or dry-run your changes.
-   - Autocompletion, Suggestions and Popups for the ressources
+   - YAML-based autocompletion and validation for EDA resources.
+   - Real-time updates using watch streams (no manual refresh).
 2. **Kubernetes**
    - Kubernetes namespaces and resources are listed under a top-level "Kubernetes" item in the Resources view.
    - Uses a distinct icon to differentiate from EDA resources.
@@ -27,11 +28,17 @@
      how many are loaded. The extension will restart the stream and reload the
      initial transaction list when you change the limit.
    - View detailed information for a transaction directly from the EDA API.
+   - Stage multiple operations in a transaction basket for commit or dry-run.
 
-5. **Pod Actions**
+5. **Pod & Deployment Actions**
    - Open a terminal to a Pod, view logs in a terminal, or delete/describe a Pod.
+   - Restart deployments or delete resources directly from the tree view.
 
-6. **Filtering**
+6. **Node Configuration Viewer**
+   - Inspect running node configs with color-coded syntax highlighting.
+   - Copy lines or toggle color mode as needed.
+
+7. **Filtering**
    - Quick filter at the top-level views (`Alt+Shift+F` by default).
    - Clear filter to revert to full tree.
 
@@ -50,8 +57,8 @@
 
 ### Authentication
 
-On first activation the extension prompts for your EDA and Keycloak passwords.
-The values are stored in VS Code's Secret Storage and are keyed by the target's host. Use the **EDA: Update Target Credentials** command to change passwords for a specific target.
+If no EDA targets are configured on first activation, the extension launches a setup wizard to collect your EDA and Keycloak passwords.
+The credentials are stored in VS Code's Secret Storage and are keyed by the target's host. Use the **EDA: Update Target Credentials** command to update passwords for a specific target.
 ---
 
 ## Usage
