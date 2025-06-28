@@ -36,8 +36,6 @@ export const targetWizardScripts = `
       document.querySelectorAll('button.delete').forEach(btn => {
         btn.addEventListener('click', () => {
           const idx = parseInt(btn.getAttribute('data-index'));
-          const url = existingTargets[idx].url;
-          vscode.postMessage({ command: 'delete', url });
           existingTargets.splice(idx, 1);
           if (selectedIdx === idx) {
             selectedIdx = 0;
@@ -85,10 +83,25 @@ export const targetWizardScripts = `
 
     document.getElementById('save').addEventListener('click', () => {
       const url = document.getElementById('url').value.trim();
+      const item = {
+        url,
+        context: document.getElementById('context').value || undefined,
+        edaUsername: document.getElementById('edaUser').value || undefined,
+        kcUsername: document.getElementById('kcUser').value || undefined,
+      };
+      if (url) {
+        if (editIndex !== null) {
+          existingTargets[editIndex] = item;
+        } else {
+          existingTargets.push(item);
+        }
+      }
       if (!url && editIndex === null) {
+        vscode.postMessage({ command: 'commit', targets: existingTargets });
         vscode.postMessage({ command: 'close' });
       } else {
         sendData('save');
+        vscode.postMessage({ command: 'commit', targets: existingTargets });
       }
     });
     document.getElementById('add').addEventListener('click', () => {

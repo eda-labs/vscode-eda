@@ -39,6 +39,8 @@ export class TargetWizardPanel extends BasePanel {
         await this.saveConfiguration(msg, false);
       } else if (msg.command === 'delete') {
         await this.deleteTarget(msg.url);
+      } else if (msg.command === 'commit') {
+        await this.commitTargets(msg.targets);
       } else if (msg.command === 'select') {
         await context.globalState.update('selectedEdaTarget', msg.index);
       } else if (msg.command === 'close') {
@@ -134,6 +136,32 @@ export class TargetWizardPanel extends BasePanel {
       await this.context.secrets.delete(`kcPassword:${host}`);
     } catch {
       // ignore invalid url
+    }
+  }
+
+  private async commitTargets(targets: any[]): Promise<void> {
+    const config = vscode.workspace.getConfiguration('vscode-eda');
+    const previous = config.get<Record<string, any>>('edaTargets') || {};
+    const updated: Record<string, any> = {};
+    for (const t of targets) {
+      updated[t.url] = {
+        context: t.context || undefined,
+        edaUsername: t.edaUsername || undefined,
+        kcUsername: t.kcUsername || undefined
+      };
+    }
+    await config.update('edaTargets', updated, vscode.ConfigurationTarget.Global);
+
+    for (const url of Object.keys(previous)) {
+      if (!updated[url]) {
+        try {
+          const host = new URL(url).host;
+          await this.context.secrets.delete(`edaPassword:${host}`);
+          await this.context.secrets.delete(`kcPassword:${host}`);
+        } catch {
+          // ignore invalid url
+        }
+      }
     }
   }
 
