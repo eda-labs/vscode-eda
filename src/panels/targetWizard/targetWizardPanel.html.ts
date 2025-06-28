@@ -18,6 +18,7 @@ export const targetWizardHtml = `
     <input id="kcUser" type="text" value="admin" class="input" />
     <label class="block text-sm font-medium">Keycloak Admin Password</label>
     <input id="kcPass" type="password" value="admin" class="input" />
+    <label class="block text-sm font-medium"><input id="skipTls" type="checkbox" class="mr-1" /> Skip TLS Verification</label>
     <div class="flex justify-end gap-2">
       <button id="add" class="btn">Add</button>
       <button id="save" class="btn">Save</button>
@@ -33,6 +34,7 @@ export const targetWizardHtml = `
         <th class="px-2 py-1 text-left">Context</th>
         <th class="px-2 py-1 text-left">EDA User</th>
         <th class="px-2 py-1 text-left">KC User</th>
+        <th class="px-2 py-1 text-left">Skip TLS</th>
         <th class="px-2 py-1"></th>
       </tr>
     </thead>

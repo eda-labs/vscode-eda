@@ -529,7 +529,7 @@
         },
         "vscode-eda.edaTargets": {
           "type": "object",
-          "markdownDescription": "Map EDA API URLs to optional Kubernetes contexts and credentials. Example:\n```jsonc\n{\n  \"https://eda-example.com/\": {\n    \"context\": \"kubernetes-admin@kubernetes\",\n    \"edaUsername\": \"admin\",          // your EDA-realm username\n    \"kcUsername\": \"admin\"            // your KC admin username\n  }\n}\n```",
+          "markdownDescription": "Map EDA API URLs to optional Kubernetes contexts and credentials. Example:\n```jsonc\n{\n  \"https://eda-example.com/\": {\n    \"context\": \"kubernetes-admin@kubernetes\",\n    \"edaUsername\": \"admin\",\n    \"kcUsername\": \"admin\",\n    \"skipTlsVerify\": true\n  }\n}\n```",
           "additionalProperties": {
             "oneOf": [
               {
@@ -550,6 +550,10 @@
                   "kcUsername": {
                     "type": "string",
                     "description": "Keycloak admin username for this target"
+                  },
+                  "skipTlsVerify": {
+                    "type": "boolean",
+                    "description": "Skip TLS verification when connecting to this target"
                   }
                 },
                 "additionalProperties": false
@@ -561,11 +565,6 @@
           "type": "string",
           "default": "eda",
           "description": "Keycloak client ID for EDA"
-        },
-        "vscode-eda.skipTlsVerify": {
-          "type": "boolean",
-          "default": false,
-          "description": "Skip TLS certificate verification when connecting to the EDA API"
         },
         "vscode-eda.disableKubernetes": {
           "type": "boolean",

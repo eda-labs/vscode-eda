@@ -90,8 +90,6 @@ In VS Code settings (`File → Preferences → Settings`), navigate to `Extensio
   - `1` = Info (default)
   - `2` = Warning
   - `3` = Error
-- **`vscode-eda.skipTlsVerify`**
-  When enabled, the extension skips TLS certificate validation when connecting to the EDA API. This is helpful in development environments with self-signed certificates. The same behavior can be toggled via the `EDA_SKIP_TLS_VERIFY=true` environment variable.
 - **`vscode-eda.disableKubernetes`**
   When enabled, all Kubernetes-related features are disabled and the extension communicates exclusively with the EDA API. You can also set `EDA_DISABLE_K8S=true` as an environment variable.
 - **`vscode-eda.nodeConfigColorMode`**
@@ -100,19 +98,21 @@ In VS Code settings (`File → Preferences → Settings`), navigate to `Extensio
   - `less` = only highlight key states and numbers
   - `none` = no color highlighting
 - **`vscode-eda.edaTargets`**
-  Map EDA API URLs to optional Kubernetes contexts and credentials. Each value may be a simple context string or an object:
+  Map EDA API URLs to optional Kubernetes contexts and credentials. Each value may be a simple context string or an object. Use `skipTlsVerify: true` to bypass TLS certificate validation for a specific target. You can also set `EDA_SKIP_TLS_VERIFY=true` to disable TLS verification for all targets:
 
   ```jsonc
   {
     "https://eda-example.com/": {
       "context": "kubernetes-admin@kubernetes",
       "edaUsername": "admin",          // your EDA-realm username for this URL
-      "kcUsername": "admin"            // your Keycloak (KC) admin username
+      "kcUsername": "admin",           // your Keycloak (KC) admin username
+      "skipTlsVerify": false           // optionally skip TLS verification
     },
     "https://10.10.10.1:9443": {
       "context": "kind-eda-demo",
       "edaUsername": "admin",        // whatever user you’ve set up in EDA
-      "kcUsername": "admin"          // your Keycloak admin user
+      "kcUsername": "admin",          // your Keycloak admin user
+      "skipTlsVerify": true
     }
   }
   ```

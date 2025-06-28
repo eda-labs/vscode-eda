@@ -18,6 +18,7 @@ export const targetWizardScripts = `
           '<td class="px-2 py-1">' + (t.context || '') + '</td>' +
           '<td class="px-2 py-1">' + (t.edaUsername || '') + '</td>' +
           '<td class="px-2 py-1">' + (t.kcUsername || '') + '</td>' +
+          '<td class="px-2 py-1">' + (t.skipTlsVerify ? 'Yes' : '') + '</td>' +
           '<td class="px-2 py-1"><button class="edit text-blue-500" data-index="' + idx + '">Edit</button>' +
           '<button class="delete text-red-500 ml-2" data-index="' + idx + '">Delete</button></td>';
         tbody.appendChild(tr);
@@ -31,6 +32,7 @@ export const targetWizardScripts = `
           document.getElementById('context').value = t.context || '';
           document.getElementById('edaUser').value = t.edaUsername || 'admin';
           document.getElementById('kcUser').value = t.kcUsername || 'admin';
+          document.getElementById('skipTls').checked = !!t.skipTlsVerify;
         });
       });
       document.querySelectorAll('button.delete').forEach(btn => {
@@ -67,6 +69,7 @@ export const targetWizardScripts = `
       const edaPassword = document.getElementById('edaPass').value;
       const kcUsername = document.getElementById('kcUser').value;
       const kcPassword = document.getElementById('kcPass').value;
+      const skipTlsVerify = document.getElementById('skipTls').checked;
       const originalUrl = editIndex !== null ? existingTargets[editIndex].url : null;
       vscode.postMessage({
         command,
@@ -76,6 +79,7 @@ export const targetWizardScripts = `
         edaPassword,
         kcUsername,
         kcPassword,
+        skipTlsVerify,
         originalUrl,
         index: editIndex
       });
@@ -88,6 +92,7 @@ export const targetWizardScripts = `
         context: document.getElementById('context').value || undefined,
         edaUsername: document.getElementById('edaUser').value || undefined,
         kcUsername: document.getElementById('kcUser').value || undefined,
+        skipTlsVerify: document.getElementById('skipTls').checked || undefined,
       };
       if (url) {
         if (editIndex !== null) {
@@ -111,6 +116,7 @@ export const targetWizardScripts = `
         context: document.getElementById('context').value || undefined,
         edaUsername: document.getElementById('edaUser').value || undefined,
         kcUsername: document.getElementById('kcUser').value || undefined,
+        skipTlsVerify: document.getElementById('skipTls').checked || undefined,
       };
       if (editIndex !== null) {
         existingTargets[editIndex] = item;

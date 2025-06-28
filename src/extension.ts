@@ -41,6 +41,7 @@ export interface EdaTargetConfig {
   context?: string;
   edaUsername?: string;
   kcUsername?: string;
+  skipTlsVerify?: boolean;
 }
 
 
@@ -142,6 +143,7 @@ export async function activate(context: vscode.ExtensionContext) {
   let edaContext: string | undefined;
   let edaUsername = config.get<string>('edaUsername', 'admin');
   let kcUsername = config.get<string>('kcUsername', 'admin');
+  let skipTlsVerifyCfg = process.env.EDA_SKIP_TLS_VERIFY === 'true';
   const edaTargetsCfg = config.get<Record<string, string | EdaTargetConfig | undefined>>('edaTargets');
   const targetEntries = edaTargetsCfg ? Object.entries(edaTargetsCfg) : [];
   if (targetEntries.length === 0) {
@@ -161,6 +163,9 @@ export async function activate(context: vscode.ExtensionContext) {
       }
       if (val.kcUsername) {
         kcUsername = val.kcUsername;
+      }
+      if (val.skipTlsVerify !== undefined) {
+        skipTlsVerifyCfg = val.skipTlsVerify;
       }
     }
   }
@@ -238,7 +243,7 @@ export async function activate(context: vscode.ExtensionContext) {
   }
   const clientId = config.get<string>('clientId', 'eda');
   const clientSecret = config.get<string>('clientSecret', '');
-  const skipTlsVerify = config.get<boolean>('skipTlsVerify', false);
+  const skipTlsVerify = skipTlsVerifyCfg;
   const disableKubernetes =
     !edaContext ||
     config.get<boolean>('disableKubernetes', false) ||

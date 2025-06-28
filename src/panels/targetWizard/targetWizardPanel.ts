@@ -16,14 +16,14 @@ export interface TargetWizardResult {
 
 export class TargetWizardPanel extends BasePanel {
   private contexts: string[];
-  private targets: { url: string; context?: string; edaUsername?: string; kcUsername?: string }[];
+  private targets: { url: string; context?: string; edaUsername?: string; kcUsername?: string; skipTlsVerify?: boolean }[];
   private selected: number;
   private resolve: (value: void | PromiseLike<void>) => void;
 
   constructor(
     context: vscode.ExtensionContext,
     contexts: string[],
-    targets: { url: string; context?: string; edaUsername?: string; kcUsername?: string }[],
+    targets: { url: string; context?: string; edaUsername?: string; kcUsername?: string; skipTlsVerify?: boolean }[],
     selected: number
   ) {
     super(context, 'edaTargetWizard', 'Configure EDA Targets');
@@ -79,7 +79,8 @@ export class TargetWizardPanel extends BasePanel {
     current[msg.url] = {
       context: msg.context || undefined,
       edaUsername: msg.edaUsername || undefined,
-      kcUsername: msg.kcUsername || undefined
+      kcUsername: msg.kcUsername || undefined,
+      skipTlsVerify: msg.skipTlsVerify || undefined
     };
     await config.update('edaTargets', current, vscode.ConfigurationTarget.Global);
 
@@ -147,7 +148,8 @@ export class TargetWizardPanel extends BasePanel {
       updated[t.url] = {
         context: t.context || undefined,
         edaUsername: t.edaUsername || undefined,
-        kcUsername: t.kcUsername || undefined
+        kcUsername: t.kcUsername || undefined,
+        skipTlsVerify: t.skipTlsVerify || undefined
       };
     }
     await config.update('edaTargets', updated, vscode.ConfigurationTarget.Global);
@@ -200,7 +202,8 @@ export class TargetWizardPanel extends BasePanel {
         url,
         context: val.context || undefined,
         edaUsername: val.edaUsername || undefined,
-        kcUsername: val.kcUsername || undefined
+        kcUsername: val.kcUsername || undefined,
+        skipTlsVerify: val.skipTlsVerify || undefined
       };
     });
     const selected = context.globalState.get<number>('selectedEdaTarget', 0) ?? 0;
