@@ -38,7 +38,12 @@ export class EdaStreamClient {
 
   // Stream names that should not be automatically subscribed to
   private static readonly AUTO_EXCLUDE = new Set([
-    'alarms2',
+    'resultsummary',
+    'v1',
+    'eql',
+    'nql',
+    'summary',
+    'directory',
   ]);
 
   constructor(messageIntervalMs = 500) {
