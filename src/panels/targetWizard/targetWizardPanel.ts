@@ -16,16 +16,27 @@ export interface TargetWizardResult {
 
 export class TargetWizardPanel extends BasePanel {
   private contexts: string[];
+  private targets: { url: string; context?: string; edaUsername?: string; kcUsername?: string }[];
+  private selected: number;
   private resolve: (value: void | PromiseLike<void>) => void;
 
-  constructor(context: vscode.ExtensionContext, contexts: string[]) {
+  constructor(
+    context: vscode.ExtensionContext,
+    contexts: string[],
+    targets: { url: string; context?: string; edaUsername?: string; kcUsername?: string }[],
+    selected: number
+  ) {
     super(context, 'edaTargetWizard', 'Configure EDA Targets');
     this.contexts = contexts;
+    this.targets = targets;
+    this.selected = selected;
     this.panel.webview.html = this.buildHtml();
 
     this.panel.webview.onDidReceiveMessage(async (msg: any) => {
       if (msg.command === 'save') {
         await this.saveConfiguration(msg);
+      } else if (msg.command === 'select') {
+        await context.globalState.update('selectedEdaTarget', msg.index);
       }
     });
   }
@@ -43,12 +54,20 @@ export class TargetWizardPanel extends BasePanel {
   }
 
   protected getScripts(): string {
-    return targetWizardScripts;
+    const twJs = this.getResourceUri('resources', 'tailwind.js');
+    const data = JSON.stringify(this.targets);
+    return targetWizardScripts
+      .replace('${twJs}', twJs.toString())
+      .replace('${targets}', data)
+      .replace('${selected}', this.selected.toString());
   }
 
   private async saveConfiguration(msg: any): Promise<void> {
     const config = vscode.workspace.getConfiguration('vscode-eda');
     const current = config.get<Record<string, any>>('edaTargets') || {};
+    if (msg.originalUrl && msg.originalUrl !== msg.url) {
+      delete current[msg.originalUrl];
+    }
     current[msg.url] = {
       context: msg.context || undefined,
       edaUsername: msg.edaUsername || undefined,
@@ -90,7 +109,21 @@ export class TargetWizardPanel extends BasePanel {
   static async show(context: vscode.ExtensionContext): Promise<void> {
     const k8sClient = new KubernetesClient();
     const contexts = k8sClient.getAvailableContexts();
-    const panel = new TargetWizardPanel(context, contexts);
+    const config = vscode.workspace.getConfiguration('vscode-eda');
+    const targetsMap = config.get<Record<string, any>>('edaTargets') || {};
+    const targets = Object.entries(targetsMap).map(([url, val]) => {
+      if (typeof val === 'string' || val === null) {
+        return { url, context: val || undefined };
+      }
+      return {
+        url,
+        context: val.context || undefined,
+        edaUsername: val.edaUsername || undefined,
+        kcUsername: val.kcUsername || undefined
+      };
+    });
+    const selected = context.globalState.get<number>('selectedEdaTarget', 0) ?? 0;
+    const panel = new TargetWizardPanel(context, contexts, targets, selected);
     return panel.waitForClose();
   }
 }
