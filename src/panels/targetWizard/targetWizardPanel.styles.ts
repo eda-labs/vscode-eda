@@ -6,7 +6,7 @@ export const targetWizardStyles = `
       padding: 20px;
     }
 
-    .container {
+    .form-container {
       max-width: 600px;
       margin: auto;
     }

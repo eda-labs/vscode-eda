@@ -18,7 +18,8 @@ export const targetWizardScripts = `
           '<td class="px-2 py-1">' + (t.context || '') + '</td>' +
           '<td class="px-2 py-1">' + (t.edaUsername || '') + '</td>' +
           '<td class="px-2 py-1">' + (t.kcUsername || '') + '</td>' +
-          '<td class="px-2 py-1"><button class="edit text-blue-500" data-index="' + idx + '">Edit</button></td>';
+          '<td class="px-2 py-1"><button class="edit text-blue-500" data-index="' + idx + '">Edit</button>' +
+          '<button class="delete text-red-500 ml-2" data-index="' + idx + '">Delete</button></td>';
         tbody.appendChild(tr);
       });
       document.querySelectorAll('button.edit').forEach(btn => {
@@ -30,8 +31,23 @@ export const targetWizardScripts = `
           document.getElementById('context').value = t.context || '';
           document.getElementById('edaUser').value = t.edaUsername || 'admin';
           document.getElementById('kcUser').value = t.kcUsername || 'admin';
-          document.getElementById('edaPass').value = '';
-          document.getElementById('kcPass').value = '';
+        });
+      });
+      document.querySelectorAll('button.delete').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.getAttribute('data-index'));
+          const url = existingTargets[idx].url;
+          vscode.postMessage({ command: 'delete', url });
+          existingTargets.splice(idx, 1);
+          if (selectedIdx === idx) {
+            selectedIdx = 0;
+            vscode.postMessage({ command: 'select', index: 0 });
+          } else if (selectedIdx > idx) {
+            selectedIdx--;
+            vscode.postMessage({ command: 'select', index: selectedIdx });
+          }
+          editIndex = null;
+          render();
         });
       });
       document.querySelectorAll('input[name="selectedTarget"]').forEach(r => {
@@ -45,7 +61,7 @@ export const targetWizardScripts = `
 
     loadScript(twJsUri).then(render);
 
-    document.getElementById('save').addEventListener('click', () => {
+    function sendData(command) {
       const url = document.getElementById('url').value.trim();
       if (!url) { alert('URL is required'); return; }
       const context = document.getElementById('context').value;
@@ -55,7 +71,7 @@ export const targetWizardScripts = `
       const kcPassword = document.getElementById('kcPass').value;
       const originalUrl = editIndex !== null ? existingTargets[editIndex].url : null;
       vscode.postMessage({
-        command: 'save',
+        command,
         url,
         context,
         edaUsername,
@@ -65,6 +81,31 @@ export const targetWizardScripts = `
         originalUrl,
         index: editIndex
       });
+    }
+
+    document.getElementById('save').addEventListener('click', () => {
+      const url = document.getElementById('url').value.trim();
+      if (!url && editIndex === null) {
+        vscode.postMessage({ command: 'close' });
+      } else {
+        sendData('save');
+      }
+    });
+    document.getElementById('add').addEventListener('click', () => {
+      sendData('add');
+      const item = {
+        url: document.getElementById('url').value.trim(),
+        context: document.getElementById('context').value || undefined,
+        edaUsername: document.getElementById('edaUser').value || undefined,
+        kcUsername: document.getElementById('kcUser').value || undefined,
+      };
+      if (editIndex !== null) {
+        existingTargets[editIndex] = item;
+      } else {
+        existingTargets.push(item);
+      }
+      editIndex = null;
+      render();
     });
 
     document.querySelectorAll('input').forEach(input => {

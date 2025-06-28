@@ -1,5 +1,5 @@
 export const targetWizardHtml = `
-  <div class="container space-y-4">
+  <div class="form-container space-y-4">
     <img src="\${logo}" alt="EDA" class="mx-auto w-36" />
     <h2 class="text-lg font-semibold">Configure EDA Target</h2>
     <p class="text-sm text-gray-500">Provide the URL of your EDA API and optional Kubernetes context. Credentials are stored securely.</p>
@@ -18,21 +18,24 @@ export const targetWizardHtml = `
     <input id="kcUser" type="text" value="admin" class="input" />
     <label class="block text-sm font-medium">Keycloak Admin Password</label>
     <input id="kcPass" type="password" value="admin" class="input" />
-    <button id="save" class="btn w-full">Save</button>
-
-    <h3 class="text-base font-semibold mt-6">Existing Targets</h3>
-    <table class="min-w-full table-auto border divide-y divide-gray-600" id="targetsTable">
-      <thead class="bg-gray-50 dark:bg-transparent">
-        <tr>
-          <th class="px-2 py-1 text-left">Default</th>
-          <th class="px-2 py-1 text-left">URL</th>
-          <th class="px-2 py-1 text-left">Context</th>
-          <th class="px-2 py-1 text-left">EDA User</th>
-          <th class="px-2 py-1 text-left">KC User</th>
-          <th class="px-2 py-1"></th>
-        </tr>
-      </thead>
-      <tbody id="targetsBody" class="divide-y divide-gray-600"></tbody>
-    </table>
+    <div class="flex justify-end gap-2">
+      <button id="add" class="btn">Add</button>
+      <button id="save" class="btn">Save</button>
+    </div>
   </div>
+
+  <h3 class="text-base font-semibold mt-6">Existing Targets</h3>
+  <table class="min-w-full table-auto border divide-y divide-gray-600" id="targetsTable">
+    <thead class="bg-gray-50 dark:bg-transparent">
+      <tr>
+        <th class="px-2 py-1 text-left">Default</th>
+        <th class="px-2 py-1 text-left">URL</th>
+        <th class="px-2 py-1 text-left">Context</th>
+        <th class="px-2 py-1 text-left">EDA User</th>
+        <th class="px-2 py-1 text-left">KC User</th>
+        <th class="px-2 py-1"></th>
+      </tr>
+    </thead>
+    <tbody id="targetsBody" class="divide-y divide-gray-600"></tbody>
+  </table>
 `;

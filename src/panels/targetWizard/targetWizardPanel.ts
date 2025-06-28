@@ -34,9 +34,15 @@ export class TargetWizardPanel extends BasePanel {
 
     this.panel.webview.onDidReceiveMessage(async (msg: any) => {
       if (msg.command === 'save') {
-        await this.saveConfiguration(msg);
+        await this.saveConfiguration(msg, true);
+      } else if (msg.command === 'add') {
+        await this.saveConfiguration(msg, false);
+      } else if (msg.command === 'delete') {
+        await this.deleteTarget(msg.url);
       } else if (msg.command === 'select') {
         await context.globalState.update('selectedEdaTarget', msg.index);
+      } else if (msg.command === 'close') {
+        this.showReload();
       }
     });
   }
@@ -62,7 +68,7 @@ export class TargetWizardPanel extends BasePanel {
       .replace('${selected}', this.selected.toString());
   }
 
-  private async saveConfiguration(msg: any): Promise<void> {
+  private async saveConfiguration(msg: any, close: boolean): Promise<void> {
     const config = vscode.workspace.getConfiguration('vscode-eda');
     const current = config.get<Record<string, any>>('edaTargets') || {};
     if (msg.originalUrl && msg.originalUrl !== msg.url) {
@@ -82,9 +88,56 @@ export class TargetWizardPanel extends BasePanel {
         return msg.url;
       }
     })();
-    await this.context.secrets.store(`edaPassword:${host}`, msg.edaPassword || '');
-    await this.context.secrets.store(`kcPassword:${host}`, msg.kcPassword || '');
 
+    if (msg.edaPassword) {
+      await this.context.secrets.store(`edaPassword:${host}`, msg.edaPassword);
+    }
+    if (msg.kcPassword) {
+      await this.context.secrets.store(`kcPassword:${host}`, msg.kcPassword);
+    }
+
+    if (msg.originalUrl && msg.originalUrl !== msg.url) {
+      try {
+        const oldHost = new URL(msg.originalUrl).host;
+        await this.context.secrets.delete(`edaPassword:${oldHost}`);
+        await this.context.secrets.delete(`kcPassword:${oldHost}`);
+      } catch {
+        // ignore invalid url
+      }
+    }
+
+    if (close) {
+      vscode.window
+        .showInformationMessage('EDA target saved. Reload window to apply.', 'Reload')
+        .then(v => {
+          if (v === 'Reload') {
+            void vscode.commands.executeCommand('workbench.action.reloadWindow');
+          }
+        });
+
+      this.dispose();
+      if (this.resolve) {
+        this.resolve();
+      }
+    }
+  }
+
+  private async deleteTarget(url: string): Promise<void> {
+    const config = vscode.workspace.getConfiguration('vscode-eda');
+    const current = config.get<Record<string, any>>('edaTargets') || {};
+    delete current[url];
+    await config.update('edaTargets', current, vscode.ConfigurationTarget.Global);
+
+    try {
+      const host = new URL(url).host;
+      await this.context.secrets.delete(`edaPassword:${host}`);
+      await this.context.secrets.delete(`kcPassword:${host}`);
+    } catch {
+      // ignore invalid url
+    }
+  }
+
+  private showReload(): void {
     vscode.window
       .showInformationMessage('EDA target saved. Reload window to apply.', 'Reload')
       .then(v => {
