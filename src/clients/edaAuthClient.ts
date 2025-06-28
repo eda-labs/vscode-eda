@@ -129,7 +129,7 @@ export class EdaAuthClient {
 
     const data = (await res.json()) as any;
     const token = data.access_token || '';
-    log(`Admin token: ${token}`, LogLevel.DEBUG);
+    log('Admin token received', LogLevel.DEBUG);
     return token;
   }
 
@@ -161,7 +161,7 @@ export class EdaAuthClient {
     }
     const secretJson = (await secretRes.json()) as any;
     const secret = secretJson.value || '';
-    log(`Client secret: ${secret}`, LogLevel.DEBUG);
+    log('Client secret obtained', LogLevel.DEBUG);
     return secret;
   }
 
@@ -202,6 +202,6 @@ export class EdaAuthClient {
 
     const data = (await res.json()) as any;
     this.token = data.access_token || '';
-    log(`Access token: ${this.token}`, LogLevel.DEBUG);
+    log('Access token obtained', LogLevel.DEBUG);
   }
 }

@@ -297,7 +297,14 @@ export class EdaStreamClient {
         Accept: 'text/event-stream',
         ...extraHeaders,
       };
-      log(`[STREAM] request ${url} with ${JSON.stringify(finalHeaders)}`, LogLevel.DEBUG);
+      const sanitizedHeaders: Record<string, string> = { ...finalHeaders };
+      if ('Authorization' in sanitizedHeaders) {
+        sanitizedHeaders.Authorization = 'Bearer ***';
+      }
+      log(
+        `[STREAM] request ${url} with ${JSON.stringify(sanitizedHeaders)}`,
+        LogLevel.DEBUG
+      );
       res = await fetch(url, {
         headers: finalHeaders,
         dispatcher: this.authClient.getAgent(),
