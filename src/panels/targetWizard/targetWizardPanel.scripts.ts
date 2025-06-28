@@ -32,6 +32,10 @@ export const targetWizardScripts = `
           document.getElementById('context').value = t.context || '';
           document.getElementById('edaUser').value = t.edaUsername || 'admin';
           document.getElementById('kcUser').value = t.kcUsername || 'admin';
+          document.getElementById('edaPass').value = t.edaPassword || '';
+          document.getElementById('kcPass').value = t.kcPassword || '';
+          document.getElementById('edaPassHint').textContent = t.edaPassword ? 'Loaded from secret. Change to update.' : '';
+          document.getElementById('kcPassHint').textContent = t.kcPassword ? 'Loaded from secret. Change to update.' : '';
           document.getElementById('skipTls').checked = !!t.skipTlsVerify;
         });
       });
@@ -108,6 +112,8 @@ export const targetWizardScripts = `
         sendData('save');
         vscode.postMessage({ command: 'commit', targets: existingTargets });
       }
+      document.getElementById('edaPassHint').textContent = '';
+      document.getElementById('kcPassHint').textContent = '';
     });
     document.getElementById('add').addEventListener('click', () => {
       sendData('add');
@@ -125,6 +131,8 @@ export const targetWizardScripts = `
       }
       editIndex = null;
       render();
+      document.getElementById('edaPassHint').textContent = '';
+      document.getElementById('kcPassHint').textContent = '';
     });
 
     document.querySelectorAll('input').forEach(input => {
@@ -134,4 +142,23 @@ export const targetWizardScripts = `
         }
       });
     });
+
+    function setupToggle(id, toggleId) {
+      const input = document.getElementById(id);
+      const btn = document.getElementById(toggleId);
+      btn.addEventListener('click', () => {
+        if (input.type === 'password') {
+          input.type = 'text';
+          btn.textContent = '🙈';
+          btn.setAttribute('aria-label', 'Hide password');
+        } else {
+          input.type = 'password';
+          btn.textContent = '👁';
+          btn.setAttribute('aria-label', 'Show password');
+        }
+      });
+    }
+
+    setupToggle('edaPass', 'toggleEdaPass');
+    setupToggle('kcPass', 'toggleKcPass');
 `;

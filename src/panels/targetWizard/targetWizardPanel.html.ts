@@ -13,11 +13,19 @@ export const targetWizardHtml = `
     <label class="block text-sm font-medium">EDA Username</label>
     <input id="edaUser" type="text" value="admin" class="input" />
     <label class="block text-sm font-medium">EDA Password</label>
-    <input id="edaPass" type="password" value="admin" class="input" />
+    <div class="password-container">
+      <input id="edaPass" type="password" value="admin" class="input pr-8" />
+      <button id="toggleEdaPass" type="button" class="password-toggle" aria-label="Show password">👁</button>
+    </div>
+    <span id="edaPassHint" class="hint"></span>
     <label class="block text-sm font-medium">Keycloak Admin Username</label>
     <input id="kcUser" type="text" value="admin" class="input" />
     <label class="block text-sm font-medium">Keycloak Admin Password</label>
-    <input id="kcPass" type="password" value="admin" class="input" />
+    <div class="password-container">
+      <input id="kcPass" type="password" value="admin" class="input pr-8" />
+      <button id="toggleKcPass" type="button" class="password-toggle" aria-label="Show password">👁</button>
+    </div>
+    <span id="kcPassHint" class="hint"></span>
     <label class="block text-sm font-medium"><input id="skipTls" type="checkbox" class="mr-1" /> Skip TLS Verification</label>
     <div class="flex justify-end gap-2">
       <button id="add" class="btn">Add</button>

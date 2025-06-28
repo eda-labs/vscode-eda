@@ -16,14 +16,30 @@ export interface TargetWizardResult {
 
 export class TargetWizardPanel extends BasePanel {
   private contexts: string[];
-  private targets: { url: string; context?: string; edaUsername?: string; kcUsername?: string; skipTlsVerify?: boolean }[];
+  private targets: {
+    url: string;
+    context?: string;
+    edaUsername?: string;
+    kcUsername?: string;
+    skipTlsVerify?: boolean;
+    edaPassword?: string;
+    kcPassword?: string;
+  }[];
   private selected: number;
   private resolve: (value: void | PromiseLike<void>) => void;
 
   constructor(
     context: vscode.ExtensionContext,
     contexts: string[],
-    targets: { url: string; context?: string; edaUsername?: string; kcUsername?: string; skipTlsVerify?: boolean }[],
+    targets: {
+      url: string;
+      context?: string;
+      edaUsername?: string;
+      kcUsername?: string;
+      skipTlsVerify?: boolean;
+      edaPassword?: string;
+      kcPassword?: string;
+    }[],
     selected: number
   ) {
     super(context, 'edaTargetWizard', 'Configure EDA Targets');
@@ -194,18 +210,36 @@ export class TargetWizardPanel extends BasePanel {
     const contexts = k8sClient.getAvailableContexts();
     const config = vscode.workspace.getConfiguration('vscode-eda');
     const targetsMap = config.get<Record<string, any>>('edaTargets') || {};
-    const targets = Object.entries(targetsMap).map(([url, val]) => {
-      if (typeof val === 'string' || val === null) {
-        return { url, context: val || undefined };
-      }
-      return {
-        url,
-        context: val.context || undefined,
-        edaUsername: val.edaUsername || undefined,
-        kcUsername: val.kcUsername || undefined,
-        skipTlsVerify: val.skipTlsVerify || undefined
-      };
-    });
+    const targets = await Promise.all(
+      Object.entries(targetsMap).map(async ([url, val]) => {
+        const host = (() => {
+          try {
+            return new URL(url).host;
+          } catch {
+            return url;
+          }
+        })();
+        const edaPassword = await context.secrets.get(`edaPassword:${host}`);
+        const kcPassword = await context.secrets.get(`kcPassword:${host}`);
+        if (typeof val === 'string' || val === null) {
+          return {
+            url,
+            context: val || undefined,
+            edaPassword: edaPassword || undefined,
+            kcPassword: kcPassword || undefined
+          };
+        }
+        return {
+          url,
+          context: val.context || undefined,
+          edaUsername: val.edaUsername || undefined,
+          kcUsername: val.kcUsername || undefined,
+          skipTlsVerify: val.skipTlsVerify || undefined,
+          edaPassword: edaPassword || undefined,
+          kcPassword: kcPassword || undefined
+        };
+      })
+    );
     const selected = context.globalState.get<number>('selectedEdaTarget', 0) ?? 0;
     const panel = new TargetWizardPanel(context, contexts, targets, selected);
     return panel.waitForClose();

@@ -49,4 +49,27 @@ export const targetWizardStyles = `
     th, td {
       padding: 4px 8px;
     }
+
+    .hint {
+      font-size: 0.8em;
+      color: var(--vscode-descriptionForeground);
+      margin-top: -8px;
+      margin-bottom: 8px;
+      display: block;
+    }
+
+    .password-container {
+      position: relative;
+    }
+
+    .password-toggle {
+      position: absolute;
+      top: 50%;
+      right: 8px;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      color: var(--vscode-input-foreground);
+      cursor: pointer;
+    }
 `;
