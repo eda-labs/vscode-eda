@@ -44,6 +44,7 @@ export class EdaStreamClient {
     'nql',
     'summary',
     'directory',
+    'file',  // user-storage file stream requires path parameter
   ]);
 
   constructor(messageIntervalMs = 500) {
@@ -108,13 +109,23 @@ export class EdaStreamClient {
       log('Event WebSocket connected', LogLevel.DEBUG);
       log(`Started streaming on ${this.streamEndpoints.length} nodes`, LogLevel.INFO);
 
-      // Ensure we request updates for every discovered stream
-      const allStreams = new Set<string>([
-        ...this.activeStreams,
-        ...this.streamEndpoints
-          .map(e => e.stream)
-          .filter(s => !EdaStreamClient.AUTO_EXCLUDE.has(s)),
-      ]);
+      // Ensure we request updates for every discovered stream (except AUTO_EXCLUDE)
+      const allStreams = new Set<string>();
+
+      // Add active streams
+      for (const stream of this.activeStreams) {
+        allStreams.add(stream);
+      }
+
+      // Add discovered streams (except excluded ones)
+      for (const ep of this.streamEndpoints) {
+        if (!EdaStreamClient.AUTO_EXCLUDE.has(ep.stream)) {
+          allStreams.add(ep.stream);
+        }
+      }
+
+      // Don't add user storage files to activeStreams here
+      // They need special handling with custom headers
       this.activeStreams = allStreams;
 
       for (const stream of allStreams) {
@@ -143,7 +154,10 @@ export class EdaStreamClient {
             this.eventClient = client;
             log(`WS eventclient id = ${this.eventClient}`, LogLevel.DEBUG);
             for (const ep of this.streamEndpoints) {
-              if (EdaStreamClient.AUTO_EXCLUDE.has(ep.stream)) continue;
+              if (EdaStreamClient.AUTO_EXCLUDE.has(ep.stream)) {
+                log(`Skipping auto-start for excluded stream: ${ep.stream}`, LogLevel.DEBUG);
+                continue;
+              }
               void this.startStream(this.eventClient, ep);
             }
             if (this.activeStreams.has('current-alarms')) {
@@ -152,7 +166,13 @@ export class EdaStreamClient {
             if (this.activeStreams.has('summary')) {
               void this.startTransactionSummaryStream(this.eventClient);
             }
+            // If we have user storage files, make sure we're subscribed to 'file' stream
+            if (this.userStorageFiles.size > 0 && !this.activeStreams.has('file')) {
+              this.activeStreams.add('file');
+              socket.send(JSON.stringify({ type: 'next', stream: 'file' }));
+            }
             for (const file of this.userStorageFiles) {
+              // Start user storage file streams with special headers
               void this.startUserStorageFileStream(this.eventClient, file);
             }
           }
@@ -271,6 +291,15 @@ export class EdaStreamClient {
    */
   public async streamUserStorageFile(path: string): Promise<void> {
     this.userStorageFiles.add(path);
+
+    // Make sure we're subscribed to the 'file' stream via WebSocket
+    if (!this.activeStreams.has('file')) {
+      this.activeStreams.add('file');
+      if (this.eventSocket?.readyState === WebSocket.OPEN) {
+        this.eventSocket.send(JSON.stringify({ type: 'next', stream: 'file' }));
+      }
+    }
+
     await this.connect();
     if (this.eventClient) {
       await this.startUserStorageFileStream(this.eventClient, path);
@@ -291,20 +320,32 @@ export class EdaStreamClient {
 
     let res: any;
     try {
-      const headers = this.authClient.getHeaders();
-      const finalHeaders = {
-        ...headers,
-        Accept: 'text/event-stream',
-        ...extraHeaders,
-      };
+      const authHeaders = this.authClient.getHeaders();
+
+      // Start with auth headers
+      const finalHeaders: Record<string, string> = { ...authHeaders };
+
+      // Add default Accept header only if not provided in extraHeaders
+      if (!extraHeaders.Accept) {
+        finalHeaders.Accept = 'text/event-stream';
+      }
+
+      // Apply all extra headers (including Accept override if present)
+      for (const [key, value] of Object.entries(extraHeaders)) {
+        finalHeaders[key] = value;
+      }
+
+      // Create sanitized headers for logging
       const sanitizedHeaders: Record<string, string> = { ...finalHeaders };
       if ('Authorization' in sanitizedHeaders) {
         sanitizedHeaders.Authorization = 'Bearer ***';
       }
+
       log(
         `[STREAM] request ${url} with ${JSON.stringify(sanitizedHeaders)}`,
         LogLevel.DEBUG
       );
+
       res = await fetch(url, {
         headers: finalHeaders,
         dispatcher: this.authClient.getAgent(),
@@ -347,6 +388,12 @@ export class EdaStreamClient {
   private async startStream(client: string, endpoint: StreamEndpoint): Promise<void> {
     if (!this.authClient) return;
 
+    // Double-check that we're not starting excluded streams
+    if (EdaStreamClient.AUTO_EXCLUDE.has(endpoint.stream)) {
+      log(`Attempted to start excluded stream ${endpoint.stream} - skipping`, LogLevel.WARN);
+      return;
+    }
+
     const url =
       `${this.authClient.getBaseUrl()}${endpoint.path}` +
       `?eventclient=${encodeURIComponent(client)}` +
@@ -386,15 +433,23 @@ export class EdaStreamClient {
 
   private async startUserStorageFileStream(client: string, file: string): Promise<void> {
     if (!this.authClient) return;
+
+    log(`Starting user storage file stream for: ${file}`, LogLevel.DEBUG);
+
     const url =
       `${this.authClient.getBaseUrl()}/core/user-storage/v2/file` +
       `?path=${encodeURIComponent(file)}` +
       `&eventclient=${encodeURIComponent(client)}` +
       `&stream=file`;
-    await this.streamSse(url, undefined, {
+
+    // User-storage file stream requires Accept: */* instead of text/event-stream
+    // Otherwise it returns 406 Not Acceptable
+    const customHeaders = {
       Accept: '*/*',
       'Accept-Encoding': 'gzip, deflate, br, zsrd',
-    });
+    };
+
+    await this.streamSse(url, undefined, customHeaders);
   }
 
 
