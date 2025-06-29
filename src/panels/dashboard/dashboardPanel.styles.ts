@@ -67,6 +67,25 @@ export const dashboardStyles = `
       margin-bottom: 32px;
     }
     
+    .interface-traffic-container {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 20px;
+      margin-bottom: 32px;
+      align-items: stretch;
+    }
+    
+    .interface-stats-vertical {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      width: 280px;
+    }
+    
+    .traffic-chart-container {
+      flex: 1;
+    }
+    
     .stat-card {
       background: var(--bg-secondary);
       border: 1px solid var(--border);
@@ -253,5 +272,20 @@ export const dashboardStyles = `
       display: inline-block;
       width: 16px;
       height: 16px;
+    }
+    
+    @media (max-width: 1200px) {
+      .interface-traffic-container {
+        grid-template-columns: 1fr;
+      }
+      
+      .interface-stats-vertical {
+        flex-direction: row;
+        width: 100%;
+      }
+      
+      .interface-stats-vertical .stat-card {
+        flex: 1;
+      }
     }
 `;

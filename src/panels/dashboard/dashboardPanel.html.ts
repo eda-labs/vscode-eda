@@ -24,6 +24,30 @@ export const dashboardHtml = `
         <div class="stat-value" id="nodes-unsynced">0</div>
       </div>
     </div>
+
+    <div class="interface-traffic-container">
+      <div class="interface-stats-vertical">
+        <div class="stat-card">
+          <div class="stat-label">Total Interfaces</div>
+          <div class="stat-value" id="if-total">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Up Interfaces</div>
+          <div class="stat-value" id="if-up">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Down Interfaces</div>
+          <div class="stat-value" id="if-down">0</div>
+        </div>
+      </div>
+      
+      <div class="chart-container traffic-chart-container">
+        <div class="chart-title">
+          <span>Traffic Flow</span>
+        </div>
+        <div id="traffic-chart" class="chart"></div>
+      </div>
+    </div>
     
     <div class="charts-grid">
       <div class="chart-container">
@@ -42,13 +66,6 @@ export const dashboardHtml = `
           <span>BGP Peer Status</span>
         </div>
         <div id="peer-chart" class="chart"></div>
-      </div>
-      
-      <div class="chart-container">
-        <div class="chart-title">
-          <span>Traffic Flow</span>
-        </div>
-        <div id="traffic-chart" class="chart"></div>
       </div>
       
       <div class="chart-container">

@@ -339,4 +339,24 @@ export class EdaApiClient {
     const data = await this.fetchJSON<any>(path);
     return Array.isArray(data?.items) ? data.items : [];
   }
+
+  /**
+   * List Interfaces in a namespace
+   */
+  public async listInterfaces(namespace: string): Promise<any[]> {
+    const path = `/apps/interfaces.eda.nokia.com/v1alpha1/namespaces/${namespace}/interfaces`;
+    const data = await this.fetchJSON<any>(path);
+    return Array.isArray(data?.items) ? data.items : [];
+  }
+
+  /**
+   * Execute an EQL query
+   */
+  public async queryEql(query: string, namespaces?: string): Promise<any> {
+    let path = `/core/query/v1/eql?query=${encodeURIComponent(query)}`;
+    if (namespaces) {
+      path += `&namespaces=${encodeURIComponent(namespaces)}`;
+    }
+    return this.fetchJSON<any>(path);
+  }
 }

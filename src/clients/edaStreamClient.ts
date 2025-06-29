@@ -29,6 +29,8 @@ export class EdaStreamClient {
   private summaryAbortController: AbortController | undefined;
   private summaryStreamPromise: Promise<void> | undefined;
   private userStorageFiles: Set<string> = new Set();
+  private eqlQuery: string | undefined;
+  private eqlNamespaces: string | undefined;
 
   private _onStreamMessage = new vscode.EventEmitter<StreamMessage>();
   public readonly onStreamMessage = this._onStreamMessage.event;
@@ -75,6 +77,11 @@ export class EdaStreamClient {
    */
   public setStreamEndpoints(endpoints: StreamEndpoint[]): void {
     this.streamEndpoints = endpoints;
+  }
+
+  public setEqlQuery(query: string, namespaces?: string): void {
+    this.eqlQuery = query;
+    this.eqlNamespaces = namespaces;
   }
 
   /**
@@ -166,6 +173,9 @@ export class EdaStreamClient {
             if (this.activeStreams.has('summary')) {
               void this.startTransactionSummaryStream(this.eventClient);
             }
+            if (this.activeStreams.has('eql')) {
+              void this.startEqlStream(this.eventClient);
+            }
             // If we have user storage files, make sure we're subscribed to 'file' stream
             if (this.userStorageFiles.size > 0 && !this.activeStreams.has('file')) {
               this.activeStreams.add('file');
@@ -211,6 +221,9 @@ export class EdaStreamClient {
 
     if (this.eventSocket?.readyState === WebSocket.OPEN) {
       this.eventSocket.send(JSON.stringify({ type: 'next', stream: streamName }));
+      if (streamName === 'eql') {
+        void this.startEqlStream(this.eventClient as string);
+      }
     }
   }
 
@@ -411,6 +424,20 @@ export class EdaStreamClient {
       `?eventclient=${encodeURIComponent(client)}` +
       `&stream=current-alarms` +
       `&query=${encodeURIComponent(query)}`;
+
+    await this.streamSse(url);
+  }
+
+  private async startEqlStream(client: string): Promise<void> {
+    if (!this.authClient || !this.eqlQuery) return;
+    let url =
+      `${this.authClient.getBaseUrl()}/core/query/v1/eql` +
+      `?eventclient=${encodeURIComponent(client)}` +
+      `&stream=eql` +
+      `&query=${encodeURIComponent(this.eqlQuery)}`;
+    if (this.eqlNamespaces) {
+      url += `&namespaces=${encodeURIComponent(this.eqlNamespaces)}`;
+    }
 
     await this.streamSse(url);
   }

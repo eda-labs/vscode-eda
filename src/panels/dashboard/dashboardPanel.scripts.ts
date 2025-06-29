@@ -12,6 +12,9 @@ export const dashboardScripts = `
       });
     };
 
+    let updateTrafficChart = () => {};
+    let clearTrafficChart = () => {};
+
     window.addEventListener('message', event => {
       const msg = event.data;
       if (msg.command === 'init') {
@@ -29,6 +32,14 @@ export const dashboardScripts = `
         document.getElementById('nodes-total').textContent = msg.stats.total;
         document.getElementById('nodes-synced').textContent = msg.stats.synced;
         document.getElementById('nodes-unsynced').textContent = msg.stats.notSynced;
+      } else if (msg.command === 'interfaceStats') {
+        document.getElementById('if-total').textContent = msg.stats.total;
+        document.getElementById('if-up').textContent = msg.stats.up;
+        document.getElementById('if-down').textContent = msg.stats.down;
+      } else if (msg.command === 'trafficStats') {
+        updateTrafficChart(msg.stats.in, msg.stats.out);
+      } else if (msg.command === 'clearTrafficData') {
+        clearTrafficChart();
       }
     });
 
@@ -189,11 +200,45 @@ export const dashboardScripts = `
         ]
       });
       
-      // Traffic Flow Line Chart
-      const hours = Array.from({length: 24}, (_, i) => i + ':00');
-      const trafficData = hours.map(() => Math.floor(Math.random() * 1000) + 500);
-      const bandwidthData = hours.map(() => Math.floor(Math.random() * 800) + 600);
-      
+      // Traffic Flow Line Chart using real data
+      const trafficTimes = [];
+      const inboundData = [];
+      const outboundData = [];
+      const MAX_POINTS = 20;
+
+      updateTrafficChart = function(inVal, outVal) {
+        const now = new Date();
+        const label = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        if (trafficTimes.length >= MAX_POINTS) {
+          trafficTimes.shift();
+          inboundData.shift();
+          outboundData.shift();
+        }
+        trafficTimes.push(label);
+        inboundData.push(inVal);
+        outboundData.push(outVal);
+        trafficChart.setOption({
+          xAxis: { data: trafficTimes },
+          series: [
+            { data: inboundData },
+            { data: outboundData }
+          ]
+        });
+      }
+
+      clearTrafficChart = function() {
+        trafficTimes.length = 0;
+        inboundData.length = 0;
+        outboundData.length = 0;
+        trafficChart.setOption({
+          xAxis: { data: [] },
+          series: [
+            { data: [] },
+            { data: [] }
+          ]
+        });
+      }
+
       trafficChart.setOption({
         tooltip: {
           trigger: 'axis'
@@ -213,14 +258,14 @@ export const dashboardScripts = `
         xAxis: {
           type: 'category',
           boundaryGap: false,
-          data: hours,
+          data: trafficTimes,
           axisLabel: {
             color: chartTheme.textStyle.color
           }
         },
         yAxis: {
           type: 'value',
-          name: 'Traffic (Gbps)',
+          name: 'Traffic (bps)',
           axisLabel: {
             color: chartTheme.textStyle.color
           }
@@ -230,7 +275,7 @@ export const dashboardScripts = `
             name: 'Inbound',
             type: 'line',
             smooth: true,
-            data: trafficData,
+            data: inboundData,
             areaStyle: {
               opacity: 0.3
             },
@@ -242,7 +287,7 @@ export const dashboardScripts = `
             name: 'Outbound',
             type: 'line',
             smooth: true,
-            data: bandwidthData,
+            data: outboundData,
             areaStyle: {
               opacity: 0.3
             },
@@ -322,16 +367,7 @@ export const dashboardScripts = `
           }]
         });
         
-        // Update other charts with new random data
-        const newTrafficData = hours.map(() => Math.floor(Math.random() * 1000) + 500);
-        const newBandwidthData = hours.map(() => Math.floor(Math.random() * 800) + 600);
-        
-        trafficChart.setOption({
-          series: [
-            { data: newTrafficData },
-            { data: newBandwidthData }
-          ]
-        });
+        // Other charts could be refreshed here
       };
       
       // Handle window resize

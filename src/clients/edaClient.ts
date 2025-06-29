@@ -81,6 +81,23 @@ export class EdaClient {
     await this.streamClient.connect();
   }
 
+  public async streamInterfaces(): Promise<void> {
+    await this.initPromise;
+    this.streamClient.subscribeToStream('interfaces');
+    await this.streamClient.connect();
+  }
+
+  public async streamEql(query: string, namespaces?: string): Promise<void> {
+    await this.initPromise;
+    this.streamClient.setEqlQuery(query, namespaces);
+    this.streamClient.subscribeToStream('eql');
+    await this.streamClient.connect();
+  }
+
+  public closeEqlStream(): void {
+    this.streamClient.unsubscribeFromStream('eql');
+  }
+
   public async streamEdaTransactions(size = 50): Promise<void> {
     await this.initPromise;
     this.streamClient.setTransactionSummarySize(size);
@@ -104,6 +121,10 @@ export class EdaClient {
 
   public closeTopoNodeStream(): void {
     this.streamClient.unsubscribeFromStream('toponodes');
+  }
+
+  public closeInterfaceStream(): void {
+    this.streamClient.unsubscribeFromStream('interfaces');
   }
 
   public closeTransactionStream(): void {
@@ -208,6 +229,16 @@ export class EdaClient {
   public async listTopoNodes(namespace: string): Promise<any[]> {
     await this.initPromise;
     return this.apiClient.listTopoNodes(namespace);
+  }
+
+  public async listInterfaces(namespace: string): Promise<any[]> {
+    await this.initPromise;
+    return this.apiClient.listInterfaces(namespace);
+  }
+
+  public async queryEql(query: string, namespaces?: string): Promise<any> {
+    await this.initPromise;
+    return this.apiClient.queryEql(query, namespaces);
   }
 
   // Spec manager methods (delegated)
