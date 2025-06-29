@@ -13,6 +13,13 @@ module.exports = {
     'mr-1',
     'hidden',
     'block',
+    'w-36',
+    'w-80',
+    'max-w-screen-xl',
+    'max-w-[500px]',
+    'rounded',
+    'rounded-lg',
+    'rounded-full',
   ],
   theme: {
     extend: {},

@@ -13,7 +13,7 @@ export const targetWizardScripts = `
       
       if (existingTargets.length === 0) {
         const emptyState = document.createElement('div');
-        emptyState.className = 'empty-state';
+        emptyState.className = 'py-10 px-4 text-center text-[var(--vscode-descriptionForeground)] italic';
         emptyState.textContent = 'No targets configured yet.';
         listContainer.appendChild(emptyState);
         return;
@@ -21,33 +21,37 @@ export const targetWizardScripts = `
       
       existingTargets.forEach((target, idx) => {
         const item = document.createElement('div');
-        item.className = 'target-item' + (idx === selectedIdx ? ' selected' : '');
+        item.className =
+          'target-item cursor-pointer border-b border-[var(--vscode-panel-border)] px-4 py-3 relative transition-colors hover:bg-[var(--vscode-list-hoverBackground)]' +
+          (idx === selectedIdx
+            ? ' bg-[var(--vscode-list-activeSelectionBackground)] text-[var(--vscode-list-activeSelectionForeground)] selected'
+            : '');
         item.dataset.index = idx;
-        
+
         const url = document.createElement('div');
-        url.className = 'target-url';
+        url.className = 'font-medium mb-1 break-all';
         url.textContent = target.url;
-        
+
         const meta = document.createElement('div');
-        meta.className = 'target-meta';
-        
+        meta.className = 'text-xs text-[var(--vscode-descriptionForeground)] flex items-center gap-2';
+
         if (target.context) {
           const context = document.createElement('span');
-          context.className = 'context';
+          context.className = 'italic';
           context.textContent = target.context;
           meta.appendChild(context);
         }
         
         if (idx === selectedIdx) {
           const defaultBadge = document.createElement('span');
-          defaultBadge.className = 'default-badge';
+          defaultBadge.className = 'bg-[var(--vscode-badge-background)] text-[var(--vscode-badge-foreground)] px-2 rounded-full text-[0.7rem] font-medium';
           defaultBadge.textContent = 'Default';
           meta.appendChild(defaultBadge);
         }
         
         if (target.skipTlsVerify) {
           const tlsBadge = document.createElement('span');
-          tlsBadge.className = 'skip-tls';
+          tlsBadge.className = 'bg-[var(--vscode-editorWarning-background)] text-[var(--vscode-editorWarning-foreground)] px-2 rounded-full text-[0.7rem] font-medium';
           tlsBadge.textContent = 'Skip TLS';
           meta.appendChild(tlsBadge);
         }
@@ -117,50 +121,50 @@ export const targetWizardScripts = `
 
     function generateDetailsHTML(target) {
       return \`
-        <div class="target-details">
-          <div class="detail-group">
-            <div class="detail-label">EDA API URL</div>
-            <div class="detail-value">\${target.url}</div>
+        <div class="max-w-[500px] pl-4">
+          <div class="mb-5">
+            <div class="text-sm font-medium text-[var(--vscode-descriptionForeground)] mb-1">EDA API URL</div>
+            <div class="text-sm px-3 py-2 bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded break-all">\${target.url}</div>
           </div>
-          
-          <div class="detail-group">
-            <div class="detail-label">Kubernetes Context</div>
-            <div class="detail-value\${!target.context ? ' empty' : ''}">\${target.context || 'None'}</div>
+
+          <div class="mb-5">
+            <div class="text-sm font-medium text-[var(--vscode-descriptionForeground)] mb-1">Kubernetes Context</div>
+            <div class="text-sm px-3 py-2 bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded break-all\${!target.context ? ' text-[var(--vscode-descriptionForeground)] italic' : ''}">\${target.context || 'None'}</div>
           </div>
-          
-          <div class="detail-group">
-            <div class="detail-label">EDA Core Namespace</div>
-            <div class="detail-value">\${target.coreNamespace || 'eda-system'}</div>
+
+          <div class="mb-5">
+            <div class="text-sm font-medium text-[var(--vscode-descriptionForeground)] mb-1">EDA Core Namespace</div>
+            <div class="text-sm px-3 py-2 bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded break-all">\${target.coreNamespace || 'eda-system'}</div>
           </div>
-          
-          <div class="detail-group">
-            <div class="detail-label">EDA Username</div>
-            <div class="detail-value">\${target.edaUsername || 'admin'}</div>
+
+          <div class="mb-5">
+            <div class="text-sm font-medium text-[var(--vscode-descriptionForeground)] mb-1">EDA Username</div>
+            <div class="text-sm px-3 py-2 bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded break-all">\${target.edaUsername || 'admin'}</div>
           </div>
-          
-          <div class="detail-group">
-            <div class="detail-label">EDA Password</div>
-            <div class="detail-value\${!target.edaPassword ? ' empty' : ''}">\${target.edaPassword ? '••••••••' : 'Not configured'}</div>
+
+          <div class="mb-5">
+            <div class="text-sm font-medium text-[var(--vscode-descriptionForeground)] mb-1">EDA Password</div>
+            <div class="text-sm px-3 py-2 bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded break-all\${!target.edaPassword ? ' text-[var(--vscode-descriptionForeground)] italic' : ''}">\${target.edaPassword ? '••••••••' : 'Not configured'}</div>
           </div>
-          
-          <div class="detail-group">
-            <div class="detail-label">Keycloak Admin Username</div>
-            <div class="detail-value">\${target.kcUsername || 'admin'}</div>
+
+          <div class="mb-5">
+            <div class="text-sm font-medium text-[var(--vscode-descriptionForeground)] mb-1">Keycloak Admin Username</div>
+            <div class="text-sm px-3 py-2 bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded break-all">\${target.kcUsername || 'admin'}</div>
           </div>
-          
-          <div class="detail-group">
-            <div class="detail-label">Keycloak Admin Password</div>
-            <div class="detail-value\${!target.kcPassword ? ' empty' : ''}">\${target.kcPassword ? '••••••••' : 'Not configured'}</div>
+
+          <div class="mb-5">
+            <div class="text-sm font-medium text-[var(--vscode-descriptionForeground)] mb-1">Keycloak Admin Password</div>
+            <div class="text-sm px-3 py-2 bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded break-all\${!target.kcPassword ? ' text-[var(--vscode-descriptionForeground)] italic' : ''}">\${target.kcPassword ? '••••••••' : 'Not configured'}</div>
           </div>
-          
-          <div class="detail-group">
-            <div class="detail-label">Skip TLS Verification</div>
-            <div class="detail-value">\${target.skipTlsVerify ? 'Yes' : 'No'}</div>
+
+          <div class="mb-5">
+            <div class="text-sm font-medium text-[var(--vscode-descriptionForeground)] mb-1">Skip TLS Verification</div>
+            <div class="text-sm px-3 py-2 bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded break-all">\${target.skipTlsVerify ? 'Yes' : 'No'}</div>
           </div>
-          
-          <div class="detail-actions">
-            <button class="btn btn-secondary edit-btn">Edit</button>
-            <button class="btn btn-danger delete-btn">Delete</button>
+
+          <div class="flex gap-3 pt-4 mt-6 border-t border-[var(--vscode-panel-border)]">
+            <button class="px-4 py-2 rounded font-medium text-sm cursor-pointer transition-colors bg-[var(--vscode-button-secondaryBackground)] text-[var(--vscode-button-secondaryForeground)] border border-[var(--vscode-button-border)] hover:bg-[var(--vscode-button-secondaryHoverBackground)] edit-btn">Edit</button>
+            <button class="px-4 py-2 rounded font-medium text-sm cursor-pointer transition-colors bg-[var(--vscode-errorForeground)] text-[var(--vscode-editor-background)] border-none hover:opacity-90 delete-btn">Delete</button>
           </div>
         </div>
       \`;
