@@ -26,7 +26,7 @@ function loadConfig(): StreamConfig {
 
 async function streamSse(url: string, auth: EdaAuthClient): Promise<void> {
   console.log(`\n[SSE] Connecting to: ${url}`);
-  
+
   const res = await fetch(url, {
     headers: auth.getHeaders(),
     dispatcher: auth.getAgent(),
@@ -86,7 +86,7 @@ async function main(): Promise<void> {
 
   const url = new URL(auth.getBaseUrl());
   console.log(`\n[WS] Connecting to: wss://${url.host}/events`);
-  
+
   const ws = new WebSocket(`wss://${url.host}/events`, {
     headers: auth.getWsHeaders(),
     ...auth.getWsOptions(),
@@ -112,15 +112,15 @@ async function main(): Promise<void> {
   ws.on("message", async (data) => {
     const txt = data.toString();
     console.log(`[WS Message] ${txt}`);
-    
+
     try {
       const msg = JSON.parse(txt);
-      
+
       if (msg.type === "register" && msg.msg?.client) {
         const client = msg.msg.client as string;
         let streamName: string;
         let sseUrl: string;
-        
+
         if (arg.startsWith(".")) {
           streamName = "eql";
           sseUrl =
@@ -135,16 +135,16 @@ async function main(): Promise<void> {
             `?eventclient=${encodeURIComponent(client)}` +
             `&stream=${encodeURIComponent(streamName)}`;
         }
-        
+
         console.log(`[WS] Sending initial next for stream: ${streamName}`);
         ws.send(JSON.stringify({ type: "next", stream: streamName }));
-        
+
         // Set up periodic next messages
         streamInterval = setInterval(() => {
           console.log(`[WS] Sending periodic next for stream: ${streamName}`);
           ws.send(JSON.stringify({ type: "next", stream: streamName }));
         }, cfg.messageIntervalMs ?? 500);
-        
+
         // Start SSE streaming in parallel - don't await it
         streamSse(sseUrl, auth).then(() => {
           console.log("[SSE] Stream completed");

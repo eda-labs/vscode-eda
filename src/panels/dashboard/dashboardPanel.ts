@@ -316,15 +316,15 @@ export class DashboardPanel extends BasePanel {
   private async sendTrafficStats(ns: string): Promise<void> {
     // Close previous stream before starting a new one
     this.edaClient.closeEqlStream();
-    
+
     // Clear traffic data when switching namespaces
     this.trafficMap.clear();
-    
+
     // Send initial empty data to clear the chart
     this.panel.webview.postMessage({
       command: 'clearTrafficData'
     });
-    
+
     const query =
       '.namespace.node.srl.interface.traffic-rate fields [sum(in-bps), sum(out-bps)]';
     const namespaces = ns === 'All Namespaces' ? undefined : ns;
