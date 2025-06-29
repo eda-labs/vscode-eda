@@ -281,6 +281,11 @@
       ],
       "view/title": [
         {
+          "command": "vscode-eda.configureTargets",
+          "when": "view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions || view == edaSystem",
+          "group": "navigation@1"
+        },
+        {
           "command": "vscode-eda.createResource",
           "when": "view == edaNamespaces",
           "group": "navigation@3"
