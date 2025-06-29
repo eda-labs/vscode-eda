@@ -52,18 +52,25 @@ export class TargetWizardPanel extends BasePanel {
     this.panel.webview.html = this.buildHtml();
 
     this.panel.webview.onDidReceiveMessage(async (msg: any) => {
-      if (msg.command === 'save') {
-        await this.saveConfiguration(msg, true);
-      } else if (msg.command === 'add') {
-        await this.saveConfiguration(msg, false);
-      } else if (msg.command === 'delete') {
-        await this.deleteTarget(msg.url);
-      } else if (msg.command === 'commit') {
-        await this.commitTargets(msg.targets);
-      } else if (msg.command === 'select') {
-        await context.globalState.update('selectedEdaTarget', msg.index);
-      } else if (msg.command === 'close') {
-        this.showReload();
+      switch (msg.command) {
+        case 'save':
+          await this.saveConfiguration(msg, true);
+          break;
+        case 'add':
+          await this.saveConfiguration(msg, false);
+          break;
+        case 'delete':
+          await this.deleteTarget(msg.url);
+          break;
+        case 'commit':
+          await this.commitTargets(msg.targets);
+          break;
+        case 'select':
+          await this.context.globalState.update('selectedEdaTarget', msg.index);
+          break;
+        case 'close':
+          this.showReload();
+          break;
       }
     });
   }
@@ -92,9 +99,13 @@ export class TargetWizardPanel extends BasePanel {
   private async saveConfiguration(msg: any, close: boolean): Promise<void> {
     const config = vscode.workspace.getConfiguration('vscode-eda');
     const current = config.get<Record<string, any>>('edaTargets') || {};
+    
+    // Handle URL changes (remove old entry if URL changed)
     if (msg.originalUrl && msg.originalUrl !== msg.url) {
       delete current[msg.originalUrl];
     }
+    
+    // Save new/updated configuration
     current[msg.url] = {
       context: msg.context || undefined,
       edaUsername: msg.edaUsername || undefined,
@@ -102,8 +113,10 @@ export class TargetWizardPanel extends BasePanel {
       skipTlsVerify: msg.skipTlsVerify || undefined,
       coreNamespace: msg.coreNamespace || undefined
     };
+    
     await config.update('edaTargets', current, vscode.ConfigurationTarget.Global);
 
+    // Extract host for password storage
     const host = (() => {
       try {
         return new URL(msg.url).host;
@@ -112,6 +125,7 @@ export class TargetWizardPanel extends BasePanel {
       }
     })();
 
+    // Store passwords securely
     if (msg.edaPassword) {
       await this.context.secrets.store(`edaPassword:${host}`, msg.edaPassword);
     }
@@ -119,6 +133,7 @@ export class TargetWizardPanel extends BasePanel {
       await this.context.secrets.store(`kcPassword:${host}`, msg.kcPassword);
     }
 
+    // Clean up old passwords if URL changed
     if (msg.originalUrl && msg.originalUrl !== msg.url) {
       try {
         const oldHost = new URL(msg.originalUrl).host;
@@ -130,18 +145,7 @@ export class TargetWizardPanel extends BasePanel {
     }
 
     if (close) {
-      vscode.window
-        .showInformationMessage('EDA target saved. Reload window to apply.', 'Reload')
-        .then(v => {
-          if (v === 'Reload') {
-            void vscode.commands.executeCommand('workbench.action.reloadWindow');
-          }
-        });
-
-      this.dispose();
-      if (this.resolve) {
-        this.resolve();
-      }
+      this.showReload();
     }
   }
 
@@ -151,6 +155,7 @@ export class TargetWizardPanel extends BasePanel {
     delete current[url];
     await config.update('edaTargets', current, vscode.ConfigurationTarget.Global);
 
+    // Clean up stored passwords
     try {
       const host = new URL(url).host;
       await this.context.secrets.delete(`edaPassword:${host}`);
@@ -164,17 +169,21 @@ export class TargetWizardPanel extends BasePanel {
     const config = vscode.workspace.getConfiguration('vscode-eda');
     const previous = config.get<Record<string, any>>('edaTargets') || {};
     const updated: Record<string, any> = {};
-    for (const t of targets) {
-      updated[t.url] = {
-        context: t.context || undefined,
-        edaUsername: t.edaUsername || undefined,
-        kcUsername: t.kcUsername || undefined,
-        skipTlsVerify: t.skipTlsVerify || undefined,
-        coreNamespace: t.coreNamespace || undefined
+    
+    // Build new configuration from targets array
+    for (const target of targets) {
+      updated[target.url] = {
+        context: target.context || undefined,
+        edaUsername: target.edaUsername || undefined,
+        kcUsername: target.kcUsername || undefined,
+        skipTlsVerify: target.skipTlsVerify || undefined,
+        coreNamespace: target.coreNamespace || undefined
       };
     }
+    
     await config.update('edaTargets', updated, vscode.ConfigurationTarget.Global);
 
+    // Clean up passwords for removed targets
     for (const url of Object.keys(previous)) {
       if (!updated[url]) {
         try {
@@ -190,9 +199,9 @@ export class TargetWizardPanel extends BasePanel {
 
   private showReload(): void {
     vscode.window
-      .showInformationMessage('EDA target saved. Reload window to apply.', 'Reload')
-      .then(v => {
-        if (v === 'Reload') {
+      .showInformationMessage('EDA targets updated. Reload window to apply changes.', 'Reload')
+      .then(selection => {
+        if (selection === 'Reload') {
           void vscode.commands.executeCommand('workbench.action.reloadWindow');
         }
       });
@@ -215,6 +224,8 @@ export class TargetWizardPanel extends BasePanel {
     const contexts = k8sClient.getAvailableContexts();
     const config = vscode.workspace.getConfiguration('vscode-eda');
     const targetsMap = config.get<Record<string, any>>('edaTargets') || {};
+    
+    // Load targets with their stored passwords
     const targets = await Promise.all(
       Object.entries(targetsMap).map(async ([url, val]) => {
         const host = (() => {
@@ -224,8 +235,11 @@ export class TargetWizardPanel extends BasePanel {
             return url;
           }
         })();
+        
         const edaPassword = await context.secrets.get(`edaPassword:${host}`);
         const kcPassword = await context.secrets.get(`kcPassword:${host}`);
+        
+        // Handle legacy string format and new object format
         if (typeof val === 'string' || val === null) {
           return {
             url,
@@ -234,6 +248,7 @@ export class TargetWizardPanel extends BasePanel {
             kcPassword: kcPassword || undefined
           };
         }
+        
         return {
           url,
           context: val.context || undefined,
@@ -246,6 +261,7 @@ export class TargetWizardPanel extends BasePanel {
         };
       })
     );
+    
     const selected = context.globalState.get<number>('selectedEdaTarget', 0) ?? 0;
     const panel = new TargetWizardPanel(context, contexts, targets, selected);
     return panel.waitForClose();

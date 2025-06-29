@@ -4,134 +4,280 @@ export const targetWizardScripts = `
     const existingTargets = JSON.parse('\${targets}');
     let selectedIdx = \${selected};
     let editIndex = null;
+    let currentMode = 'view'; // 'view', 'edit', 'new'
 
     const loadScript = (src) => new Promise(res => { const s = document.createElement('script'); s.src = src; document.body.appendChild(s); s.onload = res; });
 
-    function render() {
-      const tbody = document.getElementById('targetsBody');
-      tbody.innerHTML = '';
+    function renderTargetsList() {
+      const listContainer = document.getElementById('targetsList');
+      listContainer.innerHTML = '';
       
       if (existingTargets.length === 0) {
-        const tr = document.createElement('tr');
-        tr.innerHTML = '<td colspan="8" class="empty-state">No targets configured yet. Add your first EDA target above.</td>';
-        tbody.appendChild(tr);
+        const emptyState = document.createElement('div');
+        emptyState.className = 'empty-state';
+        emptyState.textContent = 'No targets configured yet.';
+        listContainer.appendChild(emptyState);
         return;
       }
       
-      existingTargets.forEach((t, idx) => {
-        const tr = document.createElement('tr');
+      existingTargets.forEach((target, idx) => {
+        const item = document.createElement('div');
+        item.className = 'target-item' + (idx === selectedIdx ? ' selected' : '');
+        item.dataset.index = idx;
         
-        const radioCell = document.createElement('td');
-        radioCell.className = 'table-cell radio-cell';
-        radioCell.innerHTML = '<input type="radio" name="selectedTarget" value="' + idx + '" ' + (idx === selectedIdx ? 'checked' : '') + '>';
+        const url = document.createElement('div');
+        url.className = 'target-url';
+        url.textContent = target.url;
         
-        const urlCell = document.createElement('td');
-        urlCell.className = 'table-cell';
-        urlCell.textContent = t.url;
-        urlCell.title = t.url; // Add tooltip for long URLs
+        const meta = document.createElement('div');
+        meta.className = 'target-meta';
         
-        const contextCell = document.createElement('td');
-        contextCell.className = t.context ? 'table-cell' : 'table-cell table-cell-muted';
-        contextCell.textContent = t.context || 'None';
-
-        const coreNsCell = document.createElement('td');
-        coreNsCell.className = 'table-cell';
-        coreNsCell.textContent = t.coreNamespace || 'eda-system';
-
-        const edaUserCell = document.createElement('td');
-        edaUserCell.className = 'table-cell';
-        edaUserCell.textContent = t.edaUsername || 'admin';
-        
-        const kcUserCell = document.createElement('td');
-        kcUserCell.className = 'table-cell';
-        kcUserCell.textContent = t.kcUsername || 'admin';
-        
-        const tlsCell = document.createElement('td');
-        tlsCell.className = 'table-cell';
-        if (t.skipTlsVerify) {
-          tlsCell.innerHTML = '<span class="skip-tls-indicator">Yes</span>';
-        } else {
-          tlsCell.innerHTML = '<span style="color: var(--vscode-descriptionForeground)">No</span>';
+        if (target.context) {
+          const context = document.createElement('span');
+          context.className = 'context';
+          context.textContent = target.context;
+          meta.appendChild(context);
         }
         
-        const actionsCell = document.createElement('td');
-        actionsCell.className = 'table-cell';
-        actionsCell.innerHTML = 
-          '<div class="table-actions">' +
-          '<button class="action-button action-button-edit edit" data-index="' + idx + '">Edit</button>' +
-          '<button class="action-button action-button-delete delete" data-index="' + idx + '">Delete</button>' +
-          '</div>';
+        if (idx === selectedIdx) {
+          const defaultBadge = document.createElement('span');
+          defaultBadge.className = 'default-badge';
+          defaultBadge.textContent = 'Default';
+          meta.appendChild(defaultBadge);
+        }
         
-        tr.appendChild(radioCell);
-        tr.appendChild(urlCell);
-        tr.appendChild(contextCell);
-        tr.appendChild(coreNsCell);
-        tr.appendChild(edaUserCell);
-        tr.appendChild(kcUserCell);
-        tr.appendChild(tlsCell);
-        tr.appendChild(actionsCell);
+        if (target.skipTlsVerify) {
+          const tlsBadge = document.createElement('span');
+          tlsBadge.className = 'skip-tls';
+          tlsBadge.textContent = 'Skip TLS';
+          meta.appendChild(tlsBadge);
+        }
         
-        tbody.appendChild(tr);
-      });
-      
-      document.querySelectorAll('button.edit').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const idx = parseInt(btn.getAttribute('data-index'));
-          editIndex = idx;
-        const t = existingTargets[idx];
-        document.getElementById('url').value = t.url;
-        document.getElementById('context').value = t.context || '';
-        document.getElementById('coreNs').value = t.coreNamespace || 'eda-system';
-        document.getElementById('edaUser').value = t.edaUsername || 'admin';
-          document.getElementById('kcUser').value = t.kcUsername || 'admin';
-          document.getElementById('edaPass').value = t.edaPassword || '';
-          document.getElementById('kcPass').value = t.kcPassword || '';
-          document.getElementById('edaPassHint').textContent = t.edaPassword ? 'Loaded from secret. Change to update.' : '';
-          document.getElementById('kcPassHint').textContent = t.kcPassword ? 'Loaded from secret. Change to update.' : '';
-          document.getElementById('skipTls').checked = !!t.skipTlsVerify;
-          
-          // Scroll to form - check if mobile layout first
-          const formContainer = document.querySelector('.form-container');
-          if (window.innerWidth <= 1200) {
-            // Mobile layout - scroll to top
-            formContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          } else {
-            // Desktop layout - just focus the URL input
-            document.getElementById('url').focus();
-          }
-        });
-      });
-      
-      document.querySelectorAll('button.delete').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const idx = parseInt(btn.getAttribute('data-index'));
-          existingTargets.splice(idx, 1);
-          if (selectedIdx === idx) {
-            selectedIdx = 0;
-            vscode.postMessage({ command: 'select', index: 0 });
-          } else if (selectedIdx > idx) {
-            selectedIdx--;
-            vscode.postMessage({ command: 'select', index: selectedIdx });
-          }
-          editIndex = null;
-          render();
-        });
-      });
-      
-      document.querySelectorAll('input[name="selectedTarget"]').forEach(r => {
-        r.addEventListener('change', () => {
-          const idx = parseInt(r.value);
-          selectedIdx = idx;
-          vscode.postMessage({ command: 'select', index: idx });
-        });
+        item.appendChild(url);
+        item.appendChild(meta);
+        
+        item.addEventListener('click', () => selectTarget(idx));
+        
+        listContainer.appendChild(item);
       });
     }
 
-    loadScript(twJsUri).then(render);
+    function selectTarget(idx) {
+      if (currentMode === 'edit' || currentMode === 'new') {
+        // Don't allow selection change while editing
+        return;
+      }
+      
+      selectedIdx = idx;
+      vscode.postMessage({ command: 'select', index: idx });
+      renderTargetsList();
+      showTargetDetails(existingTargets[idx]);
+    }
+
+    function showTargetDetails(target) {
+      currentMode = 'view';
+      editIndex = null;
+      
+      const detailsTitle = document.getElementById('detailsTitle');
+      const detailsContent = document.getElementById('detailsContent');
+      const formContainer = document.getElementById('formContainer');
+      const setDefaultBtn = document.getElementById('setDefault');
+      
+      detailsTitle.textContent = 'Target Details';
+      detailsContent.style.display = 'block';
+      formContainer.style.display = 'none';
+      
+      // Show/hide set default button
+      const currentIdx = existingTargets.indexOf(target);
+      if (currentIdx !== selectedIdx) {
+        setDefaultBtn.style.display = 'inline-block';
+        setDefaultBtn.onclick = () => {
+          selectedIdx = currentIdx;
+          vscode.postMessage({ command: 'select', index: currentIdx });
+          renderTargetsList();
+          showTargetDetails(target);
+        };
+      } else {
+        setDefaultBtn.style.display = 'none';
+      }
+      
+      detailsContent.innerHTML = generateDetailsHTML(target);
+      
+      // Add event listeners for edit and delete buttons
+      const editBtn = detailsContent.querySelector('.edit-btn');
+      const deleteBtn = detailsContent.querySelector('.delete-btn');
+      
+      if (editBtn) {
+        editBtn.addEventListener('click', () => editTarget(currentIdx));
+      }
+      
+      if (deleteBtn) {
+        deleteBtn.addEventListener('click', () => deleteTarget(currentIdx));
+      }
+    }
+
+    function generateDetailsHTML(target) {
+      return \`
+        <div class="target-details">
+          <div class="detail-group">
+            <div class="detail-label">EDA API URL</div>
+            <div class="detail-value">\${target.url}</div>
+          </div>
+          
+          <div class="detail-group">
+            <div class="detail-label">Kubernetes Context</div>
+            <div class="detail-value\${!target.context ? ' empty' : ''}">\${target.context || 'None'}</div>
+          </div>
+          
+          <div class="detail-group">
+            <div class="detail-label">EDA Core Namespace</div>
+            <div class="detail-value">\${target.coreNamespace || 'eda-system'}</div>
+          </div>
+          
+          <div class="detail-group">
+            <div class="detail-label">EDA Username</div>
+            <div class="detail-value">\${target.edaUsername || 'admin'}</div>
+          </div>
+          
+          <div class="detail-group">
+            <div class="detail-label">EDA Password</div>
+            <div class="detail-value\${!target.edaPassword ? ' empty' : ''}">\${target.edaPassword ? '••••••••' : 'Not configured'}</div>
+          </div>
+          
+          <div class="detail-group">
+            <div class="detail-label">Keycloak Admin Username</div>
+            <div class="detail-value">\${target.kcUsername || 'admin'}</div>
+          </div>
+          
+          <div class="detail-group">
+            <div class="detail-label">Keycloak Admin Password</div>
+            <div class="detail-value\${!target.kcPassword ? ' empty' : ''}">\${target.kcPassword ? '••••••••' : 'Not configured'}</div>
+          </div>
+          
+          <div class="detail-group">
+            <div class="detail-label">Skip TLS Verification</div>
+            <div class="detail-value">\${target.skipTlsVerify ? 'Yes' : 'No'}</div>
+          </div>
+          
+          <div class="detail-actions">
+            <button class="btn btn-secondary edit-btn">Edit</button>
+            <button class="btn btn-danger delete-btn">Delete</button>
+          </div>
+        </div>
+      \`;
+    }
+
+    function showEmptyDetails() {
+      const detailsTitle = document.getElementById('detailsTitle');
+      const detailsContent = document.getElementById('detailsContent');
+      const formContainer = document.getElementById('formContainer');
+      const setDefaultBtn = document.getElementById('setDefault');
+      
+      detailsTitle.textContent = 'Target Details';
+      detailsContent.style.display = 'block';
+      formContainer.style.display = 'none';
+      setDefaultBtn.style.display = 'none';
+      
+      detailsContent.innerHTML = '<div class="empty-details"><p class="text-gray-500">Select a target to view details, or add a new target to get started.</p></div>';
+    }
+
+    function editTarget(idx) {
+      currentMode = 'edit';
+      editIndex = idx;
+      const target = existingTargets[idx];
+      
+      showForm('Edit Target');
+      populateForm(target);
+    }
+
+    function addNewTarget() {
+      currentMode = 'new';
+      editIndex = null;
+      
+      showForm('Add New Target');
+      clearForm();
+    }
+
+    function showForm(title) {
+      const detailsTitle = document.getElementById('detailsTitle');
+      const detailsContent = document.getElementById('detailsContent');
+      const formContainer = document.getElementById('formContainer');
+      const setDefaultBtn = document.getElementById('setDefault');
+      
+      detailsTitle.textContent = title;
+      detailsContent.style.display = 'none';
+      formContainer.style.display = 'block';
+      setDefaultBtn.style.display = 'none';
+    }
+
+    function populateForm(target) {
+      document.getElementById('url').value = target.url || '';
+      document.getElementById('context').value = target.context || '';
+      document.getElementById('coreNs').value = target.coreNamespace || 'eda-system';
+      document.getElementById('edaUser').value = target.edaUsername || 'admin';
+      document.getElementById('kcUser').value = target.kcUsername || 'admin';
+      document.getElementById('edaPass').value = target.edaPassword || '';
+      document.getElementById('kcPass').value = target.kcPassword || '';
+      document.getElementById('edaPassHint').textContent = target.edaPassword ? 'Loaded from secret. Change to update.' : '';
+      document.getElementById('kcPassHint').textContent = target.kcPassword ? 'Loaded from secret. Change to update.' : '';
+      document.getElementById('skipTls').checked = !!target.skipTlsVerify;
+    }
+
+    function clearForm() {
+      document.getElementById('url').value = '';
+      document.getElementById('context').value = '';
+      document.getElementById('coreNs').value = 'eda-system';
+      document.getElementById('edaUser').value = 'admin';
+      document.getElementById('kcUser').value = 'admin';
+      document.getElementById('edaPass').value = '';
+      document.getElementById('kcPass').value = '';
+      document.getElementById('edaPassHint').textContent = '';
+      document.getElementById('kcPassHint').textContent = '';
+      document.getElementById('skipTls').checked = false;
+    }
+
+    function cancelForm() {
+      currentMode = 'view';
+      editIndex = null;
+      
+      if (existingTargets.length > 0 && selectedIdx < existingTargets.length) {
+        showTargetDetails(existingTargets[selectedIdx]);
+      } else {
+        showEmptyDetails();
+      }
+    }
+
+    function deleteTarget(idx) {
+      if (confirm('Are you sure you want to delete this target?')) {
+        existingTargets.splice(idx, 1);
+        
+        if (selectedIdx === idx) {
+          selectedIdx = Math.max(0, Math.min(selectedIdx, existingTargets.length - 1));
+          vscode.postMessage({ command: 'select', index: selectedIdx });
+        } else if (selectedIdx > idx) {
+          selectedIdx--;
+          vscode.postMessage({ command: 'select', index: selectedIdx });
+        }
+        
+        renderTargetsList();
+        
+        if (existingTargets.length > 0) {
+          showTargetDetails(existingTargets[selectedIdx]);
+        } else {
+          showEmptyDetails();
+        }
+        
+        vscode.postMessage({ command: 'commit', targets: existingTargets });
+      }
+    }
 
     function sendData(command) {
       const url = document.getElementById('url').value.trim();
-      if (!url) { alert('URL is required'); return; }
+      if (!url) { 
+        alert('URL is required'); 
+        return; 
+      }
+      
       const context = document.getElementById('context').value;
       const edaUsername = document.getElementById('edaUser').value;
       const edaPassword = document.getElementById('edaPass').value;
@@ -140,6 +286,7 @@ export const targetWizardScripts = `
       const skipTlsVerify = document.getElementById('skipTls').checked;
       const coreNamespace = document.getElementById('coreNs').value;
       const originalUrl = editIndex !== null ? existingTargets[editIndex].url : null;
+      
       vscode.postMessage({
         command,
         url,
@@ -155,7 +302,7 @@ export const targetWizardScripts = `
       });
     }
 
-    document.getElementById('save').addEventListener('click', () => {
+    function saveTarget() {
       const url = document.getElementById('url').value.trim();
       const item = {
         url,
@@ -165,63 +312,59 @@ export const targetWizardScripts = `
         kcUsername: document.getElementById('kcUser').value || undefined,
         skipTlsVerify: document.getElementById('skipTls').checked || undefined,
       };
-      if (url) {
-        if (editIndex !== null) {
-          existingTargets[editIndex] = item;
-        } else {
-          existingTargets.push(item);
-        }
-      }
-      if (!url && editIndex === null) {
-        vscode.postMessage({ command: 'commit', targets: existingTargets });
-        vscode.postMessage({ command: 'close' });
-      } else {
-        sendData('save');
-        vscode.postMessage({ command: 'commit', targets: existingTargets });
-      }
-      document.getElementById('edaPassHint').textContent = '';
-      document.getElementById('kcPassHint').textContent = '';
-    });
-    
-    document.getElementById('add').addEventListener('click', () => {
-      sendData('add');
-      const item = {
-        url: document.getElementById('url').value.trim(),
-        context: document.getElementById('context').value || undefined,
-        coreNamespace: document.getElementById('coreNs').value || undefined,
-        edaUsername: document.getElementById('edaUser').value || undefined,
-        kcUsername: document.getElementById('kcUser').value || undefined,
-        skipTlsVerify: document.getElementById('skipTls').checked || undefined,
-      };
-      if (editIndex !== null) {
-        existingTargets[editIndex] = item;
-      } else {
-        existingTargets.push(item);
-      }
-      editIndex = null;
-      render();
-      document.getElementById('edaPassHint').textContent = '';
-      document.getElementById('kcPassHint').textContent = '';
       
-      // Clear form
-      document.getElementById('url').value = '';
-      document.getElementById('context').value = '';
-      document.getElementById('coreNs').value = 'eda-system';
-      document.getElementById('edaUser').value = 'admin';
-      document.getElementById('kcUser').value = 'admin';
-      document.getElementById('edaPass').value = '';
-      document.getElementById('kcPass').value = '';
-      document.getElementById('skipTls').checked = false;
+      if (!url) {
+        alert('URL is required');
+        return;
+      }
+      
+      if (editIndex !== null) {
+        // Updating existing target
+        existingTargets[editIndex] = item;
+        sendData('save');
+      } else {
+        // Adding new target
+        existingTargets.push(item);
+        sendData('add');
+        selectedIdx = existingTargets.length - 1;
+        vscode.postMessage({ command: 'select', index: selectedIdx });
+      }
+      
+      vscode.postMessage({ command: 'commit', targets: existingTargets });
+      
+      renderTargetsList();
+      showTargetDetails(existingTargets[selectedIdx]);
+      
+      document.getElementById('edaPassHint').textContent = '';
+      document.getElementById('kcPassHint').textContent = '';
+    }
+
+    // Initialize the interface
+    loadScript(twJsUri).then(() => {
+      renderTargetsList();
+      
+      if (existingTargets.length > 0 && selectedIdx < existingTargets.length) {
+        showTargetDetails(existingTargets[selectedIdx]);
+      } else {
+        showEmptyDetails();
+      }
     });
 
+    // Event listeners
+    document.getElementById('addNew').addEventListener('click', addNewTarget);
+    document.getElementById('save').addEventListener('click', saveTarget);
+    document.getElementById('cancel').addEventListener('click', cancelForm);
+
+    // Enter key handling
     document.querySelectorAll('input').forEach(input => {
       input.addEventListener('keypress', e => {
         if (e.key === 'Enter') {
-          document.getElementById('save').click();
+          saveTarget();
         }
       });
     });
 
+    // Password toggle functionality
     function setupToggle(id, toggleId) {
       const input = document.getElementById(id);
       const btn = document.getElementById(toggleId);
