@@ -4,11 +4,49 @@ export const targetWizardStyles = `
       color: var(--vscode-foreground);
       background-color: var(--vscode-editor-background);
       padding: 20px;
+      margin: 0;
+    }
+
+    .header-container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-bottom: 32px;
+      width: 100%;
+    }
+
+    .logo {
+      width: 144px;
+      height: auto;
+      display: block;
+    }
+
+    .main-container {
+      display: flex;
+      gap: 32px;
+      max-width: 1400px;
+      margin: 0 auto;
+      align-items: flex-start;
+    }
+
+    @media (max-width: 1200px) {
+      .main-container {
+        flex-direction: column;
+        gap: 24px;
+      }
     }
 
     .form-container {
-      max-width: 600px;
-      margin: auto;
+      flex: 0 0 400px;
+      min-width: 350px;
+    }
+
+    @media (max-width: 1200px) {
+      .form-container {
+        flex: none;
+        max-width: 600px;
+        margin: 0 auto;
+      }
     }
 
     .input {
@@ -19,6 +57,7 @@ export const targetWizardStyles = `
       background-color: var(--vscode-input-background);
       border: 1px solid var(--vscode-input-border);
       border-radius: 4px;
+      box-sizing: border-box;
     }
 
     .input:focus {
@@ -65,8 +104,16 @@ export const targetWizardStyles = `
 
     /* Table Container Styles */
     .table-container {
-      max-width: 1200px;
-      margin: 32px auto 0;
+      flex: 1;
+      min-width: 700px;
+    }
+
+    @media (max-width: 1200px) {
+      .table-container {
+        min-width: 0;
+        max-width: 1000px;
+        margin: 0 auto;
+      }
     }
 
     .table-wrapper {
@@ -74,6 +121,7 @@ export const targetWizardStyles = `
       border: 1px solid var(--vscode-panel-border);
       border-radius: 8px;
       overflow: hidden;
+      overflow-x: auto;
       box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
     }
 
@@ -82,6 +130,7 @@ export const targetWizardStyles = `
       width: 100%;
       border-collapse: collapse;
       font-size: 0.875rem;
+      min-width: 700px;
     }
 
     .table-header {
@@ -94,6 +143,7 @@ export const targetWizardStyles = `
       color: var(--vscode-descriptionForeground);
       background-color: var(--vscode-editorWidget-background);
       border-bottom: 1px solid var(--vscode-panel-border);
+      white-space: nowrap;
     }
 
     .table-body tr {
@@ -112,6 +162,10 @@ export const targetWizardStyles = `
     .table-cell {
       padding: 12px 16px;
       color: var(--vscode-foreground);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 200px;
     }
 
     .table-cell-muted {
@@ -146,6 +200,7 @@ export const targetWizardStyles = `
       border-radius: 4px;
       cursor: pointer;
       transition: all 0.15s ease;
+      white-space: nowrap;
     }
 
     .action-button-edit {
@@ -184,5 +239,66 @@ export const targetWizardStyles = `
       padding: 48px 16px;
       text-align: center;
       color: var(--vscode-descriptionForeground);
+    }
+
+    /* Utility classes for Tailwind-like styling */
+    .space-y-4 > * + * {
+      margin-top: 16px;
+    }
+
+    .text-lg {
+      font-size: 1.125rem;
+    }
+
+    .font-semibold {
+      font-weight: 600;
+    }
+
+    .text-sm {
+      font-size: 0.875rem;
+    }
+
+    .text-gray-500 {
+      color: var(--vscode-descriptionForeground);
+    }
+
+    .font-medium {
+      font-weight: 500;
+    }
+
+    .block {
+      display: block;
+    }
+
+    .pr-8 {
+      padding-right: 32px;
+    }
+
+    .mr-1 {
+      margin-right: 4px;
+    }
+
+    .flex {
+      display: flex;
+    }
+
+    .justify-end {
+      justify-content: flex-end;
+    }
+
+    .gap-2 {
+      gap: 8px;
+    }
+
+    .text-base {
+      font-size: 1rem;
+    }
+
+    .mb-4 {
+      margin-bottom: 16px;
+    }
+
+    .text-right {
+      text-align: right;
     }
 `;

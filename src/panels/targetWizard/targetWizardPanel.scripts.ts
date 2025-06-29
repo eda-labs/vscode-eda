@@ -28,6 +28,7 @@ export const targetWizardScripts = `
         const urlCell = document.createElement('td');
         urlCell.className = 'table-cell';
         urlCell.textContent = t.url;
+        urlCell.title = t.url; // Add tooltip for long URLs
         
         const contextCell = document.createElement('td');
         contextCell.className = t.context ? 'table-cell' : 'table-cell table-cell-muted';
@@ -83,8 +84,15 @@ export const targetWizardScripts = `
           document.getElementById('kcPassHint').textContent = t.kcPassword ? 'Loaded from secret. Change to update.' : '';
           document.getElementById('skipTls').checked = !!t.skipTlsVerify;
           
-          // Scroll to form
-          document.querySelector('.form-container').scrollIntoView({ behavior: 'smooth' });
+          // Scroll to form - check if mobile layout first
+          const formContainer = document.querySelector('.form-container');
+          if (window.innerWidth <= 1200) {
+            // Mobile layout - scroll to top
+            formContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          } else {
+            // Desktop layout - just focus the URL input
+            document.getElementById('url').focus();
+          }
         });
       });
       
