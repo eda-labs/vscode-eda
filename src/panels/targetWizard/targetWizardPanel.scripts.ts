@@ -13,7 +13,7 @@ export const targetWizardScripts = `
       
       if (existingTargets.length === 0) {
         const tr = document.createElement('tr');
-        tr.innerHTML = '<td colspan="7" class="empty-state">No targets configured yet. Add your first EDA target above.</td>';
+        tr.innerHTML = '<td colspan="8" class="empty-state">No targets configured yet. Add your first EDA target above.</td>';
         tbody.appendChild(tr);
         return;
       }
@@ -33,7 +33,11 @@ export const targetWizardScripts = `
         const contextCell = document.createElement('td');
         contextCell.className = t.context ? 'table-cell' : 'table-cell table-cell-muted';
         contextCell.textContent = t.context || 'None';
-        
+
+        const coreNsCell = document.createElement('td');
+        coreNsCell.className = 'table-cell';
+        coreNsCell.textContent = t.coreNamespace || 'eda-system';
+
         const edaUserCell = document.createElement('td');
         edaUserCell.className = 'table-cell';
         edaUserCell.textContent = t.edaUsername || 'admin';
@@ -61,6 +65,7 @@ export const targetWizardScripts = `
         tr.appendChild(radioCell);
         tr.appendChild(urlCell);
         tr.appendChild(contextCell);
+        tr.appendChild(coreNsCell);
         tr.appendChild(edaUserCell);
         tr.appendChild(kcUserCell);
         tr.appendChild(tlsCell);
@@ -73,10 +78,11 @@ export const targetWizardScripts = `
         btn.addEventListener('click', () => {
           const idx = parseInt(btn.getAttribute('data-index'));
           editIndex = idx;
-          const t = existingTargets[idx];
-          document.getElementById('url').value = t.url;
-          document.getElementById('context').value = t.context || '';
-          document.getElementById('edaUser').value = t.edaUsername || 'admin';
+        const t = existingTargets[idx];
+        document.getElementById('url').value = t.url;
+        document.getElementById('context').value = t.context || '';
+        document.getElementById('coreNs').value = t.coreNamespace || 'eda-system';
+        document.getElementById('edaUser').value = t.edaUsername || 'admin';
           document.getElementById('kcUser').value = t.kcUsername || 'admin';
           document.getElementById('edaPass').value = t.edaPassword || '';
           document.getElementById('kcPass').value = t.kcPassword || '';
@@ -132,6 +138,7 @@ export const targetWizardScripts = `
       const kcUsername = document.getElementById('kcUser').value;
       const kcPassword = document.getElementById('kcPass').value;
       const skipTlsVerify = document.getElementById('skipTls').checked;
+      const coreNamespace = document.getElementById('coreNs').value;
       const originalUrl = editIndex !== null ? existingTargets[editIndex].url : null;
       vscode.postMessage({
         command,
@@ -142,6 +149,7 @@ export const targetWizardScripts = `
         kcUsername,
         kcPassword,
         skipTlsVerify,
+        coreNamespace,
         originalUrl,
         index: editIndex
       });
@@ -152,6 +160,7 @@ export const targetWizardScripts = `
       const item = {
         url,
         context: document.getElementById('context').value || undefined,
+        coreNamespace: document.getElementById('coreNs').value || undefined,
         edaUsername: document.getElementById('edaUser').value || undefined,
         kcUsername: document.getElementById('kcUser').value || undefined,
         skipTlsVerify: document.getElementById('skipTls').checked || undefined,
@@ -179,6 +188,7 @@ export const targetWizardScripts = `
       const item = {
         url: document.getElementById('url').value.trim(),
         context: document.getElementById('context').value || undefined,
+        coreNamespace: document.getElementById('coreNs').value || undefined,
         edaUsername: document.getElementById('edaUser').value || undefined,
         kcUsername: document.getElementById('kcUser').value || undefined,
         skipTlsVerify: document.getElementById('skipTls').checked || undefined,
@@ -196,6 +206,7 @@ export const targetWizardScripts = `
       // Clear form
       document.getElementById('url').value = '';
       document.getElementById('context').value = '';
+      document.getElementById('coreNs').value = 'eda-system';
       document.getElementById('edaUser').value = 'admin';
       document.getElementById('kcUser').value = 'admin';
       document.getElementById('edaPass').value = '';

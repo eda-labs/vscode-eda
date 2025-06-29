@@ -26,9 +26,11 @@ export class EdaSpecManager {
   private operationMap: Map<string, string> = new Map();
   private initPromise: Promise<void> = Promise.resolve();
   private apiClient: EdaApiClient;
+  private coreNamespace: string;
 
-  constructor(apiClient: EdaApiClient) {
+  constructor(apiClient: EdaApiClient, coreNamespace = 'eda-system') {
     this.apiClient = apiClient;
+    this.coreNamespace = coreNamespace;
     log('EdaSpecManager initialized', LogLevel.DEBUG);
     this.initPromise = this.initializeSpecs();
   }
@@ -52,6 +54,10 @@ export class EdaSpecManager {
    */
   public getApiVersion(): string {
     return this.apiVersion;
+  }
+
+  public getCoreNamespace(): string {
+    return this.coreNamespace;
   }
 
   /**
@@ -138,8 +144,8 @@ export class EdaSpecManager {
       // Prime namespace set
       const ns = await this.apiClient.fetchJsonUrl(`${baseUrl}${nsPath}`) as NamespaceGetResponse;
       this.namespaceSet = new Set((ns.namespaces || []).map(n => n.name || '').filter(n => n));
-      // Always include system namespace
-      this.namespaceSet.add('eda-system');
+      // Always include core namespace
+      this.namespaceSet.add(this.coreNamespace);
       log('Spec initialization complete', LogLevel.INFO);
     } catch (err) {
       log(`Failed to initialize specs: ${err}`, LogLevel.WARN);

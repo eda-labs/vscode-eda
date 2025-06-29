@@ -12,6 +12,7 @@ export interface TargetWizardResult {
   kcUsername: string;
   edaPassword: string;
   kcPassword: string;
+  coreNamespace?: string;
 }
 
 export class TargetWizardPanel extends BasePanel {
@@ -22,6 +23,7 @@ export class TargetWizardPanel extends BasePanel {
     edaUsername?: string;
     kcUsername?: string;
     skipTlsVerify?: boolean;
+    coreNamespace?: string;
     edaPassword?: string;
     kcPassword?: string;
   }[];
@@ -37,6 +39,7 @@ export class TargetWizardPanel extends BasePanel {
       edaUsername?: string;
       kcUsername?: string;
       skipTlsVerify?: boolean;
+      coreNamespace?: string;
       edaPassword?: string;
       kcPassword?: string;
     }[],
@@ -96,7 +99,8 @@ export class TargetWizardPanel extends BasePanel {
       context: msg.context || undefined,
       edaUsername: msg.edaUsername || undefined,
       kcUsername: msg.kcUsername || undefined,
-      skipTlsVerify: msg.skipTlsVerify || undefined
+      skipTlsVerify: msg.skipTlsVerify || undefined,
+      coreNamespace: msg.coreNamespace || undefined
     };
     await config.update('edaTargets', current, vscode.ConfigurationTarget.Global);
 
@@ -165,7 +169,8 @@ export class TargetWizardPanel extends BasePanel {
         context: t.context || undefined,
         edaUsername: t.edaUsername || undefined,
         kcUsername: t.kcUsername || undefined,
-        skipTlsVerify: t.skipTlsVerify || undefined
+        skipTlsVerify: t.skipTlsVerify || undefined,
+        coreNamespace: t.coreNamespace || undefined
       };
     }
     await config.update('edaTargets', updated, vscode.ConfigurationTarget.Global);
@@ -235,6 +240,7 @@ export class TargetWizardPanel extends BasePanel {
           edaUsername: val.edaUsername || undefined,
           kcUsername: val.kcUsername || undefined,
           skipTlsVerify: val.skipTlsVerify || undefined,
+          coreNamespace: val.coreNamespace || undefined,
           edaPassword: edaPassword || undefined,
           kcPassword: kcPassword || undefined
         };

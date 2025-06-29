@@ -13,6 +13,8 @@ export const targetWizardHtml = `
         <option value="">None</option>
         \${options}
       </select>
+      <label class="block text-sm font-medium">EDA Core Namespace</label>
+      <input id="coreNs" type="text" value="eda-system" class="input" />
       <label class="block text-sm font-medium">EDA Username</label>
       <input id="edaUser" type="text" value="admin" class="input" />
       <label class="block text-sm font-medium">EDA Password</label>
@@ -45,6 +47,7 @@ export const targetWizardHtml = `
               <th class="table-header">Default</th>
               <th class="table-header">URL</th>
               <th class="table-header">Context</th>
+              <th class="table-header">Core NS</th>
               <th class="table-header">EDA User</th>
               <th class="table-header">KC User</th>
               <th class="table-header">Skip TLS</th>

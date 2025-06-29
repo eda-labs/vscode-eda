@@ -86,8 +86,9 @@ constructor() {
     void this.loadStreams();
 
     this.cachedNamespaces = this.edaClient.getCachedNamespaces();
-    if (!this.cachedNamespaces.includes('eda-system')) {
-      this.cachedNamespaces.push('eda-system');
+    const coreNs = this.edaClient.getCoreNamespace();
+    if (!this.cachedNamespaces.includes(coreNs)) {
+      this.cachedNamespaces.push(coreNs);
     }
     void this.initializeKubernetesNamespaces();
 

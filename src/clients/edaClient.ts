@@ -8,6 +8,7 @@ import { EdaSpecManager } from './edaSpecManager';
 export type { NamespaceCallback, DeviationCallback, TransactionCallback, AlarmCallback } from './types';
 export interface EdaClientOptions extends EdaAuthOptions {
   messageIntervalMs?: number;
+  coreNamespace?: string;
 }
 
 /**
@@ -28,7 +29,7 @@ export class EdaClient {
     this.authClient = new EdaAuthClient(baseUrl, opts);
     this.apiClient = new EdaApiClient(this.authClient);
     this.streamClient = new EdaStreamClient(opts.messageIntervalMs);
-    this.specManager = new EdaSpecManager(this.apiClient);
+    this.specManager = new EdaSpecManager(this.apiClient, opts.coreNamespace);
     this.apiClient.setSpecManager(this.specManager);
 
     // Connect components
@@ -201,6 +202,10 @@ export class EdaClient {
 
   public setCachedNamespaces(names: string[]): void {
     this.specManager.setCachedNamespaces(names);
+  }
+
+  public getCoreNamespace(): string {
+    return this.specManager.getCoreNamespace();
   }
 
   public async getStreamNames(): Promise<string[]> {

@@ -99,6 +99,7 @@ In VS Code settings (`File → Preferences → Settings`), navigate to `Extensio
   - `none` = no color highlighting
 - **`vscode-eda.edaTargets`**
   Map EDA API URLs to optional Kubernetes contexts and credentials. Each value may be a simple context string or an object. Use `skipTlsVerify: true` to bypass TLS certificate validation for a specific target. You can also set `EDA_SKIP_TLS_VERIFY=true` to disable TLS verification for all targets:
+  The optional `coreNamespace` property sets the EDA Core namespace for a target and defaults to `eda-system`.
 
   ```jsonc
   {
@@ -106,13 +107,15 @@ In VS Code settings (`File → Preferences → Settings`), navigate to `Extensio
       "context": "kubernetes-admin@kubernetes",
       "edaUsername": "admin",          // your EDA-realm username for this URL
       "kcUsername": "admin",           // your Keycloak (KC) admin username
-      "skipTlsVerify": false           // optionally skip TLS verification
+      "skipTlsVerify": false,          // optionally skip TLS verification
+      "coreNamespace": "eda-system"   // EDA core namespace for this target
     },
     "https://10.10.10.1:9443": {
       "context": "kind-eda-demo",
       "edaUsername": "admin",        // whatever user you’ve set up in EDA
       "kcUsername": "admin",          // your Keycloak admin user
-      "skipTlsVerify": true
+      "skipTlsVerify": true,
+      "coreNamespace": "eda-system"
     }
   }
   ```

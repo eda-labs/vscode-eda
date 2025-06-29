@@ -559,6 +559,11 @@
                   "skipTlsVerify": {
                     "type": "boolean",
                     "description": "Skip TLS verification when connecting to this target"
+                  },
+                  "coreNamespace": {
+                    "type": "string",
+                    "description": "EDA core namespace for this target",
+                    "default": "eda-system"
                   }
                 },
                 "additionalProperties": false

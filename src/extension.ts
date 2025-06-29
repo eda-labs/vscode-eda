@@ -42,6 +42,7 @@ export interface EdaTargetConfig {
   edaUsername?: string;
   kcUsername?: string;
   skipTlsVerify?: boolean;
+  coreNamespace?: string;
 }
 
 
@@ -144,6 +145,7 @@ export async function activate(context: vscode.ExtensionContext) {
   let edaUsername = config.get<string>('edaUsername', 'admin');
   let kcUsername = config.get<string>('kcUsername', 'admin');
   let skipTlsVerifyCfg = process.env.EDA_SKIP_TLS_VERIFY === 'true';
+  let coreNamespace = process.env.EDA_CORE_NAMESPACE || 'eda-system';
   const edaTargetsCfg = config.get<Record<string, string | EdaTargetConfig | undefined>>('edaTargets');
   const targetEntries = edaTargetsCfg ? Object.entries(edaTargetsCfg) : [];
   if (targetEntries.length === 0) {
@@ -166,6 +168,9 @@ export async function activate(context: vscode.ExtensionContext) {
       }
       if (val.skipTlsVerify !== undefined) {
         skipTlsVerifyCfg = val.skipTlsVerify;
+      }
+      if (val.coreNamespace) {
+        coreNamespace = val.coreNamespace;
       }
     }
   }
@@ -273,7 +278,8 @@ export async function activate(context: vscode.ExtensionContext) {
       kcPassword,
       clientId,
       clientSecret: clientSecret || undefined,
-      skipTlsVerify
+      skipTlsVerify,
+      coreNamespace
     });
 
     // 2) Register clients FIRST - before any providers are created
