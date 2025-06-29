@@ -225,6 +225,9 @@
   .mx-auto {
     margin-inline: auto;
   }
+  .mt-2 {
+    margin-top: calc(var(--spacing) * 2);
+  }
   .mt-6 {
     margin-top: calc(var(--spacing) * 6);
   }
@@ -278,6 +281,9 @@
   }
   .w-80 {
     width: calc(var(--spacing) * 80);
+  }
+  .w-96 {
+    width: calc(var(--spacing) * 96);
   }
   .w-full {
     width: 100%;
@@ -404,9 +410,6 @@
   .bg-\[var\(--vscode-editorGroupHeader-tabsBackground\)\] {
     background-color: var(--vscode-editorGroupHeader-tabsBackground);
   }
-  .bg-\[var\(--vscode-editorWarning-background\)\] {
-    background-color: var(--vscode-editorWarning-background);
-  }
   .bg-\[var\(--vscode-editorWidget-background\)\] {
     background-color: var(--vscode-editorWidget-background);
   }
@@ -501,9 +504,6 @@
   }
   .text-\[var\(--vscode-editor-background\)\] {
     color: var(--vscode-editor-background);
-  }
-  .text-\[var\(--vscode-editorWarning-foreground\)\] {
-    color: var(--vscode-editorWarning-foreground);
   }
   .text-\[var\(--vscode-input-foreground\)\] {
     color: var(--vscode-input-foreground);

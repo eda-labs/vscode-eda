@@ -51,7 +51,7 @@ export const targetWizardScripts = `
         
         if (target.skipTlsVerify) {
           const tlsBadge = document.createElement('span');
-          tlsBadge.className = 'bg-[var(--vscode-editorWarning-background)] text-[var(--vscode-editorWarning-foreground)] px-2 rounded-full text-[0.7rem] font-medium';
+          tlsBadge.className = 'bg-[var(--vscode-badge-background)] text-[var(--vscode-badge-foreground)] px-2 rounded-full text-[0.7rem] font-medium';
           tlsBadge.textContent = 'Skip TLS';
           meta.appendChild(tlsBadge);
         }

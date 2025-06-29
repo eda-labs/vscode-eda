@@ -15,6 +15,7 @@ module.exports = {
     'block',
     'w-36',
     'w-80',
+    'w-96',
     'max-w-screen-xl',
     'max-w-[500px]',
     'rounded',

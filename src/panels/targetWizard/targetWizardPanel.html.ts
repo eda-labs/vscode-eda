@@ -1,10 +1,11 @@
 export const targetWizardHtml = `
-  <div class="flex justify-center mb-8 w-full">
+  <div class="flex flex-col items-center justify-center mb-8 w-full">
     <img src="\${logo}" alt="EDA" class="logo w-36 h-auto block" />
+    <div class="mt-2 text-sm font-medium">Nokia Event-Driven Automation</div>
   </div>
   <div class="flex flex-col gap-6 md:flex-row max-w-screen-xl mx-auto items-start">
     <!-- Left Pane: Target List -->
-    <div class="flex flex-col flex-none w-80 bg-[var(--vscode-editorWidget-background)] border border-[var(--vscode-panel-border)] rounded-lg overflow-hidden">
+    <div class="flex flex-col flex-none w-96 bg-[var(--vscode-editorWidget-background)] border border-[var(--vscode-panel-border)] rounded-lg overflow-hidden">
       <div class="flex justify-between items-center p-4 border-b border-[var(--vscode-panel-border)] bg-[var(--vscode-editorGroupHeader-tabsBackground)]">
         <h3 class="text-base font-semibold">EDA Targets</h3>
         <button id="addNew" class="px-4 py-2 rounded font-medium text-sm cursor-pointer transition-colors bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] border border-[color:var(--vscode-button-border,transparent)] hover:bg-[var(--vscode-button-hoverBackground)]">Add New</button>
