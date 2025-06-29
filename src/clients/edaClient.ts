@@ -87,15 +87,19 @@ export class EdaClient {
     await this.streamClient.connect();
   }
 
-  public async streamEql(query: string, namespaces?: string): Promise<void> {
+  public async streamEql(
+    query: string,
+    namespaces?: string,
+    streamName = 'eql'
+  ): Promise<void> {
     await this.initPromise;
-    this.streamClient.setEqlQuery(query, namespaces);
-    this.streamClient.subscribeToStream('eql');
+    this.streamClient.setEqlQuery(query, namespaces, streamName);
+    this.streamClient.subscribeToStream(streamName);
     await this.streamClient.connect();
   }
 
-  public closeEqlStream(): void {
-    this.streamClient.unsubscribeFromStream('eql');
+  public closeEqlStream(streamName = 'eql'): void {
+    this.streamClient.unsubscribeFromStream(streamName);
   }
 
   public async streamEdaTransactions(size = 50): Promise<void> {

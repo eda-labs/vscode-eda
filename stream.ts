@@ -92,7 +92,7 @@ async function main(): Promise<void> {
     ...auth.getWsOptions(),
   });
 
-  let streamInterval: NodeJS.Timeout | null = null;
+  let streamInterval: ReturnType<typeof setInterval> | null = null;
 
   ws.on("open", () => {
     console.log("[WS] Connection opened");

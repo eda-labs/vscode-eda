@@ -13,6 +13,7 @@ export class DashboardPanel extends BasePanel {
   private interfaceMap: Map<string, Map<string, string>> = new Map();
   private trafficMap: Map<string, { in: number; out: number }> = new Map();
   private selectedNamespace = 'All Namespaces';
+  private trafficStreamName = 'traffic-all';
   private initialized = false;
 
   constructor(context: vscode.ExtensionContext, title: string) {
@@ -25,7 +26,7 @@ export class DashboardPanel extends BasePanel {
         this.handleTopoNodeStream(msg);
       } else if (stream === 'interfaces') {
         this.handleInterfaceStream(msg);
-      } else if (stream === 'eql') {
+      } else if (stream === this.trafficStreamName) {
         this.handleTrafficStream(msg);
       }
     });
@@ -35,7 +36,7 @@ export class DashboardPanel extends BasePanel {
     this.panel.onDidDispose(() => {
       this.edaClient.closeTopoNodeStream();
       this.edaClient.closeInterfaceStream?.();
-      this.edaClient.closeEqlStream();
+      this.edaClient.closeEqlStream(this.trafficStreamName);
     });
 
     this.panel.webview.onDidReceiveMessage(async msg => {
@@ -315,7 +316,7 @@ export class DashboardPanel extends BasePanel {
 
   private async sendTrafficStats(ns: string): Promise<void> {
     // Close previous stream before starting a new one
-    this.edaClient.closeEqlStream();
+    this.edaClient.closeEqlStream(this.trafficStreamName);
 
     // Clear traffic data when switching namespaces
     this.trafficMap.clear();
@@ -328,7 +329,8 @@ export class DashboardPanel extends BasePanel {
     const query =
       '.namespace.node.srl.interface.traffic-rate fields [sum(in-bps), sum(out-bps)]';
     const namespaces = ns === 'All Namespaces' ? undefined : ns;
-    await this.edaClient.streamEql(query, namespaces);
+    this.trafficStreamName = `traffic-${namespaces ?? 'all'}`;
+    await this.edaClient.streamEql(query, namespaces, this.trafficStreamName);
   }
 
   static show(context: vscode.ExtensionContext, title: string): void {

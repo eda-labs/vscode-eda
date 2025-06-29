@@ -29,8 +29,7 @@ export class EdaStreamClient {
   private summaryAbortController: AbortController | undefined;
   private summaryStreamPromise: Promise<void> | undefined;
   private userStorageFiles: Set<string> = new Set();
-  private eqlQuery: string | undefined;
-  private eqlNamespaces: string | undefined;
+  private eqlStreams: Map<string, { query: string; namespaces?: string }> = new Map();
 
   private _onStreamMessage = new vscode.EventEmitter<StreamMessage>();
   public readonly onStreamMessage = this._onStreamMessage.event;
@@ -79,9 +78,8 @@ export class EdaStreamClient {
     this.streamEndpoints = endpoints;
   }
 
-  public setEqlQuery(query: string, namespaces?: string): void {
-    this.eqlQuery = query;
-    this.eqlNamespaces = namespaces;
+  public setEqlQuery(query: string, namespaces?: string, streamName = 'eql'): void {
+    this.eqlStreams.set(streamName, { query, namespaces });
   }
 
   /**
@@ -173,8 +171,10 @@ export class EdaStreamClient {
             if (this.activeStreams.has('summary')) {
               void this.startTransactionSummaryStream(this.eventClient);
             }
-            if (this.activeStreams.has('eql')) {
-              void this.startEqlStream(this.eventClient);
+            for (const streamName of this.eqlStreams.keys()) {
+              if (this.activeStreams.has(streamName)) {
+                void this.startEqlStream(this.eventClient, streamName);
+              }
             }
             // If we have user storage files, make sure we're subscribed to 'file' stream
             if (this.userStorageFiles.size > 0 && !this.activeStreams.has('file')) {
@@ -221,8 +221,8 @@ export class EdaStreamClient {
 
     if (this.eventSocket?.readyState === WebSocket.OPEN) {
       this.eventSocket.send(JSON.stringify({ type: 'next', stream: streamName }));
-      if (streamName === 'eql') {
-        void this.startEqlStream(this.eventClient as string);
+      if (this.eqlStreams.has(streamName)) {
+        void this.startEqlStream(this.eventClient as string, streamName);
       }
     }
   }
@@ -237,6 +237,7 @@ export class EdaStreamClient {
       // do not clear summaryStreamPromise so a restart can wait for closure
       this.summaryAbortController = undefined;
     }
+    this.eqlStreams.delete(streamName);
     log(`Unsubscribed from stream: ${streamName}`, LogLevel.DEBUG);
   }
 
@@ -428,15 +429,17 @@ export class EdaStreamClient {
     await this.streamSse(url);
   }
 
-  private async startEqlStream(client: string): Promise<void> {
-    if (!this.authClient || !this.eqlQuery) return;
+  private async startEqlStream(client: string, streamName: string): Promise<void> {
+    if (!this.authClient) return;
+    const info = this.eqlStreams.get(streamName);
+    if (!info) return;
     let url =
       `${this.authClient.getBaseUrl()}/core/query/v1/eql` +
       `?eventclient=${encodeURIComponent(client)}` +
-      `&stream=eql` +
-      `&query=${encodeURIComponent(this.eqlQuery)}`;
-    if (this.eqlNamespaces) {
-      url += `&namespaces=${encodeURIComponent(this.eqlNamespaces)}`;
+      `&stream=${encodeURIComponent(streamName)}` +
+      `&query=${encodeURIComponent(info.query)}`;
+    if (info.namespaces) {
+      url += `&namespaces=${encodeURIComponent(info.namespaces)}`;
     }
 
     await this.streamSse(url);
