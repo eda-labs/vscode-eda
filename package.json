@@ -274,39 +274,49 @@
       ],
       "view/title": [
         {
+          "command": "vscode-eda.filterTree",
+          "when": "view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions",
+          "group": "navigation@1"
+        },
+        {
+          "command": "vscode-eda.clearFilter",
+          "when": "view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions || view == edaSystem",
+          "group": "navigation@2"
+        },
+        {
           "command": "vscode-eda.configureTargets",
           "when": "view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions || view == edaSystem",
-          "group": "navigation@1"
+          "group": "navigation@3"
         },
         {
           "command": "vscode-eda.createResource",
           "when": "view == edaNamespaces",
-          "group": "navigation@3"
+          "group": "navigation@4"
         },
         {
           "command": "vscode-eda.expandAllNamespaces",
           "when": "view == edaNamespaces",
-          "group": "navigation@4"
+          "group": "navigation@5"
         },
         {
           "command": "vscode-eda.setTransactionLimit",
           "when": "view == edaTransactions",
-          "group": "navigation@5"
+          "group": "navigation@6"
         },
         {
           "command": "vscode-eda.commitBasket",
           "when": "view == edaTransactionBasket",
-          "group": "navigation@6"
+          "group": "navigation@7"
         },
         {
           "command": "vscode-eda.dryRunBasket",
           "when": "view == edaTransactionBasket",
-          "group": "navigation@7"
+          "group": "navigation@8"
         },
         {
           "command": "vscode-eda.discardBasket",
           "when": "view == edaTransactionBasket",
-          "group": "navigation@8"
+          "group": "navigation@9"
         }
       ],
       "view/item/context": [
@@ -488,20 +498,6 @@
           "command": "vscode-eda.switchToEditResource",
           "when": "resourceScheme == k8s-view",
           "group": "1_modification@1"
-        }
-      ]
-    },
-    "_disabledMenus": {
-      "view/title": [
-        {
-          "command": "vscode-eda.filterTree",
-          "when": "view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions",
-          "group": "navigation@1"
-        },
-        {
-          "command": "vscode-eda.clearFilter",
-          "when": "view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions || view == edaSystem",
-          "group": "navigation@2"
         }
       ]
     },
