@@ -10,19 +10,64 @@ export const targetWizardScripts = `
     function render() {
       const tbody = document.getElementById('targetsBody');
       tbody.innerHTML = '';
+      
+      if (existingTargets.length === 0) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = '<td colspan="7" class="empty-state">No targets configured yet. Add your first EDA target above.</td>';
+        tbody.appendChild(tr);
+        return;
+      }
+      
       existingTargets.forEach((t, idx) => {
         const tr = document.createElement('tr');
-        tr.innerHTML =
-          '<td class="px-2 py-1"><input type="radio" name="selectedTarget" value="' + idx + '" ' + (idx === selectedIdx ? 'checked' : '') + '></td>' +
-          '<td class="px-2 py-1">' + t.url + '</td>' +
-          '<td class="px-2 py-1">' + (t.context || '') + '</td>' +
-          '<td class="px-2 py-1">' + (t.edaUsername || '') + '</td>' +
-          '<td class="px-2 py-1">' + (t.kcUsername || '') + '</td>' +
-          '<td class="px-2 py-1">' + (t.skipTlsVerify ? 'Yes' : '') + '</td>' +
-          '<td class="px-2 py-1"><button class="edit text-blue-500" data-index="' + idx + '">Edit</button>' +
-          '<button class="delete text-red-500 ml-2" data-index="' + idx + '">Delete</button></td>';
+        
+        const radioCell = document.createElement('td');
+        radioCell.className = 'table-cell radio-cell';
+        radioCell.innerHTML = '<input type="radio" name="selectedTarget" value="' + idx + '" ' + (idx === selectedIdx ? 'checked' : '') + '>';
+        
+        const urlCell = document.createElement('td');
+        urlCell.className = 'table-cell';
+        urlCell.textContent = t.url;
+        
+        const contextCell = document.createElement('td');
+        contextCell.className = t.context ? 'table-cell' : 'table-cell table-cell-muted';
+        contextCell.textContent = t.context || 'None';
+        
+        const edaUserCell = document.createElement('td');
+        edaUserCell.className = 'table-cell';
+        edaUserCell.textContent = t.edaUsername || 'admin';
+        
+        const kcUserCell = document.createElement('td');
+        kcUserCell.className = 'table-cell';
+        kcUserCell.textContent = t.kcUsername || 'admin';
+        
+        const tlsCell = document.createElement('td');
+        tlsCell.className = 'table-cell';
+        if (t.skipTlsVerify) {
+          tlsCell.innerHTML = '<span class="skip-tls-indicator">Yes</span>';
+        } else {
+          tlsCell.innerHTML = '<span style="color: var(--vscode-descriptionForeground)">No</span>';
+        }
+        
+        const actionsCell = document.createElement('td');
+        actionsCell.className = 'table-cell';
+        actionsCell.innerHTML = 
+          '<div class="table-actions">' +
+          '<button class="action-button action-button-edit edit" data-index="' + idx + '">Edit</button>' +
+          '<button class="action-button action-button-delete delete" data-index="' + idx + '">Delete</button>' +
+          '</div>';
+        
+        tr.appendChild(radioCell);
+        tr.appendChild(urlCell);
+        tr.appendChild(contextCell);
+        tr.appendChild(edaUserCell);
+        tr.appendChild(kcUserCell);
+        tr.appendChild(tlsCell);
+        tr.appendChild(actionsCell);
+        
         tbody.appendChild(tr);
       });
+      
       document.querySelectorAll('button.edit').forEach(btn => {
         btn.addEventListener('click', () => {
           const idx = parseInt(btn.getAttribute('data-index'));
@@ -37,8 +82,12 @@ export const targetWizardScripts = `
           document.getElementById('edaPassHint').textContent = t.edaPassword ? 'Loaded from secret. Change to update.' : '';
           document.getElementById('kcPassHint').textContent = t.kcPassword ? 'Loaded from secret. Change to update.' : '';
           document.getElementById('skipTls').checked = !!t.skipTlsVerify;
+          
+          // Scroll to form
+          document.querySelector('.form-container').scrollIntoView({ behavior: 'smooth' });
         });
       });
+      
       document.querySelectorAll('button.delete').forEach(btn => {
         btn.addEventListener('click', () => {
           const idx = parseInt(btn.getAttribute('data-index'));
@@ -54,6 +103,7 @@ export const targetWizardScripts = `
           render();
         });
       });
+      
       document.querySelectorAll('input[name="selectedTarget"]').forEach(r => {
         r.addEventListener('change', () => {
           const idx = parseInt(r.value);
@@ -115,6 +165,7 @@ export const targetWizardScripts = `
       document.getElementById('edaPassHint').textContent = '';
       document.getElementById('kcPassHint').textContent = '';
     });
+    
     document.getElementById('add').addEventListener('click', () => {
       sendData('add');
       const item = {
@@ -133,6 +184,15 @@ export const targetWizardScripts = `
       render();
       document.getElementById('edaPassHint').textContent = '';
       document.getElementById('kcPassHint').textContent = '';
+      
+      // Clear form
+      document.getElementById('url').value = '';
+      document.getElementById('context').value = '';
+      document.getElementById('edaUser').value = 'admin';
+      document.getElementById('kcUser').value = 'admin';
+      document.getElementById('edaPass').value = '';
+      document.getElementById('kcPass').value = '';
+      document.getElementById('skipTls').checked = false;
     });
 
     document.querySelectorAll('input').forEach(input => {

@@ -33,19 +33,23 @@ export const targetWizardHtml = `
     </div>
   </div>
 
-  <h3 class="text-base font-semibold mt-6">Existing Targets</h3>
-  <table class="min-w-full table-auto border divide-y divide-gray-600" id="targetsTable">
-    <thead class="bg-gray-50 dark:bg-transparent">
-      <tr>
-        <th class="px-2 py-1 text-left">Default</th>
-        <th class="px-2 py-1 text-left">URL</th>
-        <th class="px-2 py-1 text-left">Context</th>
-        <th class="px-2 py-1 text-left">EDA User</th>
-        <th class="px-2 py-1 text-left">KC User</th>
-        <th class="px-2 py-1 text-left">Skip TLS</th>
-        <th class="px-2 py-1"></th>
-      </tr>
-    </thead>
-    <tbody id="targetsBody" class="divide-y divide-gray-600"></tbody>
-  </table>
+  <div class="table-container mt-8">
+    <h3 class="text-base font-semibold mb-4">Existing Targets</h3>
+    <div class="table-wrapper">
+      <table class="targets-table" id="targetsTable">
+        <thead>
+          <tr>
+            <th class="table-header">Default</th>
+            <th class="table-header">URL</th>
+            <th class="table-header">Context</th>
+            <th class="table-header">EDA User</th>
+            <th class="table-header">KC User</th>
+            <th class="table-header">Skip TLS</th>
+            <th class="table-header text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="targetsBody" class="table-body"></tbody>
+      </table>
+    </div>
+  </div>
 `;
