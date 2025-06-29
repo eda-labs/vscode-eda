@@ -1,5 +1,32 @@
 import { fetch, Agent } from 'undici';
-import { LogLevel, log } from '../extension';
+// Local lightweight logger to avoid VS Code dependency when used standalone
+enum LogLevel {
+  DEBUG = 0,
+  INFO = 1,
+  WARN = 2,
+  ERROR = 3,
+}
+
+function log(
+  message: string,
+  level: LogLevel = LogLevel.INFO,
+  forceLog = false,
+  elapsedTime?: number
+): void {
+  if (level >= LogLevel.INFO || forceLog) {
+    const prefix = LogLevel[level];
+    const timestamp = new Date().toISOString();
+    let line = `[${timestamp}] [${prefix}] ${message}`;
+    if (level === LogLevel.INFO && elapsedTime !== undefined) {
+      line += ` (took ${elapsedTime}ms)`;
+    }
+    console.log(line);
+  } else if (process.env.NODE_ENV !== 'production') {
+    const prefix = LogLevel[level];
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [${prefix}] ${message}`);
+  }
+}
 
 export interface EdaAuthOptions {
   edaUsername?: string;

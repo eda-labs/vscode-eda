@@ -15,14 +15,17 @@
    - YAML-based autocompletion and validation for EDA resources.
    - Real-time updates using watch streams (no manual refresh).
 2. **Kubernetes**
+
    - Kubernetes namespaces and resources are listed under a top-level "Kubernetes" item in the Resources view.
    - Uses a distinct icon to differentiate from EDA resources.
 
 3. **Alarms & Deviations**
+
    - See active alarms
    - View or reject deviations
 
 4. **Transactions**
+
    - Browse the most recent transactions streamed from EDA (50 by default).
      Use the **Set Transaction Limit** action in the Transactions view to adjust
      how many are loaded. The extension will restart the stream and reload the
@@ -31,10 +34,12 @@
    - Stage multiple operations in a transaction basket for commit or dry-run.
 
 5. **Pod & Deployment Actions**
+
    - Open a terminal to a Pod, view logs in a terminal, or delete/describe a Pod.
    - Restart deployments or delete resources directly from the tree view.
 
 6. **Node Configuration Viewer**
+
    - Inspect running node configs with color-coded syntax highlighting.
    - Copy lines or toggle color mode as needed.
 
@@ -42,13 +47,12 @@
    - Quick filter at the top-level views (`Alt+Shift+F` by default).
    - Clear filter to revert to full tree.
 
-
 ---
-
 
 ## Installation
 
 1. **Prerequisites**
+
    - Access to an EDA API server. The extension communicates with EDA directly and no longer requires a Kubernetes cluster.
 
 2. **Install from VSIX or Marketplace**
@@ -59,6 +63,7 @@
 
 If no EDA targets are configured on first activation, the extension launches a setup wizard to collect your EDA and Keycloak passwords.
 The credentials are stored in VS Code's Secret Storage and are keyed by the target's host. Use the **EDA: Update Target Credentials** command to update passwords for a specific target.
+
 ---
 
 ## Usage
@@ -105,15 +110,15 @@ In VS Code settings (`File → Preferences → Settings`), navigate to `Extensio
   {
     "https://eda-example.com/": {
       "context": "kubernetes-admin@kubernetes",
-      "edaUsername": "admin",          // your EDA-realm username for this URL
-      "kcUsername": "admin",           // your Keycloak (KC) admin username
-      "skipTlsVerify": false,          // optionally skip TLS verification
-      "coreNamespace": "eda-system"   // EDA core namespace for this target
+      "edaUsername": "admin", // your EDA-realm username for this URL
+      "kcUsername": "admin", // your Keycloak (KC) admin username
+      "skipTlsVerify": false, // optionally skip TLS verification
+      "coreNamespace": "eda-system" // EDA core namespace for this target
     },
     "https://10.10.10.1:9443": {
       "context": "kind-eda-demo",
-      "edaUsername": "admin",        // whatever user you’ve set up in EDA
-      "kcUsername": "admin",          // your Keycloak admin user
+      "edaUsername": "admin", // whatever user you’ve set up in EDA
+      "kcUsername": "admin", // your Keycloak admin user
       "skipTlsVerify": true,
       "coreNamespace": "eda-system"
     }
@@ -122,9 +127,29 @@ In VS Code settings (`File → Preferences → Settings`), navigate to `Extensio
 
 ---
 
+## Standalone Streaming Tool
+
+Use `stream.ts` to watch any EDA SSE endpoint or EQL query outside of VS Code.
+
+1. Copy `stream.config.json.example` to `stream.config.json` and edit the `edaUrl`
+   and credentials if needed.
+2. Run the script with a path or an EQL query:
+
+   ```bash
+   npx ts-node stream.ts /core/access/v1/namespaces
+   npx ts-node stream.ts .namespace.alarms.v1.current-alarm
+   ```
+
+The tool connects to the `/events` WebSocket, registers a client, and then
+streams the specified endpoint or query using Server Sent Events. TLS
+verification is skipped by default.
+
+---
+
 ## Contributing
 
 Contributions are welcome via GitHub pull requests or issues. For major changes, please open an issue first to discuss what you would like to change.
 
 Connect with us on [Discord](https://eda.dev/discord) for support and community discussions.
+
 ---
