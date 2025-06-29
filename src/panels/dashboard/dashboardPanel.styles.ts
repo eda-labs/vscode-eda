@@ -31,6 +31,9 @@ export const dashboardStyles = `
     }
     
     .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
       margin-bottom: 32px;
     }
     
@@ -47,6 +50,14 @@ export const dashboardStyles = `
     .subtitle {
       color: var(--text-secondary);
       font-size: 14px;
+    }
+
+    .select {
+      background-color: var(--vscode-input-background);
+      color: var(--vscode-input-foreground);
+      border: 1px solid var(--vscode-input-border);
+      border-radius: 4px;
+      padding: 4px 8px;
     }
     
     .stats-grid {

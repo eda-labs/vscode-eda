@@ -324,4 +324,19 @@ export class EdaApiClient {
       .replace('{node}', node);
     return this.fetchJSON<any>(path);
   }
+
+  /**
+   * List TopoNodes in a namespace
+   */
+  public async listTopoNodes(namespace: string): Promise<any[]> {
+    if (!this.specManager) {
+      throw new Error('Spec manager not initialized');
+    }
+    const template = await this.specManager.getPathByOperationId(
+      'listCoreEdaNokiaComV1NamespaceToponodes'
+    );
+    const path = template.replace('{namespace}', namespace);
+    const data = await this.fetchJSON<any>(path);
+    return Array.isArray(data?.items) ? data.items : [];
+  }
 }

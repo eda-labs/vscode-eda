@@ -75,6 +75,12 @@ export class EdaClient {
     await this.streamClient.connect();
   }
 
+  public async streamTopoNodes(): Promise<void> {
+    await this.initPromise;
+    this.streamClient.subscribeToStream('toponodes');
+    await this.streamClient.connect();
+  }
+
   public async streamEdaTransactions(size = 50): Promise<void> {
     await this.initPromise;
     this.streamClient.setTransactionSummarySize(size);
@@ -94,6 +100,10 @@ export class EdaClient {
 
   public closeDeviationStream(): void {
     this.streamClient.unsubscribeFromStream('deviations');
+  }
+
+  public closeTopoNodeStream(): void {
+    this.streamClient.unsubscribeFromStream('toponodes');
   }
 
   public closeTransactionStream(): void {
@@ -193,6 +203,11 @@ export class EdaClient {
 
   public async getNodeConfig(namespace: string, node: string): Promise<any> {
     return this.apiClient.getNodeConfig(namespace, node);
+  }
+
+  public async listTopoNodes(namespace: string): Promise<any[]> {
+    await this.initPromise;
+    return this.apiClient.listTopoNodes(namespace);
   }
 
   // Spec manager methods (delegated)

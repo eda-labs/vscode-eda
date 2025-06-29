@@ -1,4 +1,7 @@
 export const dashboardScripts = `
+    const vscode = acquireVsCodeApi();
+    const namespaceSelect = document.getElementById('namespaceSelect');
+
     // Load external scripts
     const loadScript = (src) => {
       const script = document.createElement('script');
@@ -8,7 +11,33 @@ export const dashboardScripts = `
         script.onload = resolve;
       });
     };
-    
+
+    window.addEventListener('message', event => {
+      const msg = event.data;
+      if (msg.command === 'init') {
+        namespaceSelect.innerHTML = '';
+        msg.namespaces.forEach(ns => {
+          const opt = document.createElement('option');
+          opt.value = ns;
+          opt.textContent = ns;
+          namespaceSelect.appendChild(opt);
+        });
+        const sel = msg.selected || msg.namespaces[0] || '';
+        namespaceSelect.value = sel;
+        vscode.postMessage({ command: 'getTopoNodeStats', namespace: sel });
+      } else if (msg.command === 'topoNodeStats') {
+        document.getElementById('nodes-total').textContent = msg.stats.total;
+        document.getElementById('nodes-synced').textContent = msg.stats.synced;
+        document.getElementById('nodes-unsynced').textContent = msg.stats.notSynced;
+      }
+    });
+
+    namespaceSelect.addEventListener('change', () => {
+      vscode.postMessage({ command: 'getTopoNodeStats', namespace: namespaceSelect.value });
+    });
+
+    vscode.postMessage({ command: 'ready' });
+
     // Load dependencies
     loadScript(echartsJsUri).then(() => {
       initDashboard();

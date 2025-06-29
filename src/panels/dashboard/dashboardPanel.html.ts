@@ -1,45 +1,27 @@
 export const dashboardHtml = `
   <div class="dashboard">
     <header class="header">
-      <h1 class="title">Fabric Network Dashboard</h1>
-      <p class="subtitle">Real-time monitoring and analytics for your network infrastructure</p>
+      <div>
+        <h1 class="title">Fabric Network Dashboard</h1>
+        <p class="subtitle">Real-time monitoring and analytics for your network infrastructure</p>
+      </div>
+      <select id="namespaceSelect" class="select"></select>
     </header>
-    
+
     <div class="stats-grid">
       <div class="stat-card">
-        <div class="stat-label">Network Health</div>
-        <div class="stat-value" id="health-value">98%</div>
-        <div class="stat-change positive">
-          <span>↑</span>
-          <span>2.5% from last hour</span>
-        </div>
+        <div class="stat-label">Total Nodes</div>
+        <div class="stat-value" id="nodes-total">0</div>
       </div>
-      
+
       <div class="stat-card">
-        <div class="stat-label">Active Peers</div>
-        <div class="stat-value" id="peers-value">42</div>
-        <div class="stat-change positive">
-          <span>↑</span>
-          <span>3 new connections</span>
-        </div>
+        <div class="stat-label">Synced Nodes</div>
+        <div class="stat-value" id="nodes-synced">0</div>
       </div>
-      
+
       <div class="stat-card">
-        <div class="stat-label">Throughput</div>
-        <div class="stat-value" id="throughput-value">1.2<span style="font-size: 20px;">TB/s</span></div>
-        <div class="stat-change negative">
-          <span>↓</span>
-          <span>5% from peak</span>
-        </div>
-      </div>
-      
-      <div class="stat-card">
-        <div class="stat-label">Latency</div>
-        <div class="stat-value" id="latency-value">12<span style="font-size: 20px;">ms</span></div>
-        <div class="stat-change positive">
-          <span>↓</span>
-          <span>8ms improvement</span>
-        </div>
+        <div class="stat-label">Not Synced</div>
+        <div class="stat-value" id="nodes-unsynced">0</div>
       </div>
     </div>
     
