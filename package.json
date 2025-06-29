@@ -31,14 +31,12 @@
   "license": "Apache-2.0",
   "activationEvents": [
     "onCommand:vscode-eda.configureTargets",
+    "onView:edaDashboards",
     "onView:edaNamespaces",
     "onView:edaAlarms",
     "onView:edaDeviations",
     "onView:edaTransactionBasket",
     "onView:edaTransactions"
-  ],
-  "_disabledActivationEvents": [
-    "onView:edaDashboards"
   ],
   "main": "./dist/extension",
   "contributes": {
@@ -53,6 +51,11 @@
     },
     "views": {
       "edaExplorerViewContainer": [
+        {
+          "id": "edaDashboards",
+          "name": "Dashboards",
+          "when": "config.vscode-eda.enableDashboardView"
+        },
         {
           "id": "edaNamespaces",
           "name": "Resources"
@@ -72,14 +75,6 @@
         {
           "id": "edaTransactions",
           "name": "Transactions"
-        }
-      ]
-    },
-    "_disabledViews": {
-      "edaExplorerViewContainer": [
-        {
-          "id": "edaDashboards",
-          "name": "Dashboards"
         }
       ]
     },
@@ -256,9 +251,7 @@
         "command": "vscode-eda.removeBasketItem",
         "title": "EDA: Remove Basket Item",
         "icon": "$(trash)"
-      }
-    ],
-    "_disabledCommands": [
+      },
       {
         "command": "vscode-eda.showDashboard",
         "title": "EDA: Show Dashboard"
@@ -590,6 +583,11 @@
           ],
           "default": "full",
           "description": "Color mode for node configuration views"
+        },
+        "vscode-eda.enableDashboardView": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Enable the Dashboards view (Alpha)"
         }
       }
     },

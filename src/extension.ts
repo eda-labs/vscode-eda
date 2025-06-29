@@ -9,7 +9,7 @@ import { EdaAlarmProvider } from './providers/views/alarmProvider';
 import { EdaDeviationProvider } from './providers/views/deviationProvider';
 import { TransactionBasketProvider } from './providers/views/transactionBasketProvider';
 import { EdaTransactionProvider } from './providers/views/transactionProvider';
-// import { DashboardProvider } from './providers/views/dashboardProvider';
+import { DashboardProvider } from './providers/views/dashboardProvider';
 import { AlarmDetailsDocumentProvider } from './providers/documents/alarmDetailsProvider';
 import { DeviationDetailsDocumentProvider } from './providers/documents/deviationDetailsProvider';
 import { TransactionDetailsDocumentProvider } from './providers/documents/transactionDetailsProvider';
@@ -32,7 +32,7 @@ import { registerResourceEditCommands } from './commands/resourceEditCommands';
 import { registerResourceCreateCommand } from './commands/resourceCreateCommand';
 import { registerCredentialCommands } from './commands/credentialCommands';
 import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand';
-// import { registerDashboardCommands } from './commands/dashboardCommands';
+import { registerDashboardCommands } from './commands/dashboardCommands';
 import { configureTargets } from './panels/targetWizard/targetWizardPanel';
 // import { registerResourceViewCommands } from './commands/resourceViewCommands';
 // import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
@@ -253,6 +253,7 @@ export async function activate(context: vscode.ExtensionContext) {
     !edaContext ||
     config.get<boolean>('disableKubernetes', false) ||
     process.env.EDA_DISABLE_K8S === 'true';
+  const enableDashboardView = config.get<boolean>('enableDashboardView', false);
 
   // Create a status bar item for showing current EDA target
   contextStatusBarItem = vscode.window.createStatusBarItem(
@@ -355,11 +356,15 @@ export async function activate(context: vscode.ExtensionContext) {
     await schemaProviderService.initialize(context);
 
     // 8) NOW create the tree providers - AFTER all clients and services are registered
-    // const dashboardProvider = new DashboardProvider();
-    // const dashboardTreeView = vscode.window.createTreeView('edaDashboards', {
-    //   treeDataProvider: dashboardProvider,
-    //   showCollapseAll: true,
-    // });
+    let dashboardProvider: DashboardProvider | undefined;
+    let dashboardTreeView: vscode.TreeView<any> | undefined;
+    if (enableDashboardView) {
+      dashboardProvider = new DashboardProvider();
+      dashboardTreeView = vscode.window.createTreeView('edaDashboards', {
+        treeDataProvider: dashboardProvider,
+        showCollapseAll: true,
+      });
+    }
     const namespaceProvider = new EdaNamespaceProvider();
     const namespaceTreeView = vscode.window.createTreeView('edaNamespaces', {
       treeDataProvider: namespaceProvider,
@@ -403,7 +408,7 @@ export async function activate(context: vscode.ExtensionContext) {
       });
       if (filterText !== undefined) {
         const text = filterText.trim();
-        // dashboardProvider.setTreeFilter(text);
+        dashboardProvider?.setTreeFilter(text);
         namespaceProvider.setTreeFilter(text);
         alarmProvider.setTreeFilter(text);
         edaDeviationProvider.setTreeFilter(text);
@@ -416,7 +421,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Clear any active tree filter
   context.subscriptions.push(
     vscode.commands.registerCommand('vscode-eda.clearFilter', () => {
-      // dashboardProvider.clearTreeFilter();
+      dashboardProvider?.clearTreeFilter();
       namespaceProvider.clearTreeFilter();
       alarmProvider.clearTreeFilter();
       edaDeviationProvider.clearTreeFilter();
@@ -441,7 +446,9 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
-  // context.subscriptions.push(dashboardTreeView);
+  if (dashboardTreeView) {
+    context.subscriptions.push(dashboardTreeView);
+  }
   context.subscriptions.push(namespaceTreeView);
   context.subscriptions.push(alarmTreeView);
   context.subscriptions.push(deviationTreeView, { dispose: () => edaDeviationProvider.dispose() });
@@ -479,7 +486,9 @@ export async function activate(context: vscode.ExtensionContext) {
   registerDeviationCommands(context);
   registerTransactionCommands(context);
   registerBasketCommands(context);
-  // registerDashboardCommands(context);
+  if (enableDashboardView) {
+    registerDashboardCommands(context);
+  }
   registerCredentialCommands(context);
 
   //   log('Service architecture initialized successfully', LogLevel.INFO, true);
