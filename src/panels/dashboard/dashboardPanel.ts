@@ -14,9 +14,8 @@ export class DashboardPanel extends BasePanel {
     return dashboardHtml;
   }
 
-  protected getStyles(): string {
-    const twCss = this.getResourceUri('resources', 'tailwind.css');
-    return `@import url('${twCss}');\n${dashboardStyles}`;
+  protected getCustomStyles(): string {
+    return dashboardStyles;
   }
 
   protected getScripts(): string {

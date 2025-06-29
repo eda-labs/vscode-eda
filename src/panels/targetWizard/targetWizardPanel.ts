@@ -83,9 +83,8 @@ export class TargetWizardPanel extends BasePanel {
       .replace('${options}', options);
   }
 
-  protected getStyles(): string {
-    const twCss = this.getResourceUri('resources', 'tailwind.css');
-    return `@import url('${twCss}');\n${targetWizardStyles}`;
+  protected getCustomStyles(): string {
+    return targetWizardStyles;
   }
 
   protected getScripts(): string {

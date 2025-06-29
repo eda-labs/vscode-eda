@@ -612,7 +612,8 @@
     "lint:fix": "npm run lint -- --fix",
     "test": "mocha -r ts-node/register -r ./test/setup.ts test/**/*.test.ts",
     "stream:namespaces": "ts-node namespace-stream.ts",
-    "compile-webpack": "npm run check-types && webpack --mode production"
+    "compile-webpack": "npm run check-types && webpack --mode production",
+    "build:tailwind": "tailwindcss -i ./src/styles/tailwind-input.css -o ./resources/tailwind.css"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.1.11",

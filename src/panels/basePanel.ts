@@ -1,8 +1,11 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export abstract class BasePanel {
   protected panel: vscode.WebviewPanel;
   protected context: vscode.ExtensionContext;
+  private static tailwind: string | null = null;
 
   constructor(
     context: vscode.ExtensionContext,
@@ -21,6 +24,16 @@ export abstract class BasePanel {
         ...options
       }
     );
+
+    if (!BasePanel.tailwind) {
+      try {
+        const filePath = path.join(this.context.extensionPath, 'resources', 'tailwind.css');
+        BasePanel.tailwind = fs.readFileSync(filePath, 'utf8');
+      } catch (err) {
+        BasePanel.tailwind = '';
+        console.error('Failed to load Tailwind CSS', err);
+      }
+    }
   }
 
   protected getNonce(): string {
@@ -36,13 +49,14 @@ export abstract class BasePanel {
 
   protected abstract getHtml(): string;
 
-  protected abstract getStyles(): string;
+  protected abstract getCustomStyles(): string;
 
   protected abstract getScripts(): string;
 
   protected buildHtml(): string {
     const nonce = this.getNonce();
     const csp = this.panel.webview.cspSource;
+    const styles = `${BasePanel.tailwind ?? ''}\n${this.getCustomStyles()}`;
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -50,7 +64,7 @@ export abstract class BasePanel {
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${csp} https:; style-src ${csp} 'unsafe-inline'; script-src 'nonce-${nonce}' ${csp};">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>${this.getStyles()}</style>
+  <style>${styles}</style>
 </head>
 <body>
   ${this.getHtml()}
