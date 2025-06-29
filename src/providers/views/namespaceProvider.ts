@@ -228,12 +228,12 @@ constructor() {
     if (!this.treeFilter) {
       return true;
     }
-    if (stream.toLowerCase().includes(this.treeFilter)) {
+    if (this.matchesFilter(stream)) {
       return true;
     }
     if (this.k8sStreams.includes(stream)) {
       const items = this.k8sClient?.getCachedResource(stream, this.k8sClient?.isNamespacedResource(stream) ? namespace : undefined) || [];
-      return items.some(r => (r.metadata?.name || '').toLowerCase().includes(this.treeFilter));
+      return items.some(r => this.matchesFilter(r.metadata?.name || ''));
     }
     const key = `${stream}:${namespace}`;
     const map = this.streamData.get(key);
@@ -241,7 +241,7 @@ constructor() {
       return false;
     }
     for (const name of map.keys()) {
-      if (name.toLowerCase().includes(this.treeFilter)) {
+      if (this.matchesFilter(name)) {
         return true;
       }
     }
@@ -256,7 +256,7 @@ constructor() {
     if (!this.treeFilter) {
       return true;
     }
-    if (group.toLowerCase().includes(this.treeFilter)) {
+    if (this.matchesFilter(group)) {
       return true;
     }
     if (group === 'kubernetes') {
@@ -463,8 +463,7 @@ constructor() {
       }
 
       const streams = this.cachedStreamGroups[g] || [];
-      const groupMatched =
-        !!this.treeFilter && g.toLowerCase().includes(this.treeFilter);
+      const groupMatched = !!this.treeFilter && this.matchesFilter(g);
       const visible = groupMatched
         ? streams
         : streams.filter(s => this.streamMatches(namespace, s));
@@ -521,8 +520,7 @@ constructor() {
   private getStreamsForGroup(namespace: string, group: string): TreeItemBase[] {
     const streams = this.cachedStreamGroups[group] || [];
     const items: TreeItemBase[] = [];
-    const parentMatched =
-      !!this.treeFilter && group.toLowerCase().includes(this.treeFilter);
+    const parentMatched = !!this.treeFilter && this.matchesFilter(group);
     for (const s of streams) {
       if (!parentMatched && !this.streamMatches(namespace, s)) {
         continue;
@@ -663,11 +661,11 @@ constructor() {
       const out: TreeItemBase[] = [];
       const parentMatched =
         !!this.treeFilter &&
-        (stream.toLowerCase().includes(this.treeFilter) ||
-          (streamGroup && streamGroup.toLowerCase().includes(this.treeFilter)));
+        (this.matchesFilter(stream) ||
+          (streamGroup && this.matchesFilter(streamGroup)));
       for (const resource of items) {
         const name = resource.metadata?.name || 'unknown';
-        if (!parentMatched && this.treeFilter && !name.toLowerCase().includes(this.treeFilter)) {
+        if (!parentMatched && this.treeFilter && !this.matchesFilter(name)) {
           continue;
         }
         const ti = new TreeItemBase(name, vscode.TreeItemCollapsibleState.None, 'stream-item', resource);
@@ -716,10 +714,10 @@ constructor() {
     const items: TreeItemBase[] = [];
     const parentMatched =
       !!this.treeFilter &&
-      (stream.toLowerCase().includes(this.treeFilter) ||
-        (streamGroup && streamGroup.toLowerCase().includes(this.treeFilter)));
+      (this.matchesFilter(stream) ||
+        (streamGroup && this.matchesFilter(streamGroup)));
     for (const [name, resource] of Array.from(map.entries()).sort()) {
-      if (!parentMatched && this.treeFilter && !name.toLowerCase().includes(this.treeFilter)) {
+      if (!parentMatched && this.treeFilter && !this.matchesFilter(name)) {
         continue;
       }
       const ti = new TreeItemBase(

@@ -403,8 +403,8 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('vscode-eda.filterTree', async () => {
       const filterText = await vscode.window.showInputBox({
-        prompt: 'Filter resources by text',
-        placeHolder: 'Enter filter text'
+        prompt: 'Filter resources (supports regex)',
+        placeHolder: 'Enter filter pattern'
       });
       if (filterText !== undefined) {
         const text = filterText.trim();

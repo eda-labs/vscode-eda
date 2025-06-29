@@ -90,13 +90,12 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
     let transactions = this.cachedTransactions.slice();
 
     if (this.treeFilter) {
-      const filter = this.treeFilter;
       transactions = transactions.filter(t => {
         return (
-          String(t.id).toLowerCase().includes(filter) ||
-          String(t.username || '').toLowerCase().includes(filter) ||
-          String(t.state || '').toLowerCase().includes(filter) ||
-          String(t.description || '').toLowerCase().includes(filter)
+          this.matchesFilter(String(t.id)) ||
+          this.matchesFilter(String(t.username || '')) ||
+          this.matchesFilter(String(t.state || '')) ||
+          this.matchesFilter(String(t.description || ''))
         );
       });
     }

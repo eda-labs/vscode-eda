@@ -89,17 +89,17 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
   }
 
   private async getFilteredDeviationItems(filter: string): Promise<DeviationTreeItem[]> {
-    if ('deviations'.includes(filter.toLowerCase())) {
+    if (this.matchesFilter('deviations')) {
       return this.getAllDeviationItems();
     }
-    const lower = filter.toLowerCase();
     const matches = Array.from(this.deviations.values()).filter(d => {
-      const name = getDeviationName(d)?.toLowerCase() || '';
-      const ns = getDeviationNamespace(d)?.toLowerCase() || '';
+      const name = getDeviationName(d) || '';
+      const ns = getDeviationNamespace(d) || '';
+      const kind = d.kind || '';
       return (
-        name.includes(lower) ||
-        ns.includes(lower) ||
-        d.kind?.toLowerCase().includes(lower)
+        this.matchesFilter(name) ||
+        this.matchesFilter(ns) ||
+        this.matchesFilter(kind)
       );
     });
     if (!matches.length) {

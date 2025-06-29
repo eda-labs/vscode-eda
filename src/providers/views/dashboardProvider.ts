@@ -15,7 +15,7 @@ export class DashboardProvider extends FilteredTreeProvider<TreeItemBase> {
     }
     let names = this.dashboards;
     if (this.treeFilter) {
-      names = names.filter(n => n.toLowerCase().includes(this.treeFilter));
+      names = names.filter(n => this.matchesFilter(n));
     }
     if (names.length === 0) {
       return [new TreeItemBase('No Dashboards Found', vscode.TreeItemCollapsibleState.None, 'dashboard-empty')];

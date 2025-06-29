@@ -35,8 +35,8 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
     let list = Array.from(this.alarms.values());
     if (this.treeFilter) {
       list = list.filter(a => {
-        const desc = (a.description || '').toLowerCase();
-        return a.name.toLowerCase().includes(this.treeFilter) || desc.includes(this.treeFilter);
+        const desc = a.description || '';
+        return this.matchesFilter(a.name) || this.matchesFilter(desc);
       });
     }
     if (list.length === 0) {
