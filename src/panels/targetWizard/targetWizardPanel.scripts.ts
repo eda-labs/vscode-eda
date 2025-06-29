@@ -1,12 +1,11 @@
 export const targetWizardScripts = `
     const vscode = acquireVsCodeApi();
-    const twJsUri = "\${twJs}";
     const existingTargets = JSON.parse('\${targets}');
     let selectedIdx = \${selected};
     let editIndex = null;
     let currentMode = 'view'; // 'view', 'edit', 'new'
 
-    const loadScript = (src) => new Promise(res => { const s = document.createElement('script'); s.src = src; document.body.appendChild(s); s.onload = res; });
+
 
     function renderTargetsList() {
       const listContainer = document.getElementById('targetsList');
@@ -340,15 +339,13 @@ export const targetWizardScripts = `
     }
 
     // Initialize the interface
-    loadScript(twJsUri).then(() => {
-      renderTargetsList();
-      
-      if (existingTargets.length > 0 && selectedIdx < existingTargets.length) {
-        showTargetDetails(existingTargets[selectedIdx]);
-      } else {
-        showEmptyDetails();
-      }
-    });
+    renderTargetsList();
+
+    if (existingTargets.length > 0 && selectedIdx < existingTargets.length) {
+      showTargetDetails(existingTargets[selectedIdx]);
+    } else {
+      showEmptyDetails();
+    }
 
     // Event listeners
     document.getElementById('addNew').addEventListener('click', addNewTarget);

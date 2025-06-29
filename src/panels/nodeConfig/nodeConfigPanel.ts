@@ -67,7 +67,8 @@ export class NodeConfigPanel extends BasePanel {
   }
 
   protected getStyles(): string {
-    return nodeConfigStyles;
+    const twCss = this.getResourceUri('resources', 'tailwind.css');
+    return `@import url('${twCss}');\n${nodeConfigStyles}`;
   }
 
   protected getScripts(): string {

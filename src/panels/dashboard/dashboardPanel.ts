@@ -15,15 +15,14 @@ export class DashboardPanel extends BasePanel {
   }
 
   protected getStyles(): string {
-    return dashboardStyles;
+    const twCss = this.getResourceUri('resources', 'tailwind.css');
+    return `@import url('${twCss}');\n${dashboardStyles}`;
   }
 
   protected getScripts(): string {
-    const twJs = this.getResourceUri('resources', 'tailwind.js');
     const echartsJs = this.getResourceUri('resources', 'echarts.min.js');
 
     return `
-      const twJsUri = "${twJs}";
       const echartsJsUri = "${echartsJs}";
       ${dashboardScripts}
     `;

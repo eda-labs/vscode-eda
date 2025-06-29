@@ -10,10 +10,7 @@ export const dashboardScripts = `
     };
     
     // Load dependencies
-    Promise.all([
-      loadScript(twJsUri),
-      loadScript(echartsJsUri)
-    ]).then(() => {
+    loadScript(echartsJsUri).then(() => {
       initDashboard();
     });
     
