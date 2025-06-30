@@ -332,47 +332,62 @@ export class EdaStreamClient {
       throw new Error('Auth client not set');
     }
 
-    let res: any;
-    try {
-      const authHeaders = this.authClient.getHeaders();
-
-      // Start with auth headers
+    const doRequest = async () => {
+      const authHeaders = this.authClient!.getHeaders();
       const finalHeaders: Record<string, string> = { ...authHeaders };
 
-      // Add default Accept header only if not provided in extraHeaders
       if (!extraHeaders.Accept) {
         finalHeaders.Accept = 'text/event-stream';
       }
 
-      // Apply all extra headers (including Accept override if present)
       for (const [key, value] of Object.entries(extraHeaders)) {
         finalHeaders[key] = value;
       }
 
-      // Create sanitized headers for logging
       const sanitizedHeaders: Record<string, string> = { ...finalHeaders };
       if ('Authorization' in sanitizedHeaders) {
         sanitizedHeaders.Authorization = 'Bearer ***';
       }
 
-      log(
-        `[STREAM] request ${url} with ${JSON.stringify(sanitizedHeaders)}`,
-        LogLevel.DEBUG
-      );
+      log(`[STREAM] request ${url} with ${JSON.stringify(sanitizedHeaders)}`, LogLevel.DEBUG);
 
-      res = await fetch(url, {
+      return fetch(url, {
         headers: finalHeaders,
-        dispatcher: this.authClient.getAgent(),
+        dispatcher: this.authClient!.getAgent(),
         signal: controller?.signal,
       } as any);
+    };
+
+    let res: any;
+    try {
+      res = await doRequest();
     } catch (err) {
       log(`[STREAM] request failed ${err}`, LogLevel.ERROR);
       return;
     }
 
     if (!res.ok || !res.body) {
-      log(`[STREAM] failed ${url}: HTTP ${res.status}`, LogLevel.ERROR);
-      return;
+      let text = '';
+      try {
+        text = await res.text();
+      } catch {
+        /* ignore */
+      }
+      if (this.authClient.isTokenExpiredResponse(res.status, text)) {
+        log('Access token expired, refreshing...', LogLevel.INFO);
+        await this.authClient.refreshAuth();
+        try {
+          res = await doRequest();
+        } catch (err) {
+          log(`[STREAM] request failed ${err}`, LogLevel.ERROR);
+          return;
+        }
+      }
+
+      if (!res.ok || !res.body) {
+        log(`[STREAM] failed ${url}: HTTP ${res.status}`, LogLevel.ERROR);
+        return;
+      }
     }
     log(`[STREAM] connected → ${url}`, LogLevel.DEBUG);
 
