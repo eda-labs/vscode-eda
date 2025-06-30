@@ -66,6 +66,10 @@ export const dashboardStyles = `
       gap: 20px;
       margin-bottom: 32px;
     }
+
+    #fabric-stats {
+      grid-template-columns: repeat(5, 1fr);
+    }
     
     .interface-traffic-container {
       display: grid;
@@ -94,6 +98,12 @@ export const dashboardStyles = `
       transition: all 0.3s ease;
       position: relative;
       overflow: hidden;
+    }
+
+    .stat-content {
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
     
     .stat-card:hover {
@@ -147,12 +157,6 @@ export const dashboardStyles = `
       color: var(--error);
     }
     
-    .charts-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
-      gap: 24px;
-      margin-bottom: 32px;
-    }
     
     .chart-container {
       background: var(--bg-secondary);
@@ -274,18 +278,22 @@ export const dashboardStyles = `
       height: 16px;
     }
     
-    @media (max-width: 1200px) {
-      .interface-traffic-container {
-        grid-template-columns: 1fr;
-      }
-      
-      .interface-stats-vertical {
-        flex-direction: row;
-        width: 100%;
-      }
-      
-      .interface-stats-vertical .stat-card {
-        flex: 1;
-      }
+  @media (max-width: 1200px) {
+    .interface-traffic-container {
+      grid-template-columns: 1fr;
     }
+
+    .interface-stats-vertical {
+      flex-direction: row;
+      width: 100%;
+    }
+
+    .interface-stats-vertical .stat-card {
+      flex: 1;
+    }
+
+    #fabric-stats {
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    }
+  }
 `;

@@ -40,7 +40,7 @@ export const dashboardHtml = `
           <div class="stat-value" id="if-down">0</div>
         </div>
       </div>
-      
+
       <div class="chart-container traffic-chart-container">
         <div class="chart-title">
           <span>Traffic Flow</span>
@@ -48,82 +48,44 @@ export const dashboardHtml = `
         <div id="traffic-chart" class="chart"></div>
       </div>
     </div>
-    
-    <div class="charts-grid">
-      <div class="chart-container">
-        <div class="chart-title">
-          <span>Network Health Overview</span>
-          <button class="refresh-btn" onclick="refreshCharts()">
-            <span class="icon">⟳</span>
-            Refresh
-          </button>
+
+    <div class="stats-grid" id="fabric-stats">
+      <div class="stat-card">
+        <div class="stat-label">Fabric Health</div>
+        <div class="stat-content">
+          <div class="stat-value" id="fabric-health">0%</div>
+          <div class="status-indicator" id="fabric-health-indicator"></div>
         </div>
-        <div id="health-chart" class="chart"></div>
       </div>
-      
-      <div class="chart-container">
-        <div class="chart-title">
-          <span>BGP Peer Status</span>
+      <div class="stat-card">
+        <div class="stat-label">Spines</div>
+        <div class="stat-content">
+          <div class="stat-value" id="fabric-spines">0</div>
+          <div class="status-indicator" id="fabric-spines-health"></div>
         </div>
-        <div id="peer-chart" class="chart"></div>
       </div>
-      
-      <div class="chart-container">
-        <div class="chart-title">
-          <span>Performance Metrics</span>
+      <div class="stat-card">
+        <div class="stat-label">Leafs</div>
+        <div class="stat-content">
+          <div class="stat-value" id="fabric-leafs">0</div>
+          <div class="status-indicator" id="fabric-leafs-health"></div>
         </div>
-        <div id="performance-chart" class="chart"></div>
       </div>
-    </div>
-    
-    <div class="chart-container">
-      <div class="chart-title">
-        <span>Device Status</span>
+      <div class="stat-card">
+        <div class="stat-label">Borderleafs</div>
+        <div class="stat-content">
+          <div class="stat-value" id="fabric-borderleafs">0</div>
+          <div class="status-indicator" id="fabric-borderleafs-health"></div>
+        </div>
       </div>
-      <div class="status-grid">
-        <div class="status-item">
-          <div class="status-indicator active"></div>
-          <div class="status-info">
-            <div class="status-name">spine-01</div>
-            <div class="status-details">Operating normally</div>
-          </div>
-        </div>
-        <div class="status-item">
-          <div class="status-indicator active"></div>
-          <div class="status-info">
-            <div class="status-name">spine-02</div>
-            <div class="status-details">Operating normally</div>
-          </div>
-        </div>
-        <div class="status-item">
-          <div class="status-indicator warning"></div>
-          <div class="status-info">
-            <div class="status-name">leaf-01</div>
-            <div class="status-details">High CPU usage</div>
-          </div>
-        </div>
-        <div class="status-item">
-          <div class="status-indicator active"></div>
-          <div class="status-info">
-            <div class="status-name">leaf-02</div>
-            <div class="status-details">Operating normally</div>
-          </div>
-        </div>
-        <div class="status-item">
-          <div class="status-indicator error"></div>
-          <div class="status-info">
-            <div class="status-name">leaf-03</div>
-            <div class="status-details">Connection lost</div>
-          </div>
-        </div>
-        <div class="status-item">
-          <div class="status-indicator active"></div>
-          <div class="status-info">
-            <div class="status-name">leaf-04</div>
-            <div class="status-details">Operating normally</div>
-          </div>
+      <div class="stat-card">
+        <div class="stat-label">Superspines</div>
+        <div class="stat-content">
+          <div class="stat-value" id="fabric-superspines">0</div>
+          <div class="status-indicator" id="fabric-superspines-health"></div>
         </div>
       </div>
     </div>
+    
   </div>
 `;
