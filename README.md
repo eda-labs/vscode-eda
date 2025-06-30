@@ -95,8 +95,6 @@ In VS Code settings (`File → Preferences → Settings`), navigate to `Extensio
   - `1` = Info (default)
   - `2` = Warning
   - `3` = Error
-- **`vscode-eda.disableKubernetes`**
-  When enabled, all Kubernetes-related features are disabled and the extension communicates exclusively with the EDA API. You can also set `EDA_DISABLE_K8S=true` as an environment variable.
 - **`vscode-eda.nodeConfigColorMode`**
   Adjusts syntax highlighting for node configuration views.
   - `full` = full color (default)

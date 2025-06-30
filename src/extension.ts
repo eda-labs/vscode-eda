@@ -249,10 +249,6 @@ export async function activate(context: vscode.ExtensionContext) {
   const clientId = config.get<string>('clientId', 'eda');
   const clientSecret = config.get<string>('clientSecret', '');
   const skipTlsVerify = skipTlsVerifyCfg;
-  const disableKubernetes =
-    !edaContext ||
-    config.get<boolean>('disableKubernetes', false) ||
-    process.env.EDA_DISABLE_K8S === 'true';
 
   // Create a status bar item for showing current EDA target
   contextStatusBarItem = vscode.window.createStatusBarItem(
@@ -270,7 +266,7 @@ export async function activate(context: vscode.ExtensionContext) {
     log('Initializing service architecture...', LogLevel.INFO, true);
 
     // 1) Create the clients
-    const k8sClient = disableKubernetes ? undefined : new KubernetesClient();
+    const k8sClient = edaContext ? new KubernetesClient() : undefined;
     const edaClient = new EdaClient(edaUrl, {
       edaUsername,
       edaPassword,

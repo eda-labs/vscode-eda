@@ -564,11 +564,6 @@
           "default": "eda",
           "description": "Keycloak client ID for EDA"
         },
-        "vscode-eda.disableKubernetes": {
-          "type": "boolean",
-          "default": false,
-          "description": "Disable all Kubernetes features and operate in EDA API only mode"
-        },
         "vscode-eda.nodeConfigColorMode": {
           "type": "string",
           "enum": [
