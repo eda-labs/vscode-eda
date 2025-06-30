@@ -56,14 +56,16 @@ export abstract class BasePanel {
   protected buildHtml(): string {
     const nonce = this.getNonce();
     const csp = this.panel.webview.cspSource;
+    const codiconUri = this.getResourceUri('resources', 'codicon.css');
     const styles = `${BasePanel.tailwind ?? ''}\n${this.getCustomStyles()}`;
 
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${csp} https:; style-src ${csp} 'unsafe-inline'; script-src 'nonce-${nonce}' ${csp};">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${csp} https:; style-src ${csp} 'unsafe-inline'; font-src ${csp}; script-src 'nonce-${nonce}' ${csp};">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="${codiconUri}" rel="stylesheet">
   <style>${styles}</style>
 </head>
 <body>

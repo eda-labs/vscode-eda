@@ -38,6 +38,15 @@ export const queriesDashboardStyles = `
     flex: 1;
   }
 
+  .query-label {
+    display: flex;
+    align-items: center;
+  }
+
+  .query-label .codicon {
+    margin-right: 4px;
+  }
+
   .select {
     background-color: var(--vscode-input-background);
     color: var(--vscode-input-foreground);

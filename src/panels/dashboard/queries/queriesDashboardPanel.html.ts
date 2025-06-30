@@ -2,7 +2,7 @@ export const queriesDashboardHtml = `
   <div class="dashboard">
     <header class="header">
       <div class="query-bar">
-        <label class="query-label" for="queryInput">🔍 EQL Query</label>
+        <label class="query-label" for="queryInput"><span class="codicon codicon-search"></span> EQL Query</label>
         <input id="queryInput" type="text" class="query-input" placeholder="Enter EQL expression" />
         <button id="runButton" class="run-btn">Run</button>
       </div>
