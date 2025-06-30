@@ -11,6 +11,7 @@ export const queriesDashboardScripts = `
 
   let allRows = [];
   let columns = [];
+  let autocompleteIndex = -1;
 
   runButton.addEventListener('click', () => {
     statusEl.textContent = 'Running...';
@@ -27,14 +28,41 @@ export const queriesDashboardScripts = `
     if (e.key === 'Escape') {
       autocompleteList.innerHTML = '';
       autocompleteList.style.display = 'none';
+      autocompleteIndex = -1;
     } else if (e.key === 'Tab' && autocompleteList.children.length > 0) {
       e.preventDefault();
-      const first = autocompleteList.querySelector('li');
-      if (first) {
-        queryInput.value = first.textContent || '';
+      const target =
+        autocompleteIndex >= 0
+          ? autocompleteList.children[autocompleteIndex]
+          : autocompleteList.querySelector('li');
+      if (target) {
+        queryInput.value = target.textContent || '';
       }
       autocompleteList.innerHTML = '';
       autocompleteList.style.display = 'none';
+      autocompleteIndex = -1;
+    } else if (
+      (e.key === 'ArrowDown' || e.key === 'ArrowUp') &&
+      autocompleteList.children.length > 0
+    ) {
+      e.preventDefault();
+      if (e.key === 'ArrowDown') {
+        autocompleteIndex = (autocompleteIndex + 1) % autocompleteList.children.length;
+      } else {
+        autocompleteIndex =
+          (autocompleteIndex - 1 + autocompleteList.children.length) %
+          autocompleteList.children.length;
+      }
+      highlightAutocomplete();
+    } else if (e.key === 'Enter' && autocompleteIndex >= 0) {
+      e.preventDefault();
+      const item = autocompleteList.children[autocompleteIndex];
+      if (item) {
+        queryInput.value = item.textContent || '';
+      }
+      autocompleteList.innerHTML = '';
+      autocompleteList.style.display = 'none';
+      autocompleteIndex = -1;
     }
   });
 
@@ -81,17 +109,26 @@ export const queriesDashboardScripts = `
       autocompleteList.style.display = 'none';
     } else if (msg.command === 'autocomplete') {
       autocompleteList.innerHTML = '';
-      (msg.list || []).forEach(item => {
+      autocompleteIndex = -1;
+      (msg.list || []).forEach((item, idx) => {
         const li = document.createElement('li');
         li.textContent = item;
+        li.dataset.index = String(idx);
+        li.addEventListener('mouseover', () => {
+          autocompleteIndex = idx;
+          highlightAutocomplete();
+        });
         li.addEventListener('click', () => {
           queryInput.value = item;
           autocompleteList.innerHTML = '';
           autocompleteList.style.display = 'none';
+          autocompleteIndex = -1;
         });
         autocompleteList.appendChild(li);
       });
-      autocompleteList.style.display = (msg.list && msg.list.length) ? 'block' : 'none';
+      autocompleteList.style.display =
+        msg.list && msg.list.length ? 'block' : 'none';
+      highlightAutocomplete();
     }
   });
 
@@ -179,6 +216,13 @@ export const queriesDashboardScripts = `
     });
     if (hide) headerRow.children[idx].classList.add('hidden');
     else headerRow.children[idx].classList.remove('hidden');
+  }
+
+  function highlightAutocomplete() {
+    Array.from(autocompleteList.children).forEach((li, idx) => {
+      if (idx === autocompleteIndex) li.classList.add('selected');
+      else li.classList.remove('selected');
+    });
   }
 
   vscode.postMessage({ command: 'ready' });

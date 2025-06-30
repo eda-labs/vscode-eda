@@ -96,6 +96,11 @@ export const queriesDashboardStyles = `
     background-color: var(--vscode-list-hoverBackground);
   }
 
+  .autocomplete-list li.selected {
+    background-color: var(--vscode-list-activeSelectionBackground);
+    color: var(--vscode-list-activeSelectionForeground);
+  }
+
   .run-btn {
     padding: 4px 12px;
     border: none;
