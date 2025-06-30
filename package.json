@@ -504,13 +504,13 @@
       "title": "EDA Explorer",
       "properties": {
         "vscode-eda.logLevel": {
-          "type": "number",
-          "default": 1,
+          "type": "string",
+          "default": "info",
           "enum": [
-            0,
-            1,
-            2,
-            3
+            "debug",
+            "info",
+            "warn",
+            "error"
           ],
           "enumDescriptions": [
             "Debug: Show all logs including detailed operations",

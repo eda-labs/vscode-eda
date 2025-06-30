@@ -53,6 +53,28 @@ export enum LogLevel {
   ERROR = 3
 }
 
+export function parseLogLevel(value: unknown): LogLevel {
+  if (typeof value === 'string') {
+    switch (value.toLowerCase()) {
+      case 'debug':
+        return LogLevel.DEBUG;
+      case 'info':
+        return LogLevel.INFO;
+      case 'warn':
+      case 'warning':
+        return LogLevel.WARN;
+      case 'error':
+        return LogLevel.ERROR;
+      default:
+        return LogLevel.INFO;
+    }
+  }
+  if (typeof value === 'number') {
+    return value in LogLevel ? (value as LogLevel) : LogLevel.INFO;
+  }
+  return LogLevel.INFO;
+}
+
 export let edaDeviationProvider: EdaDeviationProvider;
 export let edaTransactionBasketProvider: TransactionBasketProvider;
 export let edaTransactionProvider: EdaTransactionProvider;
@@ -137,7 +159,7 @@ export async function activate(context: vscode.ExtensionContext) {
   edaOutputChannel = vscode.window.createOutputChannel('EDA');
 
   const config = vscode.workspace.getConfiguration('vscode-eda');
-  currentLogLevel = config.get<LogLevel>('logLevel', LogLevel.INFO);
+  currentLogLevel = parseLogLevel(config.get('logLevel'));
 
   log('EDA extension activating...', LogLevel.INFO, true);
   let edaUrl = 'https://eda-api';

@@ -91,10 +91,10 @@ In VS Code settings (`File → Preferences → Settings`), navigate to `Extensio
 
 - **`vscode-eda.logLevel`**
   Adjust logging verbosity.
-  - `0` = Debug
-  - `1` = Info (default)
-  - `2` = Warning
-  - `3` = Error
+  - `debug` = Debug
+  - `info` = Info (default)
+  - `warn` = Warning
+  - `error` = Error
 - **`vscode-eda.nodeConfigColorMode`**
   Adjusts syntax highlighting for node configuration views.
   - `full` = full color (default)
