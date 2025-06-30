@@ -53,4 +53,16 @@ describe('EdaApiClient token refresh', () => {
     expect((authClient.refreshAuth as sinon.SinonStub).called).to.be.true;
     expect(fetchStub.calledTwice).to.be.true;
   });
+
+  it('fetches EQL autocomplete results', async () => {
+    fetchStub.returns(
+      mockResponse(200, { completions: [{ token: 'foo', completion: 'oo' }] })
+    );
+
+    const client = new EdaApiClient(authClient);
+    const result = await client.autocompleteEql('f', 20);
+
+    expect(result).to.deep.equal(['foo']);
+    expect(fetchStub.calledOnce).to.be.true;
+  });
 });

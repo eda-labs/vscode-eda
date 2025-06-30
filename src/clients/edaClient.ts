@@ -245,6 +245,14 @@ export class EdaClient {
     return this.apiClient.queryEql(query, namespaces);
   }
 
+  public async autocompleteEql(
+    query: string,
+    limit = 20
+  ): Promise<string[]> {
+    await this.initPromise;
+    return this.apiClient.autocompleteEql(query, limit);
+  }
+
   // Spec manager methods (delegated)
   public getCachedNamespaces(): string[] {
     return this.specManager.getCachedNamespaces();

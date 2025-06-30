@@ -36,6 +36,12 @@ export const queriesDashboardStyles = `
     align-items: center;
     gap: 8px;
     flex: 1;
+    position: relative;
+  }
+
+  .query-input-wrapper {
+    flex: 1;
+    position: relative;
   }
 
   .query-label {
@@ -56,12 +62,38 @@ export const queriesDashboardStyles = `
   }
 
   .query-input {
-    flex: 1;
+    width: 100%;
     padding: 4px 8px;
     background-color: var(--vscode-input-background);
     color: var(--vscode-input-foreground);
     border: 1px solid var(--vscode-input-border);
     border-radius: 4px;
+  }
+
+  .autocomplete-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    background-color: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border);
+    border-top: none;
+    max-height: 200px;
+    overflow-y: auto;
+    display: none;
+    z-index: 10;
+  }
+
+  .autocomplete-list li {
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+
+  .autocomplete-list li:hover {
+    background-color: var(--vscode-list-hoverBackground);
   }
 
   .run-btn {

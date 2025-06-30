@@ -1,6 +1,7 @@
 export const queriesDashboardScripts = `
   const vscode = acquireVsCodeApi();
   const queryInput = document.getElementById('queryInput');
+  const autocompleteList = document.getElementById('autocompleteList');
   const runButton = document.getElementById('runButton');
   const nsSelect = document.getElementById('namespaceSelect');
   const headerRow = document.getElementById('headerRow');
@@ -18,6 +19,26 @@ export const queriesDashboardScripts = `
       query: queryInput.value,
       namespace: nsSelect.value
     });
+    autocompleteList.innerHTML = '';
+    autocompleteList.style.display = 'none';
+  });
+
+  queryInput.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      autocompleteList.innerHTML = '';
+      autocompleteList.style.display = 'none';
+    }
+  });
+
+  document.addEventListener('click', e => {
+    if (e.target !== queryInput && !autocompleteList.contains(e.target)) {
+      autocompleteList.innerHTML = '';
+      autocompleteList.style.display = 'none';
+    }
+  });
+
+  queryInput.addEventListener('input', () => {
+    vscode.postMessage({ command: 'autocomplete', query: queryInput.value });
   });
 
   window.addEventListener('message', event => {
@@ -31,21 +52,38 @@ export const queriesDashboardScripts = `
         nsSelect.appendChild(opt);
       });
       nsSelect.value = msg.selected || msg.namespaces[0] || '';
+      autocompleteList.style.display = 'none';
     } else if (msg.command === 'clear') {
       columns = [];
       allRows = [];
       renderTable([]);
       statusEl.textContent = 'Running...';
+      autocompleteList.style.display = 'none';
     } else if (msg.command === 'results') {
       columns = msg.columns;
       allRows = msg.rows;
       renderTable(allRows);
       statusEl.textContent = msg.status || '';
+      autocompleteList.style.display = 'none';
     } else if (msg.command === 'error') {
       statusEl.textContent = msg.error;
       columns = [];
       allRows = [];
       renderTable([]);
+      autocompleteList.style.display = 'none';
+    } else if (msg.command === 'autocomplete') {
+      autocompleteList.innerHTML = '';
+      (msg.list || []).forEach(item => {
+        const li = document.createElement('li');
+        li.textContent = item;
+        li.addEventListener('click', () => {
+          queryInput.value = item;
+          autocompleteList.innerHTML = '';
+          autocompleteList.style.display = 'none';
+        });
+        autocompleteList.appendChild(li);
+      });
+      autocompleteList.style.display = (msg.list && msg.list.length) ? 'block' : 'none';
     }
   });
 

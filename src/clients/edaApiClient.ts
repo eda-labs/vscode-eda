@@ -359,4 +359,30 @@ export class EdaApiClient {
     }
     return this.fetchJSON<any>(path);
   }
+
+  /**
+   * Get EQL autocomplete suggestions
+   */
+  public async autocompleteEql(
+    query: string,
+    limit = 20
+  ): Promise<string[]> {
+    const base = `/core/query/v1/eql/autocomplete?query=${encodeURIComponent(query)}`;
+    const path = `${base}&completion_limit=${limit}`;
+    const data = await this.fetchJSON<any>(path);
+    const completions = Array.isArray(data?.completions)
+      ? data.completions
+          .map((c: any) => {
+            if (typeof c?.token === 'string') {
+              return c.token as string;
+            }
+            if (typeof c?.completion === 'string') {
+              return `${query}${c.completion}`;
+            }
+            return undefined;
+          })
+          .filter((c: any) => typeof c === 'string')
+      : [];
+    return completions as string[];
+  }
 }

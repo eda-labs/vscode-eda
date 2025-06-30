@@ -3,7 +3,10 @@ export const queriesDashboardHtml = `
     <header class="header">
       <div class="query-bar">
         <label class="query-label" for="queryInput"><span class="codicon codicon-search"></span> EQL Query</label>
-        <input id="queryInput" type="text" class="query-input" placeholder="Enter EQL expression" />
+        <div class="query-input-wrapper">
+          <input id="queryInput" type="text" class="query-input" placeholder="Enter EQL expression" />
+          <ul id="autocompleteList" class="autocomplete-list"></ul>
+        </div>
         <button id="runButton" class="run-btn">Run</button>
       </div>
       <select id="namespaceSelect" class="select"></select>

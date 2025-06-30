@@ -35,6 +35,9 @@ export class QueriesDashboardPanel extends BasePanel {
         await this.sendNamespaces();
       } else if (msg.command === 'runQuery') {
         await this.startQueryStream(msg.query as string, msg.namespace as string);
+      } else if (msg.command === 'autocomplete') {
+        const list = await this.edaClient.autocompleteEql(msg.query as string, 20);
+        this.panel.webview.postMessage({ command: 'autocomplete', list });
       }
     });
 
