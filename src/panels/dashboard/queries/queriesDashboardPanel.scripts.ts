@@ -27,6 +27,14 @@ export const queriesDashboardScripts = `
     if (e.key === 'Escape') {
       autocompleteList.innerHTML = '';
       autocompleteList.style.display = 'none';
+    } else if (e.key === 'Tab' && autocompleteList.children.length > 0) {
+      e.preventDefault();
+      const first = autocompleteList.querySelector('li');
+      if (first) {
+        queryInput.value = first.textContent || '';
+      }
+      autocompleteList.innerHTML = '';
+      autocompleteList.style.display = 'none';
     }
   });
 
