@@ -3,7 +3,7 @@ import { TreeItemBase } from './treeItem';
 import { FilteredTreeProvider } from './filteredTreeProvider';
 
 export class DashboardProvider extends FilteredTreeProvider<TreeItemBase> {
-  private dashboards = ['Fabric Dashboard'];
+  private dashboards = ['Fabric Dashboard', 'Queries'];
 
   getTreeItem(element: TreeItemBase): vscode.TreeItem {
     return element;

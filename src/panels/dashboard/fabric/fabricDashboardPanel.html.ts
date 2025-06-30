@@ -1,4 +1,4 @@
-export const dashboardHtml = `
+export const fabricDashboardHtml = `
   <div class="dashboard">
     <header class="header">
       <div>

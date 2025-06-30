@@ -1,4 +1,4 @@
-export const dashboardStyles = `
+export const fabricDashboardStyles = `
     :root {
       --bg-primary: var(--vscode-editor-background);
       --bg-secondary: var(--vscode-panel-background);

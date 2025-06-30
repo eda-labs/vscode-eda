@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
-import { BasePanel } from '../basePanel';
-import { dashboardStyles } from './dashboardPanel.styles';
-import { dashboardHtml } from './dashboardPanel.html';
-import { dashboardScripts } from './dashboardPanel.scripts';
-import { serviceManager } from '../../services/serviceManager';
-import { EdaClient } from '../../clients/edaClient';
-import { parseUpdateKey } from '../../utils/parseUpdateKey';
+import { BasePanel } from '../../basePanel';
+import { fabricDashboardStyles } from './fabricDashboardPanel.styles';
+import { fabricDashboardHtml } from './fabricDashboardPanel.html';
+import { fabricDashboardScripts } from './fabricDashboardPanel.scripts';
+import { serviceManager } from '../../../services/serviceManager';
+import { EdaClient } from '../../../clients/edaClient';
+import { parseUpdateKey } from '../../../utils/parseUpdateKey';
 
 interface NodeGroupStats {
   nodes: Set<string>;
@@ -20,7 +20,7 @@ interface FabricStats {
   health: number;
 }
 
-export class DashboardPanel extends BasePanel {
+export class FabricDashboardPanel extends BasePanel {
   private edaClient: EdaClient;
   private nodeMap: Map<string, Map<string, string>> = new Map();
   private interfaceMap: Map<string, Map<string, string>> = new Map();
@@ -92,11 +92,11 @@ export class DashboardPanel extends BasePanel {
   }
 
   protected getHtml(): string {
-    return dashboardHtml;
+    return fabricDashboardHtml;
   }
 
   protected getCustomStyles(): string {
-    return dashboardStyles;
+    return fabricDashboardStyles;
   }
 
   protected getScripts(): string {
@@ -104,7 +104,7 @@ export class DashboardPanel extends BasePanel {
 
     return `
       const echartsJsUri = "${echartsJs}";
-      ${dashboardScripts}
+      ${fabricDashboardScripts}
     `;
   }
 
@@ -554,6 +554,6 @@ export class DashboardPanel extends BasePanel {
   }
 
   static show(context: vscode.ExtensionContext, title: string): void {
-    new DashboardPanel(context, title);
+    new FabricDashboardPanel(context, title);
   }
 }

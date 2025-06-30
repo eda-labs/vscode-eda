@@ -1,4 +1,4 @@
-export const dashboardScripts = `
+export const fabricDashboardScripts = `
     const vscode = acquireVsCodeApi();
     const namespaceSelect = document.getElementById('namespaceSelect');
 
