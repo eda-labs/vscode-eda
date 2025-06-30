@@ -68,12 +68,10 @@ export const queriesDashboardStyles = `
     background-color: var(--accent-hover);
   }
 
-  .filters {
-    display: grid;
-    grid-auto-flow: column;
-    gap: 4px;
-    padding: 4px 0;
-    margin-bottom: 8px;
+  .filters td {
+    border: 1px solid var(--border);
+    padding: 0;
+    background-color: var(--vscode-editorWidget-background);
   }
 
   .filters input {
@@ -81,12 +79,13 @@ export const queriesDashboardStyles = `
     padding: 2px 4px;
     background-color: var(--vscode-input-background);
     color: var(--vscode-input-foreground);
-    border: 1px solid var(--vscode-input-border);
-    border-radius: 2px;
+    border: none;
+    box-sizing: border-box;
   }
 
   .results-container {
     overflow: auto;
+    max-height: 85vh;
   }
 
   .results-table {

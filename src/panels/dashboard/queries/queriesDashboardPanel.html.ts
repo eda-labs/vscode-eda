@@ -9,11 +9,11 @@ export const queriesDashboardHtml = `
       <select id="namespaceSelect" class="select"></select>
     </header>
 
-    <div id="filters" class="filters"></div>
     <div class="results-container">
       <table class="results-table">
         <thead>
           <tr id="headerRow"></tr>
+          <tr id="filterRow" class="filters"></tr>
         </thead>
         <tbody id="resultsBody"></tbody>
       </table>

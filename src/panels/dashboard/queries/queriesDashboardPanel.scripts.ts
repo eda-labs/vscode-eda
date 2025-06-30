@@ -5,7 +5,7 @@ export const queriesDashboardScripts = `
   const nsSelect = document.getElementById('namespaceSelect');
   const headerRow = document.getElementById('headerRow');
   const resultsBody = document.getElementById('resultsBody');
-  const filtersDiv = document.getElementById('filters');
+  const filterRow = document.getElementById('filterRow');
   const statusEl = document.getElementById('status');
 
   let allRows = [];
@@ -52,7 +52,7 @@ export const queriesDashboardScripts = `
   function renderTable(rows) {
     headerRow.innerHTML = '';
     resultsBody.innerHTML = '';
-    filtersDiv.innerHTML = '';
+    filterRow.innerHTML = '';
     if (!columns.length) return;
 
     columns.forEach((col, idx) => {
@@ -72,7 +72,9 @@ export const queriesDashboardScripts = `
       const filterInput = document.createElement('input');
       filterInput.dataset.idx = idx;
       filterInput.addEventListener('input', applyFilters);
-      filtersDiv.appendChild(filterInput);
+      const td = document.createElement('td');
+      td.appendChild(filterInput);
+      filterRow.appendChild(td);
     });
 
     renderRows(rows);
@@ -93,7 +95,7 @@ export const queriesDashboardScripts = `
   }
 
   function applyFilters() {
-    const inputs = Array.from(filtersDiv.querySelectorAll('input'));
+    const inputs = Array.from(filterRow.querySelectorAll('input'));
     const filtered = allRows.filter(row => {
       return inputs.every(inp => {
         const idx = parseInt(inp.dataset.idx);
@@ -125,7 +127,7 @@ export const queriesDashboardScripts = `
     const hide = !headerRow.children[idx].classList.contains('hidden');
     const disp = hide ? 'none' : '';
     headerRow.children[idx].style.display = disp;
-    filtersDiv.children[idx].style.display = disp;
+    filterRow.children[idx].style.display = disp;
     Array.from(resultsBody.children).forEach(row => {
       row.children[idx].style.display = disp;
     });
