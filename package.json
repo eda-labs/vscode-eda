@@ -53,8 +53,7 @@
       "edaExplorerViewContainer": [
         {
           "id": "edaDashboards",
-          "name": "Dashboards",
-          "when": "config.vscode-eda.enableDashboardView"
+          "name": "Dashboards"
         },
         {
           "id": "edaNamespaces",
@@ -579,11 +578,6 @@
           ],
           "default": "full",
           "description": "Color mode for node configuration views"
-        },
-        "vscode-eda.enableDashboardView": {
-          "type": "boolean",
-          "default": false,
-          "markdownDescription": "Enable the Dashboards view (Alpha)"
         }
       }
     },
