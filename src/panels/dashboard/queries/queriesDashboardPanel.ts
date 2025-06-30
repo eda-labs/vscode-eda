@@ -26,7 +26,7 @@ export class QueriesDashboardPanel extends BasePanel {
 
     this.panel.onDidDispose(() => {
       if (this.queryStreamName) {
-        this.edaClient.closeEqlStream(this.queryStreamName);
+        void this.edaClient.closeEqlStream(this.queryStreamName);
       }
     });
 
@@ -74,7 +74,7 @@ export class QueriesDashboardPanel extends BasePanel {
     this.rows = [];
     this.rowMap.clear();
     if (this.queryStreamName) {
-      this.edaClient.closeEqlStream(this.queryStreamName);
+      await this.edaClient.closeEqlStream(this.queryStreamName);
     }
     this.queryStreamName = `query-${Date.now()}`;
     const ns = namespace === 'All Namespaces' ? undefined : namespace;

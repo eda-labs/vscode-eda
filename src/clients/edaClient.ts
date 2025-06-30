@@ -98,8 +98,8 @@ export class EdaClient {
     await this.streamClient.connect();
   }
 
-  public closeEqlStream(streamName = 'eql'): void {
-    this.streamClient.unsubscribeFromStream(streamName);
+  public async closeEqlStream(streamName = 'eql'): Promise<void> {
+    await this.streamClient.closeEqlStream(streamName);
   }
 
   public async streamEdaTransactions(size = 50): Promise<void> {

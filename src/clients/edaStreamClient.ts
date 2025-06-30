@@ -30,6 +30,8 @@ export class EdaStreamClient {
   private summaryStreamPromise: Promise<void> | undefined;
   private userStorageFiles: Set<string> = new Set();
   private eqlStreams: Map<string, { query: string; namespaces?: string }> = new Map();
+  private eqlAbortControllers: Map<string, AbortController> = new Map();
+  private eqlStreamPromises: Map<string, Promise<void>> = new Map();
 
   private _onStreamMessage = new vscode.EventEmitter<StreamMessage>();
   public readonly onStreamMessage = this._onStreamMessage.event;
@@ -237,8 +239,28 @@ export class EdaStreamClient {
       // do not clear summaryStreamPromise so a restart can wait for closure
       this.summaryAbortController = undefined;
     }
+    const ctl = this.eqlAbortControllers.get(streamName);
+    if (ctl) {
+      ctl.abort();
+      this.eqlAbortControllers.delete(streamName);
+    }
+    if (this.eqlStreamPromises.has(streamName)) {
+      this.eqlStreamPromises.delete(streamName);
+    }
     this.eqlStreams.delete(streamName);
     log(`Unsubscribed from stream: ${streamName}`, LogLevel.DEBUG);
+  }
+
+  public async closeEqlStream(streamName: string): Promise<void> {
+    const promise = this.eqlStreamPromises.get(streamName);
+    this.unsubscribeFromStream(streamName);
+    if (promise) {
+      try {
+        await promise;
+      } catch {
+        /* ignore */
+      }
+    }
   }
 
 
@@ -289,6 +311,11 @@ export class EdaStreamClient {
       this.summaryStreamPromise = undefined;
     }
     this.summaryAbortController = undefined;
+    for (const ctl of this.eqlAbortControllers.values()) {
+      ctl.abort();
+    }
+    this.eqlAbortControllers.clear();
+    this.eqlStreamPromises.clear();
     this.eventClient = undefined;
     if (clearStreams) {
       this.activeStreams.clear();
@@ -444,7 +471,7 @@ export class EdaStreamClient {
     await this.streamSse(url);
   }
 
-  private async startEqlStream(client: string, streamName: string): Promise<void> {
+  private startEqlStream(client: string, streamName: string): void {
     if (!this.authClient) return;
     const info = this.eqlStreams.get(streamName);
     if (!info) return;
@@ -457,7 +484,13 @@ export class EdaStreamClient {
       url += `&namespaces=${encodeURIComponent(info.namespaces)}`;
     }
 
-    await this.streamSse(url);
+    const controller = new AbortController();
+    this.eqlAbortControllers.set(streamName, controller);
+    const promise = this.streamSse(url, controller).finally(() => {
+      this.eqlAbortControllers.delete(streamName);
+      this.eqlStreamPromises.delete(streamName);
+    });
+    this.eqlStreamPromises.set(streamName, promise);
   }
 
   private startTransactionSummaryStream(client: string): void {

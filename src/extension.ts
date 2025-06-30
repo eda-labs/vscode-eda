@@ -561,7 +561,7 @@ export function deactivate() {
   edaOutputChannel?.appendLine('EDA extension deactivated');
   edaOutputChannel?.dispose();
   try {
-//     serviceManager.dispose();
+    serviceManager.dispose();
   } catch (error) {
     console.error('Error disposing service manager:', error);
   }

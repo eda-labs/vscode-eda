@@ -2,6 +2,15 @@ export const fabricDashboardScripts = `
     const vscode = acquireVsCodeApi();
     const namespaceSelect = document.getElementById('namespaceSelect');
 
+    const setInd = (id, h) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.classList.remove('active', 'warning', 'error');
+      if (h >= 90) el.classList.add('active');
+      else if (h >= 50) el.classList.add('warning');
+      else el.classList.add('error');
+    };
+
     // Load external scripts
     const loadScript = (src) => {
       const script = document.createElement('script');
@@ -40,25 +49,21 @@ export const fabricDashboardScripts = `
         updateTrafficChart(msg.stats.in, msg.stats.out);
       } else if (msg.command === 'clearTrafficData') {
         clearTrafficChart();
-      } else if (msg.command === 'fabricStats') {
-        const setInd = (id, h) => {
-          const el = document.getElementById(id);
-          if (!el) return;
-          el.classList.remove('active', 'warning', 'error');
-          if (h >= 90) el.classList.add('active');
-          else if (h >= 50) el.classList.add('warning');
-          else el.classList.add('error');
-        };
-        document.getElementById('fabric-spines').textContent = msg.stats.spines.count;
-        setInd('fabric-spines-health', msg.stats.spines.health);
-        document.getElementById('fabric-leafs').textContent = msg.stats.leafs.count;
-        setInd('fabric-leafs-health', msg.stats.leafs.health);
-        document.getElementById('fabric-borderleafs').textContent = msg.stats.borderleafs.count;
-        setInd('fabric-borderleafs-health', msg.stats.borderleafs.health);
-        document.getElementById('fabric-superspines').textContent = msg.stats.superspines.count;
-        setInd('fabric-superspines-health', msg.stats.superspines.health);
-        document.getElementById('fabric-health').textContent = msg.stats.fabricHealth + '%';
-        setInd('fabric-health-indicator', msg.stats.fabricHealth);
+      } else if (msg.command === 'fabricSpineStats') {
+        document.getElementById('fabric-spines').textContent = msg.stats.count;
+        setInd('fabric-spines-health', msg.stats.health);
+      } else if (msg.command === 'fabricLeafStats') {
+        document.getElementById('fabric-leafs').textContent = msg.stats.count;
+        setInd('fabric-leafs-health', msg.stats.health);
+      } else if (msg.command === 'fabricBorderLeafStats') {
+        document.getElementById('fabric-borderleafs').textContent = msg.stats.count;
+        setInd('fabric-borderleafs-health', msg.stats.health);
+      } else if (msg.command === 'fabricSuperSpineStats') {
+        document.getElementById('fabric-superspines').textContent = msg.stats.count;
+        setInd('fabric-superspines-health', msg.stats.health);
+      } else if (msg.command === 'fabricHealth') {
+        document.getElementById('fabric-health').textContent = msg.health + '%';
+        setInd('fabric-health-indicator', msg.health);
       }
     });
 

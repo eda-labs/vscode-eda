@@ -27,12 +27,12 @@ export class FabricDashboardPanel extends BasePanel {
   private trafficMap: Map<string, { in: number; out: number }> = new Map();
   private fabricMap: Map<string, FabricStats> = new Map();
   private selectedNamespace = 'All Namespaces';
-  private trafficStreamName = 'traffic-all';
-  private leafStreamName = 'leaf-all';
-  private borderLeafStreamName = 'borderleaf-all';
-  private spineStreamName = 'spine-all';
-  private superSpineStreamName = 'superspine-all';
-  private fabricStatusStreamName = 'fabricstatus-all';
+  private trafficStreamName = '';
+  private leafStreamName = '';
+  private borderLeafStreamName = '';
+  private spineStreamName = '';
+  private superSpineStreamName = '';
+  private fabricStatusStreamName = '';
   private initialized = false;
 
   private get fabricQueryBase(): string {
@@ -69,8 +69,8 @@ export class FabricDashboardPanel extends BasePanel {
     this.panel.onDidDispose(() => {
       this.edaClient.closeTopoNodeStream();
       this.edaClient.closeInterfaceStream?.();
-      this.edaClient.closeEqlStream(this.trafficStreamName);
-      this.closeFabricStreams();
+      void this.edaClient.closeEqlStream(this.trafficStreamName);
+      void this.closeFabricStreams();
     });
 
     this.panel.webview.onDidReceiveMessage(async msg => {
@@ -79,12 +79,20 @@ export class FabricDashboardPanel extends BasePanel {
         await this.sendTopoNodeStats('All Namespaces');
         await this.sendInterfaceStats('All Namespaces');
         await this.sendTrafficStats('All Namespaces');
-        await this.sendFabricStats('All Namespaces');
+        await this.sendSpineStats('All Namespaces');
+        await this.sendLeafStats('All Namespaces');
+        await this.sendBorderLeafStats('All Namespaces');
+        await this.sendSuperSpineStats('All Namespaces');
+        await this.sendFabricHealth('All Namespaces');
       } else if (msg.command === 'getTopoNodeStats') {
         await this.sendTopoNodeStats(msg.namespace as string);
         await this.sendInterfaceStats(msg.namespace as string);
         await this.sendTrafficStats(msg.namespace as string);
-        await this.sendFabricStats(msg.namespace as string);
+        await this.sendSpineStats(msg.namespace as string);
+        await this.sendLeafStats(msg.namespace as string);
+        await this.sendBorderLeafStats(msg.namespace as string);
+        await this.sendSuperSpineStats(msg.namespace as string);
+        await this.sendFabricHealth(msg.namespace as string);
       }
     });
 
@@ -263,44 +271,41 @@ export class FabricDashboardPanel extends BasePanel {
     }
   }
 
-  private computeFabricStats(ns: string): {
-    spines: { count: number; health: number };
-    leafs: { count: number; health: number };
-    borderleafs: { count: number; health: number };
-    superspines: { count: number; health: number };
-    fabricHealth: number;
-  } {
+  private computeFabricGroupStats(
+    ns: string,
+    key: 'leafs' | 'borderleafs' | 'spines' | 'superspines'
+  ): { count: number; health: number } {
     const coreNs = this.edaClient.getCoreNamespace();
     const namespaces = ns === 'All Namespaces'
       ? Array.from(this.fabricMap.keys()).filter(n => n !== coreNs)
       : [ns];
-    const result = {
-      spines: { count: 0, health: 0 },
-      leafs: { count: 0, health: 0 },
-      borderleafs: { count: 0, health: 0 },
-      superspines: { count: 0, health: 0 },
-      fabricHealth: 0
-    };
+    let count = 0;
+    let health = 0;
+    for (const n of namespaces) {
+      const stats = this.fabricMap.get(n);
+      if (!stats) continue;
+      count += stats[key].nodes.size;
+      health = this.calcHealth(health, stats[key].health);
+    }
+    return { count, health };
+  }
+
+  private computeFabricHealth(ns: string): number {
+    const coreNs = this.edaClient.getCoreNamespace();
+    const namespaces = ns === 'All Namespaces'
+      ? Array.from(this.fabricMap.keys()).filter(n => n !== coreNs)
+      : [ns];
     let healthSum = 0;
     let healthCount = 0;
     for (const n of namespaces) {
       const stats = this.fabricMap.get(n);
       if (!stats) continue;
-      result.spines.count += stats.spines.nodes.size;
-      result.leafs.count += stats.leafs.nodes.size;
-      result.borderleafs.count += stats.borderleafs.nodes.size;
-      result.superspines.count += stats.superspines.nodes.size;
-      result.spines.health = this.calcHealth(result.spines.health, stats.spines.health);
-      result.leafs.health = this.calcHealth(result.leafs.health, stats.leafs.health);
-      result.borderleafs.health = this.calcHealth(result.borderleafs.health, stats.borderleafs.health);
-      result.superspines.health = this.calcHealth(result.superspines.health, stats.superspines.health);
       if (stats.health > 0) {
         healthSum += stats.health;
         healthCount += 1;
       }
     }
-    result.fabricHealth = healthCount ? Math.round(healthSum / healthCount) : 0;
-    return result;
+    return healthCount ? Math.round(healthSum / healthCount) : 0;
   }
 
   private calcHealth(current: number, value: number): number {
@@ -413,10 +418,10 @@ export class FabricDashboardPanel extends BasePanel {
 
   private async sendTrafficStats(ns: string): Promise<void> {
     // Close previous stream before starting a new one
-    this.edaClient.closeEqlStream(this.trafficStreamName);
+    await this.edaClient.closeEqlStream(this.trafficStreamName);
 
     // Clear previous fabric streams
-    this.closeFabricStreams();
+    await this.closeFabricStreams();
 
     // Clear traffic data when switching namespaces
     this.trafficMap.clear();
@@ -429,33 +434,61 @@ export class FabricDashboardPanel extends BasePanel {
     const query =
       '.namespace.node.srl.interface.traffic-rate fields [sum(in-bps), sum(out-bps)]';
     const namespaces = ns === 'All Namespaces' ? undefined : ns;
-    this.trafficStreamName = `traffic-${namespaces ?? 'all'}`;
+    this.trafficStreamName = `traffic-${namespaces ?? 'all'}-${Date.now()}`;
     await this.edaClient.streamEql(query, namespaces, this.trafficStreamName);
   }
 
-  private async sendFabricStats(ns: string): Promise<void> {
-    this.closeFabricStreams();
+  private async sendSpineStats(ns: string): Promise<void> {
+    await this.edaClient.closeEqlStream(this.spineStreamName);
     const namespaces = ns === 'All Namespaces' ? undefined : ns;
-    this.leafStreamName = `leaf-${namespaces ?? 'all'}`;
-    this.borderLeafStreamName = `borderleaf-${namespaces ?? 'all'}`;
-    this.spineStreamName = `spine-${namespaces ?? 'all'}`;
-    this.superSpineStreamName = `superspine-${namespaces ?? 'all'}`;
-    this.fabricStatusStreamName = `fabricstatus-${namespaces ?? 'all'}`;
-    await this.edaClient.streamEql(`${this.fabricQueryBase}.leafNodes`, namespaces, this.leafStreamName);
-    await this.edaClient.streamEql(`${this.fabricQueryBase}.borderLeafNodes`, namespaces, this.borderLeafStreamName);
+    this.spineStreamName = `spine-${namespaces ?? 'all'}-${Date.now()}`;
     await this.edaClient.streamEql(`${this.fabricQueryBase}.spineNodes`, namespaces, this.spineStreamName);
-    await this.edaClient.streamEql(`${this.fabricQueryBase}.superSpineNodes`, namespaces, this.superSpineStreamName);
-    await this.edaClient.streamEql(this.fabricQueryBase, namespaces, this.fabricStatusStreamName);
-    const stats = this.computeFabricStats(ns);
-    this.panel.webview.postMessage({ command: 'fabricStats', namespace: ns, stats });
+    const stats = this.computeFabricGroupStats(ns, 'spines');
+    this.panel.webview.postMessage({ command: 'fabricSpineStats', namespace: ns, stats });
   }
 
-  private closeFabricStreams(): void {
-    this.edaClient.closeEqlStream(this.leafStreamName);
-    this.edaClient.closeEqlStream(this.borderLeafStreamName);
-    this.edaClient.closeEqlStream(this.spineStreamName);
-    this.edaClient.closeEqlStream(this.superSpineStreamName);
-    this.edaClient.closeEqlStream(this.fabricStatusStreamName);
+  private async sendLeafStats(ns: string): Promise<void> {
+    await this.edaClient.closeEqlStream(this.leafStreamName);
+    const namespaces = ns === 'All Namespaces' ? undefined : ns;
+    this.leafStreamName = `leaf-${namespaces ?? 'all'}-${Date.now()}`;
+    await this.edaClient.streamEql(`${this.fabricQueryBase}.leafNodes`, namespaces, this.leafStreamName);
+    const stats = this.computeFabricGroupStats(ns, 'leafs');
+    this.panel.webview.postMessage({ command: 'fabricLeafStats', namespace: ns, stats });
+  }
+
+  private async sendBorderLeafStats(ns: string): Promise<void> {
+    await this.edaClient.closeEqlStream(this.borderLeafStreamName);
+    const namespaces = ns === 'All Namespaces' ? undefined : ns;
+    this.borderLeafStreamName = `borderleaf-${namespaces ?? 'all'}-${Date.now()}`;
+    await this.edaClient.streamEql(`${this.fabricQueryBase}.borderLeafNodes`, namespaces, this.borderLeafStreamName);
+    const stats = this.computeFabricGroupStats(ns, 'borderleafs');
+    this.panel.webview.postMessage({ command: 'fabricBorderLeafStats', namespace: ns, stats });
+  }
+
+  private async sendSuperSpineStats(ns: string): Promise<void> {
+    await this.edaClient.closeEqlStream(this.superSpineStreamName);
+    const namespaces = ns === 'All Namespaces' ? undefined : ns;
+    this.superSpineStreamName = `superspine-${namespaces ?? 'all'}-${Date.now()}`;
+    await this.edaClient.streamEql(`${this.fabricQueryBase}.superSpineNodes`, namespaces, this.superSpineStreamName);
+    const stats = this.computeFabricGroupStats(ns, 'superspines');
+    this.panel.webview.postMessage({ command: 'fabricSuperSpineStats', namespace: ns, stats });
+  }
+
+  private async sendFabricHealth(ns: string): Promise<void> {
+    await this.edaClient.closeEqlStream(this.fabricStatusStreamName);
+    const namespaces = ns === 'All Namespaces' ? undefined : ns;
+    this.fabricStatusStreamName = `fabricstatus-${namespaces ?? 'all'}-${Date.now()}`;
+    await this.edaClient.streamEql(this.fabricQueryBase, namespaces, this.fabricStatusStreamName);
+    const health = this.computeFabricHealth(ns);
+    this.panel.webview.postMessage({ command: 'fabricHealth', namespace: ns, health });
+  }
+
+  private async closeFabricStreams(): Promise<void> {
+    await this.edaClient.closeEqlStream(this.leafStreamName);
+    await this.edaClient.closeEqlStream(this.borderLeafStreamName);
+    await this.edaClient.closeEqlStream(this.spineStreamName);
+    await this.edaClient.closeEqlStream(this.superSpineStreamName);
+    await this.edaClient.closeEqlStream(this.fabricStatusStreamName);
   }
 
   private handleLeafStream(msg: any): void {
@@ -511,7 +544,7 @@ export class FabricDashboardPanel extends BasePanel {
       set.add(n);
     }
     stats[key].health = this.calculateGroupHealth(ns, Array.from(set));
-    this.postFabricStatsIfNeeded(ns);
+    this.postFabricGroupStatsIfNeeded(ns, key);
   }
 
   private handleFabricStatusStream(msg: any): void {
@@ -532,7 +565,7 @@ export class FabricDashboardPanel extends BasePanel {
       this.fabricMap.set(ns, stats);
     }
     stats.health = Number(data?.health ?? 0);
-    this.postFabricStatsIfNeeded(ns);
+    this.postFabricHealthIfNeeded(ns);
   }
 
   private calculateGroupHealth(ns: string, nodes: string[]): number {
@@ -546,10 +579,28 @@ export class FabricDashboardPanel extends BasePanel {
     return Math.round((healthy / nodes.length) * 100);
   }
 
-  private postFabricStatsIfNeeded(ns: string): void {
+  private postFabricGroupStatsIfNeeded(
+    ns: string,
+    key: 'leafs' | 'borderleafs' | 'spines' | 'superspines'
+  ): void {
     if (this.selectedNamespace === 'All Namespaces' || this.selectedNamespace === ns) {
-      const stats = this.computeFabricStats(this.selectedNamespace);
-      this.panel.webview.postMessage({ command: 'fabricStats', namespace: this.selectedNamespace, stats });
+      const stats = this.computeFabricGroupStats(this.selectedNamespace, key);
+      const command =
+        key === 'spines'
+          ? 'fabricSpineStats'
+          : key === 'leafs'
+            ? 'fabricLeafStats'
+            : key === 'borderleafs'
+              ? 'fabricBorderLeafStats'
+              : 'fabricSuperSpineStats';
+      this.panel.webview.postMessage({ command, namespace: this.selectedNamespace, stats });
+    }
+  }
+
+  private postFabricHealthIfNeeded(ns: string): void {
+    if (this.selectedNamespace === 'All Namespaces' || this.selectedNamespace === ns) {
+      const health = this.computeFabricHealth(this.selectedNamespace);
+      this.panel.webview.postMessage({ command: 'fabricHealth', namespace: this.selectedNamespace, health });
     }
   }
 
