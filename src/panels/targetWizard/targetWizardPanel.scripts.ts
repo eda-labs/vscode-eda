@@ -117,7 +117,7 @@ export const targetWizardScripts = `
       }
       
       if (deleteBtn) {
-        deleteBtn.addEventListener('click', () => deleteTarget(currentIdx));
+        deleteBtn.addEventListener('click', () => requestDelete(currentIdx));
       }
     }
 
@@ -259,28 +259,34 @@ export const targetWizardScripts = `
       }
     }
 
-    function deleteTarget(idx) {
-      if (confirm('Are you sure you want to delete this target?')) {
-        existingTargets.splice(idx, 1);
-        
-        if (selectedIdx === idx) {
-          selectedIdx = Math.max(0, Math.min(selectedIdx, existingTargets.length - 1));
-          vscode.postMessage({ command: 'select', index: selectedIdx });
-        } else if (selectedIdx > idx) {
-          selectedIdx--;
-          vscode.postMessage({ command: 'select', index: selectedIdx });
-        }
-        
-        renderTargetsList();
-        
-        if (existingTargets.length > 0) {
-          showTargetDetails(existingTargets[selectedIdx]);
-        } else {
-          showEmptyDetails();
-        }
-        
-        vscode.postMessage({ command: 'commit', targets: existingTargets });
+    function requestDelete(idx) {
+      vscode.postMessage({
+        command: 'confirmDelete',
+        index: idx,
+        url: existingTargets[idx].url
+      });
+    }
+
+    function performDelete(idx) {
+      existingTargets.splice(idx, 1);
+
+      if (selectedIdx === idx) {
+        selectedIdx = Math.max(0, Math.min(selectedIdx, existingTargets.length - 1));
+        vscode.postMessage({ command: 'select', index: selectedIdx });
+      } else if (selectedIdx > idx) {
+        selectedIdx--;
+        vscode.postMessage({ command: 'select', index: selectedIdx });
       }
+
+      renderTargetsList();
+
+      if (existingTargets.length > 0) {
+        showTargetDetails(existingTargets[selectedIdx]);
+      } else {
+        showEmptyDetails();
+      }
+
+      vscode.postMessage({ command: 'commit', targets: existingTargets });
     }
 
     function sendData(command) {
@@ -393,4 +399,11 @@ export const targetWizardScripts = `
 
     setupToggle('edaPass', 'toggleEdaPass');
     setupToggle('kcPass', 'toggleKcPass');
+
+    window.addEventListener('message', event => {
+      const msg = event.data;
+      if (msg.command === 'deleteConfirmed') {
+        performDelete(msg.index);
+      }
+    });
 `;

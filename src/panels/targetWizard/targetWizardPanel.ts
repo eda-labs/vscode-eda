@@ -62,6 +62,9 @@ export class TargetWizardPanel extends BasePanel {
         case 'delete':
           await this.deleteTarget(msg.url);
           break;
+        case 'confirmDelete':
+          await this.confirmDelete(msg.index, msg.url);
+          break;
         case 'commit':
           await this.commitTargets(msg.targets);
           break;
@@ -160,6 +163,17 @@ export class TargetWizardPanel extends BasePanel {
       await this.context.secrets.delete(`kcPassword:${host}`);
     } catch {
       // ignore invalid url
+    }
+  }
+
+  private async confirmDelete(index: number, url: string): Promise<void> {
+    const choice = await vscode.window.showWarningMessage(
+      `Are you sure you want to delete ${url}?`,
+      { modal: true },
+      'Delete'
+    );
+    if (choice === 'Delete') {
+      this.panel.webview.postMessage({ command: 'deleteConfirmed', index });
     }
   }
 
