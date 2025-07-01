@@ -88,6 +88,14 @@ export class QueriesDashboardPanel extends BasePanel {
   private handleQueryStream(msg: any): void {
     const ops: any[] = Array.isArray(msg.msg?.op) ? msg.msg.op : [];
     if (ops.length === 0) {
+      if (this.rows.length === 0) {
+        this.panel.webview.postMessage({
+          command: 'results',
+          columns: [],
+          rows: [],
+          status: 'No results to display'
+        });
+      }
       return;
     }
     for (const op of ops) {

@@ -111,9 +111,11 @@ export const queriesDashboardScripts = `
         sortIndex = -1;
         sortAsc = true;
         renderTable(allRows);
-        statusEl.textContent = msg.status || '';
+      }
+      if (msg.status) {
+        statusEl.textContent = msg.status;
       } else {
-        if (sortIndex >= 0) sortRows();
+        if (!colsChanged && sortIndex >= 0) sortRows();
         applyFilters();
       }
       autocompleteList.style.display = 'none';
