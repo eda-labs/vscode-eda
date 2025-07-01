@@ -8,6 +8,13 @@ export const queriesDashboardHtml = `
           <ul id="autocompleteList" class="autocomplete-list"></ul>
         </div>
         <button id="runButton" class="run-btn">Run</button>
+        <div class="format-copy">
+          <select id="formatSelect" class="select">
+            <option value="markdown">Markdown</option>
+            <option value="ascii">ASCII</option>
+          </select>
+          <button id="copyButton" class="run-btn">Copy</button>
+        </div>
       </div>
       <select id="namespaceSelect" class="select"></select>
     </header>

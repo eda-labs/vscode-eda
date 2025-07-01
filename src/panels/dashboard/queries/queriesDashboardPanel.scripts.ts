@@ -4,6 +4,8 @@ export const queriesDashboardScripts = `
   const autocompleteList = document.getElementById('autocompleteList');
   const runButton = document.getElementById('runButton');
   const nsSelect = document.getElementById('namespaceSelect');
+  const formatSelect = document.getElementById('formatSelect');
+  const copyButton = document.getElementById('copyButton');
   const headerRow = document.getElementById('headerRow');
   const resultsBody = document.getElementById('resultsBody');
   const filterRow = document.getElementById('filterRow');
@@ -24,6 +26,23 @@ export const queriesDashboardScripts = `
     });
     autocompleteList.innerHTML = '';
     autocompleteList.style.display = 'none';
+  });
+
+  copyButton.addEventListener('click', () => {
+    const rows = getFilteredRows();
+    const format = formatSelect.value;
+    const text =
+      format === 'ascii'
+        ? toAsciiTable(columns, rows)
+        : toMarkdownTable(columns, rows);
+    navigator.clipboard.writeText(text).then(() => {
+      copyButton.classList.add('copy-success');
+      statusEl.textContent = 'Copied to clipboard';
+      setTimeout(() => {
+        copyButton.classList.remove('copy-success');
+        statusEl.textContent = \`Count: \${rows.length}\`;
+      }, 1000);
+    });
   });
 
   queryInput.addEventListener('keydown', e => {
@@ -191,9 +210,9 @@ export const queriesDashboardScripts = `
     });
   }
 
-  function applyFilters() {
+  function getFilteredRows() {
     const inputs = Array.from(filterRow.querySelectorAll('input'));
-    const filtered = allRows.filter(row => {
+    return allRows.filter(row => {
       return inputs.every(inp => {
         const idx = parseInt(inp.dataset.idx);
         const val = inp.value.toLowerCase();
@@ -201,6 +220,10 @@ export const queriesDashboardScripts = `
         return String(row[idx] ?? '').toLowerCase().includes(val);
       });
     });
+  }
+
+  function applyFilters() {
+    const filtered = getFilteredRows();
     renderRows(filtered);
     statusEl.textContent = \`Count: \${filtered.length}\`;
   }
@@ -244,6 +267,38 @@ export const queriesDashboardScripts = `
       if (a[i] !== b[i]) return false;
     }
     return true;
+  }
+
+  function toMarkdownTable(cols, rows) {
+    if (!cols.length) return '';
+    const header = '| ' + cols.join(' | ') + ' |';
+    const sep = '| ' + cols.map(() => '---').join(' | ') + ' |';
+    const lines = rows.map(r =>
+      '| ' +
+      cols
+        .map((_, i) => String(r[i] ?? '').replace(/[|]/g, '\\|'))
+        .join(' | ') +
+      ' |'
+    );
+    return [header, sep, ...lines].join('\\n');
+  }
+
+  function toAsciiTable(cols, rows) {
+    if (!cols.length) return '';
+    const widths = cols.map((c, i) =>
+      Math.max(c.length, ...rows.map(r => String(r[i] ?? '').length))
+    );
+    const hr = '+' + widths.map(w => '-'.repeat(w + 2)).join('+') + '+';
+    const header =
+      '|' + cols.map((c, i) => ' ' + c.padEnd(widths[i]) + ' ').join('|') + '|';
+    const lines = rows.map(row =>
+      '|' +
+      cols
+        .map((_, i) => ' ' + String(row[i] ?? '').padEnd(widths[i]) + ' ')
+        .join('|') +
+      '|'
+    );
+    return [hr, header, hr, ...lines, hr].join('\\n');
   }
 
   function highlightAutocomplete() {

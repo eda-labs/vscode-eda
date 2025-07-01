@@ -37,6 +37,13 @@ export const queriesDashboardStyles = `
     gap: 8px;
     flex: 1;
     position: relative;
+    margin-right: 8px;
+  }
+
+  .format-copy {
+    display: flex;
+    align-items: center;
+    gap: 2px;
   }
 
   .query-input-wrapper {
@@ -112,6 +119,10 @@ export const queriesDashboardStyles = `
 
   .run-btn:hover {
     background-color: var(--accent-hover);
+  }
+
+  .copy-success {
+    background-color: var(--vscode-debugConsole-infoForeground) !important;
   }
 
   .filters td {
