@@ -125,6 +125,48 @@ export const queriesDashboardStyles = `
     background-color: var(--vscode-debugConsole-infoForeground) !important;
   }
 
+  .copy-dropdown {
+    position: relative;
+    display: flex;
+  }
+
+  .copy-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .format-toggle {
+    display: flex;
+    align-items: center;
+    padding: 0 4px;
+    margin-left: 4px;
+    border-left: 1px solid var(--border);
+    cursor: pointer;
+  }
+
+  .dropdown-menu {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    background-color: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border);
+    display: none;
+    z-index: 10;
+  }
+
+  .dropdown-menu li {
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+
+  .dropdown-menu li:hover {
+    background-color: var(--vscode-list-hoverBackground);
+  }
+
   .filters td {
     border: 1px solid var(--border);
     padding: 0;

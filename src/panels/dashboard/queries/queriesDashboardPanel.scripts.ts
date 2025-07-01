@@ -4,8 +4,10 @@ export const queriesDashboardScripts = `
   const autocompleteList = document.getElementById('autocompleteList');
   const runButton = document.getElementById('runButton');
   const nsSelect = document.getElementById('namespaceSelect');
-  const formatSelect = document.getElementById('formatSelect');
   const copyButton = document.getElementById('copyButton');
+  const formatToggle = document.getElementById('formatToggle');
+  const formatToggleArea = document.getElementById('formatToggleArea');
+  const formatMenu = document.getElementById('formatMenu');
   const headerRow = document.getElementById('headerRow');
   const resultsBody = document.getElementById('resultsBody');
   const filterRow = document.getElementById('filterRow');
@@ -16,6 +18,7 @@ export const queriesDashboardScripts = `
   let autocompleteIndex = -1;
   let sortIndex = -1;
   let sortAsc = true;
+  let copyFormat = 'ascii';
 
   runButton.addEventListener('click', () => {
     statusEl.textContent = 'Running...';
@@ -28,13 +31,26 @@ export const queriesDashboardScripts = `
     autocompleteList.style.display = 'none';
   });
 
-  copyButton.addEventListener('click', () => {
+  copyButton.addEventListener('click', e => {
+    if (formatToggleArea.contains(e.target)) {
+      toggleMenu();
+      return;
+    }
+    copyData();
+  });
+
+  function copyData() {
     const rows = getFilteredRows();
-    const format = formatSelect.value;
-    const text =
-      format === 'ascii'
-        ? toAsciiTable(columns, rows)
-        : toMarkdownTable(columns, rows);
+    let text = '';
+    if (copyFormat === 'ascii') {
+      text = toAsciiTable(columns, rows);
+    } else if (copyFormat === 'markdown') {
+      text = toMarkdownTable(columns, rows);
+    } else if (copyFormat === 'json') {
+      text = toJson(columns, rows);
+    } else {
+      text = toYaml(columns, rows);
+    }
     navigator.clipboard.writeText(text).then(() => {
       copyButton.classList.add('copy-success');
       statusEl.textContent = 'Copied to clipboard';
@@ -43,6 +59,24 @@ export const queriesDashboardScripts = `
         statusEl.textContent = \`Count: \${rows.length}\`;
       }, 1000);
     });
+  }
+
+  function toggleMenu() {
+    formatMenu.style.display =
+      formatMenu.style.display === 'block' ? 'none' : 'block';
+  }
+
+  formatToggle.addEventListener('click', e => {
+    e.stopPropagation();
+    toggleMenu();
+  });
+
+  Array.from(formatMenu.querySelectorAll('li')).forEach(li => {
+    li.addEventListener('click', () => {
+      copyFormat = li.dataset.format || 'ascii';
+      formatMenu.style.display = 'none';
+      copyData();
+    });
   });
 
   queryInput.addEventListener('keydown', e => {
@@ -50,6 +84,7 @@ export const queriesDashboardScripts = `
       autocompleteList.innerHTML = '';
       autocompleteList.style.display = 'none';
       autocompleteIndex = -1;
+      formatMenu.style.display = 'none';
     } else if (e.key === 'Tab' && autocompleteList.children.length > 0) {
       e.preventDefault();
       const target =
@@ -97,6 +132,9 @@ export const queriesDashboardScripts = `
     if (e.target !== queryInput && !autocompleteList.contains(e.target)) {
       autocompleteList.innerHTML = '';
       autocompleteList.style.display = 'none';
+    }
+    if (!copyButton.contains(e.target) && !formatMenu.contains(e.target)) {
+      formatMenu.style.display = 'none';
     }
   });
 
@@ -299,6 +337,34 @@ export const queriesDashboardScripts = `
       '|'
     );
     return [hr, header, hr, ...lines, hr].join('\\n');
+  }
+
+  function toJson(cols, rows) {
+    const objs = rows.map(r => {
+      const obj = {};
+      cols.forEach((c, i) => {
+        obj[c] = r[i];
+      });
+      return obj;
+    });
+    return JSON.stringify(objs, null, 2);
+  }
+
+  function toYaml(cols, rows) {
+    const objs = rows.map(r => {
+      const obj = {};
+      cols.forEach((c, i) => {
+        obj[c] = r[i];
+      });
+      return obj;
+    });
+    return objs
+      .map(o =>
+        Object.entries(o)
+          .map(([k, v]) => k + ': ' + v)
+          .join('\\n')
+      )
+      .join('\\n---\\n');
   }
 
   function highlightAutocomplete() {

@@ -9,11 +9,20 @@ export const queriesDashboardHtml = `
         </div>
         <button id="runButton" class="run-btn">Run</button>
         <div class="format-copy">
-          <select id="formatSelect" class="select">
-            <option value="markdown">Markdown</option>
-            <option value="ascii">ASCII</option>
-          </select>
-          <button id="copyButton" class="run-btn">Copy</button>
+          <div class="copy-dropdown">
+            <button id="copyButton" class="run-btn copy-btn">
+              <span>Copy</span>
+              <span id="formatToggleArea" class="format-toggle">
+                <span id="formatToggle" class="codicon codicon-chevron-down"></span>
+              </span>
+            </button>
+            <ul id="formatMenu" class="dropdown-menu">
+              <li data-format="ascii">ASCII</li>
+              <li data-format="markdown">Markdown</li>
+              <li data-format="json">JSON</li>
+              <li data-format="yaml">YAML</li>
+            </ul>
+          </div>
         </div>
       </div>
       <select id="namespaceSelect" class="select"></select>
