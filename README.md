@@ -47,6 +47,9 @@
    - Quick filter at the top-level views (`Alt+Shift+F` by default).
    - Clear filter to revert to full tree.
 
+8. **Help Links**
+   - Access documentation, product page, community Discord and GitHub repositories.
+
 ---
 
 ## Installation

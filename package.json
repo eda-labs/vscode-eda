@@ -36,7 +36,8 @@
     "onView:edaAlarms",
     "onView:edaDeviations",
     "onView:edaTransactionBasket",
-    "onView:edaTransactions"
+    "onView:edaTransactions",
+    "onView:edaHelp"
   ],
   "main": "./dist/extension",
   "contributes": {
@@ -74,6 +75,10 @@
         {
           "id": "edaTransactions",
           "name": "Transactions"
+        },
+        {
+          "id": "edaHelp",
+          "name": "Help"
         }
       ]
     },

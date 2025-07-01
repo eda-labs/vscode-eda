@@ -10,6 +10,7 @@ import { EdaDeviationProvider } from './providers/views/deviationProvider';
 import { TransactionBasketProvider } from './providers/views/transactionBasketProvider';
 import { EdaTransactionProvider } from './providers/views/transactionProvider';
 import { DashboardProvider } from './providers/views/dashboardProvider';
+import { HelpProvider } from './providers/views/helpProvider';
 import { AlarmDetailsDocumentProvider } from './providers/documents/alarmDetailsProvider';
 import { DeviationDetailsDocumentProvider } from './providers/documents/deviationDetailsProvider';
 import { TransactionDetailsDocumentProvider } from './providers/documents/transactionDetailsProvider';
@@ -409,6 +410,12 @@ export async function activate(context: vscode.ExtensionContext) {
       showCollapseAll: true
     });
 
+    const helpProvider = new HelpProvider();
+    const helpTreeView = vscode.window.createTreeView('edaHelp', {
+      treeDataProvider: helpProvider,
+      showCollapseAll: true
+    });
+
 
 
 
@@ -427,6 +434,7 @@ export async function activate(context: vscode.ExtensionContext) {
         edaDeviationProvider.setTreeFilter(text);
         edaTransactionBasketProvider.setTreeFilter(text);
         edaTransactionProvider.setTreeFilter(text);
+        helpProvider.setTreeFilter(text);
       }
     })
   );
@@ -440,6 +448,7 @@ export async function activate(context: vscode.ExtensionContext) {
       edaDeviationProvider.clearTreeFilter();
       edaTransactionBasketProvider.clearTreeFilter();
       edaTransactionProvider.clearTreeFilter();
+      helpProvider.clearTreeFilter();
     })
   );
 
@@ -465,6 +474,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(deviationTreeView, { dispose: () => edaDeviationProvider.dispose() });
   context.subscriptions.push(basketTreeView, { dispose: () => edaTransactionBasketProvider.dispose?.() });
   context.subscriptions.push(transactionTreeView, { dispose: () => edaTransactionProvider.dispose() });
+  context.subscriptions.push(helpTreeView);
 
 
   const crdFsProvider = new CrdDefinitionFileSystemProvider();
