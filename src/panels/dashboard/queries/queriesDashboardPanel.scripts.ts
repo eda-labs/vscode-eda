@@ -41,8 +41,9 @@ export const queriesDashboardScripts = `
         queryInput.value = target.textContent || '';
       }
       autocompleteList.innerHTML = '';
-      autocompleteList.style.display = 'none';
+      autocompleteList.style.display = 'block';
       autocompleteIndex = -1;
+      vscode.postMessage({ command: 'autocomplete', query: queryInput.value });
     } else if (
       (e.key === 'ArrowDown' || e.key === 'ArrowUp') &&
       autocompleteList.children.length > 0
@@ -64,8 +65,9 @@ export const queriesDashboardScripts = `
           queryInput.value = item.textContent || '';
         }
         autocompleteList.innerHTML = '';
-        autocompleteList.style.display = 'none';
+        autocompleteList.style.display = 'block';
         autocompleteIndex = -1;
+        vscode.postMessage({ command: 'autocomplete', query: queryInput.value });
       } else {
         runButton.click();
       }
@@ -135,8 +137,9 @@ export const queriesDashboardScripts = `
         li.addEventListener('click', () => {
           queryInput.value = item;
           autocompleteList.innerHTML = '';
-          autocompleteList.style.display = 'none';
+          autocompleteList.style.display = 'block';
           autocompleteIndex = -1;
+          vscode.postMessage({ command: 'autocomplete', query: queryInput.value });
         });
         autocompleteList.appendChild(li);
       });
