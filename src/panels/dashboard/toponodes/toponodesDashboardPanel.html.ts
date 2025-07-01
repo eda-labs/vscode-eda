@@ -1,6 +1,7 @@
 export const toponodesDashboardHtml = `
   <div class="dashboard">
     <header class="header">
+      <button id="showTreeBtn" class="open-tree-btn">Show in VS Code Tree</button>
       <select id="namespaceSelect" class="select"></select>
     </header>
 

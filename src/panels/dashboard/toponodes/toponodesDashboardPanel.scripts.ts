@@ -1,6 +1,7 @@
 export const toponodesDashboardScripts = `
   const vscode = acquireVsCodeApi();
   const nsSelect = document.getElementById('namespaceSelect');
+  const showTreeBtn = document.getElementById('showTreeBtn');
   const headerRow = document.getElementById('headerRow');
   const resultsBody = document.getElementById('resultsBody');
   const filterRow = document.getElementById('filterRow');
@@ -10,9 +11,15 @@ export const toponodesDashboardScripts = `
   let columns = [];
   let sortIndex = -1;
   let sortAsc = true;
+  let nameIdx = -1;
+  let nsIdx = -1;
 
   nsSelect.addEventListener('change', () => {
     vscode.postMessage({ command: 'setNamespace', namespace: nsSelect.value });
+  });
+
+  showTreeBtn.addEventListener('click', () => {
+    vscode.postMessage({ command: 'showInTree' });
   });
 
   window.addEventListener('message', event => {
@@ -34,6 +41,8 @@ export const toponodesDashboardScripts = `
     } else if (msg.command === 'results') {
       const colsChanged = !arraysEqual(columns, msg.columns);
       columns = msg.columns;
+      nameIdx = columns.indexOf('name');
+      nsIdx = columns.indexOf('namespace');
       allRows = msg.rows;
       if (colsChanged) {
         sortIndex = -1;
@@ -54,6 +63,12 @@ export const toponodesDashboardScripts = `
     sortIndex = -1;
     sortAsc = true;
     if (!columns.length) return;
+
+    const actionTh = document.createElement('th');
+    actionTh.textContent = 'Config';
+    headerRow.appendChild(actionTh);
+    const emptyTd = document.createElement('td');
+    filterRow.appendChild(emptyTd);
 
     columns.forEach((col, idx) => {
       const th = document.createElement('th');
@@ -76,6 +91,21 @@ export const toponodesDashboardScripts = `
     resultsBody.innerHTML = '';
     rows.forEach(row => {
       const tr = document.createElement('tr');
+      const btnTd = document.createElement('td');
+      const btn = document.createElement('button');
+      btn.className = 'open-tree-btn';
+      btn.textContent = 'View';
+      const name = nameIdx >= 0 ? row[nameIdx] : '';
+      const ns = nsIdx >= 0 ? row[nsIdx] : '';
+      btn.addEventListener('click', () => {
+        vscode.postMessage({
+          command: 'viewNodeConfig',
+          name,
+          namespace: ns,
+        });
+      });
+      btnTd.appendChild(btn);
+      tr.appendChild(btnTd);
       columns.forEach((_, i) => {
         const td = document.createElement('td');
         const val = row[i] == null ? '' : String(row[i]);

@@ -421,22 +421,28 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Allow the user to filter all tree views
   context.subscriptions.push(
-    vscode.commands.registerCommand('vscode-eda.filterTree', async () => {
-      const filterText = await vscode.window.showInputBox({
-        prompt: 'Filter resources (supports regex)',
-        placeHolder: 'Enter filter pattern'
-      });
-      if (filterText !== undefined) {
-        const text = filterText.trim();
-        dashboardProvider.setTreeFilter(text);
-        namespaceProvider.setTreeFilter(text);
-        alarmProvider.setTreeFilter(text);
-        edaDeviationProvider.setTreeFilter(text);
-        edaTransactionBasketProvider.setTreeFilter(text);
-        edaTransactionProvider.setTreeFilter(text);
-        helpProvider.setTreeFilter(text);
+    vscode.commands.registerCommand(
+      'vscode-eda.filterTree',
+      async (prefill?: string) => {
+        let filterText = prefill;
+        if (filterText === undefined) {
+          filterText = await vscode.window.showInputBox({
+            prompt: 'Filter resources (supports regex)',
+            placeHolder: 'Enter filter pattern'
+          });
+        }
+        if (filterText !== undefined) {
+          const text = filterText.trim();
+          dashboardProvider.setTreeFilter(text);
+          namespaceProvider.setTreeFilter(text);
+          alarmProvider.setTreeFilter(text);
+          edaDeviationProvider.setTreeFilter(text);
+          edaTransactionBasketProvider.setTreeFilter(text);
+          edaTransactionProvider.setTreeFilter(text);
+          helpProvider.setTreeFilter(text);
+        }
       }
-    })
+    )
   );
 
   // Clear any active tree filter

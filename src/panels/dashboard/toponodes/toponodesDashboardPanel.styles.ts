@@ -31,6 +31,20 @@ export const toponodesDashboardStyles = `
     margin-bottom: 16px;
   }
 
+  .open-tree-btn {
+    margin-right: 8px;
+    padding: 4px 12px;
+    border: none;
+    background-color: var(--accent);
+    color: var(--vscode-button-foreground);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .open-tree-btn:hover {
+    background-color: var(--accent-hover);
+  }
+
   .select {
     background-color: var(--vscode-input-background);
     color: var(--vscode-input-foreground);

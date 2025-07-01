@@ -36,6 +36,17 @@ export class ToponodesDashboardPanel extends BasePanel {
         await this.loadInitial('All Namespaces');
       } else if (msg.command === 'setNamespace') {
         await this.loadInitial(msg.namespace as string);
+      } else if (msg.command === 'showInTree') {
+        await vscode.commands.executeCommand(
+          'vscode-eda.filterTree',
+          'toponodes'
+        );
+        await vscode.commands.executeCommand('vscode-eda.expandAllNamespaces');
+      } else if (msg.command === 'viewNodeConfig') {
+        await vscode.commands.executeCommand('vscode-eda.viewNodeConfig', {
+          name: msg.name,
+          namespace: msg.namespace,
+        });
       }
     });
 
