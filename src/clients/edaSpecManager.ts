@@ -126,7 +126,12 @@ export class EdaSpecManager {
         log('core API path not found in root spec', LogLevel.WARN);
         return;
       }
-      const coreUrl = `${baseUrl}${(coreEntry[1] as any).serverRelativeURL}`;
+      const relUrl = this.extractServerRelativeURL(coreEntry[1]);
+      if (!relUrl) {
+        log('core serverRelativeURL not found in root spec', LogLevel.WARN);
+        return;
+      }
+      const coreUrl = `${baseUrl}${relUrl}`;
       const coreSpec = await this.apiClient.fetchJsonUrl(coreUrl);
       this.collectOperationPaths(coreSpec);
       const nsPath = this.findPathByOperationId(coreSpec, 'accessGetNamespaces');
@@ -169,6 +174,23 @@ export class EdaSpecManager {
     const nameSeg = category === 'apps' ? parts[1] : category;
     const name = (nameSeg ?? 'core').split('.')[0];
     return { category, name };
+  }
+
+  /**
+   * Extract serverRelativeURL from an API root path entry.
+   * Supports both old and new spec formats.
+   */
+  private extractServerRelativeURL(info: any): string | undefined {
+    if (info && typeof info === 'object') {
+      if (typeof info.serverRelativeURL === 'string') {
+        return info.serverRelativeURL;
+      }
+      const ext = (info as any)['x-eda-nokia-com'];
+      if (ext && typeof ext.serverRelativeURL === 'string') {
+        return ext.serverRelativeURL;
+      }
+    }
+    return undefined;
   }
 
   private collectStreamEndpoints(spec: any): StreamEndpoint[] {
@@ -266,7 +288,12 @@ export class EdaSpecManager {
     const all: StreamEndpoint[] = [];
     const baseUrl = this.apiClient['authClient'].getBaseUrl();
     for (const [apiPath, info] of Object.entries<any>(apiRoot.paths ?? {})) {
-      const url = `${baseUrl}${info.serverRelativeURL}`;
+      const relUrl = this.extractServerRelativeURL(info);
+      if (!relUrl) {
+        log(`serverRelativeURL not found for ${apiPath}`, LogLevel.WARN);
+        continue;
+      }
+      const url = `${baseUrl}${relUrl}`;
       log(`Fetching spec ${apiPath} from ${url}`, LogLevel.DEBUG);
       const spec = await this.apiClient.fetchJsonUrl(url);
       const { category, name } = this.parseApiPath(apiPath);
