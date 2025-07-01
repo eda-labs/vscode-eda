@@ -11,7 +11,8 @@ export abstract class BasePanel {
     context: vscode.ExtensionContext,
     viewType: string,
     title: string,
-    options?: vscode.WebviewPanelOptions & vscode.WebviewOptions
+    options?: vscode.WebviewPanelOptions & vscode.WebviewOptions,
+    iconPath?: { light: vscode.Uri; dark: vscode.Uri }
   ) {
     this.context = context;
     this.panel = vscode.window.createWebviewPanel(
@@ -24,6 +25,10 @@ export abstract class BasePanel {
         ...options
       }
     );
+
+    if (iconPath) {
+      this.panel.iconPath = iconPath;
+    }
 
     if (!BasePanel.tailwind) {
       try {

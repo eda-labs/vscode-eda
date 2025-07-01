@@ -15,7 +15,10 @@ export class ToponodesDashboardPanel extends BasePanel {
   private selectedNamespace = 'All Namespaces';
 
   constructor(context: vscode.ExtensionContext, title: string) {
-    super(context, 'toponodesDashboard', title);
+    super(context, 'toponodesDashboard', title, undefined, {
+      light: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-black.svg'),
+      dark: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-white.svg')
+    });
 
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
 
