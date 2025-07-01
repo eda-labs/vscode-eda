@@ -104,11 +104,13 @@ export const targetWizardScripts = `
         setDefaultBtn.style.display = 'none';
       }
       
-      detailsContent.innerHTML = generateDetailsHTML(target);
-      
+      detailsContent.innerHTML = '';
+      const detailsEl = generateDetailsElement(target);
+      detailsContent.appendChild(detailsEl);
+
       // Add event listeners for edit and delete buttons
-      const editBtn = detailsContent.querySelector('.edit-btn');
-      const deleteBtn = detailsContent.querySelector('.delete-btn');
+      const editBtn = detailsEl.querySelector('.edit-btn');
+      const deleteBtn = detailsEl.querySelector('.delete-btn');
       
       if (editBtn) {
         editBtn.addEventListener('click', () => editTarget(currentIdx));
@@ -119,55 +121,55 @@ export const targetWizardScripts = `
       }
     }
 
-    function generateDetailsHTML(target) {
-      return \`
-        <div class="max-w-[500px] pl-4">
-          <div class="mb-5">
-            <div class="text-sm font-medium text-[var(--vscode-descriptionForeground)] mb-1">EDA API URL</div>
-            <div class="text-sm px-3 py-2 bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded break-all">\${target.url}</div>
-          </div>
+    function generateDetailsElement(target) {
+      const container = document.createElement('div');
+      container.className = 'max-w-[500px] pl-4';
 
-          <div class="mb-5">
-            <div class="text-sm font-medium text-[var(--vscode-descriptionForeground)] mb-1">Kubernetes Context</div>
-            <div class="text-sm px-3 py-2 bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded break-all\${!target.context ? ' text-[var(--vscode-descriptionForeground)] italic' : ''}">\${target.context || 'None'}</div>
-          </div>
+      function addRow(label, value, placeholder) {
+        const wrap = document.createElement('div');
+        wrap.className = 'mb-5';
 
-          <div class="mb-5">
-            <div class="text-sm font-medium text-[var(--vscode-descriptionForeground)] mb-1">EDA Core Namespace</div>
-            <div class="text-sm px-3 py-2 bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded break-all">\${target.coreNamespace || 'eda-system'}</div>
-          </div>
+        const lbl = document.createElement('div');
+        lbl.className = 'text-sm font-medium text-[var(--vscode-descriptionForeground)] mb-1';
+        lbl.textContent = label;
+        wrap.appendChild(lbl);
 
-          <div class="mb-5">
-            <div class="text-sm font-medium text-[var(--vscode-descriptionForeground)] mb-1">EDA Username</div>
-            <div class="text-sm px-3 py-2 bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded break-all">\${target.edaUsername || 'admin'}</div>
-          </div>
+        const val = document.createElement('div');
+        val.className = 'text-sm px-3 py-2 bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded break-all';
+        if (placeholder && !value) {
+          val.classList.add('text-[var(--vscode-descriptionForeground)]', 'italic');
+          val.textContent = placeholder;
+        } else {
+          val.textContent = value ?? '';
+        }
+        wrap.appendChild(val);
+        container.appendChild(wrap);
+      }
 
-          <div class="mb-5">
-            <div class="text-sm font-medium text-[var(--vscode-descriptionForeground)] mb-1">EDA Password</div>
-            <div class="text-sm px-3 py-2 bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded break-all\${!target.edaPassword ? ' text-[var(--vscode-descriptionForeground)] italic' : ''}">\${target.edaPassword ? '••••••••' : 'Not configured'}</div>
-          </div>
+      addRow('EDA API URL', target.url);
+      addRow('Kubernetes Context', target.context, 'None');
+      addRow('EDA Core Namespace', target.coreNamespace || 'eda-system');
+      addRow('EDA Username', target.edaUsername || 'admin');
+      addRow('EDA Password', target.edaPassword ? '••••••••' : '', 'Not configured');
+      addRow('Keycloak Admin Username', target.kcUsername || 'admin');
+      addRow('Keycloak Admin Password', target.kcPassword ? '••••••••' : '', 'Not configured');
+      addRow('Skip TLS Verification', target.skipTlsVerify ? 'Yes' : 'No');
 
-          <div class="mb-5">
-            <div class="text-sm font-medium text-[var(--vscode-descriptionForeground)] mb-1">Keycloak Admin Username</div>
-            <div class="text-sm px-3 py-2 bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded break-all">\${target.kcUsername || 'admin'}</div>
-          </div>
+      const actions = document.createElement('div');
+      actions.className = 'flex gap-3 pt-4 mt-6 border-t border-[var(--vscode-panel-border)]';
 
-          <div class="mb-5">
-            <div class="text-sm font-medium text-[var(--vscode-descriptionForeground)] mb-1">Keycloak Admin Password</div>
-            <div class="text-sm px-3 py-2 bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded break-all\${!target.kcPassword ? ' text-[var(--vscode-descriptionForeground)] italic' : ''}">\${target.kcPassword ? '••••••••' : 'Not configured'}</div>
-          </div>
+      const edit = document.createElement('button');
+      edit.className = 'px-4 py-2 rounded font-medium text-sm cursor-pointer transition-colors bg-[var(--vscode-button-secondaryBackground)] text-[var(--vscode-button-secondaryForeground)] border border-[var(--vscode-button-border)] hover:bg-[var(--vscode-button-secondaryHoverBackground)] edit-btn';
+      edit.textContent = 'Edit';
+      actions.appendChild(edit);
 
-          <div class="mb-5">
-            <div class="text-sm font-medium text-[var(--vscode-descriptionForeground)] mb-1">Skip TLS Verification</div>
-            <div class="text-sm px-3 py-2 bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded break-all">\${target.skipTlsVerify ? 'Yes' : 'No'}</div>
-          </div>
+      const del = document.createElement('button');
+      del.className = 'px-4 py-2 rounded font-medium text-sm cursor-pointer transition-colors bg-[var(--vscode-errorForeground)] text-[var(--vscode-editor-background)] border-none hover:opacity-90 delete-btn';
+      del.textContent = 'Delete';
+      actions.appendChild(del);
 
-          <div class="flex gap-3 pt-4 mt-6 border-t border-[var(--vscode-panel-border)]">
-            <button class="px-4 py-2 rounded font-medium text-sm cursor-pointer transition-colors bg-[var(--vscode-button-secondaryBackground)] text-[var(--vscode-button-secondaryForeground)] border border-[var(--vscode-button-border)] hover:bg-[var(--vscode-button-secondaryHoverBackground)] edit-btn">Edit</button>
-            <button class="px-4 py-2 rounded font-medium text-sm cursor-pointer transition-colors bg-[var(--vscode-errorForeground)] text-[var(--vscode-editor-background)] border-none hover:opacity-90 delete-btn">Delete</button>
-          </div>
-        </div>
-      \`;
+      container.appendChild(actions);
+      return container;
     }
 
     function showEmptyDetails() {
@@ -181,7 +183,14 @@ export const targetWizardScripts = `
       formContainer.style.display = 'none';
       setDefaultBtn.style.display = 'none';
       
-      detailsContent.innerHTML = '<div class="empty-details"><p class="text-gray-500">Select a target to view details, or add a new target to get started.</p></div>';
+      detailsContent.innerHTML = '';
+      const empty = document.createElement('div');
+      empty.className = 'empty-details';
+      const p = document.createElement('p');
+      p.className = 'text-gray-500';
+      p.textContent = 'Select a target to view details, or add a new target to get started.';
+      empty.appendChild(p);
+      detailsContent.appendChild(empty);
     }
 
     function editTarget(idx) {
