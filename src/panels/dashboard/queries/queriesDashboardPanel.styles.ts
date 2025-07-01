@@ -134,12 +134,13 @@ export const queriesDashboardStyles = `
     display: flex;
     align-items: center;
     gap: 4px;
+    padding-right: 0;
   }
 
   .format-toggle {
     display: flex;
     align-items: center;
-    padding: 0 4px;
+    padding: 0 12px 0 4px;
     margin-left: 4px;
     border-left: 1px solid var(--border);
     cursor: pointer;
