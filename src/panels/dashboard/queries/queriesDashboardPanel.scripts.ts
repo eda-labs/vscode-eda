@@ -54,15 +54,19 @@ export const queriesDashboardScripts = `
           autocompleteList.children.length;
       }
       highlightAutocomplete();
-    } else if (e.key === 'Enter' && autocompleteIndex >= 0) {
+    } else if (e.key === 'Enter') {
       e.preventDefault();
-      const item = autocompleteList.children[autocompleteIndex];
-      if (item) {
-        queryInput.value = item.textContent || '';
+      if (autocompleteIndex >= 0 && !e.metaKey && !e.ctrlKey) {
+        const item = autocompleteList.children[autocompleteIndex];
+        if (item) {
+          queryInput.value = item.textContent || '';
+        }
+        autocompleteList.innerHTML = '';
+        autocompleteList.style.display = 'none';
+        autocompleteIndex = -1;
+      } else {
+        runButton.click();
       }
-      autocompleteList.innerHTML = '';
-      autocompleteList.style.display = 'none';
-      autocompleteIndex = -1;
     }
   });
 
