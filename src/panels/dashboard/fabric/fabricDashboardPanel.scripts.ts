@@ -105,24 +105,55 @@ export const fabricDashboardScripts = `
 
       const trafficChart = echarts.init(document.getElementById('traffic-chart'), chartTheme);
 
-      const trafficTimes = [];
-      const inboundData = [];
-      const outboundData = [];
-      const MAX_POINTS = 20;
+      const trafficPoints = [];
+      let trafficUnit = 'bit/s';
+      let trafficDiv = 1;
+
+      const formatTooltip = (params) => {
+        const [incoming, outgoing] = params;
+        return (
+          incoming.axisValue +
+          '<br/>Inbound: ' +
+          incoming.data +
+          ' ' +
+          trafficUnit +
+          '<br/>Outbound: ' +
+          outgoing.data +
+          ' ' +
+          trafficUnit
+        );
+      };
 
       updateTrafficChart = function(inVal, outVal) {
-        const now = new Date();
-        const label = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        if (trafficTimes.length >= MAX_POINTS) {
-          trafficTimes.shift();
-          inboundData.shift();
-          outboundData.shift();
+        const now = Date.now();
+        trafficPoints.push({ time: now, inbound: inVal, outbound: outVal });
+        const cutoff = now - 60000;
+        while (trafficPoints.length && trafficPoints[0].time < cutoff) {
+          trafficPoints.shift();
         }
-        trafficTimes.push(label);
-        inboundData.push(inVal);
-        outboundData.push(outVal);
+
+        const maxVal = trafficPoints.reduce((m, p) => Math.max(m, p.inbound, p.outbound), 0);
+        if (maxVal >= 1e9) {
+          trafficUnit = 'Gbit/s';
+          trafficDiv = 1e9;
+        } else if (maxVal >= 1e6) {
+          trafficUnit = 'Mbit/s';
+          trafficDiv = 1e6;
+        } else if (maxVal >= 1e3) {
+          trafficUnit = 'Kbit/s';
+          trafficDiv = 1e3;
+        } else {
+          trafficUnit = 'bit/s';
+          trafficDiv = 1;
+        }
+
+        const trafficTimes = trafficPoints.map(p => new Date(p.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+        const inboundData = trafficPoints.map(p => +(p.inbound / trafficDiv).toFixed(2));
+        const outboundData = trafficPoints.map(p => +(p.outbound / trafficDiv).toFixed(2));
+
         trafficChart.setOption({
           xAxis: { data: trafficTimes },
+          yAxis: { name: 'Traffic (' + trafficUnit + ')' },
           series: [
             { data: inboundData },
             { data: outboundData }
@@ -131,11 +162,12 @@ export const fabricDashboardScripts = `
       };
 
       clearTrafficChart = function() {
-        trafficTimes.length = 0;
-        inboundData.length = 0;
-        outboundData.length = 0;
+        trafficPoints.length = 0;
+        trafficUnit = 'bit/s';
+        trafficDiv = 1;
         trafficChart.setOption({
           xAxis: { data: [] },
+          yAxis: { name: 'Traffic (bit/s)' },
           series: [
             { data: [] },
             { data: [] }
@@ -145,7 +177,8 @@ export const fabricDashboardScripts = `
 
       trafficChart.setOption({
         tooltip: {
-          trigger: 'axis'
+          trigger: 'axis',
+          formatter: formatTooltip
         },
         legend: {
           data: ['Inbound', 'Outbound'],
@@ -162,14 +195,14 @@ export const fabricDashboardScripts = `
         xAxis: {
           type: 'category',
           boundaryGap: false,
-          data: trafficTimes,
+          data: [],
           axisLabel: {
             color: chartTheme.textStyle.color
           }
         },
         yAxis: {
           type: 'value',
-          name: 'Traffic (bps)',
+          name: 'Traffic (bit/s)',
           axisLabel: {
             color: chartTheme.textStyle.color
           }
@@ -179,7 +212,7 @@ export const fabricDashboardScripts = `
             name: 'Inbound',
             type: 'line',
             smooth: true,
-            data: inboundData,
+            data: [],
             areaStyle: {
               opacity: 0.3
             },
@@ -191,7 +224,7 @@ export const fabricDashboardScripts = `
             name: 'Outbound',
             type: 'line',
             smooth: true,
-            data: outboundData,
+            data: [],
             areaStyle: {
               opacity: 0.3
             },
