@@ -152,19 +152,6 @@ export const queriesDashboardStyles = `
     user-select: none;
   }
 
-  .header-menu {
-    display: none;
-    position: absolute;
-    right: 4px;
-    top: 50%;
-    transform: translateY(-50%);
-    cursor: pointer;
-  }
-
-  th:hover .header-menu {
-    display: inline;
-  }
-
   .status-bar {
     padding: 4px 0;
     border-top: 1px solid var(--border);

@@ -12,6 +12,8 @@ export const queriesDashboardScripts = `
   let allRows = [];
   let columns = [];
   let autocompleteIndex = -1;
+  let sortIndex = -1;
+  let sortAsc = true;
 
   runButton.addEventListener('click', () => {
     statusEl.textContent = 'Running...';
@@ -100,10 +102,18 @@ export const queriesDashboardScripts = `
       statusEl.textContent = 'Running...';
       autocompleteList.style.display = 'none';
     } else if (msg.command === 'results') {
+      const colsChanged = !arraysEqual(columns, msg.columns);
       columns = msg.columns;
       allRows = msg.rows;
-      renderTable(allRows);
-      statusEl.textContent = msg.status || '';
+      if (colsChanged) {
+        sortIndex = -1;
+        sortAsc = true;
+        renderTable(allRows);
+        statusEl.textContent = msg.status || '';
+      } else {
+        if (sortIndex >= 0) sortRows();
+        applyFilters();
+      }
       autocompleteList.style.display = 'none';
     } else if (msg.command === 'error') {
       statusEl.textContent = msg.error;
@@ -140,20 +150,15 @@ export const queriesDashboardScripts = `
     headerRow.innerHTML = '';
     resultsBody.innerHTML = '';
     filterRow.innerHTML = '';
+    sortIndex = -1;
+    sortAsc = true;
     if (!columns.length) return;
 
     columns.forEach((col, idx) => {
       const th = document.createElement('th');
       th.textContent = col;
       th.addEventListener('click', () => sortTable(idx));
-      const menu = document.createElement('span');
-      menu.textContent = '⋮';
-      menu.className = 'header-menu';
-      menu.addEventListener('click', e => {
-        e.stopPropagation();
-        toggleColumn(idx);
-      });
-      th.appendChild(menu);
+      // Previously a header menu allowed hiding columns. Removed per request.
       headerRow.appendChild(th);
 
       const filterInput = document.createElement('input');
@@ -196,30 +201,44 @@ export const queriesDashboardScripts = `
   }
 
   function sortTable(idx) {
-    const th = headerRow.children[idx];
-    const asc = !th.classList.contains('asc');
-    Array.from(headerRow.children).forEach(el => el.classList.remove('asc', 'desc'));
-    th.classList.add(asc ? 'asc' : 'desc');
-    allRows.sort((a, b) => {
-      const av = a[idx] ?? '';
-      const bv = b[idx] ?? '';
-      if (av < bv) return asc ? -1 : 1;
-      if (av > bv) return asc ? 1 : -1;
-      return 0;
-    });
+    if (sortIndex === idx) {
+      sortAsc = !sortAsc;
+    } else {
+      sortIndex = idx;
+      sortAsc = true;
+    }
+    sortRows();
+    updateSortClasses();
     applyFilters();
   }
 
-  function toggleColumn(idx) {
-    const hide = !headerRow.children[idx].classList.contains('hidden');
-    const disp = hide ? 'none' : '';
-    headerRow.children[idx].style.display = disp;
-    filterRow.children[idx].style.display = disp;
-    Array.from(resultsBody.children).forEach(row => {
-      row.children[idx].style.display = disp;
+  function sortRows() {
+    if (sortIndex < 0) return;
+    allRows.sort((a, b) => {
+      const av = a[sortIndex] ?? '';
+      const bv = b[sortIndex] ?? '';
+      if (av < bv) return sortAsc ? -1 : 1;
+      if (av > bv) return sortAsc ? 1 : -1;
+      return 0;
     });
-    if (hide) headerRow.children[idx].classList.add('hidden');
-    else headerRow.children[idx].classList.remove('hidden');
+  }
+
+  function updateSortClasses() {
+    Array.from(headerRow.children).forEach((el, i) => {
+      el.classList.remove('asc', 'desc');
+      if (i === sortIndex) {
+        el.classList.add(sortAsc ? 'asc' : 'desc');
+      }
+    });
+  }
+
+  function arraysEqual(a, b) {
+    if (!Array.isArray(a) || !Array.isArray(b)) return false;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) return false;
+    }
+    return true;
   }
 
   function highlightAutocomplete() {
