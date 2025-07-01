@@ -43,7 +43,7 @@ export const fabricDashboardHtml = `
 
       <div class="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-6 transition-all hover:border-[var(--accent)] hover:shadow-md flex-1">
         <div class="text-lg font-semibold mb-4 flex items-center justify-between">
-          <span>Traffic Flow</span>
+          <span>Traffic Rate</span>
         </div>
         <div id="traffic-chart" class="h-[300px]"></div>
       </div>
