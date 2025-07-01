@@ -149,6 +149,11 @@
       {
         "command": "vscode-eda.filterTree",
         "title": "EDA: Filter Tree",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "vscode-eda.filterTreeActive",
+        "title": "EDA: Filter Tree",
         "icon": "$(filter-filled)"
       },
       {
@@ -279,12 +284,17 @@
       "view/title": [
         {
           "command": "vscode-eda.filterTree",
-          "when": "view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions",
+          "when": "(view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions) && !edaTreeFilterActive",
+          "group": "navigation@1"
+        },
+        {
+          "command": "vscode-eda.filterTreeActive",
+          "when": "(view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions) && edaTreeFilterActive",
           "group": "navigation@1"
         },
         {
           "command": "vscode-eda.clearFilter",
-          "when": "view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions || view == edaSystem",
+          "when": "(view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions || view == edaSystem) && edaTreeFilterActive",
           "group": "navigation@2"
         },
         {

@@ -159,6 +159,9 @@ export async function activate(context: vscode.ExtensionContext) {
   console.log('Activating EDA extension');
   edaOutputChannel = vscode.window.createOutputChannel('EDA');
 
+  // Initialize filter context
+  await vscode.commands.executeCommand('setContext', 'edaTreeFilterActive', false);
+
   const config = vscode.workspace.getConfiguration('vscode-eda');
   currentLogLevel = parseLogLevel(config.get('logLevel'));
 
@@ -420,29 +423,32 @@ export async function activate(context: vscode.ExtensionContext) {
 
 
   // Allow the user to filter all tree views
+  const filterTreeCommand = async (prefill?: string) => {
+    let filterText = prefill;
+    if (filterText === undefined) {
+      filterText = await vscode.window.showInputBox({
+        prompt: 'Filter resources (supports regex)',
+        placeHolder: 'Enter filter pattern'
+      });
+    }
+    if (filterText !== undefined) {
+      const text = filterText.trim();
+      dashboardProvider.setTreeFilter(text);
+      namespaceProvider.setTreeFilter(text);
+      alarmProvider.setTreeFilter(text);
+      edaDeviationProvider.setTreeFilter(text);
+      edaTransactionBasketProvider.setTreeFilter(text);
+      edaTransactionProvider.setTreeFilter(text);
+      helpProvider.setTreeFilter(text);
+      await vscode.commands.executeCommand('setContext', 'edaTreeFilterActive', text.length > 0);
+    }
+  };
+
   context.subscriptions.push(
-    vscode.commands.registerCommand(
-      'vscode-eda.filterTree',
-      async (prefill?: string) => {
-        let filterText = prefill;
-        if (filterText === undefined) {
-          filterText = await vscode.window.showInputBox({
-            prompt: 'Filter resources (supports regex)',
-            placeHolder: 'Enter filter pattern'
-          });
-        }
-        if (filterText !== undefined) {
-          const text = filterText.trim();
-          dashboardProvider.setTreeFilter(text);
-          namespaceProvider.setTreeFilter(text);
-          alarmProvider.setTreeFilter(text);
-          edaDeviationProvider.setTreeFilter(text);
-          edaTransactionBasketProvider.setTreeFilter(text);
-          edaTransactionProvider.setTreeFilter(text);
-          helpProvider.setTreeFilter(text);
-        }
-      }
-    )
+    vscode.commands.registerCommand('vscode-eda.filterTree', filterTreeCommand)
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand('vscode-eda.filterTreeActive', filterTreeCommand)
   );
 
   // Clear any active tree filter
@@ -455,6 +461,7 @@ export async function activate(context: vscode.ExtensionContext) {
       edaTransactionBasketProvider.clearTreeFilter();
       edaTransactionProvider.clearTreeFilter();
       helpProvider.clearTreeFilter();
+      void vscode.commands.executeCommand('setContext', 'edaTreeFilterActive', false);
     })
   );
 
