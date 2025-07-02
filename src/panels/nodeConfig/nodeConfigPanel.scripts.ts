@@ -488,20 +488,26 @@ export const nodeConfigScripts = `
     
     function setupEventListeners() {
       configView.addEventListener('mouseover', e => {
-        if (e.target.classList.contains('line-annotation')) {
-          const annotationName = e.target.dataset.annotation;
-          if (annotationName) {
-            highlightLines(annotationName, true);
-          }
+        const targetLine = e.target.closest('.line');
+        const relatedLine = e.relatedTarget && e.relatedTarget.closest
+          ? e.relatedTarget.closest('.line')
+          : null;
+        const currentAnn = targetLine && targetLine.dataset.annotation;
+        const relatedAnn = relatedLine && relatedLine.dataset.annotation;
+        if (currentAnn && currentAnn !== relatedAnn) {
+          highlightLines(currentAnn, true);
         }
       });
-      
+
       configView.addEventListener('mouseout', e => {
-        if (e.target.classList.contains('line-annotation')) {
-          const annotationName = e.target.dataset.annotation;
-          if (annotationName) {
-            highlightLines(annotationName, false);
-          }
+        const targetLine = e.target.closest('.line');
+        const relatedLine = e.relatedTarget && e.relatedTarget.closest
+          ? e.relatedTarget.closest('.line')
+          : null;
+        const currentAnn = targetLine && targetLine.dataset.annotation;
+        const relatedAnn = relatedLine && relatedLine.dataset.annotation;
+        if (currentAnn && currentAnn !== relatedAnn) {
+          highlightLines(currentAnn, false);
         }
       });
     }
