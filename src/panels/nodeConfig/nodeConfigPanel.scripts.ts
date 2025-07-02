@@ -31,7 +31,7 @@ export const nodeConfigScripts = `
     
     toggleBtn.addEventListener('click', () => {
       isAnnotationsVisible = !isAnnotationsVisible;
-      
+
       if (isAnnotationsVisible) {
         configView.classList.remove('annotations-hidden');
         configView.classList.add('annotations-visible');
@@ -40,6 +40,11 @@ export const nodeConfigScripts = `
         configView.classList.remove('annotations-visible');
         configView.classList.add('annotations-hidden');
         toggleBtn.innerHTML = '<span class="button-icon">⊞</span><span>Show Annotations</span>';
+
+        // Remove any highlight when annotations are hidden
+        configView.querySelectorAll('.line-highlight').forEach(el => {
+          el.classList.remove('line-highlight');
+        });
       }
     });
     
@@ -513,6 +518,10 @@ export const nodeConfigScripts = `
     }
     
     function highlightLines(annotationNamesStr, shouldHighlight) {
+      if (!isAnnotationsVisible) {
+        return;
+      }
+
       const names = annotationNamesStr.split("|");
       for (const name of names) {
         const lineNumbers = annotationLineMap.get(name);
