@@ -276,8 +276,21 @@ export class EdaApiClient {
     if (!this.specManager) {
       throw new Error('Spec manager not initialized');
     }
-    const template = await this.specManager.getPathByOperationId('transGetAllDetails');
-    const path = template.replace('{transactionId}', String(transactionId));
+    const summaryTemplate = await this.specManager.getPathByOperationId(
+      'transGetSummaryResult'
+    );
+    const summaryPath = summaryTemplate.replace(
+      '{transactionId}',
+      String(transactionId)
+    );
+
+    const execTemplate = await this.specManager.getPathByOperationId(
+      'transGetResultExecution'
+    );
+    const execPath = execTemplate.replace(
+      '{transactionId}',
+      String(transactionId)
+    );
     const params: string[] = [];
     if (waitForComplete) {
       params.push('waitForComplete=true');
@@ -285,8 +298,20 @@ export class EdaApiClient {
     if (failOnErrors) {
       params.push('failOnErrors=true');
     }
-    const url = params.length > 0 ? `${path}?${params.join('&')}` : path;
-    return this.fetchJSON<any>(url);
+    const execUrl = params.length > 0 ? `${execPath}?${params.join('&')}` : execPath;
+
+    const inputTemplate = await this.specManager.getPathByOperationId(
+      'transGetResultInputResources'
+    );
+    const inputPath = inputTemplate.replace('{transactionId}', String(transactionId));
+
+    const [summary, execution, inputResources] = await Promise.all([
+      this.fetchJSON<any>(summaryPath),
+      this.fetchJSON<any>(execUrl),
+      this.fetchJSON<any>(inputPath)
+    ]);
+
+    return { ...summary, ...execution, ...inputResources };
   }
 
   /**

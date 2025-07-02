@@ -65,4 +65,28 @@ describe('EdaApiClient token refresh', () => {
     expect(result).to.deep.equal(['foo']);
     expect(fetchStub.calledOnce).to.be.true;
   });
+
+  it('fetches transaction details using v2 endpoints', async () => {
+    const specManager = {
+      getPathByOperationId: sinon.stub()
+    } as any;
+    specManager.getPathByOperationId.withArgs('transGetSummaryResult').resolves('/core/transaction/v2/result/summary/{transactionId}');
+    specManager.getPathByOperationId.withArgs('transGetResultExecution').resolves('/core/transaction/v2/result/execution/{transactionId}');
+    specManager.getPathByOperationId.withArgs('transGetResultInputResources').resolves('/core/transaction/v2/result/inputresources/{transactionId}');
+
+    fetchStub
+      .onCall(0)
+      .returns(mockResponse(200, { id: 1, state: 'complete' }))
+      .onCall(1)
+      .returns(mockResponse(200, { changedCrs: [] }))
+      .onCall(2)
+      .returns(mockResponse(200, { inputCrs: [] }));
+
+    const client = new EdaApiClient(authClient);
+    client.setSpecManager(specManager);
+    const result = await client.getTransactionDetails(1);
+
+    expect(fetchStub.callCount).to.equal(3);
+    expect(result).to.deep.equal({ id: 1, state: 'complete', changedCrs: [], inputCrs: [] });
+  });
 });
