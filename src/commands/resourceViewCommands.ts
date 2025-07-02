@@ -157,17 +157,29 @@ export function registerResourceViewCommands(
           }
         }
         else {
-          // 3) For standard K8s resources, just use kubectl
-          log(`Using kubectl get -o yaml for ${resourceKind}/${resourceName}...`, LogLevel.DEBUG);
-          try {
-            finalYaml = runKubectl(
-              'kubectl',
-              ['get', resourceKind.toLowerCase(), resourceName, '-o', 'yaml'],
-              { namespace: resourceNamespace }
-            );
-          } catch (error) {
-            log(`Error fetching resource with kubectl: ${error}`, LogLevel.ERROR);
-            finalYaml = `# Error fetching ${resourceKind}/${resourceName}:\n# ${error}`;
+          const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
+
+          if (resourceKind.toLowerCase() === 'artifact' && k8sClient) {
+            log(`Fetching artifact ${resourceName} via Kubernetes API`, LogLevel.DEBUG);
+            try {
+              finalYaml = await k8sClient.getArtifactYaml(resourceName, resourceNamespace);
+            } catch (error) {
+              log(`Error fetching artifact via K8s API: ${error}`, LogLevel.ERROR);
+              finalYaml = `# Error fetching ${resourceKind}/${resourceName}: ${error}`;
+            }
+          } else {
+            // 3) For standard K8s resources, just use kubectl
+            log(`Using kubectl get -o yaml for ${resourceKind}/${resourceName}...`, LogLevel.DEBUG);
+            try {
+              finalYaml = runKubectl(
+                'kubectl',
+                ['get', resourceKind.toLowerCase(), resourceName, '-o', 'yaml'],
+                { namespace: resourceNamespace }
+              );
+            } catch (error) {
+              log(`Error fetching resource with kubectl: ${error}`, LogLevel.ERROR);
+              finalYaml = `# Error fetching ${resourceKind}/${resourceName}:\n# ${error}`;
+            }
           }
         }
 

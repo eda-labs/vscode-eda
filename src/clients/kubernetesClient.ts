@@ -53,6 +53,7 @@ export class KubernetesClient {
   private servicesCache: Map<string, any[]> = new Map();
   private configmapsCache: Map<string, any[]> = new Map();
   private secretsCache: Map<string, any[]> = new Map();
+  private artifactsCache: Map<string, any[]> = new Map();
 
 
   // Active resource watchers
@@ -79,11 +80,15 @@ export class KubernetesClient {
     { name: 'serviceaccounts', group: '', version: 'v1', plural: 'serviceaccounts', namespaced: true },
     { name: 'services', group: '', version: 'v1', plural: 'services', namespaced: true },
 
+    // artifacts.eda.nokia.com/v1
+    { name: 'artifacts', group: 'artifacts.eda.nokia.com', version: 'v1', plural: 'artifacts', namespaced: true },
+
     // apps/v1
     { name: 'deployments', group: 'apps', version: 'v1', plural: 'deployments', namespaced: true },
     { name: 'replicasets', group: 'apps', version: 'v1', plural: 'replicasets', namespaced: true },
     { name: 'statefulsets', group: 'apps', version: 'v1', plural: 'statefulsets', namespaced: true },
     { name: 'daemonsets', group: 'apps', version: 'v1', plural: 'daemonsets', namespaced: true },
+
 
     // batch/v1
     { name: 'jobs', group: 'batch', version: 'v1', plural: 'jobs', namespaced: true },
@@ -433,6 +438,34 @@ export class KubernetesClient {
 
   public getCachedSecrets(ns: string): any[] {
     return this.secretsCache.get(ns) || [];
+  }
+
+  public getCachedArtifacts(ns: string): any[] {
+    return this.artifactsCache.get(ns) || [];
+  }
+
+
+  public async getCustomResourceYaml(
+    group: string,
+    version: string,
+    plural: string,
+    name: string,
+    namespace: string
+  ): Promise<string> {
+    const data = await this.fetchJSON(
+      `/apis/${group}/${version}/namespaces/${namespace}/${plural}/${name}`
+    );
+    return JSON.stringify(data, null, 2);
+  }
+
+  public async getArtifactYaml(name: string, namespace: string): Promise<string> {
+    return this.getCustomResourceYaml(
+      'artifacts.eda.nokia.com',
+      'v1',
+      'artifacts',
+      name,
+      namespace
+    );
   }
 
   public getCachedResource(type: string, ns?: string): any[] {
