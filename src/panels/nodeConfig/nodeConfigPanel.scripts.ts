@@ -112,6 +112,28 @@ export const nodeConfigScripts = `
           fragment.appendChild(divider);
         }
 
+        const annInfos = annotationNames.map(name => ({
+          name,
+          info: annotationInfoMap.get(name),
+          separateLine: false,
+        }));
+
+        let leftoverLines = groupLength - annotationNames.length;
+        for (const item of annInfos) {
+          if (
+            item.info &&
+            item.info.group &&
+            item.info.version &&
+            item.info.kind &&
+            leftoverLines > 0
+          ) {
+            item.separateLine = true;
+            leftoverLines--;
+          }
+        }
+
+        const pendingInfos = [];
+
         for (let i = 0; i < groupLength; i++) {
           const currentIndex = index + i;
           const currentLine = lines[currentIndex];
@@ -130,14 +152,45 @@ export const nodeConfigScripts = `
 
           const annotationEl = document.createElement('div');
           annotationEl.className = 'line-annotation';
-          if (i < annotationNames.length) {
-            annotationEl.textContent = annotationNames[i];
-            const info = annotationInfoMap.get(annotationNames[i]);
+
+          if (i < annInfos.length) {
+            const item = annInfos[i];
+            const info = item.info;
             if (info && info.group && info.version && info.kind) {
-              annotationEl.title = \`\${info.group}/\${info.version}/\${info.kind}\`;
+              if (item.separateLine) {
+                annotationEl.textContent = item.name;
+                annotationEl.title =
+                  info.group + '/' + info.version + '/' + info.kind;
+                pendingInfos.push(info);
+              } else {
+                annotationEl.innerHTML =
+                  item.name +
+                  '<br><span class="annotation-info">' +
+                  info.group +
+                  '/' +
+                  info.version +
+                  ' ' +
+                  info.kind +
+                  '</span>';
+                annotationEl.title =
+                  info.group + '/' + info.version + '/' + info.kind;
+              }
             } else {
-              annotationEl.title = annotationNames[i];
+              annotationEl.textContent = item.name;
+              annotationEl.title = item.name;
             }
+          } else if (pendingInfos.length > 0) {
+            const info = pendingInfos.shift();
+            annotationEl.innerHTML =
+              '<span class="annotation-info">' +
+              info.group +
+              '/' +
+              info.version +
+              ' ' +
+              info.kind +
+              '</span>';
+            annotationEl.title =
+              info.group + '/' + info.version + '/' + info.kind;
           } else {
             annotationEl.textContent = '';
           }
@@ -169,12 +222,23 @@ export const nodeConfigScripts = `
 
             const extraAnnEl = document.createElement('div');
             extraAnnEl.className = 'line-annotation';
-            extraAnnEl.textContent = annotationNames[i];
-            const info = annotationInfoMap.get(annotationNames[i]);
+            const extraName = annotationNames[i];
+            const info = annotationInfoMap.get(extraName);
             if (info && info.group && info.version && info.kind) {
-              extraAnnEl.title = \`\${info.group}/\${info.version}/\${info.kind}\`;
+              extraAnnEl.innerHTML =
+                extraName +
+                '<br><span class="annotation-info">' +
+                info.group +
+                '/' +
+                info.version +
+                ' ' +
+                info.kind +
+                '</span>';
+              extraAnnEl.title =
+                info.group + '/' + info.version + '/' + info.kind;
             } else {
-              extraAnnEl.title = annotationNames[i];
+              extraAnnEl.textContent = extraName;
+              extraAnnEl.title = extraName;
             }
             extraAnnEl.dataset.annotation = annotationKey;
 

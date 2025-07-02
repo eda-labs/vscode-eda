@@ -103,6 +103,11 @@ export const nodeConfigStyles = `
       transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
       white-space: pre;
     }
+
+    .annotation-info {
+      font-size: 0.8em;
+      color: var(--vscode-editor-foreground);
+    }
     
     .annotations-hidden .line-annotation {
       display: none;
