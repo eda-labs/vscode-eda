@@ -230,9 +230,19 @@ export class EdaClient {
     return this.apiClient.getNodeConfig(namespace, node);
   }
 
+  public async getTopoNode(namespace: string, name: string): Promise<any> {
+    await this.initPromise;
+    return this.apiClient.getTopoNode(namespace, name);
+  }
+
   public async listTopoNodes(namespace: string): Promise<any[]> {
     await this.initPromise;
     return this.apiClient.listTopoNodes(namespace);
+  }
+
+  public async listNodeUsers(namespace: string): Promise<any[]> {
+    await this.initPromise;
+    return this.apiClient.listNodeUsers(namespace);
   }
 
   public async listInterfaces(namespace: string): Promise<any[]> {

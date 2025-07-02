@@ -366,6 +366,37 @@ export class EdaApiClient {
   }
 
   /**
+   * Get a specific TopoNode in a namespace
+   */
+  public async getTopoNode(namespace: string, name: string): Promise<any> {
+    if (!this.specManager) {
+      throw new Error('Spec manager not initialized');
+    }
+    const template = await this.specManager.getPathByOperationId(
+      'readCoreEdaNokiaComV1NamespaceToponodes'
+    );
+    const path = template
+      .replace('{namespace}', namespace)
+      .replace('{name}', name);
+    return this.fetchJSON<any>(path);
+  }
+
+  /**
+   * List NodeUsers in a namespace
+   */
+  public async listNodeUsers(namespace: string): Promise<any[]> {
+    if (!this.specManager) {
+      throw new Error('Spec manager not initialized');
+    }
+    const template = await this.specManager.getPathByOperationId(
+      'listCoreEdaNokiaComV1NamespaceNodeusers'
+    );
+    const path = template.replace('{namespace}', namespace);
+    const data = await this.fetchJSON<any>(path);
+    return Array.isArray(data?.items) ? data.items : [];
+  }
+
+  /**
    * List Interfaces in a namespace
    */
   public async listInterfaces(namespace: string): Promise<any[]> {
