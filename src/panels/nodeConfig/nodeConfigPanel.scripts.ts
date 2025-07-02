@@ -91,8 +91,9 @@ export const nodeConfigScripts = `
 
       lines.forEach((line, index) => {
         const lineNum = index + 1;
-        const annotationName = annotationMap[index] || '';
-        const showLabel = annotationName && annotationName !== previousAnnotation;
+        const annotationNames = annotationMap[index] || [];
+        const annotationKey = annotationNames.join('|');
+        const showLabel = annotationKey && annotationKey !== previousAnnotation;
 
         // Add section divider when annotation changes
         if (showLabel && lastAnnotation) {
@@ -102,9 +103,9 @@ export const nodeConfigScripts = `
           fragment.appendChild(divider);
         }
 
-        previousAnnotation = annotationName;
-        if (annotationName) {
-          lastAnnotation = annotationName;
+        previousAnnotation = annotationKey;
+        if (annotationKey) {
+          lastAnnotation = annotationKey;
         }
         
         // Update context tracking
@@ -114,22 +115,26 @@ export const nodeConfigScripts = `
         lineEl.className = 'line';
         lineEl.dataset.line = lineNum;
         
-        if (annotationName) {
-          lineEl.dataset.annotation = annotationName;
+        if (annotationKey) {
+          lineEl.dataset.annotation = annotationKey;
         }
         
         const annotationEl = document.createElement('div');
         annotationEl.className = 'line-annotation';
         if (showLabel) {
-          const info = annotationInfoMap.get(annotationName);
-          annotationEl.textContent = annotationName;
-          if (info) {
-            annotationEl.title = \`\${info.name}\\n\${info.group}\\n\${info.version}\\n\${info.kind}\`;
-          }
+          annotationEl.textContent = annotationNames.join(String.fromCharCode(10));
+          const titles = annotationNames.map(name => {
+            const info = annotationInfoMap.get(name);
+            if (info && info.group && info.version && info.kind) {
+              return \`\${info.group}/\${info.version}/\${info.kind}\`;
+            }
+            return name;
+          });
+          annotationEl.title = titles.join(String.fromCharCode(10));
         } else {
           annotationEl.textContent = '';
         }
-        annotationEl.dataset.annotation = annotationName;
+        annotationEl.dataset.annotation = annotationKey;
         
         const numEl = document.createElement('div');
         numEl.className = 'line-num';
@@ -319,9 +324,7 @@ export const nodeConfigScripts = `
     }
     
     function buildAnnotationMap(numLines, annotations) {
-      const annMap = Array(numLines)
-        .fill(null)
-        .map(() => ({ label: '', size: Infinity }));
+      const annMap = Array.from({ length: numLines }, () => new Set());
       annotationLineMap.clear();
       annotationInfoMap.clear();
 
@@ -335,7 +338,7 @@ export const nodeConfigScripts = `
         };
 
         if (!annotationLineMap.has(label)) {
-          annotationLineMap.set(label, []);
+          annotationLineMap.set(label, new Set());
           annotationInfoMap.set(label, info);
         }
 
@@ -362,29 +365,17 @@ export const nodeConfigScripts = `
             end = tmp;
           }
 
-          const size = end - start + 1;
-
           for (
             let i = Math.max(0, start);
             i <= Math.min(numLines - 1, end);
             i++
           ) {
-            if (size <= annMap[i].size) {
-              annMap[i] = { label, size };
-            }
+            annMap[i].add(label);
+            annotationLineMap.get(label).add(i + 1);
           }
         }
       }
-
-      const finalMap = Array(numLines).fill('');
-      annMap.forEach((entry, idx) => {
-        if (entry.label) {
-          finalMap[idx] = entry.label;
-          annotationLineMap.get(entry.label).push(idx + 1);
-        }
-      });
-
-      return finalMap;
+      return annMap.map(set => Array.from(set));
     }
     
     function setupEventListeners() {
@@ -407,15 +398,17 @@ export const nodeConfigScripts = `
       });
     }
     
-    function highlightLines(annotationName, shouldHighlight) {
-      const lineNumbers = annotationLineMap.get(annotationName);
-      if (!lineNumbers) return;
-      
-      lineNumbers.forEach(lineNum => {
-        const lineEl = configView.querySelector(\`.line[data-line="\${lineNum}"]\`);
-        if (lineEl) {
-          lineEl.classList.toggle('line-highlight', shouldHighlight);
-        }
-      });
+    function highlightLines(annotationNamesStr, shouldHighlight) {
+      const names = annotationNamesStr.split("|");
+      for (const name of names) {
+        const lineNumbers = annotationLineMap.get(name);
+        if (!lineNumbers) continue;
+        lineNumbers.forEach(lineNum => {
+          const lineEl = configView.querySelector(\`.line[data-line="\${lineNum}"]\`);
+          if (lineEl) {
+            lineEl.classList.toggle("line-highlight", shouldHighlight);
+          }
+        });
+      }
     }
 `;
