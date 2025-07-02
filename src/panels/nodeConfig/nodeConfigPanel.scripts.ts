@@ -89,11 +89,20 @@ export const nodeConfigScripts = `
       let lastAnnotation = '';
       let previousAnnotation = '';
 
-      lines.forEach((line, index) => {
+      for (let index = 0; index < lines.length; ) {
         const lineNum = index + 1;
         const annotationNames = annotationMap[index] || [];
         const annotationKey = annotationNames.join('|');
         const showLabel = annotationKey && annotationKey !== previousAnnotation;
+
+        // Determine how many subsequent lines share the same annotation
+        let groupLength = 1;
+        while (
+          index + groupLength < lines.length &&
+          (annotationMap[index + groupLength] || []).join('|') === annotationKey
+        ) {
+          groupLength++;
+        }
 
         // Add section divider when annotation changes
         if (showLabel && lastAnnotation) {
@@ -103,53 +112,97 @@ export const nodeConfigScripts = `
           fragment.appendChild(divider);
         }
 
+        for (let i = 0; i < groupLength; i++) {
+          const currentIndex = index + i;
+          const currentLine = lines[currentIndex];
+          const currentLineNum = currentIndex + 1;
+
+          // Update context tracking
+          updateContext(currentLine, currentContext);
+
+          const lineEl = document.createElement('div');
+          lineEl.className = 'line';
+          lineEl.dataset.line = currentLineNum;
+
+          if (annotationKey) {
+            lineEl.dataset.annotation = annotationKey;
+          }
+
+          const annotationEl = document.createElement('div');
+          annotationEl.className = 'line-annotation';
+          if (i < annotationNames.length) {
+            annotationEl.textContent = annotationNames[i];
+            const info = annotationInfoMap.get(annotationNames[i]);
+            if (info && info.group && info.version && info.kind) {
+              annotationEl.title = \`\${info.group}/\${info.version}/\${info.kind}\`;
+            } else {
+              annotationEl.title = annotationNames[i];
+            }
+          } else {
+            annotationEl.textContent = '';
+          }
+          annotationEl.dataset.annotation = annotationKey;
+
+          const numEl = document.createElement('div');
+          numEl.className = 'line-num';
+          numEl.textContent = currentLineNum;
+
+          const codeEl = document.createElement('div');
+          codeEl.className = 'line-code';
+          codeEl.innerHTML = applySyntaxHighlighting(currentLine, currentContext);
+
+          lineEl.appendChild(annotationEl);
+          lineEl.appendChild(numEl);
+          lineEl.appendChild(codeEl);
+
+          fragment.appendChild(lineEl);
+        }
+
+        // Extra annotation owners beyond available lines
+        if (annotationNames.length > groupLength) {
+          const targetLineNum = index + groupLength; // highlight with last line
+          for (let i = groupLength; i < annotationNames.length; i++) {
+            const extraLineEl = document.createElement('div');
+            extraLineEl.className = 'line annotation-extra';
+            extraLineEl.dataset.line = String(targetLineNum);
+            extraLineEl.dataset.annotation = annotationKey;
+
+            const extraAnnEl = document.createElement('div');
+            extraAnnEl.className = 'line-annotation';
+            extraAnnEl.textContent = annotationNames[i];
+            const info = annotationInfoMap.get(annotationNames[i]);
+            if (info && info.group && info.version && info.kind) {
+              extraAnnEl.title = \`\${info.group}/\${info.version}/\${info.kind}\`;
+            } else {
+              extraAnnEl.title = annotationNames[i];
+            }
+            extraAnnEl.dataset.annotation = annotationKey;
+
+            const blankNumEl = document.createElement('div');
+            blankNumEl.className = 'line-num';
+            blankNumEl.style.visibility = 'hidden';
+            blankNumEl.textContent = '';
+
+            const blankCodeEl = document.createElement('div');
+            blankCodeEl.className = 'line-code';
+            blankCodeEl.style.visibility = 'hidden';
+            blankCodeEl.textContent = '';
+
+            extraLineEl.appendChild(extraAnnEl);
+            extraLineEl.appendChild(blankNumEl);
+            extraLineEl.appendChild(blankCodeEl);
+
+            fragment.appendChild(extraLineEl);
+          }
+        }
+
         previousAnnotation = annotationKey;
         if (annotationKey) {
           lastAnnotation = annotationKey;
         }
-        
-        // Update context tracking
-        updateContext(line, currentContext);
-        
-        const lineEl = document.createElement('div');
-        lineEl.className = 'line';
-        lineEl.dataset.line = lineNum;
-        
-        if (annotationKey) {
-          lineEl.dataset.annotation = annotationKey;
-        }
-        
-        const annotationEl = document.createElement('div');
-        annotationEl.className = 'line-annotation';
-        if (showLabel) {
-          annotationEl.textContent = annotationNames.join(String.fromCharCode(10));
-          const titles = annotationNames.map(name => {
-            const info = annotationInfoMap.get(name);
-            if (info && info.group && info.version && info.kind) {
-              return \`\${info.group}/\${info.version}/\${info.kind}\`;
-            }
-            return name;
-          });
-          annotationEl.title = titles.join(String.fromCharCode(10));
-        } else {
-          annotationEl.textContent = '';
-        }
-        annotationEl.dataset.annotation = annotationKey;
-        
-        const numEl = document.createElement('div');
-        numEl.className = 'line-num';
-        numEl.textContent = lineNum;
-        
-        const codeEl = document.createElement('div');
-        codeEl.className = 'line-code';
-        codeEl.innerHTML = applySyntaxHighlighting(line, currentContext);
-        
-        lineEl.appendChild(annotationEl);
-        lineEl.appendChild(numEl);
-        lineEl.appendChild(codeEl);
-        
-        fragment.appendChild(lineEl);
-      });
+
+        index += groupLength;
+      }
       
       configView.appendChild(fragment);
       setupEventListeners();
@@ -404,10 +457,10 @@ export const nodeConfigScripts = `
         const lineNumbers = annotationLineMap.get(name);
         if (!lineNumbers) continue;
         lineNumbers.forEach(lineNum => {
-          const lineEl = configView.querySelector(\`.line[data-line="\${lineNum}"]\`);
-          if (lineEl) {
-            lineEl.classList.toggle("line-highlight", shouldHighlight);
-          }
+          const lineEls = configView.querySelectorAll(\`.line[data-line="\${lineNum}"]\`);
+          lineEls.forEach(el => {
+            el.classList.toggle("line-highlight", shouldHighlight);
+          });
         });
       }
     }

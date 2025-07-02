@@ -111,6 +111,15 @@ export const nodeConfigStyles = `
     .annotations-hidden .divider {
       display: none;
     }
+
+    .annotation-extra .line-num,
+    .annotation-extra .line-code {
+      visibility: hidden;
+    }
+
+    .annotations-hidden .annotation-extra {
+      display: none;
+    }
     
     .line-num {
       text-align: right;
