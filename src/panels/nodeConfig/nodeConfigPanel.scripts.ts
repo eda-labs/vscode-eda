@@ -159,8 +159,6 @@ export const nodeConfigScripts = `
             if (info && info.group && info.version && info.kind) {
               if (item.separateLine) {
                 annotationEl.textContent = item.name;
-                annotationEl.title =
-                  info.group + '/' + info.version + '/' + info.kind;
                 pendingInfos.push(info);
               } else {
                 annotationEl.innerHTML =
@@ -172,12 +170,9 @@ export const nodeConfigScripts = `
                   ' ' +
                   info.kind +
                   '</span>';
-                annotationEl.title =
-                  info.group + '/' + info.version + '/' + info.kind;
               }
             } else {
               annotationEl.textContent = item.name;
-              annotationEl.title = item.name;
             }
           } else if (pendingInfos.length > 0) {
             const info = pendingInfos.shift();
@@ -189,8 +184,7 @@ export const nodeConfigScripts = `
               ' ' +
               info.kind +
               '</span>';
-            annotationEl.title =
-              info.group + '/' + info.version + '/' + info.kind;
+            
           } else {
             annotationEl.textContent = '';
           }
@@ -234,11 +228,8 @@ export const nodeConfigScripts = `
                 ' ' +
                 info.kind +
                 '</span>';
-              extraAnnEl.title =
-                info.group + '/' + info.version + '/' + info.kind;
             } else {
               extraAnnEl.textContent = extraName;
-              extraAnnEl.title = extraName;
             }
             extraAnnEl.dataset.annotation = annotationKey;
 
