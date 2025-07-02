@@ -20,6 +20,23 @@ export const queriesDashboardScripts = `
   let sortAsc = true;
   let copyFormat = 'ascii';
 
+  function insertAutocomplete(text) {
+    const start = queryInput.selectionStart ?? queryInput.value.length;
+    const end = queryInput.selectionEnd ?? queryInput.value.length;
+    const before = queryInput.value.slice(0, start);
+    const after = queryInput.value.slice(end);
+    const isWord = /^[a-zA-Z0-9._()-]+$/.test(text);
+    let tokenStart = start;
+    if (isWord) {
+      const match = before.match(/[a-zA-Z0-9._()-]*$/);
+      if (match) tokenStart = start - match[0].length;
+    }
+    const newValue = before.slice(0, tokenStart) + text + after;
+    const newPos = tokenStart + text.length;
+    queryInput.value = newValue;
+    queryInput.setSelectionRange(newPos, newPos);
+  }
+
   runButton.addEventListener('click', () => {
     statusEl.textContent = 'Running...';
     vscode.postMessage({
@@ -92,7 +109,7 @@ export const queriesDashboardScripts = `
           ? autocompleteList.children[autocompleteIndex]
           : autocompleteList.querySelector('li');
       if (target) {
-        queryInput.value = target.textContent || '';
+        insertAutocomplete(target.textContent || '');
       }
       autocompleteList.innerHTML = '';
       autocompleteList.style.display = 'block';
@@ -104,11 +121,17 @@ export const queriesDashboardScripts = `
     ) {
       e.preventDefault();
       if (e.key === 'ArrowDown') {
-        autocompleteIndex = (autocompleteIndex + 1) % autocompleteList.children.length;
+        if (autocompleteIndex < autocompleteList.children.length - 1) {
+          autocompleteIndex++;
+        } else if (autocompleteIndex === -1) {
+          autocompleteIndex = 0;
+        }
       } else {
-        autocompleteIndex =
-          (autocompleteIndex - 1 + autocompleteList.children.length) %
-          autocompleteList.children.length;
+        if (autocompleteIndex === -1) {
+          autocompleteIndex = autocompleteList.children.length - 1;
+        } else if (autocompleteIndex > 0) {
+          autocompleteIndex--;
+        }
       }
       highlightAutocomplete();
     } else if (e.key === 'Enter') {
@@ -116,7 +139,7 @@ export const queriesDashboardScripts = `
       if (autocompleteIndex >= 0 && !e.metaKey && !e.ctrlKey) {
         const item = autocompleteList.children[autocompleteIndex];
         if (item) {
-          queryInput.value = item.textContent || '';
+          insertAutocomplete(item.textContent || '');
         }
         autocompleteList.innerHTML = '';
         autocompleteList.style.display = 'block';
@@ -194,7 +217,7 @@ export const queriesDashboardScripts = `
           highlightAutocomplete();
         });
         li.addEventListener('click', () => {
-          queryInput.value = item;
+          insertAutocomplete(item);
           autocompleteList.innerHTML = '';
           autocompleteList.style.display = 'block';
           autocompleteIndex = -1;
@@ -369,8 +392,12 @@ export const queriesDashboardScripts = `
 
   function highlightAutocomplete() {
     Array.from(autocompleteList.children).forEach((li, idx) => {
-      if (idx === autocompleteIndex) li.classList.add('selected');
-      else li.classList.remove('selected');
+      if (idx === autocompleteIndex) {
+        li.classList.add('selected');
+        li.scrollIntoView({ block: 'nearest' });
+      } else {
+        li.classList.remove('selected');
+      }
     });
   }
 
