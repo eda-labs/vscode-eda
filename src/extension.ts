@@ -426,14 +426,15 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Allow the user to filter all tree views
   const filterTreeCommand = async (prefill?: string) => {
-    let filterText = prefill;
+    let filterText: string | undefined =
+      typeof prefill === 'string' ? prefill : undefined;
     if (filterText === undefined) {
       filterText = await vscode.window.showInputBox({
         prompt: 'Filter resources (supports regex)',
         placeHolder: 'Enter filter pattern'
       });
     }
-    if (filterText !== undefined) {
+    if (typeof filterText === 'string') {
       const text = filterText.trim();
       dashboardProvider.setTreeFilter(text);
       namespaceProvider.setTreeFilter(text);
