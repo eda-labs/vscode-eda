@@ -190,7 +190,10 @@ export const queriesDashboardStyles = `
 
   .results-table {
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
+    border-radius: 8px;
+    overflow: hidden;
   }
 
   .results-table th,
