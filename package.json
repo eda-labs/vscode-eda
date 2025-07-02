@@ -431,6 +431,16 @@
         },
         {
           "command": "vscode-eda.deleteResource",
+          "when": "viewItem == toponode",
+          "group": "inline"
+        },
+        {
+          "command": "vscode-eda.deleteResource",
+          "when": "viewItem == toponode",
+          "group": "navigation"
+        },
+        {
+          "command": "vscode-eda.deleteResource",
           "when": "viewItem == stream-item",
           "group": "navigation"
         },

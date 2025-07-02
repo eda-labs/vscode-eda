@@ -6,7 +6,11 @@ import { KubernetesClient } from '../clients/kubernetesClient';
 export function registerTopoNodeCommands(context: vscode.ExtensionContext) {
   const sshCmd = vscode.commands.registerCommand('vscode-eda.sshTopoNode', async (info: any) => {
     const name = info?.name || info?.label || info?.resource?.metadata?.name;
-    const nodeDetails: string | undefined = info?.nodeDetails;
+    const nodeDetails: string | undefined =
+      info?.nodeDetails ||
+      info?.rawResource?.status?.['node-details'] ||
+      info?.resource?.raw?.status?.['node-details'] ||
+      info?.resource?.status?.['node-details'];
 
     if (!name) {
       vscode.window.showErrorMessage('No node specified.');
