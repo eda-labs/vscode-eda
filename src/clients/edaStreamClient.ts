@@ -389,7 +389,11 @@ export class EdaStreamClient {
     try {
       res = await doRequest();
     } catch (err) {
-      log(`[STREAM] request failed ${err}`, LogLevel.ERROR);
+      if ((err as Error).name === 'AbortError') {
+        log('[STREAM] request aborted', LogLevel.DEBUG);
+      } else {
+        log(`[STREAM] request failed ${err}`, LogLevel.ERROR);
+      }
       return;
     }
 
@@ -406,7 +410,11 @@ export class EdaStreamClient {
         try {
           res = await doRequest();
         } catch (err) {
-          log(`[STREAM] request failed ${err}`, LogLevel.ERROR);
+          if ((err as Error).name === 'AbortError') {
+            log('[STREAM] request aborted', LogLevel.DEBUG);
+          } else {
+            log(`[STREAM] request failed ${err}`, LogLevel.ERROR);
+          }
           return;
         }
       }
