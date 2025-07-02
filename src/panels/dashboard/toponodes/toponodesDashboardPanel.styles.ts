@@ -53,6 +53,10 @@ export const toponodesDashboardStyles = `
     color: var(--vscode-button-foreground);
     border-radius: 4px;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
   }
 
   .icon-btn:hover {
