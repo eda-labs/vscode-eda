@@ -23,6 +23,7 @@ import { PodDescribeDocumentProvider } from './providers/documents/podDescribePr
 import { registerPodCommands } from './commands/podCommands';
 import { registerDeploymentCommands } from './commands/deploymentCommands';
 import { registerNodeConfigCommands } from './commands/nodeConfigCommands';
+import { registerTopoNodeCommands } from './commands/toponodeCommands';
 
 import { registerResourceViewCommands } from './commands/resourceViewCommands';
 import { registerDeviationCommands } from './commands/deviationCommands';
@@ -368,6 +369,7 @@ export async function activate(context: vscode.ExtensionContext) {
       registerDeploymentCommands(context);
 
       registerNodeConfigCommands(context);
+      registerTopoNodeCommands(context);
     }
 
     registerResourceDeleteCommand(context);

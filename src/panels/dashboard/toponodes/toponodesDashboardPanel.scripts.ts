@@ -13,6 +13,7 @@ export const toponodesDashboardScripts = `
   let sortAsc = true;
   let nameIdx = -1;
   let nsIdx = -1;
+  let nodeDetailsIdx = -1;
 
   nsSelect.addEventListener('change', () => {
     vscode.postMessage({ command: 'setNamespace', namespace: nsSelect.value });
@@ -43,6 +44,7 @@ export const toponodesDashboardScripts = `
       columns = msg.columns;
       nameIdx = columns.indexOf('name');
       nsIdx = columns.indexOf('namespace');
+      nodeDetailsIdx = columns.indexOf('node-details');
       allRows = msg.rows;
       if (colsChanged) {
         sortIndex = -1;
@@ -65,7 +67,7 @@ export const toponodesDashboardScripts = `
     if (!columns.length) return;
 
     const actionTh = document.createElement('th');
-    actionTh.textContent = 'Config';
+    actionTh.textContent = 'Actions';
     headerRow.appendChild(actionTh);
     const emptyTd = document.createElement('td');
     filterRow.appendChild(emptyTd);
@@ -92,19 +94,34 @@ export const toponodesDashboardScripts = `
     rows.forEach(row => {
       const tr = document.createElement('tr');
       const btnTd = document.createElement('td');
-      const btn = document.createElement('button');
-      btn.className = 'open-tree-btn';
-      btn.textContent = 'View';
+      const viewBtn = document.createElement('button');
+      viewBtn.className = 'icon-btn';
+      viewBtn.title = 'View Config';
+      viewBtn.innerHTML = '<span class="codicon codicon-file-code"></span>';
+      const sshBtn = document.createElement('button');
+      sshBtn.className = 'icon-btn';
+      sshBtn.title = 'SSH';
+      sshBtn.innerHTML = '<span class="codicon codicon-terminal"></span>';
       const name = nameIdx >= 0 ? row[nameIdx] : '';
       const ns = nsIdx >= 0 ? row[nsIdx] : '';
-      btn.addEventListener('click', () => {
+      const nodeDetails = nodeDetailsIdx >= 0 ? row[nodeDetailsIdx] : undefined;
+      viewBtn.addEventListener('click', () => {
         vscode.postMessage({
           command: 'viewNodeConfig',
           name,
           namespace: ns,
         });
       });
-      btnTd.appendChild(btn);
+      sshBtn.addEventListener('click', () => {
+        vscode.postMessage({
+          command: 'sshTopoNode',
+          name,
+          namespace: ns,
+          nodeDetails,
+        });
+      });
+      btnTd.appendChild(viewBtn);
+      btnTd.appendChild(sshBtn);
       tr.appendChild(btnTd);
       columns.forEach((_, i) => {
         const td = document.createElement('td');

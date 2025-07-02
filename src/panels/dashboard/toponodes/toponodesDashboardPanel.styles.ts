@@ -45,6 +45,20 @@ export const toponodesDashboardStyles = `
     background-color: var(--accent-hover);
   }
 
+  .icon-btn {
+    margin-right: 4px;
+    padding: 4px;
+    border: none;
+    background-color: var(--accent);
+    color: var(--vscode-button-foreground);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .icon-btn:hover {
+    background-color: var(--accent-hover);
+  }
+
   .select {
     background-color: var(--vscode-input-background);
     color: var(--vscode-input-foreground);

@@ -122,6 +122,11 @@
         "icon": "$(file-text)"
       },
       {
+        "command": "vscode-eda.sshTopoNode",
+        "title": "EDA: SSH to Node",
+        "icon": "$(terminal)"
+      },
+      {
         "command": "vscode-eda.switchToEditResource",
         "title": "EDA: Switch to Edit Mode",
         "icon": "$(edit)"
@@ -410,7 +415,17 @@
           "group": "inline"
         },
         {
+          "command": "vscode-eda.sshTopoNode",
+          "when": "viewItem == toponode",
+          "group": "inline"
+        },
+        {
           "command": "vscode-eda.viewNodeConfig",
+          "when": "viewItem == toponode",
+          "group": "navigation"
+        },
+        {
+          "command": "vscode-eda.sshTopoNode",
           "when": "viewItem == toponode",
           "group": "navigation"
         },

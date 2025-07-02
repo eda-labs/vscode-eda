@@ -50,6 +50,12 @@ export class ToponodesDashboardPanel extends BasePanel {
           name: msg.name,
           namespace: msg.namespace,
         });
+      } else if (msg.command === 'sshTopoNode') {
+        await vscode.commands.executeCommand('vscode-eda.sshTopoNode', {
+          name: msg.name,
+          namespace: msg.namespace,
+          nodeDetails: msg.nodeDetails,
+        });
       }
     });
 
