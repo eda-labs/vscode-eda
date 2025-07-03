@@ -56,8 +56,8 @@ export const crdBrowserStyles = `
   }
 
   .metadata {
-    background-color: var(--yellow);
-    color: var(--bg-primary);
+    background-color: var(--vscode-editorWidget-background);
+    color: var(--text-primary);
     white-space: pre;
     padding: 8px;
     margin-bottom: 8px;
