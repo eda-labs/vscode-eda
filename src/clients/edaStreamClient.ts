@@ -24,7 +24,7 @@ export class EdaStreamClient {
   private eventClient: string | undefined;
   private keepAliveTimer: ReturnType<typeof setInterval> | undefined;
   private activeStreams: Set<string> = new Set();
-  private messageIntervalMs = 500;
+  private messageIntervalMs = 1000;
   private transactionSummarySize = 50;
   private summaryAbortController: AbortController | undefined;
   private summaryStreamPromise: Promise<void> | undefined;
@@ -212,8 +212,23 @@ export class EdaStreamClient {
     };
 
     socket.on('close', reconnect);
-    socket.on('error', err => {
+    socket.on('unexpected-response', async (_req, res) => {
+      log(
+        `Event WebSocket unexpected response: HTTP ${res.statusCode}`,
+        LogLevel.ERROR
+      );
+      if (res.statusCode === 401 && this.authClient) {
+        log('Refreshing authentication token for WebSocket...', LogLevel.INFO);
+        await this.authClient.refreshAuth();
+      }
+      reconnect();
+    });
+    socket.on('error', async err => {
       log(`Event WebSocket error: ${err}`, LogLevel.ERROR);
+      if (err instanceof Error && err.message.includes('401') && this.authClient) {
+        log('Refreshing authentication token for WebSocket...', LogLevel.INFO);
+        await this.authClient.refreshAuth();
+      }
       reconnect();
     });
   }
