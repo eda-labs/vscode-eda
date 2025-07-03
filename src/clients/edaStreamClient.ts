@@ -32,6 +32,7 @@ export class EdaStreamClient {
   private eqlStreams: Map<string, { query: string; namespaces?: string }> = new Map();
   private eqlAbortControllers: Map<string, AbortController> = new Map();
   private eqlStreamPromises: Map<string, Promise<void>> = new Map();
+  private disposed = false;
 
   private _onStreamMessage = new vscode.EventEmitter<StreamMessage>();
   public readonly onStreamMessage = this._onStreamMessage.event;
@@ -52,6 +53,7 @@ export class EdaStreamClient {
 
   constructor(messageIntervalMs = 500) {
     this.messageIntervalMs = messageIntervalMs;
+    this.disposed = false;
     log('EdaStreamClient initialized', LogLevel.DEBUG);
   }
 
@@ -202,9 +204,11 @@ export class EdaStreamClient {
         clearInterval(this.keepAliveTimer);
         this.keepAliveTimer = undefined;
       }
-      setTimeout(() => {
-        void this.connect();
-      }, 2000);
+      if (!this.disposed) {
+        setTimeout(() => {
+          void this.connect();
+        }, 2000);
+      }
     };
 
     socket.on('close', reconnect);
@@ -558,6 +562,7 @@ export class EdaStreamClient {
    * Dispose resources
    */
   public dispose(): void {
+    this.disposed = true;
     this.disconnect();
     this._onStreamMessage.dispose();
   }

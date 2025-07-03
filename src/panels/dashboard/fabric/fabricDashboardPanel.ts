@@ -5,6 +5,8 @@ import { fabricDashboardHtml } from './fabricDashboardPanel.html';
 import { fabricDashboardScripts } from './fabricDashboardPanel.scripts';
 import { serviceManager } from '../../../services/serviceManager';
 import { EdaClient } from '../../../clients/edaClient';
+import { EdaStreamClient, StreamEndpoint } from '../../../clients/edaStreamClient';
+import { randomUUID } from 'crypto';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
 
 interface NodeGroupStats {
@@ -22,6 +24,7 @@ interface FabricStats {
 
 export class FabricDashboardPanel extends BasePanel {
   private edaClient: EdaClient;
+  private streamClient: EdaStreamClient;
   private nodeMap: Map<string, Map<string, string>> = new Map();
   private interfaceMap: Map<string, Map<string, string>> = new Map();
   private trafficMap: Map<string, { in: number; out: number }> = new Map();
@@ -47,33 +50,11 @@ export class FabricDashboardPanel extends BasePanel {
 
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
 
-    this.edaClient.onStreamMessage((stream, msg) => {
-      if (stream === 'toponodes') {
-        this.handleTopoNodeStream(msg);
-      } else if (stream === 'interfaces') {
-        this.handleInterfaceStream(msg);
-      } else if (stream === this.trafficStreamName) {
-        this.handleTrafficStream(msg);
-      } else if (stream === this.leafStreamName) {
-        this.handleLeafStream(msg);
-      } else if (stream === this.spineStreamName) {
-        this.handleSpineStream(msg);
-      } else if (stream === this.borderLeafStreamName) {
-        this.handleBorderLeafStream(msg);
-      } else if (stream === this.superSpineStreamName) {
-        this.handleSuperSpineStream(msg);
-      } else if (stream === this.fabricStatusStreamName) {
-        this.handleFabricStatusStream(msg);
-      }
-    });
-    void this.edaClient.streamTopoNodes();
-    void this.edaClient.streamInterfaces();
+    this.streamClient = this.createStreamClient();
+    void this.streamClient.connect();
 
     this.panel.onDidDispose(() => {
-      this.edaClient.closeTopoNodeStream();
-      this.edaClient.closeInterfaceStream?.();
-      void this.edaClient.closeEqlStream(this.trafficStreamName);
-      void this.closeFabricStreams();
+      this.streamClient.dispose();
     });
 
     this.panel.webview.onDidReceiveMessage(async msg => {
@@ -100,6 +81,40 @@ export class FabricDashboardPanel extends BasePanel {
     });
 
     this.panel.webview.html = this.buildHtml();
+  }
+
+  private createStreamClient(): EdaStreamClient {
+    const authClient = (this.edaClient as any)['authClient'];
+    const specManager = (this.edaClient as any)['specManager'];
+    const client = new EdaStreamClient();
+    client.setAuthClient(authClient);
+    const endpoints = specManager
+      .getStreamEndpoints()
+      .filter((ep: StreamEndpoint) => ep.stream === 'toponodes' || ep.stream === 'interfaces');
+    client.setStreamEndpoints(endpoints);
+    client.onStreamMessage(event => {
+      const { stream, message: msg } = event;
+      if (stream === 'toponodes') {
+        this.handleTopoNodeStream(msg);
+      } else if (stream === 'interfaces') {
+        this.handleInterfaceStream(msg);
+      } else if (stream === this.trafficStreamName) {
+        this.handleTrafficStream(msg);
+      } else if (stream === this.leafStreamName) {
+        this.handleLeafStream(msg);
+      } else if (stream === this.spineStreamName) {
+        this.handleSpineStream(msg);
+      } else if (stream === this.borderLeafStreamName) {
+        this.handleBorderLeafStream(msg);
+      } else if (stream === this.superSpineStreamName) {
+        this.handleSuperSpineStream(msg);
+      } else if (stream === this.fabricStatusStreamName) {
+        this.handleFabricStatusStream(msg);
+      }
+    });
+    client.subscribeToStream('toponodes');
+    client.subscribeToStream('interfaces');
+    return client;
   }
 
   protected getHtml(): string {
@@ -139,7 +154,14 @@ export class FabricDashboardPanel extends BasePanel {
   }
 
   private async sendTopoNodeStats(ns: string): Promise<void> {
+    const changed = ns !== this.selectedNamespace;
     this.selectedNamespace = ns;
+    if (changed) {
+      // Dispose existing client and create a new one with a fresh eventclient
+      this.streamClient.dispose();
+      this.streamClient = this.createStreamClient();
+      void this.streamClient.connect();
+    }
     if (!this.initialized) {
       const coreNs = this.edaClient.getCoreNamespace();
       const all = this.edaClient
@@ -421,7 +443,7 @@ export class FabricDashboardPanel extends BasePanel {
 
   private async sendTrafficStats(ns: string): Promise<void> {
     // Close previous stream before starting a new one
-    await this.edaClient.closeEqlStream(this.trafficStreamName);
+    await this.streamClient.closeEqlStream(this.trafficStreamName);
 
     // Clear previous fabric streams
     await this.closeFabricStreams();
@@ -437,61 +459,73 @@ export class FabricDashboardPanel extends BasePanel {
     const query =
       '.namespace.node.srl.interface.traffic-rate fields [sum(in-bps), sum(out-bps)]';
     const namespaces = ns === 'All Namespaces' ? undefined : ns;
-    this.trafficStreamName = `traffic-${namespaces ?? 'all'}-${Date.now()}`;
-    await this.edaClient.streamEql(query, namespaces, this.trafficStreamName);
+    this.trafficStreamName = `traffic-${namespaces ?? 'all'}-${randomUUID()}`;
+    this.streamClient.setEqlQuery(query, namespaces, this.trafficStreamName);
+    this.streamClient.subscribeToStream(this.trafficStreamName);
+    await this.streamClient.connect();
   }
 
   private async sendSpineStats(ns: string): Promise<void> {
-    await this.edaClient.closeEqlStream(this.spineStreamName);
+    await this.streamClient.closeEqlStream(this.spineStreamName);
     const namespaces = ns === 'All Namespaces' ? undefined : ns;
-    this.spineStreamName = `spine-${namespaces ?? 'all'}-${Date.now()}`;
-    await this.edaClient.streamEql(`${this.fabricQueryBase}.spineNodes`, namespaces, this.spineStreamName);
+    this.spineStreamName = `spine-${namespaces ?? 'all'}-${randomUUID()}`;
+    this.streamClient.setEqlQuery(`${this.fabricQueryBase}.spineNodes`, namespaces, this.spineStreamName);
+    this.streamClient.subscribeToStream(this.spineStreamName);
+    await this.streamClient.connect();
     const stats = this.computeFabricGroupStats(ns, 'spines');
     this.panel.webview.postMessage({ command: 'fabricSpineStats', namespace: ns, stats });
   }
 
   private async sendLeafStats(ns: string): Promise<void> {
-    await this.edaClient.closeEqlStream(this.leafStreamName);
+    await this.streamClient.closeEqlStream(this.leafStreamName);
     const namespaces = ns === 'All Namespaces' ? undefined : ns;
-    this.leafStreamName = `leaf-${namespaces ?? 'all'}-${Date.now()}`;
-    await this.edaClient.streamEql(`${this.fabricQueryBase}.leafNodes`, namespaces, this.leafStreamName);
+    this.leafStreamName = `leaf-${namespaces ?? 'all'}-${randomUUID()}`;
+    this.streamClient.setEqlQuery(`${this.fabricQueryBase}.leafNodes`, namespaces, this.leafStreamName);
+    this.streamClient.subscribeToStream(this.leafStreamName);
+    await this.streamClient.connect();
     const stats = this.computeFabricGroupStats(ns, 'leafs');
     this.panel.webview.postMessage({ command: 'fabricLeafStats', namespace: ns, stats });
   }
 
   private async sendBorderLeafStats(ns: string): Promise<void> {
-    await this.edaClient.closeEqlStream(this.borderLeafStreamName);
+    await this.streamClient.closeEqlStream(this.borderLeafStreamName);
     const namespaces = ns === 'All Namespaces' ? undefined : ns;
-    this.borderLeafStreamName = `borderleaf-${namespaces ?? 'all'}-${Date.now()}`;
-    await this.edaClient.streamEql(`${this.fabricQueryBase}.borderLeafNodes`, namespaces, this.borderLeafStreamName);
+    this.borderLeafStreamName = `borderleaf-${namespaces ?? 'all'}-${randomUUID()}`;
+    this.streamClient.setEqlQuery(`${this.fabricQueryBase}.borderLeafNodes`, namespaces, this.borderLeafStreamName);
+    this.streamClient.subscribeToStream(this.borderLeafStreamName);
+    await this.streamClient.connect();
     const stats = this.computeFabricGroupStats(ns, 'borderleafs');
     this.panel.webview.postMessage({ command: 'fabricBorderLeafStats', namespace: ns, stats });
   }
 
   private async sendSuperSpineStats(ns: string): Promise<void> {
-    await this.edaClient.closeEqlStream(this.superSpineStreamName);
+    await this.streamClient.closeEqlStream(this.superSpineStreamName);
     const namespaces = ns === 'All Namespaces' ? undefined : ns;
-    this.superSpineStreamName = `superspine-${namespaces ?? 'all'}-${Date.now()}`;
-    await this.edaClient.streamEql(`${this.fabricQueryBase}.superSpineNodes`, namespaces, this.superSpineStreamName);
+    this.superSpineStreamName = `superspine-${namespaces ?? 'all'}-${randomUUID()}`;
+    this.streamClient.setEqlQuery(`${this.fabricQueryBase}.superSpineNodes`, namespaces, this.superSpineStreamName);
+    this.streamClient.subscribeToStream(this.superSpineStreamName);
+    await this.streamClient.connect();
     const stats = this.computeFabricGroupStats(ns, 'superspines');
     this.panel.webview.postMessage({ command: 'fabricSuperSpineStats', namespace: ns, stats });
   }
 
   private async sendFabricHealth(ns: string): Promise<void> {
-    await this.edaClient.closeEqlStream(this.fabricStatusStreamName);
+    await this.streamClient.closeEqlStream(this.fabricStatusStreamName);
     const namespaces = ns === 'All Namespaces' ? undefined : ns;
-    this.fabricStatusStreamName = `fabricstatus-${namespaces ?? 'all'}-${Date.now()}`;
-    await this.edaClient.streamEql(this.fabricQueryBase, namespaces, this.fabricStatusStreamName);
+    this.fabricStatusStreamName = `fabricstatus-${namespaces ?? 'all'}-${randomUUID()}`;
+    this.streamClient.setEqlQuery(this.fabricQueryBase, namespaces, this.fabricStatusStreamName);
+    this.streamClient.subscribeToStream(this.fabricStatusStreamName);
+    await this.streamClient.connect();
     const health = this.computeFabricHealth(ns);
     this.panel.webview.postMessage({ command: 'fabricHealth', namespace: ns, health });
   }
 
   private async closeFabricStreams(): Promise<void> {
-    await this.edaClient.closeEqlStream(this.leafStreamName);
-    await this.edaClient.closeEqlStream(this.borderLeafStreamName);
-    await this.edaClient.closeEqlStream(this.spineStreamName);
-    await this.edaClient.closeEqlStream(this.superSpineStreamName);
-    await this.edaClient.closeEqlStream(this.fabricStatusStreamName);
+    await this.streamClient.closeEqlStream(this.leafStreamName);
+    await this.streamClient.closeEqlStream(this.borderLeafStreamName);
+    await this.streamClient.closeEqlStream(this.spineStreamName);
+    await this.streamClient.closeEqlStream(this.superSpineStreamName);
+    await this.streamClient.closeEqlStream(this.fabricStatusStreamName);
   }
 
   private handleLeafStream(msg: any): void {
