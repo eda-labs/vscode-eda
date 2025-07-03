@@ -894,8 +894,9 @@ async function applyResource(
       log('==============================\n', LogLevel.INFO, true);
     }
 
-    // Always show the output channel
-    edaOutputChannel.show();
+    if (!isDryRun) {
+      edaOutputChannel.show();
+    }
 
     return true;
 
