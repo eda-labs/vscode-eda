@@ -54,6 +54,7 @@ export class KubernetesClient {
   private configmapsCache: Map<string, any[]> = new Map();
   private secretsCache: Map<string, any[]> = new Map();
   private artifactsCache: Map<string, any[]> = new Map();
+  private crdCache: any[] = [];
 
 
   // Active resource watchers
@@ -408,8 +409,14 @@ export class KubernetesClient {
     return data.items || [];
   }
 
+  public async listCrds(): Promise<any[]> {
+    const data = await this.fetchJSON('/apis/apiextensions.k8s.io/v1/customresourcedefinitions');
+    this.crdCache = data.items || [];
+    return this.crdCache;
+  }
+
   public getCachedCrds(): any[] {
-    return [];
+    return this.crdCache;
   }
 
   public getCachedNamespaces(): string[] {
