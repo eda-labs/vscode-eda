@@ -51,6 +51,13 @@ export const toponodesDashboardScripts = `
         sortAsc = true;
         renderTable(allRows);
         statusEl.textContent = msg.status || '';
+        if (nameIdx >= 0) {
+          sortIndex = nameIdx;
+          sortAsc = true;
+          sortRows();
+          updateSortClasses();
+          applyFilters();
+        }
       } else {
         if (sortIndex >= 0) sortRows();
         applyFilters();
