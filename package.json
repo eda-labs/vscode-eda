@@ -40,7 +40,8 @@
     "onView:edaHelp",
     "onCommand:vscode-eda.applyYamlFile",
     "onCommand:vscode-eda.applyYamlFile.dryRun",
-    "onCommand:vscode-eda.addYamlToBasket"
+    "onCommand:vscode-eda.addYamlToBasket",
+    "onCommand:vscode-eda.openCrdBrowser"
   ],
   "main": "./dist/extension",
   "contributes": {
@@ -158,6 +159,11 @@
         "command": "vscode-eda.addYamlToBasket",
         "title": "EDA: Add YAML To Basket",
         "icon": "$(inbox)"
+      },
+      {
+        "command": "vscode-eda.openCrdBrowser",
+        "title": "EDA: Open CRD Browser",
+        "icon": "$(list-tree)"
       },
       {
         "command": "vscode-eda.showResourceDiff",
@@ -579,6 +585,11 @@
           "group": "navigation@2"
         },
         {
+          "command": "vscode-eda.openCrdBrowser",
+          "when": "edaYamlDocument",
+          "group": "navigation@3"
+        },
+        {
           "command": "vscode-eda.switchToEditResource",
           "when": "resourceScheme == k8s-view",
           "group": "navigation@4"
@@ -608,6 +619,9 @@
         {
           "command": "vscode-eda.addYamlToBasket",
           "title": "Add to EDA's transaction"
+        },
+        {
+          "command": "vscode-eda.openCrdBrowser"
         }
       ]
     },

@@ -10,12 +10,19 @@ import * as yaml from 'js-yaml';
 export class CrdBrowserPanel extends BasePanel {
   private k8sClient: KubernetesClient;
   private crds: any[] = [];
+  private target?: { group: string; kind: string };
 
-  constructor(context: vscode.ExtensionContext, title: string) {
+  constructor(
+    context: vscode.ExtensionContext,
+    title: string,
+    target?: { group: string; kind: string }
+  ) {
     super(context, 'crdBrowser', title, undefined, {
       light: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-black.svg'),
       dark: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-white.svg')
     });
+
+    this.target = target;
 
     this.k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
 
@@ -51,7 +58,16 @@ export class CrdBrowserPanel extends BasePanel {
         name: c.metadata?.name || '',
         kind: c.spec?.names?.kind || c.metadata?.name || ''
       }));
-      this.panel.webview.postMessage({ command: 'crds', list });
+      let selected: string | undefined;
+      if (this.target) {
+        const match = this.crds.find(
+          c =>
+            c.spec?.group === this.target?.group &&
+            c.spec?.names?.kind === this.target?.kind
+        );
+        selected = match?.metadata?.name;
+      }
+      this.panel.webview.postMessage({ command: 'crds', list, selected });
     } catch (err: any) {
       this.panel.webview.postMessage({ command: 'error', message: String(err) });
     }
@@ -77,7 +93,11 @@ export class CrdBrowserPanel extends BasePanel {
     await vscode.window.showTextDocument(doc, { preview: true });
   }
 
-  static show(context: vscode.ExtensionContext, title: string): void {
-    new CrdBrowserPanel(context, title);
+  static show(
+    context: vscode.ExtensionContext,
+    title: string,
+    target?: { group: string; kind: string }
+  ): void {
+    new CrdBrowserPanel(context, title, target);
   }
 }

@@ -17,7 +17,10 @@ export const crdBrowserScripts = `
     if (msg.command === 'crds') {
       allCrds = msg.list;
       updateOptions();
-      if (allCrds.length > 0) {
+      if (msg.selected && allCrds.some(c => c.name === msg.selected)) {
+        crdSelect.value = msg.selected;
+        vscode.postMessage({ command: 'showCrd', name: msg.selected });
+      } else if (allCrds.length > 0) {
         vscode.postMessage({ command: 'showCrd', name: allCrds[0].name });
       }
     } else if (msg.command === 'crdData') {
