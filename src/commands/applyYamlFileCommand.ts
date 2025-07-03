@@ -84,7 +84,6 @@ async function handleYaml(uri: vscode.Uri | undefined, dryRun = false, addToBask
       `Transaction ${id} created for ${resource.kind} "${resource.metadata?.name}"`
     );
     log(`Transaction ${id} created for ${resource.kind}/${resource.metadata?.name}`, LogLevel.INFO, true);
-    edaOutputChannel.show();
   } catch (err: any) {
     const msg = `Failed to ${addToBasket ? 'add YAML to basket' : dryRun ? 'validate YAML' : 'apply YAML'}: ${err.message || err}`;
     vscode.window.showErrorMessage(msg);
