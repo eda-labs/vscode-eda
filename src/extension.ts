@@ -396,6 +396,10 @@ export async function activate(context: vscode.ExtensionContext) {
       treeDataProvider: alarmProvider,
       showCollapseAll: true
     });
+    alarmTreeView.title = `Alarms (${alarmProvider.count})`;
+    alarmProvider.onAlarmCountChanged(count => {
+      alarmTreeView.title = `Alarms (${count})`;
+    });
 
     edaDeviationProvider = new EdaDeviationProvider();
     const deviationTreeView = vscode.window.createTreeView('edaDeviations', {

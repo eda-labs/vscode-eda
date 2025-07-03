@@ -9,6 +9,12 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
   private edaClient: EdaClient;
   private statusService: ResourceStatusService;
   private alarms: Map<string, any> = new Map();
+  private _onAlarmCountChanged = new vscode.EventEmitter<number>();
+  readonly onAlarmCountChanged = this._onAlarmCountChanged.event;
+
+  public get count(): number {
+    return this.alarms.size;
+  }
 
   constructor() {
     super();
@@ -21,6 +27,9 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
         this.processAlarmMessage(msg);
       }
     });
+
+    // Emit initial count
+    this._onAlarmCountChanged.fire(this.count);
   }
 
 
@@ -102,6 +111,7 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
     }
     if (changed) {
       this.refresh();
+      this._onAlarmCountChanged.fire(this.count);
     }
   }
 }
