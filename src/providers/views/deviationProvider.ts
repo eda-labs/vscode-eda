@@ -29,6 +29,12 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
   private deviations: Map<string, EdaDeviation> = new Map();
   private edaClient: EdaClient;
   private statusService: ResourceStatusService;
+  private _onDeviationCountChanged = new vscode.EventEmitter<number>();
+  readonly onDeviationCountChanged = this._onDeviationCountChanged.event;
+
+  public get count(): number {
+    return this.deviations.size;
+  }
 
   constructor() {
     super();
@@ -40,6 +46,9 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
         this.processDeviationMessage(msg);
       }
     });
+
+    // Emit initial count
+    this._onDeviationCountChanged.fire(this.count);
   }
 
   public dispose(): void {
@@ -62,6 +71,7 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
     const key = `${namespace}/${name}`;
     if (this.deviations.delete(key)) {
       this._onDidChangeTreeData.fire();
+      this._onDeviationCountChanged.fire(this.count);
     }
   }
 
@@ -151,6 +161,7 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
           .filter((v: [string, EdaDeviation] | undefined): v is [string, EdaDeviation] => v !== undefined),
       );
       this.refresh();
+      this._onDeviationCountChanged.fire(this.count);
       return;
     }
 
@@ -178,6 +189,7 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
     }
     if (changed) {
       this.refresh();
+      this._onDeviationCountChanged.fire(this.count);
     }
   }
 }

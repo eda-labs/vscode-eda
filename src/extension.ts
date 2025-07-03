@@ -406,11 +406,19 @@ export async function activate(context: vscode.ExtensionContext) {
       treeDataProvider: edaDeviationProvider,
       showCollapseAll: true
     });
+    deviationTreeView.title = `Deviations (${edaDeviationProvider.count})`;
+    edaDeviationProvider.onDeviationCountChanged(count => {
+      deviationTreeView.title = `Deviations (${count})`;
+    });
 
     edaTransactionBasketProvider = new TransactionBasketProvider();
     const basketTreeView = vscode.window.createTreeView('edaTransactionBasket', {
       treeDataProvider: edaTransactionBasketProvider,
       showCollapseAll: true
+    });
+    basketTreeView.title = `Transaction Basket (${edaTransactionBasketProvider.count})`;
+    edaTransactionBasketProvider.onBasketCountChanged(count => {
+      basketTreeView.title = `Transaction Basket (${count})`;
     });
 
     edaTransactionProvider = new EdaTransactionProvider();

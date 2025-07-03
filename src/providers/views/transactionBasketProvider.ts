@@ -10,6 +10,12 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
   private edaClient: EdaClient;
   private statusService: ResourceStatusService;
   private items: any[] = [];
+  private _onBasketCountChanged = new vscode.EventEmitter<number>();
+  readonly onBasketCountChanged = this._onBasketCountChanged.event;
+
+  public get count(): number {
+    return this.items.length;
+  }
 
   constructor() {
     super();
@@ -25,6 +31,9 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
         }
       }
     });
+
+    // Emit initial count
+    this._onBasketCountChanged.fire(this.count);
   }
 
   public dispose(): void {
@@ -47,6 +56,7 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
         this.items = [];
       }
       this.refresh();
+      this._onBasketCountChanged.fire(this.count);
     } catch (err) {
       log(`Failed to load transaction basket: ${err}`, LogLevel.ERROR);
     }
@@ -56,6 +66,7 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     this.items.push(tx);
     await this.saveBasket();
     this.refresh();
+    this._onBasketCountChanged.fire(this.count);
   }
 
   private async saveBasket(): Promise<void> {
@@ -74,6 +85,7 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     this.items = [];
     await this.saveBasket();
     this.refresh();
+    this._onBasketCountChanged.fire(this.count);
   }
 
   public async removeTransaction(index: number): Promise<void> {
@@ -83,6 +95,7 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     this.items.splice(index, 1);
     await this.saveBasket();
     this.refresh();
+    this._onBasketCountChanged.fire(this.count);
   }
 
   getTreeItem(element: TransactionBasketItem): vscode.TreeItem {
@@ -187,6 +200,7 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
         this.items = [parsed];
       }
       this.refresh();
+      this._onBasketCountChanged.fire(this.count);
     } catch (err) {
       log(`Failed to process basket stream: ${err}`, LogLevel.ERROR);
     }
