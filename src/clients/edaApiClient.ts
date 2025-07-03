@@ -1,7 +1,9 @@
 import { fetch } from 'undici';
+import * as yaml from 'js-yaml';
 import { LogLevel, log } from '../extension';
 import type { EdaAuthClient } from './edaAuthClient';
 import type { EdaSpecManager } from './edaSpecManager';
+import { sanitizeResource } from '../utils/yamlUtils';
 
 /**
  * Client for EDA REST API operations
@@ -131,8 +133,11 @@ export class EdaApiClient {
    */
   public async getEdaResourceYaml(kind: string, name: string, namespace: string): Promise<string> {
     const plural = kind.toLowerCase() + 's';
-    const data = await this.fetchJSON<any>(`/apps/core.eda.nokia.com/v1/namespaces/${namespace}/${plural}/${name}`);
-    return JSON.stringify(data, null, 2);
+    const data = await this.fetchJSON<any>(
+      `/apps/core.eda.nokia.com/v1/namespaces/${namespace}/${plural}/${name}`,
+    );
+    const sanitized = sanitizeResource(data);
+    return yaml.dump(sanitized, { indent: 2 });
   }
 
   /**
