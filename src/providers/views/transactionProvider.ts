@@ -127,6 +127,7 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
         `ID: ${t.id}\n` +
         `User: ${t.username}\n` +
         `State: ${t.state}\n` +
+        `Time: ${t.lastChangeTimestamp || 'N/A'}\n` +
         `Dry Run: ${t.dryRun ? 'Yes' : 'No'}\n` +
         `Description: ${t.description || 'No description'}`;
 
