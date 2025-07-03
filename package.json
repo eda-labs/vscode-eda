@@ -37,7 +37,10 @@
     "onView:edaDeviations",
     "onView:edaTransactionBasket",
     "onView:edaTransactions",
-    "onView:edaHelp"
+    "onView:edaHelp",
+    "onCommand:vscode-eda.applyYamlFile",
+    "onCommand:vscode-eda.applyYamlFile.dryRun",
+    "onCommand:vscode-eda.addYamlToBasket"
   ],
   "main": "./dist/extension",
   "contributes": {
@@ -140,6 +143,21 @@
         "command": "vscode-eda.applyResourceChanges.dryRun",
         "title": "EDA: Validate (Dry Run)",
         "icon": "$(debug-alt)"
+      },
+      {
+        "command": "vscode-eda.applyYamlFile",
+        "title": "EDA: Apply YAML",
+        "icon": "$(run)"
+      },
+      {
+        "command": "vscode-eda.applyYamlFile.dryRun",
+        "title": "EDA: Validate YAML (Dry Run)",
+        "icon": "$(debug-alt)"
+      },
+      {
+        "command": "vscode-eda.addYamlToBasket",
+        "title": "EDA: Add YAML To Basket",
+        "icon": "$(inbox)"
       },
       {
         "command": "vscode-eda.showResourceDiff",
@@ -271,6 +289,12 @@
         "title": "EDA: Show Dashboard"
       }
     ],
+    "submenus": [
+      {
+        "id": "vscode-eda.yamlExplorer",
+        "label": "EDA"
+      }
+    ],
     "menus": {
       "commandPalette": [
         {
@@ -284,6 +308,19 @@
         {
           "command": "vscode-eda.configureTargets",
           "when": "true"
+        },
+        {
+          "command": "vscode-eda.applyYamlFile",
+          "when": "editorLangId == yaml"
+        }
+        ,
+        {
+          "command": "vscode-eda.applyYamlFile.dryRun",
+          "when": "editorLangId == yaml"
+        },
+        {
+          "command": "vscode-eda.addYamlToBasket",
+          "when": "editorLangId == yaml"
         }
       ],
       "view/title": [
@@ -527,6 +564,21 @@
           "group": "navigation@3"
         },
         {
+          "command": "vscode-eda.applyYamlFile",
+          "when": "edaYamlDocument",
+          "group": "navigation@0"
+        },
+        {
+          "command": "vscode-eda.applyYamlFile.dryRun",
+          "when": "edaYamlDocument",
+          "group": "navigation@1"
+        },
+        {
+          "command": "vscode-eda.addYamlToBasket",
+          "when": "edaYamlDocument",
+          "group": "navigation@2"
+        },
+        {
           "command": "vscode-eda.switchToEditResource",
           "when": "resourceScheme == k8s-view",
           "group": "navigation@4"
@@ -537,6 +589,25 @@
           "command": "vscode-eda.switchToEditResource",
           "when": "resourceScheme == k8s-view",
           "group": "1_modification@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "submenu": "vscode-eda.yamlExplorer",
+          "when": "resourceLangId == yaml",
+          "group": "eda"
+        }
+      ],
+      "vscode-eda.yamlExplorer": [
+        {
+          "command": "vscode-eda.applyYamlFile"
+        },
+        {
+          "command": "vscode-eda.applyYamlFile.dryRun"
+        },
+        {
+          "command": "vscode-eda.addYamlToBasket",
+          "title": "Add to EDA's transaction"
         }
       ]
     },

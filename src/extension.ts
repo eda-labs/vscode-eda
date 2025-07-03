@@ -35,6 +35,7 @@ import { registerResourceCreateCommand } from './commands/resourceCreateCommand'
 import { registerCredentialCommands } from './commands/credentialCommands';
 import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand';
 import { registerDashboardCommands } from './commands/dashboardCommands';
+import { registerApplyYamlFileCommand } from './commands/applyYamlFileCommand';
 import { configureTargets } from './panels/targetWizard/targetWizardPanel';
 // import { registerResourceViewCommands } from './commands/resourceViewCommands';
 // import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
@@ -537,6 +538,7 @@ export async function activate(context: vscode.ExtensionContext) {
   registerBasketCommands(context);
   registerDashboardCommands(context);
   registerCredentialCommands(context);
+  registerApplyYamlFileCommand(context);
 
   //   log('Service architecture initialized successfully', LogLevel.INFO, true);
   } catch (error) {
@@ -598,6 +600,30 @@ export async function activate(context: vscode.ExtensionContext) {
     await configureTargets(context);
   });
   context.subscriptions.push(configCmd);
+
+  const updateYamlContext = (editor?: vscode.TextEditor) => {
+    if (!editor) {
+      void vscode.commands.executeCommand('setContext', 'edaYamlDocument', false);
+      return;
+    }
+    const doc = editor.document;
+    if (doc.languageId !== 'yaml') {
+      void vscode.commands.executeCommand('setContext', 'edaYamlDocument', false);
+      return;
+    }
+    const maxLine = Math.min(50, doc.lineCount);
+    const text = doc.getText(new vscode.Range(0, 0, maxLine, 0));
+    const isEdaYaml = /apiVersion:\s*.*eda\.nokia\.com/.test(text);
+    void vscode.commands.executeCommand('setContext', 'edaYamlDocument', isEdaYaml);
+  };
+
+  updateYamlContext(vscode.window.activeTextEditor);
+  context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(updateYamlContext));
+  context.subscriptions.push(vscode.workspace.onDidChangeTextDocument(e => {
+    if (vscode.window.activeTextEditor && e.document === vscode.window.activeTextEditor.document) {
+      updateYamlContext(vscode.window.activeTextEditor);
+    }
+  }));
 
 
   // log('EDA extension activated', LogLevel.INFO, true);
