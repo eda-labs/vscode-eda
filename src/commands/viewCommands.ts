@@ -230,8 +230,14 @@ export function registerViewCommands(
           ? JSON.parse(deviation.spec.runningValues as string)
           : {};
 
-        const intendedYaml = yaml.dump(intended, { indent: 2 });
-        const runningYaml = yaml.dump(running, { indent: 2 });
+        let intendedYaml = yaml.dump(intended, { indent: 2 });
+        let runningYaml = yaml.dump(running, { indent: 2 });
+        if (intendedYaml.trim() === '{}') {
+          intendedYaml = '';
+        }
+        if (runningYaml.trim() === '{}') {
+          runningYaml = '';
+        }
         const patch = Diff.createPatch('values', intendedYaml, runningYaml);
         const lines = patch.split('\n');
         const start = lines.findIndex((l: string) => l.startsWith('@@'));
