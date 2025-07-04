@@ -3,9 +3,11 @@ import * as vscode from 'vscode';
 import { log, LogLevel } from '../extension';
 import { serviceManager } from '../services/serviceManager';
 import { KubernetesClient } from '../clients/kubernetesClient';
-import { EdactlClient } from '../clients/edactlClient';
+import { EdaClient } from '../clients/edaClient';
 import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
 import { runKubectl } from '../utils/kubectlRunner';
+import * as yaml from 'js-yaml';
+import { stripManagedFieldsFromYaml, sanitizeResource } from '../utils/yamlUtils';
 
 /**
  * Decide if the given apiVersion is an EDA group (ends with ".eda.nokia.com")
@@ -62,8 +64,8 @@ export function registerResourceViewCommands(
 ) {
   /**
    * Main command: opens a resource in read-only YAML view.
-   *  - If apiVersion ends with ".eda.nokia.com", we try `edactl get ... -o yaml`.
-   *  - Otherwise we do `kubectl get ... -o yaml`.
+   *  - If apiVersion ends with ".eda.nokia.com", we fetch it via the EDA API.
+   *  - Otherwise we use `kubectl get ... -o yaml`.
    */
   const viewResourceCmd = vscode.commands.registerCommand(
     'vscode-eda.viewResource',
@@ -130,67 +132,58 @@ export function registerResourceViewCommands(
           return;
         }
 
-        // 2) If we have an apiVersion and it looks EDA, try edactl first
+        // 2) If we have an apiVersion and it looks EDA, use the EDA client
         let finalYaml = '';
-        const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+        const edaClient = serviceManager.getClient<EdaClient>('eda');
 
         if (possibleApiVersion && isEdaGroup(possibleApiVersion)) {
-          // If recognized as EDA, attempt an edactl fetch:
-          log(`Detected EDA group from apiVersion=${possibleApiVersion}. Trying edactl...`, LogLevel.DEBUG);
+          // If recognized as EDA, fetch via the API
+          log(`Detected EDA group from apiVersion=${possibleApiVersion}. Fetching via EDA API...`, LogLevel.DEBUG);
 
-          let edaYaml = '';
           try {
-            edaYaml = await edactlClient.getEdaResourceYaml(resourceKind, resourceName, resourceNamespace);
-          } catch (error) {
-            log(`Error while fetching with edactl, will fall back to kubectl: ${error}`, LogLevel.WARN);
-            edaYaml = ''; // Ensure we fallback
-          }
+            const edaYaml = await edaClient.getEdaResourceYaml(resourceKind, resourceName, resourceNamespace);
 
-          // Check if the result from edactl is valid and not containing error messages
-          if (edaYaml && edaYaml.trim().length > 0 &&
-              !edaYaml.includes('NotFound') && !edaYaml.includes('error:')) {
-
-            // Check if the YAML has apiVersion (might be missing in edactl output)
             const hasApiVersion = edaYaml.includes('apiVersion:');
-
             if (!hasApiVersion) {
-              // Add the appropriate apiVersion based on the kind
               const apiVersion = getApiVersionForKind(resourceKind);
               log(`Adding missing apiVersion: ${apiVersion} to EDA YAML`, LogLevel.INFO);
               finalYaml = `apiVersion: ${apiVersion}\n${edaYaml}`;
             } else {
               finalYaml = edaYaml;
             }
+          } catch (error) {
+            log(`Error fetching resource via EDA API: ${error}`, LogLevel.ERROR);
+            finalYaml = `# Error fetching ${resourceKind}/${resourceName}: ${error}`;
+          }
+        }
+        else {
+          const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
+
+          if (resourceKind.toLowerCase() === 'artifact' && k8sClient) {
+            log(`Fetching artifact ${resourceName} via Kubernetes API`, LogLevel.DEBUG);
+            try {
+              finalYaml = await k8sClient.getArtifactYaml(resourceName, resourceNamespace);
+            } catch (error) {
+              log(`Error fetching artifact via K8s API: ${error}`, LogLevel.ERROR);
+              finalYaml = `# Error fetching ${resourceKind}/${resourceName}: ${error}`;
+            }
           } else {
-            // If edactl returned empty or error message, fallback to kubectl
-            log(`edactl failed for ${resourceKind}/${resourceName}, falling back to kubectl get -o yaml...`, LogLevel.INFO);
+            // 3) For standard K8s resources, just use kubectl
+            log(`Using kubectl get -o yaml for ${resourceKind}/${resourceName}...`, LogLevel.DEBUG);
             try {
               finalYaml = runKubectl(
                 'kubectl',
                 ['get', resourceKind.toLowerCase(), resourceName, '-o', 'yaml'],
                 { namespace: resourceNamespace }
               );
-              log(`Successfully fetched ${resourceKind}/${resourceName} via kubectl fallback`, LogLevel.INFO);
-            } catch (kubectlError) {
-              log(`Both edactl and kubectl failed for ${resourceKind}/${resourceName}: ${kubectlError}`, LogLevel.ERROR);
-              finalYaml = `# Error fetching ${resourceKind}/${resourceName}:\n# ${kubectlError}\n# Original edactl error: ${edaYaml}`;
+            } catch (error) {
+              log(`Error fetching resource with kubectl: ${error}`, LogLevel.ERROR);
+              finalYaml = `# Error fetching ${resourceKind}/${resourceName}:\n# ${error}`;
             }
           }
         }
-        else {
-          // 3) For standard K8s resources, just use kubectl
-          log(`Using kubectl get -o yaml for ${resourceKind}/${resourceName}...`, LogLevel.DEBUG);
-          try {
-            finalYaml = runKubectl(
-              'kubectl',
-              ['get', resourceKind.toLowerCase(), resourceName, '-o', 'yaml'],
-              { namespace: resourceNamespace }
-            );
-          } catch (error) {
-            log(`Error fetching resource with kubectl: ${error}`, LogLevel.ERROR);
-            finalYaml = `# Error fetching ${resourceKind}/${resourceName}:\n# ${error}`;
-          }
-        }
+
+        finalYaml = stripManagedFieldsFromYaml(finalYaml);
 
         if (!finalYaml || finalYaml.trim().length === 0) {
           finalYaml = `# No data found for ${resourceKind}/${resourceName} in namespace ${resourceNamespace}`;
@@ -215,5 +208,39 @@ export function registerResourceViewCommands(
     }
   );
 
-  context.subscriptions.push(viewResourceCmd);
+  const viewStreamItemCmd = vscode.commands.registerCommand(
+    'vscode-eda.viewStreamItem',
+    async (arg: any) => {
+      try {
+        // Handle both sanitized ResourceData objects and TreeItem objects
+        const resource = arg?.raw || arg?.rawResource || arg?.resource?.raw;
+        if (!resource) {
+          vscode.window.showErrorMessage('No data available for this item');
+          return;
+        }
+
+        const namespace =
+          resource.metadata?.namespace || arg.namespace || 'default';
+        const kind =
+          resource.kind || arg.resourceType || arg.kind || 'Resource';
+        const name = resource.metadata?.name || arg.name || arg.label || 'unknown';
+
+        const yamlText = yaml.dump(sanitizeResource(resource), { indent: 2 });
+
+        const viewUri = vscode.Uri.parse(
+          `k8s-view:/${namespace}/${kind}/${name}?ts=${Date.now()}`
+        );
+        resourceViewProvider.setResourceContent(viewUri, yamlText);
+
+        const doc = await vscode.workspace.openTextDocument(viewUri);
+        await vscode.languages.setTextDocumentLanguage(doc, 'yaml');
+        await vscode.window.showTextDocument(doc, { preview: true });
+      } catch (error: any) {
+        log(`Failed to open stream item: ${error}`, LogLevel.ERROR, true);
+        vscode.window.showErrorMessage(`Error viewing stream item: ${error}`);
+      }
+    }
+  );
+
+  context.subscriptions.push(viewResourceCmd, viewStreamItemCmd);
 }

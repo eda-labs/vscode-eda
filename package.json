@@ -1,12 +1,12 @@
 {
   "name": "vscode-eda",
   "publisher": "eda-labs",
-  "displayName": "Event Driven Automation (Nokia)",
+  "displayName": "Nokia EDA",
   "icon": "resources/eda.png",
-  "description": "Manage and monitor EDA (Event Driven Automation by Nokai) resources in Kubernetes",
+  "description": "Manage and monitor Nokia EDA (Event Driven Automation) resources via the EDA API",
   "author": "EDA Labs",
   "homepage": "https://docs.eda.dev/",
-  "version": "0.2.8",
+  "version": "0.3.1",
   "engines": {
     "vscode": "^1.100.0"
   },
@@ -21,15 +21,28 @@
     "eda",
     "Event Driven Automation",
     "Nokia",
-    "Kubernetes",
-    "containers",
+    "EDA API",
+    "websocket",
     "automation",
     "event-driven",
     "srlinux",
     "sros"
   ],
   "license": "Apache-2.0",
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:vscode-eda.configureTargets",
+    "onView:edaDashboards",
+    "onView:edaNamespaces",
+    "onView:edaAlarms",
+    "onView:edaDeviations",
+    "onView:edaTransactionBasket",
+    "onView:edaTransactions",
+    "onView:edaHelp",
+    "onCommand:vscode-eda.applyYamlFile",
+    "onCommand:vscode-eda.applyYamlFile.dryRun",
+    "onCommand:vscode-eda.addYamlToBasket",
+    "onCommand:vscode-eda.openCrdBrowser"
+  ],
   "main": "./dist/extension",
   "contributes": {
     "viewsContainers": {
@@ -44,6 +57,10 @@
     "views": {
       "edaExplorerViewContainer": [
         {
+          "id": "edaDashboards",
+          "name": "Dashboards"
+        },
+        {
           "id": "edaNamespaces",
           "name": "Resources"
         },
@@ -56,189 +73,326 @@
           "name": "Deviations"
         },
         {
+          "id": "edaTransactionBasket",
+          "name": "Transaction Basket"
+        },
+        {
           "id": "edaTransactions",
           "name": "Transactions"
+        },
+        {
+          "id": "edaHelp",
+          "name": "Help"
         }
       ]
     },
     "commands": [
       {
-        "command": "vscode-eda.refreshResources",
-        "title": "Refresh Resources",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "vscode-eda.patchEngineConfig",
-        "title": "EDA: Patch Engine Config (Enable ETCD Dumps)",
-        "icon": "$(database)"
-      },
-      {
-        "command": "vscode-eda.undoPatchEngineConfig",
-        "title": "EDA: Undo Patch Engine Config",
-        "icon": "$(database-stop)"
-      },
-      {
-        "command": "vscode-eda.refreshSchemas",
-        "title": "Refresh CRD Schemas",
-        "icon": "$(symbol-enum)"
-      },
-      {
         "command": "vscode-eda.showTransactionDetails",
-        "title": "Show Transaction Details"
+        "title": "EDA: Show Transaction Details"
+      },
+      {
+        "command": "vscode-eda.showBasketTransaction",
+        "title": "EDA: Show Basket Transaction"
       },
       {
         "command": "vscode-eda.deletePod",
-        "title": "Delete Pod",
+        "title": "EDA: Delete Pod",
         "icon": "$(trash)"
       },
       {
         "command": "vscode-eda.restartDeployment",
-        "title": "Restart Deployment",
+        "title": "EDA: Restart Deployment",
         "icon": "$(debug-restart)"
       },
       {
         "command": "vscode-eda.terminalPod",
-        "title": "Open Terminal to Pod",
+        "title": "EDA: Open Terminal to Pod",
         "icon": "$(terminal)"
       },
       {
         "command": "vscode-eda.logsPod",
-        "title": "View Pod Logs",
+        "title": "EDA: View Pod Logs",
         "icon": "$(list-unordered)"
       },
       {
         "command": "vscode-eda.describePod",
-        "title": "Describe Pod",
+        "title": "EDA: Describe Pod",
         "icon": "$(info)"
       },
       {
+        "command": "vscode-eda.viewNodeConfig",
+        "title": "EDA: Get Node Config",
+        "icon": "$(file-text)"
+      },
+      {
+        "command": "vscode-eda.sshTopoNode",
+        "title": "EDA: SSH to Node",
+        "icon": "$(terminal)"
+      },
+      {
         "command": "vscode-eda.switchToEditResource",
-        "title": "Switch to Edit Mode",
+        "title": "EDA: Switch to Edit Mode",
         "icon": "$(edit)"
       },
       {
         "command": "vscode-eda.applyResourceChanges",
-        "title": "Apply Resource Changes",
+        "title": "EDA: Apply Resource Changes",
         "icon": "$(check)"
       },
       {
         "command": "vscode-eda.applyResourceChanges.dryRun",
-        "title": "Validate (Dry Run)",
+        "title": "EDA: Validate (Dry Run)",
         "icon": "$(debug-alt)"
       },
       {
+        "command": "vscode-eda.applyYamlFile",
+        "title": "EDA: Apply YAML",
+        "icon": "$(run)"
+      },
+      {
+        "command": "vscode-eda.applyYamlFile.dryRun",
+        "title": "EDA: Validate YAML (Dry Run)",
+        "icon": "$(debug-alt)"
+      },
+      {
+        "command": "vscode-eda.addYamlToBasket",
+        "title": "EDA: Add YAML To Basket",
+        "icon": "$(inbox)"
+      },
+      {
+        "command": "vscode-eda.openCrdBrowser",
+        "title": "EDA: Open CRD Browser",
+        "icon": "$(list-tree)"
+      },
+      {
         "command": "vscode-eda.showResourceDiff",
-        "title": "Show Resource Changes",
+        "title": "EDA: Show Resource Changes",
         "icon": "$(diff)"
       },
       {
         "command": "vscode-eda.showCRDDefinition",
-        "title": "Show CRD Definition",
+        "title": "EDA: Show CRD Definition",
         "icon": "$(file)"
       },
       {
         "command": "vscode-eda.filterTree",
-        "title": "Filter Tree",
+        "title": "EDA: Filter Tree",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "vscode-eda.filterTreeActive",
+        "title": "EDA: Filter Tree",
         "icon": "$(filter-filled)"
       },
       {
         "command": "vscode-eda.clearFilter",
-        "title": "Clear Filter",
+        "title": "EDA: Clear Filter",
         "icon": "$(filter)"
       },
       {
         "command": "vscode-eda.expandAllNamespaces",
-        "title": "Expand All",
+        "title": "EDA: Expand All",
         "icon": "$(expand-all)"
       },
       {
         "command": "vscode-eda.createResource",
-        "title": "Create Resource",
+        "title": "EDA: Create Resource",
         "icon": "$(add)"
       },
       {
         "command": "vscode-eda.deleteResource",
-        "title": "Delete Resource",
+        "title": "EDA: Delete Resource",
         "icon": "$(trash)"
       },
       {
+        "command": "vscode-eda.addDeleteToBasket",
+        "title": "EDA: Add Delete To Basket"
+      },
+      {
         "command": "vscode-eda.showAlarmDetails",
-        "title": "Show Alarm Details"
+        "title": "EDA: Show Alarm Details"
       },
       {
         "command": "vscode-eda.showDeviationDetails",
-        "title": "Show Deviation Details"
+        "title": "EDA: Show Deviation Details"
       },
       {
         "command": "vscode-eda.acceptDeviation",
-        "title": "Accept Deviation"
+        "title": "EDA: Accept Deviation"
       },
       {
         "command": "vscode-eda.rejectDeviation",
-        "title": "Reject Deviation"
+        "title": "EDA: Reject Deviation"
+      },
+      {
+        "command": "vscode-eda.rejectAllDeviations",
+        "title": "EDA: Reject All Deviations"
       },
       {
         "command": "vscode-eda.acceptDeviation",
-        "title": "Accept Deviation",
+        "title": "EDA: Accept Deviation",
         "icon": "$(check)"
       },
       {
         "command": "vscode-eda.rejectDeviation",
-        "title": "Reject Deviation",
+        "title": "EDA: Reject Deviation",
+        "icon": "$(x)"
+      },
+      {
+        "command": "vscode-eda.rejectAllDeviations",
+        "title": "EDA: Reject All Deviations",
         "icon": "$(x)"
       },
       {
         "command": "vscode-eda.revertTransaction",
-        "title": "Revert Transaction",
+        "title": "EDA: Revert Transaction",
         "icon": "$(history)"
       },
       {
         "command": "vscode-eda.restoreTransaction",
-        "title": "Restore Transaction",
+        "title": "EDA: Restore Transaction",
         "icon": "$(debug-step-back)"
+      },
+      {
+        "command": "vscode-eda.setTransactionLimit",
+        "title": "EDA: Set Transaction Limit",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "vscode-eda.viewStreamItem",
+        "title": "EDA: View Stream Item",
+        "icon": "$(file)"
+      },
+      {
+        "command": "vscode-eda.updateCredentials",
+        "title": "EDA: Update Stored Credentials",
+        "icon": "$(key)"
+      },
+      {
+        "command": "vscode-eda.updateTargetCredentials",
+        "title": "EDA: Update Target Credentials",
+        "icon": "$(key)"
+      },
+      {
+        "command": "vscode-eda.configureTargets",
+        "title": "EDA: Configure Targets",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "vscode-eda.commitBasket",
+        "title": "EDA: Commit Basket",
+        "icon": "$(debug-start)"
+      },
+      {
+        "command": "vscode-eda.dryRunBasket",
+        "title": "EDA: Dry Run Basket",
+        "icon": "$(debug-alt)"
+      },
+      {
+        "command": "vscode-eda.discardBasket",
+        "title": "EDA: Discard Basket",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "vscode-eda.removeBasketItem",
+        "title": "EDA: Remove Basket Item",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "vscode-eda.showDashboard",
+        "title": "EDA: Show Dashboard"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "vscode-eda.yamlExplorer",
+        "label": "EDA"
       }
     ],
     "menus": {
       "commandPalette": [
         {
-          "command": "vscode-eda.patchEngineConfig",
+          "command": "vscode-eda.updateCredentials",
           "when": "true"
         },
         {
-          "command": "vscode-eda.undoPatchEngineConfig",
+          "command": "vscode-eda.updateTargetCredentials",
           "when": "true"
+        },
+        {
+          "command": "vscode-eda.configureTargets",
+          "when": "true"
+        },
+        {
+          "command": "vscode-eda.applyYamlFile",
+          "when": "editorLangId == yaml"
+        }
+        ,
+        {
+          "command": "vscode-eda.applyYamlFile.dryRun",
+          "when": "editorLangId == yaml"
+        },
+        {
+          "command": "vscode-eda.addYamlToBasket",
+          "when": "editorLangId == yaml"
         }
       ],
       "view/title": [
         {
           "command": "vscode-eda.filterTree",
-          "when": "view == edaNamespaces",
+          "when": "(view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions) && !edaTreeFilterActive",
+          "group": "navigation@1"
+        },
+        {
+          "command": "vscode-eda.filterTreeActive",
+          "when": "(view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions) && edaTreeFilterActive",
           "group": "navigation@1"
         },
         {
           "command": "vscode-eda.clearFilter",
-          "when": "view == edaNamespaces || view == edaSystem",
+          "when": "(view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions || view == edaSystem) && edaTreeFilterActive",
           "group": "navigation@2"
         },
         {
-          "command": "vscode-eda.createResource",
-          "when": "view == edaNamespaces || view == edaSystem",
+          "command": "vscode-eda.configureTargets",
+          "when": "view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions || view == edaSystem",
           "group": "navigation@3"
         },
         {
-          "command": "vscode-eda.expandAllNamespaces",
+          "command": "vscode-eda.createResource",
           "when": "view == edaNamespaces",
           "group": "navigation@4"
         },
         {
-          "command": "vscode-eda.patchEngineConfig",
+          "command": "vscode-eda.expandAllNamespaces",
           "when": "view == edaNamespaces",
-          "group": "management@1"
+          "group": "navigation@5"
         },
         {
-          "command": "vscode-eda.undoPatchEngineConfig",
-          "when": "view == edaNamespaces",
-          "group": "management@2"
+          "command": "vscode-eda.rejectAllDeviations",
+          "when": "view == edaDeviations",
+          "group": "navigation@5"
+        },
+        {
+          "command": "vscode-eda.setTransactionLimit",
+          "when": "view == edaTransactions",
+          "group": "navigation@6"
+        },
+        {
+          "command": "vscode-eda.commitBasket",
+          "when": "view == edaTransactionBasket",
+          "group": "navigation@7"
+        },
+        {
+          "command": "vscode-eda.dryRunBasket",
+          "when": "view == edaTransactionBasket",
+          "group": "navigation@8"
+        },
+        {
+          "command": "vscode-eda.discardBasket",
+          "when": "view == edaTransactionBasket",
+          "group": "navigation@9"
         }
       ],
       "view/item/context": [
@@ -265,12 +419,12 @@
         {
           "command": "vscode-eda.logsPod",
           "when": "viewItem == pod || viewItem == npp-pod",
-          "group": "navigation"
+          "group": "navigation@1"
         },
         {
           "command": "vscode-eda.describePod",
           "when": "viewItem == pod || viewItem == npp-pod",
-          "group": "navigation"
+          "group": "navigation@2"
         },
         {
           "command": "vscode-eda.terminalPod",
@@ -288,6 +442,16 @@
           "group": "inline"
         },
         {
+          "command": "vscode-eda.deleteResource",
+          "when": "viewItem == stream-item",
+          "group": "inline"
+        },
+        {
+          "command": "vscode-eda.switchToEditResource",
+          "when": "viewItem == stream-item",
+          "group": "inline"
+        },
+        {
           "command": "vscode-eda.showCRDDefinition",
           "when": "viewItem == crd-instance",
           "group": "inline"
@@ -298,7 +462,52 @@
           "group": "navigation"
         },
         {
+          "command": "vscode-eda.viewStreamItem",
+          "when": "viewItem == stream-item",
+          "group": "navigation"
+        },
+        {
+          "command": "vscode-eda.viewNodeConfig",
+          "when": "viewItem == toponode",
+          "group": "inline"
+        },
+        {
+          "command": "vscode-eda.sshTopoNode",
+          "when": "viewItem == toponode",
+          "group": "inline"
+        },
+        {
+          "command": "vscode-eda.viewNodeConfig",
+          "when": "viewItem == toponode",
+          "group": "navigation"
+        },
+        {
+          "command": "vscode-eda.sshTopoNode",
+          "when": "viewItem == toponode",
+          "group": "navigation"
+        },
+        {
           "command": "vscode-eda.deleteResource",
+          "when": "viewItem == toponode",
+          "group": "inline"
+        },
+        {
+          "command": "vscode-eda.deleteResource",
+          "when": "viewItem == toponode",
+          "group": "navigation"
+        },
+        {
+          "command": "vscode-eda.deleteResource",
+          "when": "viewItem == stream-item",
+          "group": "navigation"
+        },
+        {
+          "command": "vscode-eda.deleteResource",
+          "when": "viewItem == crd-instance",
+          "group": "inline"
+        },
+        {
+          "command": "vscode-eda.switchToEditResource",
           "when": "viewItem == crd-instance",
           "group": "inline"
         },
@@ -346,6 +555,16 @@
           "command": "vscode-eda.restoreTransaction",
           "when": "viewItem == transaction",
           "group": "inline"
+        },
+        {
+          "command": "vscode-eda.removeBasketItem",
+          "when": "viewItem == basket-item && view == edaTransactionBasket",
+          "group": "inline"
+        },
+        {
+          "command": "vscode-eda.removeBasketItem",
+          "when": "viewItem == basket-item && view == edaTransactionBasket",
+          "group": "navigation"
         }
       ],
       "editor/title": [
@@ -365,6 +584,26 @@
           "group": "navigation@3"
         },
         {
+          "command": "vscode-eda.applyYamlFile",
+          "when": "edaYamlDocument",
+          "group": "navigation@0"
+        },
+        {
+          "command": "vscode-eda.applyYamlFile.dryRun",
+          "when": "edaYamlDocument",
+          "group": "navigation@1"
+        },
+        {
+          "command": "vscode-eda.addYamlToBasket",
+          "when": "edaYamlDocument",
+          "group": "navigation@2"
+        },
+        {
+          "command": "vscode-eda.openCrdBrowser",
+          "when": "edaYamlDocument",
+          "group": "navigation@3"
+        },
+        {
           "command": "vscode-eda.switchToEditResource",
           "when": "resourceScheme == k8s-view",
           "group": "navigation@4"
@@ -376,19 +615,41 @@
           "when": "resourceScheme == k8s-view",
           "group": "1_modification@1"
         }
+      ],
+      "explorer/context": [
+        {
+          "submenu": "vscode-eda.yamlExplorer",
+          "when": "resourceLangId == yaml",
+          "group": "eda"
+        }
+      ],
+      "vscode-eda.yamlExplorer": [
+        {
+          "command": "vscode-eda.applyYamlFile"
+        },
+        {
+          "command": "vscode-eda.applyYamlFile.dryRun"
+        },
+        {
+          "command": "vscode-eda.addYamlToBasket",
+          "title": "Add to EDA's transaction"
+        },
+        {
+          "command": "vscode-eda.openCrdBrowser"
+        }
       ]
     },
     "configuration": {
       "title": "EDA Explorer",
       "properties": {
         "vscode-eda.logLevel": {
-          "type": "number",
-          "default": 1,
+          "type": "string",
+          "default": "info",
           "enum": [
-            0,
-            1,
-            2,
-            3
+            "debug",
+            "info",
+            "warn",
+            "error"
           ],
           "enumDescriptions": [
             "Debug: Show all logs including detailed operations",
@@ -397,6 +658,60 @@
             "Error: Show only errors"
           ],
           "description": "Controls the level of detail in the EDA output logs"
+        },
+        "vscode-eda.edaTargets": {
+          "type": "object",
+          "markdownDescription": "Map EDA API URLs to optional Kubernetes contexts and credentials. Example:\n```jsonc\n{\n  \"https://eda-example.com/\": {\n    \"context\": \"kubernetes-admin@kubernetes\",\n    \"edaUsername\": \"admin\",\n    \"kcUsername\": \"admin\",\n    \"skipTlsVerify\": true\n  }\n}\n```",
+          "additionalProperties": {
+            "oneOf": [
+              {
+                "type": "string",
+                "markdownDescription": "Optional Kubernetes context for this URL. Leave blank to disable Kubernetes."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "context": {
+                    "type": "string",
+                    "markdownDescription": "Optional Kubernetes context for this URL. Leave blank to disable Kubernetes."
+                  },
+                  "edaUsername": {
+                    "type": "string",
+                    "description": "Username for the EDA realm for this target"
+                  },
+                  "kcUsername": {
+                    "type": "string",
+                    "description": "Keycloak admin username for this target"
+                  },
+                  "skipTlsVerify": {
+                    "type": "boolean",
+                    "description": "Skip TLS verification when connecting to this target"
+                  },
+                  "coreNamespace": {
+                    "type": "string",
+                    "description": "EDA core namespace for this target",
+                    "default": "eda-system"
+                  }
+                },
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "vscode-eda.clientId": {
+          "type": "string",
+          "default": "eda",
+          "description": "Keycloak client ID for EDA"
+        },
+        "vscode-eda.nodeConfigColorMode": {
+          "type": "string",
+          "enum": [
+            "full",
+            "less",
+            "none"
+          ],
+          "default": "full",
+          "description": "Color mode for node configuration views"
         }
       }
     },
@@ -404,53 +719,66 @@
       {
         "command": "vscode-eda.filterTree",
         "key": "alt+shift+f"
+      },
+      {
+        "command": "vscode-eda.createResource",
+        "key": "alt+shift+a"
       }
     ]
   },
   "scripts": {
-    "compile": "npm run check-types && webpack --mode production",
+    "compile": "npm run check-types && node ./esbuild.config.mjs",
     "watch": "webpack --mode development --watch --info-verbosity verbose",
     "check-types": "tsc --noEmit",
-    "lint": "eslint --ext .ts,.tsx .",
+    "lint": "npm run check-types && eslint --ext .ts,.tsx .",
     "lint:fix": "npm run lint -- --fix",
-    "test": "mocha -r ts-node/register -r ./test/setup.ts test/**/*.test.ts"
+    "test": "mocha -r ts-node/register -r ./test/setup.ts test/**/*.test.ts",
+    "stream:namespaces": "ts-node namespace-stream.ts",
+    "compile-webpack": "npm run check-types && webpack --mode production",
+    "build:tailwind": "tailwindcss --content './src/panels/**/*.{ts,html}' --content './src/styles/**/*.{css,ts}' -o ./resources/tailwind.css"
   },
   "devDependencies": {
+    "@tailwindcss/cli": "^4.1.11",
     "@types/chai": "^5.2.2",
     "@types/js-yaml": "^4.0.9",
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.15.21",
+    "@types/sinon": "^17.0.4",
+    "@types/sinon-chai": "^4.0.0",
     "@types/vscode": "^1.100.0",
     "@types/ws": "^8.18.0",
     "@typescript-eslint/eslint-plugin": "^8.32.1",
     "@typescript-eslint/parser": "^8.32.1",
+    "@vscode/vsce": "^3.4.2",
     "bufferutil": "^4.0.9",
     "chai": "^5.2.0",
     "chai-as-promised": "^8.0.1",
     "chai-http": "^5.1.2",
+    "esbuild": "^0.25.5",
     "eslint": "^9.27.0",
     "file-loader": "^6.2.0",
+    "handlebars": "^4.7.8",
     "handlebars-loader": "^1.7.3",
     "jest-mock-vscode": "^4.4.0",
+    "js-yaml": "^4.1.0",
     "mocha": "^11.5.0",
     "mochawesome": "^7.1.3",
+    "openapi-typescript": "^7.8.0",
     "prettier": "~2.8.7",
     "sinon": "^20.0.0",
+    "tailwindcss": "^4.1.11",
     "ts-loader": "^9.5.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.32.1",
+    "undici": "^7.10.0",
+    "undici-types": "^7.10.0",
     "utf-8-validate": "^6.0.5",
     "webpack": "^5.99.7",
-    "webpack-cli": "^6.0.1"
+    "webpack-cli": "^6.0.1",
+    "ws": "^8.18.2"
   },
   "dependencies": {
-    "@types/sinon": "^17.0.4",
-    "@types/sinon-chai": "^4.0.0",
-    "@vscode/vsce": "^3.4.2",
-    "handlebars": "^4.7.8",
-    "js-yaml": "^4.1.0",
-    "undici": "^7.10.0",
-    "undici-types": "^7.10.0"
+    "echarts": "^5.6.0"
   }
 }

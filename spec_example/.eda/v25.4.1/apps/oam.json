@@ -1,0 +1,4326 @@
+{
+  "components": {
+    "schemas": {
+      "AppGroup": {
+        "properties": {
+          "apiVersion": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "preferredVersion": {
+            "$ref": "#/components/schemas/AppGroupVersion"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/AppGroupVersion"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "AppGroupVersion": {
+        "properties": {
+          "groupVersion": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ErrorIndex": {
+        "properties": {
+          "index": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "title": "Wrapper for index information inside an error.",
+        "type": "object"
+      },
+      "ErrorItem": {
+        "properties": {
+          "error": {
+            "type": "object"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "description": "Generic error response for REST APIs",
+        "properties": {
+          "code": {
+            "description": "the numeric HTTP error code for the response.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "details": {
+            "description": "The optional details of the error response.",
+            "type": "string"
+          },
+          "dictionary": {
+            "additionalProperties": true,
+            "description": "Dictionary/map of associated data/information relevant to the error.\nThe error \"message\" may contain {{name}} escapes that should be substituted\nwith information from this dictionary.",
+            "type": "object"
+          },
+          "errors": {
+            "description": "Collection of errors in cases where more than one exists. This needs to be\nflexible so we can support multiple formats",
+            "items": {
+              "$ref": "#/components/schemas/ErrorItem"
+            },
+            "type": "array"
+          },
+          "index": {
+            "$ref": "#/components/schemas/ErrorIndex"
+          },
+          "internal": {
+            "description": "Internal error code in cases where we don't have an array of errors",
+            "format": "int64",
+            "type": "integer"
+          },
+          "message": {
+            "description": "The basic text error message for the error response.",
+            "type": "string"
+          },
+          "ref": {
+            "description": "Reference to the error source. Should typically be the URI of the request",
+            "type": "string"
+          },
+          "type": {
+            "description": "URI pointing at a document that describes the error and mitigation steps\nIf there is no document, point to the RFC for the HTTP error code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "K8SPatchOp": {
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "op": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "value": {
+            "type": "object"
+          },
+          "x-permissive": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "op",
+          "path"
+        ],
+        "type": "object"
+      },
+      "Patch": {
+        "items": {
+          "$ref": "#/components/schemas/K8SPatchOp"
+        },
+        "type": "array"
+      },
+      "Resource": {
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespaced": {
+            "type": "boolean"
+          },
+          "readOnly": {
+            "type": "boolean"
+          },
+          "singularName": {
+            "type": "string"
+          },
+          "uiCategory": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ResourceHistory": {
+        "items": {
+          "$ref": "#/components/schemas/ResourceHistoryEntry"
+        },
+        "type": "array"
+      },
+      "ResourceHistoryEntry": {
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "changeType": {
+            "type": "string"
+          },
+          "commitTime": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "transactionId": {
+            "format": "uint64",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "ResourceList": {
+        "properties": {
+          "apiVersion": {
+            "type": "string"
+          },
+          "groupVersion": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "resources": {
+            "items": {
+              "$ref": "#/components/schemas/Resource"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "Status": {
+        "properties": {
+          "apiVersion": {
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/StatusDetails"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "string": {
+            "type": "string"
+          }
+        },
+        "title": "Status is a return value for calls that don't return other objects.",
+        "type": "object"
+      },
+      "StatusDetails": {
+        "properties": {
+          "group": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "UIResult": {
+        "type": "string"
+      },
+      "com.nokia.eda.oam.v1alpha1.Mirror": {
+        "description": "Mirror is the Schema for the mirrors API",
+        "properties": {
+          "apiVersion": {
+            "default": "oam.eda.nokia.com/v1alpha1",
+            "type": "string",
+            "x-eda-nokia-com": {
+              "ui-visible-if": "false"
+            }
+          },
+          "kind": {
+            "default": "Mirror",
+            "type": "string",
+            "x-eda-nokia-com": {
+              "ui-visible-if": "false"
+            }
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Mirror_metadata"
+          },
+          "spec": {
+            "description": "Mirror allows for the configuration of mirroring sources, including interfaces, subinterfaces, and filters, as well as the destination for the mirrored traffic, which can be either local or remote.",
+            "properties": {
+              "localDestination": {
+                "description": "Local destination for the mirror, there can only be either a remote destination or local destination provisioned for a Mirror.",
+                "properties": {
+                  "interface": {
+                    "description": "Reference to an Interface resource to send the mirrored traffic to.  This must be on the same Node as the source.",
+                    "title": "Local Interface",
+                    "type": "string",
+                    "x-eda-nokia-com": {
+                      "ui-auto-completes": [
+                        {
+                          "condition": "true",
+                          "group": "interfaces.eda.nokia.com",
+                          "resource": "interfaces",
+                          "type": "gvr",
+                          "version": "v1alpha1"
+                        }
+                      ],
+                      "ui-column-span": 2,
+                      "ui-order-priority": 100
+                    }
+                  },
+                  "vlanID": {
+                    "description": "Single value between 0-4094 support, or the special keyword untagged.",
+                    "title": "VLAN ID",
+                    "type": "string",
+                    "x-eda-nokia-com": {
+                      "ui-defaults": [
+                        {
+                          "condition": "spec.localDestination.interface !== ''",
+                          "value": "untagged"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "title": "Local Destination",
+                "type": "object",
+                "x-eda-nokia-com": {
+                  "ui-order-priority": 300
+                }
+              },
+              "remoteDestination": {
+                "description": "Remote destination for the mirror, there can only be either a remote destination or local destination provisioned for a Mirror.",
+                "properties": {
+                  "defaultRouter": {
+                    "description": "Specifies the DefaultRouter to reach the remote destination of the mirror, a Router and DefaultRouter reference cannot be set at the same time.",
+                    "title": "Default Router",
+                    "type": "string",
+                    "x-eda-nokia-com": {
+                      "ui-auto-completes": [
+                        {
+                          "condition": "true",
+                          "group": "routing.eda.nokia.com",
+                          "resource": "defaultrouters",
+                          "type": "gvr",
+                          "version": "v1alpha1"
+                        }
+                      ],
+                      "ui-column-span": 2,
+                      "ui-order-priority": 400,
+                      "ui-single-line-group": "RouterDefaultRouter"
+                    }
+                  },
+                  "destinationIP": {
+                    "description": "Remote destination IP address.  When a remote destination is used for the mirror, the destinationIP is mandatory.",
+                    "format": "ip",
+                    "title": "Destination IP",
+                    "type": "string",
+                    "x-eda-nokia-com": {
+                      "ui-column-span": 2,
+                      "ui-order-priority": 100
+                    }
+                  },
+                  "encapsulation": {
+                    "enum": [
+                      "L2OGRE",
+                      "L3OGRE"
+                    ],
+                    "title": "Encapsulation",
+                    "type": "string",
+                    "x-eda-nokia-com": {
+                      "ui-column-span": 2,
+                      "ui-defaults": [
+                        {
+                          "condition": "spec.remoteDestination.destionationIP !== '' && spec.remoteDestination.sourceIP !== ''",
+                          "value": "L2OGRE"
+                        }
+                      ],
+                      "ui-order-priority": 300
+                    }
+                  },
+                  "router": {
+                    "description": "Specifies the Router to reach the remote destination of the mirror, a Router and DefaultRouter reference cannot be set at the same time.",
+                    "title": "Router",
+                    "type": "string",
+                    "x-eda-nokia-com": {
+                      "ui-auto-completes": [
+                        {
+                          "condition": "true",
+                          "group": "services.eda.nokia.com",
+                          "resource": "routers",
+                          "type": "gvr",
+                          "version": "v1alpha1"
+                        }
+                      ],
+                      "ui-column-span": 2,
+                      "ui-order-priority": 400,
+                      "ui-single-line-group": "RouterDefaultRouter"
+                    }
+                  },
+                  "sourceIP": {
+                    "description": "Source IP to use when sending a mirror to a remote destination.  When a remote destination us used for the mirror, the sourceIP is mandatory.",
+                    "format": "ip",
+                    "title": "Source IP",
+                    "type": "string",
+                    "x-eda-nokia-com": {
+                      "ui-column-span": 2,
+                      "ui-order-priority": 200
+                    }
+                  }
+                },
+                "title": "Remote Destination",
+                "type": "object",
+                "x-eda-nokia-com": {
+                  "ui-column-span": 1,
+                  "ui-conditions": [
+                    {
+                      "condition": "(spec.remoteDestination.router === undefined && spec.remoteDestination.defaultRouter !== undefined) || (spec.remoteDestination.router !== undefined && spec.remoteDestination.defaultRouter === undefined)",
+                      "errorMsg": "Default Router and Router cannot both be configured at the same time"
+                    }
+                  ],
+                  "ui-order-priority": 200
+                }
+              },
+              "sources": {
+                "description": "Mirror sources.",
+                "properties": {
+                  "direction": {
+                    "description": "The direction of the traffic being mirrored.",
+                    "enum": [
+                      "Ingress",
+                      "Egress",
+                      "IngressEgress"
+                    ],
+                    "title": "Direction",
+                    "type": "string",
+                    "x-eda-nokia-com": {
+                      "ui-column-span": 2,
+                      "ui-order-priority": 100
+                    }
+                  },
+                  "filters": {
+                    "items": {
+                      "properties": {
+                        "filter": {
+                          "description": "Emittes an MirrorFilter and uses the filter as a source for the Mirror.",
+                          "properties": {
+                            "entries": {
+                              "description": "Specifies the list of filter entries, in order.",
+                              "items": {
+                                "properties": {
+                                  "ipEntry": {
+                                    "properties": {
+                                      "action": {
+                                        "description": "An action to take, either 'Accept','Drop', or 'RateLimit'.",
+                                        "enum": [
+                                          "Drop",
+                                          "Accept",
+                                          "RateLimit"
+                                        ],
+                                        "title": "Action",
+                                        "type": "string",
+                                        "x-eda-nokia-com": {
+                                          "ui-column-span": 2
+                                        }
+                                      },
+                                      "destinationPortName": {
+                                        "description": "Destination port to match by name.",
+                                        "enum": [
+                                          "ACAP",
+                                          "AFP-TCP",
+                                          "ARNS",
+                                          "ASF-RMCP",
+                                          "ASHARE",
+                                          "ATALK-RM",
+                                          "AURP",
+                                          "AUTH",
+                                          "BFD",
+                                          "BFD-ECHO",
+                                          "BFTP",
+                                          "BGMP",
+                                          "BGP",
+                                          "BOOTPC",
+                                          "BOOTPS",
+                                          "CCSO-NS",
+                                          "CHARGEN",
+                                          "CISCO-TDP",
+                                          "CITADEL",
+                                          "CLEARCASE",
+                                          "COMMERCE",
+                                          "COURIER",
+                                          "DAYTIME",
+                                          "DHCP-FAILOVER",
+                                          "DHCPV6-CLIENT",
+                                          "DHCPV6-SERVER",
+                                          "DICOM",
+                                          "DISCARD",
+                                          "DNSIX",
+                                          "DOMAIN",
+                                          "DSP",
+                                          "ECHO",
+                                          "EPP",
+                                          "ESRO",
+                                          "EXEC",
+                                          "FINGER",
+                                          "FTP",
+                                          "FTP-DATA",
+                                          "FTPS",
+                                          "FTPS-DATA",
+                                          "GODI",
+                                          "GOPHER",
+                                          "GTP-C",
+                                          "GTP-PRIME",
+                                          "GTP-U",
+                                          "HA-CLUSTER",
+                                          "HOSTNAME",
+                                          "HP-ALARM-MGR",
+                                          "HTTP",
+                                          "HTTP-ALT",
+                                          "HTTP-MGMT",
+                                          "HTTP-RPC",
+                                          "HTTPS",
+                                          "IEEE-MMS-SSL",
+                                          "IMAP",
+                                          "IMAP3",
+                                          "IMAPS",
+                                          "IPP",
+                                          "IPSEC",
+                                          "IPX",
+                                          "IRC",
+                                          "IRIS-BEEP",
+                                          "ISAKMP",
+                                          "ISAKMP-NAT",
+                                          "ISCSI",
+                                          "ISO-TSAP",
+                                          "KERBEROS",
+                                          "KERBEROS-ADM",
+                                          "KLOGIN",
+                                          "KPASSWD",
+                                          "KSHELL",
+                                          "L2TP",
+                                          "LDAP",
+                                          "LDAPS",
+                                          "LDP",
+                                          "LMP",
+                                          "LOGIN",
+                                          "LPD",
+                                          "LSP-PING",
+                                          "MAC-SERVER-ADM",
+                                          "MATIP-A",
+                                          "MATIP-B",
+                                          "MICRO-BFD",
+                                          "MICROSOFT-DS",
+                                          "MOBILE-IP",
+                                          "MONITOR",
+                                          "MPP",
+                                          "MS-EXCHANGE",
+                                          "MSDP",
+                                          "MSP",
+                                          "MSSQL-M",
+                                          "MSSQL-S",
+                                          "MULTIHOP-BFD",
+                                          "NAS",
+                                          "NCP",
+                                          "NETBIOS-DATA",
+                                          "NETBIOS-NS",
+                                          "NETBIOS-SS",
+                                          "NETNEWS",
+                                          "NETRJS-1",
+                                          "NETRJS-2",
+                                          "NETRJS-3",
+                                          "NETRJS-4",
+                                          "NETWALL",
+                                          "NEW-RWHO",
+                                          "NFS",
+                                          "NNTP",
+                                          "NNTPS",
+                                          "NTP",
+                                          "ODMR",
+                                          "OLSR",
+                                          "OPENVPN",
+                                          "PIM-AUTO-RP",
+                                          "PKIX-TIMESTAMP",
+                                          "POP2",
+                                          "POP3",
+                                          "POP3S",
+                                          "PPTP",
+                                          "PRINT-SRV",
+                                          "PTP-EVENT",
+                                          "PTP-GENERAL",
+                                          "QMTP",
+                                          "QOTD",
+                                          "RADIUS",
+                                          "RADIUS-ACCT",
+                                          "REMOTE-MAIL",
+                                          "REMOTEFS",
+                                          "REMOTECMD",
+                                          "RIP",
+                                          "RJE",
+                                          "RLP",
+                                          "RLZDB",
+                                          "RMC",
+                                          "RMONITOR",
+                                          "RPC2PORTMAP",
+                                          "RSYNC",
+                                          "RTELNET",
+                                          "RTSP",
+                                          "SGMP",
+                                          "SILC",
+                                          "SMUX",
+                                          "SNA-GW",
+                                          "SNMP",
+                                          "SNMP-TRAP",
+                                          "SNPP",
+                                          "SMTP",
+                                          "SQL-SVCS",
+                                          "SQL",
+                                          "SSH",
+                                          "SUBMISSION",
+                                          "SUNRPC",
+                                          "SVCLOC",
+                                          "SYSLOG",
+                                          "SYSTAT",
+                                          "TACACS",
+                                          "TALK",
+                                          "TCPMUX",
+                                          "TCPNETHASPSRV",
+                                          "TFTP",
+                                          "TIME",
+                                          "TIMED",
+                                          "UPS",
+                                          "XDMCP",
+                                          "XNS-CH",
+                                          "XNS-MAIL",
+                                          "XNS-TIME",
+                                          "Z3950"
+                                        ],
+                                        "title": "Destination Port Name",
+                                        "type": "string",
+                                        "x-eda-nokia-com": {
+                                          "ui-column-span": 2,
+                                          "ui-order-priority": 450,
+                                          "ui-single-line-group": "PortName"
+                                        }
+                                      },
+                                      "destinationPortNumber": {
+                                        "description": "Destination port to match by numerical value.",
+                                        "maximum": 65535,
+                                        "minimum": 0,
+                                        "title": "Destination Port Number",
+                                        "type": "integer",
+                                        "x-eda-nokia-com": {
+                                          "ui-column-span": 2,
+                                          "ui-order-priority": 250,
+                                          "ui-single-line-group": "PortNumbers"
+                                        }
+                                      },
+                                      "destinationPortOperator": {
+                                        "description": "Operator to use when matching destinationPort, either Equals, GreaterOrEquals, or LessOrEquals.",
+                                        "enum": [
+                                          "Equals",
+                                          "GreaterOrEquals",
+                                          "LessOrEquals"
+                                        ],
+                                        "title": "Destination Port Operator",
+                                        "type": "string",
+                                        "x-eda-nokia-com": {
+                                          "ui-column-span": 2,
+                                          "ui-defaults": [
+                                            {
+                                              "condition": "!ipEntry.destinationPortOperator && ((ipEntry.destinationPortNumber || ipEntry.destinationPortName !== '') || ipEntry.tcpFlags !== '')",
+                                              "value": "Equals"
+                                            },
+                                            {
+                                              "condition": "ipEntry.destinationPortOperator !== 'Equals' && (!ipEntry.destinationPortNumber && !ipEntry.destinationPortName && !ipEntry.destinationPortNumber)",
+                                              "value": ""
+                                            }
+                                          ],
+                                          "ui-order-priority": 550,
+                                          "ui-single-line-group": "PortOperator"
+                                        }
+                                      },
+                                      "destinationPortRange": {
+                                        "description": "Range of destination ports to match, in the format n-m, e.g. 100-200,  The start and end of the range must be port numbers.",
+                                        "title": "Destination Port Range",
+                                        "type": "string",
+                                        "x-eda-nokia-com": {
+                                          "ui-column-span": 2,
+                                          "ui-order-priority": 350,
+                                          "ui-single-line-group": "PortRange"
+                                        }
+                                      },
+                                      "destinationPrefix": {
+                                        "description": "Destination prefix to match.",
+                                        "format": "ip",
+                                        "title": "Destination Prefix",
+                                        "type": "string",
+                                        "x-eda-nokia-com": {
+                                          "ui-column-span": 2,
+                                          "ui-order-priority": 150,
+                                          "ui-single-line-group": "DestinationSourcePrefix"
+                                        }
+                                      },
+                                      "firstFragment": {
+                                        "description": "Match the first fragment only.",
+                                        "title": "First Fragment",
+                                        "type": "boolean",
+                                        "x-eda-nokia-com": {
+                                          "ui-column-span": 2,
+                                          "ui-order-priority": 1000,
+                                          "ui-single-line-group": "Fragment"
+                                        }
+                                      },
+                                      "fragment": {
+                                        "description": "Match any fragment.",
+                                        "title": "Fragment",
+                                        "type": "boolean",
+                                        "x-eda-nokia-com": {
+                                          "ui-column-span": 2,
+                                          "ui-defaults": [
+                                            {
+                                              "condition": "ipEntry.firstFragment",
+                                              "value": true
+                                            }
+                                          ],
+                                          "ui-order-priority": 1050,
+                                          "ui-single-line-group": "Fragment"
+                                        }
+                                      },
+                                      "icmpCode": {
+                                        "description": "Match a specific ICMP code, as a number between 0-255, e.g. 0.",
+                                        "items": {
+                                          "type": "integer"
+                                        },
+                                        "maxItems": 255,
+                                        "minItems": 0,
+                                        "title": "ICMP Code",
+                                        "type": "array",
+                                        "x-eda-nokia-com": {
+                                          "ui-column-span": 2,
+                                          "ui-order-priority": 800,
+                                          "ui-visible-if": "ipEntry.protocolName === \"ICMP\" || ipEntry.protocolName === \"ICMP6\" || ipEntry.protocolNumber === 1 || ipEntry.protocolNumber === 58"
+                                        }
+                                      },
+                                      "icmpTypeName": {
+                                        "description": "Match a specific ICMP type by name, e.g. dest-unreachable.",
+                                        "enum": [
+                                          "DestUnreachable",
+                                          "Echo",
+                                          "EchoReply",
+                                          "EchoRequest",
+                                          "McastRtrAdv",
+                                          "McastRtrSolicit",
+                                          "McastRtrTerm",
+                                          "MldDone",
+                                          "MldQuery",
+                                          "MldReport",
+                                          "MldV2",
+                                          "NeighborAdvertise",
+                                          "NeighborSolicit",
+                                          "NodeInfoQuery",
+                                          "NodeInfoResponse",
+                                          "PacketTooBig",
+                                          "ParamProblem",
+                                          "Redirect",
+                                          "RouterAdvertise",
+                                          "RouterRenumber",
+                                          "RouterSolicit",
+                                          "SourceQuench",
+                                          "TimeExceeded",
+                                          "Timestamp",
+                                          "TimestampReply"
+                                        ],
+                                        "title": "ICMP Type Name",
+                                        "type": "string",
+                                        "x-eda-nokia-com": {
+                                          "ui-column-span": 2,
+                                          "ui-order-priority": 700,
+                                          "ui-single-line-group": "ICMPType",
+                                          "ui-visible-if": "ipEntry.protocolName === \"ICMP\" || ipEntry.protocolName === \"ICMP6\" || ipEntry.protocolNumber === 1 || ipEntry.protocolNumber === 58"
+                                        }
+                                      },
+                                      "icmpTypeNumber": {
+                                        "description": "Match a specific ICMP type by number.",
+                                        "maximum": 255,
+                                        "minimum": 0,
+                                        "title": "ICMP Type Number",
+                                        "type": "integer",
+                                        "x-eda-nokia-com": {
+                                          "ui-column-span": 2,
+                                          "ui-order-priority": 750,
+                                          "ui-single-line-group": "ICMPType",
+                                          "ui-visible-if": "ipEntry.protocolName === \"ICMP\" || ipEntry.protocolName === \"ICMP6\" || ipEntry.protocolNumber === 1 || ipEntry.protocolNumber === 58"
+                                        }
+                                      },
+                                      "protocolName": {
+                                        "description": "Match a specific IP protocol name (specified in the type field of the IP header).",
+                                        "enum": [
+                                          "AH",
+                                          "EGP",
+                                          "EIGRP",
+                                          "ESP",
+                                          "GGP",
+                                          "GRE",
+                                          "ICMP",
+                                          "ICMP6",
+                                          "IDRP",
+                                          "IGMP",
+                                          "IGP",
+                                          "IPV4",
+                                          "IPV6",
+                                          "IPV6-DEST-OPTS",
+                                          "IPV6-HOP",
+                                          "L2TP",
+                                          "MPLS-IN-IP",
+                                          "NO-NEXT-HDR",
+                                          "OSPF",
+                                          "PIM",
+                                          "ROHC",
+                                          "RSVP",
+                                          "SCTP",
+                                          "ST",
+                                          "TCP",
+                                          "UDP",
+                                          "VRRP"
+                                        ],
+                                        "title": "Protocol Name",
+                                        "type": "string",
+                                        "x-eda-nokia-com": {
+                                          "ui-column-span": 2,
+                                          "ui-defaults": [
+                                            {
+                                              "condition": "!ipEntry.protocolName && ((ipEntry.sourcePortNumber || ipEntry.sourcePortRange !== '' || ipEntry.sourcePortName !== '' || ipEntry.destinationPortNumber || ipEntry.destinationPortRange !== '' || ipEntry.destinationPortName !== '') || ipEntry.tcpFlags !== '')",
+                                              "value": "TCP"
+                                            },
+                                            {
+                                              "condition": "ipEntry.protocolName === 'TCP' && (!ipEntry.sourcePortNumber && !ipEntry.sourcePortRange && !ipEntry.sourcePortName && !ipEntry.destinationPortNumber && !ipEntry.destinationPortRange && !ipEntry.destinationPortName && ipEntry.tcpFlags === '')",
+                                              "value": ""
+                                            }
+                                          ],
+                                          "ui-order-priority": 650,
+                                          "ui-single-line-group": "ProtocolNumberName"
+                                        }
+                                      },
+                                      "protocolNumber": {
+                                        "description": "Match a specific IP protocol number (specified in the type field of the IP header).",
+                                        "maximum": 255,
+                                        "minimum": 0,
+                                        "title": "Protocol Number",
+                                        "type": "integer",
+                                        "x-eda-nokia-com": {
+                                          "ui-column-span": 2,
+                                          "ui-order-priority": 600,
+                                          "ui-single-line-group": "ProtocolNumberName"
+                                        }
+                                      },
+                                      "rateLimit": {
+                                        "description": "Rate limit to apply when the action is 'RateLimit'.",
+                                        "properties": {
+                                          "burstSize": {
+                                            "description": "The maximum burst size in bytes.",
+                                            "format": "int32",
+                                            "title": "Burst Size",
+                                            "type": "integer",
+                                            "x-eda-nokia-com": {
+                                              "ui-column-span": 2,
+                                              "ui-order-priority": 200
+                                            }
+                                          },
+                                          "entrySpecificPolicer": {
+                                            "default": false,
+                                            "description": "Controls policer instantiation: false for shared instance, true for per-entry instances",
+                                            "title": "Entry Specific Policer",
+                                            "type": "boolean",
+                                            "x-eda-nokia-com": {
+                                              "ui-column-span": 2,
+                                              "ui-order-priority": 300
+                                            }
+                                          },
+                                          "peakRate": {
+                                            "description": "The peak rate in kilobytes per second.",
+                                            "format": "int32",
+                                            "title": "Peak Rate",
+                                            "type": "integer",
+                                            "x-eda-nokia-com": {
+                                              "ui-column-span": 2,
+                                              "ui-order-priority": 100
+                                            }
+                                          },
+                                          "scope": {
+                                            "default": "Global",
+                                            "description": "Determines how the policer is applied across subinterfaces. Global applies the policer across all subinterfaces, while Subinterface applies it individually to each subinterface.",
+                                            "enum": [
+                                              "Global",
+                                              "Subinterface"
+                                            ],
+                                            "title": "Scope",
+                                            "type": "string",
+                                            "x-eda-nokia-com": {
+                                              "ui-column-span": 2,
+                                              "ui-order-priority": 400
+                                            }
+                                          }
+                                        },
+                                        "title": "Rate Limit",
+                                        "type": "object"
+                                      },
+                                      "sourcePortName": {
+                                        "description": "Source port to match by name.",
+                                        "enum": [
+                                          "ACAP",
+                                          "AFP-TCP",
+                                          "ARNS",
+                                          "ASF-RMCP",
+                                          "ASHARE",
+                                          "ATALK-RM",
+                                          "AURP",
+                                          "AUTH",
+                                          "BFD",
+                                          "BFD-ECHO",
+                                          "BFTP",
+                                          "BGMP",
+                                          "BGP",
+                                          "BOOTPC",
+                                          "BOOTPS",
+                                          "CCSO-NS",
+                                          "CHARGEN",
+                                          "CISCO-TDP",
+                                          "CITADEL",
+                                          "CLEARCASE",
+                                          "COMMERCE",
+                                          "COURIER",
+                                          "DAYTIME",
+                                          "DHCP-FAILOVER",
+                                          "DHCPV6-CLIENT",
+                                          "DHCPV6-SERVER",
+                                          "DICOM",
+                                          "DISCARD",
+                                          "DNSIX",
+                                          "DOMAIN",
+                                          "DSP",
+                                          "ECHO",
+                                          "EPP",
+                                          "ESRO",
+                                          "EXEC",
+                                          "FINGER",
+                                          "FTP",
+                                          "FTP-DATA",
+                                          "FTPS",
+                                          "FTPS-DATA",
+                                          "GODI",
+                                          "GOPHER",
+                                          "GTP-C",
+                                          "GTP-PRIME",
+                                          "GTP-U",
+                                          "HA-CLUSTER",
+                                          "HOSTNAME",
+                                          "HP-ALARM-MGR",
+                                          "HTTP",
+                                          "HTTP-ALT",
+                                          "HTTP-MGMT",
+                                          "HTTP-RPC",
+                                          "HTTPS",
+                                          "IEEE-MMS-SSL",
+                                          "IMAP",
+                                          "IMAP3",
+                                          "IMAPS",
+                                          "IPP",
+                                          "IPSEC",
+                                          "IPX",
+                                          "IRC",
+                                          "IRIS-BEEP",
+                                          "ISAKMP",
+                                          "ISAKMP-NAT",
+                                          "ISCSI",
+                                          "ISO-TSAP",
+                                          "KERBEROS",
+                                          "KERBEROS-ADM",
+                                          "KLOGIN",
+                                          "KPASSWD",
+                                          "KSHELL",
+                                          "L2TP",
+                                          "LDAP",
+                                          "LDAPS",
+                                          "LDP",
+                                          "LMP",
+                                          "LOGIN",
+                                          "LPD",
+                                          "LSP-PING",
+                                          "MAC-SERVER-ADM",
+                                          "MATIP-A",
+                                          "MATIP-B",
+                                          "MICRO-BFD",
+                                          "MICROSOFT-DS",
+                                          "MOBILE-IP",
+                                          "MONITOR",
+                                          "MPP",
+                                          "MS-EXCHANGE",
+                                          "MSDP",
+                                          "MSP",
+                                          "MSSQL-M",
+                                          "MSSQL-S",
+                                          "MULTIHOP-BFD",
+                                          "NAS",
+                                          "NCP",
+                                          "NETBIOS-DATA",
+                                          "NETBIOS-NS",
+                                          "NETBIOS-SS",
+                                          "NETNEWS",
+                                          "NETRJS-1",
+                                          "NETRJS-2",
+                                          "NETRJS-3",
+                                          "NETRJS-4",
+                                          "NETWALL",
+                                          "NEW-RWHO",
+                                          "NFS",
+                                          "NNTP",
+                                          "NNTPS",
+                                          "NTP",
+                                          "ODMR",
+                                          "OLSR",
+                                          "OPENVPN",
+                                          "PIM-AUTO-RP",
+                                          "PKIX-TIMESTAMP",
+                                          "POP2",
+                                          "POP3",
+                                          "POP3S",
+                                          "PPTP",
+                                          "PRINT-SRV",
+                                          "PTP-EVENT",
+                                          "PTP-GENERAL",
+                                          "QMTP",
+                                          "QOTD",
+                                          "RADIUS",
+                                          "RADIUS-ACCT",
+                                          "REMOTE-MAIL",
+                                          "REMOTEFS",
+                                          "REMOTECMD",
+                                          "RIP",
+                                          "RJE",
+                                          "RLP",
+                                          "RLZDB",
+                                          "RMC",
+                                          "RMONITOR",
+                                          "RPC2PORTMAP",
+                                          "RSYNC",
+                                          "RTELNET",
+                                          "RTSP",
+                                          "SGMP",
+                                          "SILC",
+                                          "SMUX",
+                                          "SNA-GW",
+                                          "SNMP",
+                                          "SNMP-TRAP",
+                                          "SNPP",
+                                          "SMTP",
+                                          "SQL-SVCS",
+                                          "SQL",
+                                          "SSH",
+                                          "SUBMISSION",
+                                          "SUNRPC",
+                                          "SVCLOC",
+                                          "SYSLOG",
+                                          "SYSTAT",
+                                          "TACACS",
+                                          "TALK",
+                                          "TCPMUX",
+                                          "TCPNETHASPSRV",
+                                          "TFTP",
+                                          "TIME",
+                                          "TIMED",
+                                          "UPS",
+                                          "XDMCP",
+                                          "XNS-CH",
+                                          "XNS-MAIL",
+                                          "XNS-TIME",
+                                          "Z3950"
+                                        ],
+                                        "title": "Source Port Name",
+                                        "type": "string",
+                                        "x-eda-nokia-com": {
+                                          "ui-column-span": 2,
+                                          "ui-order-priority": 400,
+                                          "ui-single-line-group": "PortName"
+                                        }
+                                      },
+                                      "sourcePortNumber": {
+                                        "description": "Source port to match by numerical value.",
+                                        "maximum": 65535,
+                                        "minimum": 0,
+                                        "title": "Source Port Number",
+                                        "type": "integer",
+                                        "x-eda-nokia-com": {
+                                          "ui-column-span": 2,
+                                          "ui-order-priority": 200,
+                                          "ui-single-line-group": "PortNumbers"
+                                        }
+                                      },
+                                      "sourcePortOperator": {
+                                        "description": "Operator to use when matching sourcePort, either Equals, GreaterOrEquals, or LessOrEquals.",
+                                        "enum": [
+                                          "Equals",
+                                          "GreaterOrEquals",
+                                          "LessOrEquals"
+                                        ],
+                                        "title": "Source Port Operator",
+                                        "type": "string",
+                                        "x-eda-nokia-com": {
+                                          "ui-column-span": 2,
+                                          "ui-defaults": [
+                                            {
+                                              "condition": "!ipEntry.sourcePortOperator && ((ipEntry.sourcePortNumber || ipEntry.sourcePortName !== '') || ipEntry.tcpFlags !== '')",
+                                              "value": "Equals"
+                                            },
+                                            {
+                                              "condition": "ipEntry.sourcePortOperator === 'Equals' && (!ipEntry.sourcePortNumber && !ipEntry.sourcePortName && !ipEntry.destinationPortNumber)",
+                                              "value": ""
+                                            }
+                                          ],
+                                          "ui-order-priority": 500,
+                                          "ui-single-line-group": "PortOperator"
+                                        }
+                                      },
+                                      "sourcePortRange": {
+                                        "description": "Range of source ports to match, in the format n-m, e.g. 100-200.  The start and end of the range must be port numbers.",
+                                        "title": "Source Port Range",
+                                        "type": "string",
+                                        "x-eda-nokia-com": {
+                                          "ui-column-span": 2,
+                                          "ui-order-priority": 300,
+                                          "ui-single-line-group": "PortRange"
+                                        }
+                                      },
+                                      "sourcePrefix": {
+                                        "description": "Source prefix to match.",
+                                        "format": "ip",
+                                        "title": "Source Prefix",
+                                        "type": "string",
+                                        "x-eda-nokia-com": {
+                                          "ui-column-span": 2,
+                                          "ui-order-priority": 100,
+                                          "ui-single-line-group": "DestinationSourcePrefix"
+                                        }
+                                      },
+                                      "tcpFlags": {
+                                        "description": "Match TCP flags, usable with !, &, | and the flags RST, SYN, and ACK.",
+                                        "title": "TCP Flags",
+                                        "type": "string",
+                                        "x-eda-nokia-com": {
+                                          "ui-column-span": 2,
+                                          "ui-order-priority": 900,
+                                          "ui-visible-if": "ipEntry.protocolName === \"TCP\" || ipEntry.protocolNumber === 6"
+                                        }
+                                      }
+                                    },
+                                    "title": "IP Entry",
+                                    "type": "object",
+                                    "x-eda-nokia-com": {
+                                      "ui-column-span": 4,
+                                      "ui-conditions": [
+                                        {
+                                          "condition": "!((ipEntry.action === undefined) && (ipEntry.sourcePortNumber !== null || ipEntry.destinationPortNumber !== null || ipEntry.sourcePrefix !== undefined || ipEntry.destinationPrefix !== undefined || ipEntry.soucePortRange !== undefined || ipEntry.destinationPortRange !== undefined || ipEntry.sourcePortName !== undefined || ipEntry.destinationPortName !== undefined || ipEntry.sourcePortOperator !== undefined || ipEntry.destinationPortOperator !== undefined || ipEntry.protocolNumber !== null || ipEntry.protocolName !== undefined || ipEntry.icmpTypeName !== undefined || ipEntry.icmpTypeNumber !== null || ipEntry.tcpFlags !== undefined || ipEntry.firstFragment !== false || ipEntry.fragment !== false))",
+                                          "errorMsg": "An IP action must be set if any of the IP fields are set."
+                                        },
+                                        {
+                                          "condition": "!(ipEntry.firstFragment === true && ipEntry.fragment === false)",
+                                          "errorMsg": "Fragment match must be enabled when First Fragment match is enabled."
+                                        },
+                                        {
+                                          "condition": "!((ipEntry.sourcePortNumber ? 1 : 0) + (ipEntry.sourcePortRange ? 1 : 0) + (ipEntry.sourcePortName ? 1 : 0) > 1)",
+                                          "errorMsg": "Only one of Source Port Number, Source Port Range or Source Port Name can be set at a time."
+                                        },
+                                        {
+                                          "condition": "!((ipEntry.destinationPortNumber ? 1 : 0) + (ipEntry.destinationPortRange ? 1 : 0) + (ipEntry.destinationPortName ? 1 : 0) > 1)",
+                                          "errorMsg": "Only one of Destination Port Number, Destination Port Range or Destination Port Name can be set at a time."
+                                        },
+                                        {
+                                          "condition": "!(ipEntry.protocolNumber !== null && ipEntry.protocolName !== undefined)",
+                                          "errorMsg": "Only one of the Protocol Number or Protocol Name can be set at a time."
+                                        },
+                                        {
+                                          "condition": "(ipEntry.icmpTypeName === undefined && ipEntry.icmpTypeNumber === null) || (ipEntry.icmpTypeName !== undefined && ipEntry.icmpTypeNumber === null) || (ipEntry.icmpTypeName === undefined && ipEntry.icmpTypeNumber !== null)",
+                                          "errorMsg": "Either ICMP Type Name or ICMP Type Number must be set, but not both."
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "type": {
+                                    "default": "Auto",
+                                    "enum": [
+                                      "IPV4",
+                                      "IPV6",
+                                      "Auto"
+                                    ],
+                                    "title": "Type",
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "type"
+                                ],
+                                "type": "object"
+                              },
+                              "title": "Entries",
+                              "type": "array",
+                              "x-eda-nokia-com": {
+                                "ui-may-reorder": true
+                              }
+                            }
+                          },
+                          "required": [
+                            "entries"
+                          ],
+                          "title": "Filter",
+                          "type": "object"
+                        },
+                        "subinterfaces": {
+                          "description": "Subinterfaces on which to deploy the IPFilter to use as a source for the Mirror.",
+                          "properties": {
+                            "bridgeInterfaces": {
+                              "description": "List of BridgeInterfaces, all traffic from all BridgeInterfaces in the list will be used as sources to be mirrored. A combination of VLANs, BridgeInterfaces and subinterfaces can be configured as sources together.",
+                              "items": {
+                                "type": "string"
+                              },
+                              "title": "Bridge Interfaces",
+                              "type": "array",
+                              "x-eda-nokia-com": {
+                                "ui-auto-completes": [
+                                  {
+                                    "condition": "true",
+                                    "group": "services.eda.nokia.com",
+                                    "resource": "bridgeinterfaces",
+                                    "type": "gvr",
+                                    "version": "v1alpha1"
+                                  }
+                                ],
+                                "ui-column-span": 2,
+                                "ui-order-priority": 200
+                              }
+                            },
+                            "subinterfaces": {
+                              "description": "List of Interfaces and subinterface indices",
+                              "items": {
+                                "properties": {
+                                  "index": {
+                                    "description": "Index of the sub-interface. This is ignored on a node running SROS.",
+                                    "title": "Subinterface Index",
+                                    "type": "integer",
+                                    "x-eda-nokia-com": {
+                                      "ui-column-span": 2,
+                                      "ui-order-priority": 200
+                                    }
+                                  },
+                                  "interfaceName": {
+                                    "description": "Reference to an Interface resource, the combination of the Interface and the specified subinterface index will build the subinterface to be used as a source of traffic to be mirrored. A combination of VLANs, BridgeInterfaces and subinterfaces can be configured as sources together.",
+                                    "title": "Interface Name",
+                                    "type": "string",
+                                    "x-eda-nokia-com": {
+                                      "ui-auto-completes": [
+                                        {
+                                          "condition": "true",
+                                          "group": "interfaces.eda.nokia.com",
+                                          "resource": "interfaces",
+                                          "type": "gvr",
+                                          "version": "v1alpha1"
+                                        }
+                                      ],
+                                      "ui-column-span": 2,
+                                      "ui-order-priority": 100
+                                    }
+                                  },
+                                  "vlan": {
+                                    "description": "Reference to the VLAN resource under which the sub-interface is configured. This is mandatory when the sub-interface is on a node running SROS and ignored for all other node operating systems.",
+                                    "title": "VLAN",
+                                    "type": "string",
+                                    "x-eda-nokia-com": {
+                                      "ui-auto-completes": [
+                                        {
+                                          "condition": "true",
+                                          "group": "services.eda.nokia.com",
+                                          "resource": "vlans",
+                                          "type": "gvr",
+                                          "version": "v1alpha1"
+                                        }
+                                      ],
+                                      "ui-column-span": 2,
+                                      "ui-order-priority": 300
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "interfaceName"
+                                ],
+                                "type": "object"
+                              },
+                              "title": "Subinterfaces",
+                              "type": "array",
+                              "x-eda-nokia-com": {
+                                "ui-column-span": 4,
+                                "ui-order-priority": 300
+                              }
+                            },
+                            "vlans": {
+                              "description": "List of VLAN resources, all subinterfaces attached to the VLAN will be used as sources to be mirrored.  A combination of VLANs, BridgeInterfaces and subinterfaces can be configured as sources together.",
+                              "items": {
+                                "type": "string"
+                              },
+                              "title": "VLAN",
+                              "type": "array",
+                              "x-eda-nokia-com": {
+                                "ui-auto-completes": [
+                                  {
+                                    "condition": "true",
+                                    "group": "services.eda.nokia.com",
+                                    "resource": "vlans",
+                                    "type": "gvr",
+                                    "version": "v1alpha1"
+                                  }
+                                ],
+                                "ui-column-span": 2,
+                                "ui-order-priority": 100
+                              }
+                            }
+                          },
+                          "title": "Subinterfaces",
+                          "type": "object"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "title": "Filters",
+                    "type": "array",
+                    "x-eda-nokia-com": {
+                      "ui-column-span": 4,
+                      "ui-order-priority": 400
+                    }
+                  },
+                  "interfaces": {
+                    "description": "Reference to an Interface resource to be mirrored.  Traffic from the entire Interface will be mirrored for any selected Interfaces.",
+                    "properties": {
+                      "interfaceSelector": {
+                        "description": "Select Interfaces using a label selector to be mirrored.  Traffic from the entire Interface will be mirrored for any selected Interfaces.  If both a label selector is used and a list of Interfaces is provided, a combination of all selected and provided interfaces will be mirrored.",
+                        "format": "labelselector",
+                        "items": {
+                          "type": "string"
+                        },
+                        "title": "Interface Selector",
+                        "type": "array",
+                        "x-eda-nokia-com": {
+                          "ui-column-span": 2,
+                          "ui-order-priority": 100,
+                          "ui-single-line-group": "InterfaceSelector"
+                        }
+                      },
+                      "interfaces": {
+                        "description": "List of Interfaces to be mirrored.  Traffic from the entire Interface will be mirrored for any selected Interfaces.  If both a label selector is used and a list of Interfaces is provided, a combination of all selected and provided interfaces will be mirrored.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "title": "Interfaces",
+                        "type": "array",
+                        "x-eda-nokia-com": {
+                          "ui-auto-completes": [
+                            {
+                              "condition": "true",
+                              "group": "interfaces.eda.nokia.com",
+                              "resource": "interfaces",
+                              "type": "gvr",
+                              "version": "v1alpha1"
+                            }
+                          ],
+                          "ui-column-span": 2,
+                          "ui-order-priority": 100,
+                          "ui-single-line-group": "InterfaceSelector"
+                        }
+                      }
+                    },
+                    "title": "Interfaces",
+                    "type": "object",
+                    "x-eda-nokia-com": {
+                      "ui-auto-completes": [
+                        {
+                          "condition": "true",
+                          "group": "interfaces.eda.nokia.com",
+                          "resource": "interfaces",
+                          "type": "gvr",
+                          "version": "v1alpha1"
+                        }
+                      ],
+                      "ui-order-priority": 200
+                    }
+                  },
+                  "subinterfaces": {
+                    "properties": {
+                      "bridgeInterfaces": {
+                        "description": "List of BridgeInterfaces, all traffic from all BridgeInterfaces in the list will be used as sources to be mirrored. A combination of VLANs, BridgeInterfaces and subinterfaces can be configured as sources together.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "title": "Bridge Interfaces",
+                        "type": "array",
+                        "x-eda-nokia-com": {
+                          "ui-auto-completes": [
+                            {
+                              "condition": "true",
+                              "group": "services.eda.nokia.com",
+                              "resource": "bridgeinterfaces",
+                              "type": "gvr",
+                              "version": "v1alpha1"
+                            }
+                          ],
+                          "ui-column-span": 2,
+                          "ui-order-priority": 200
+                        }
+                      },
+                      "subinterfaces": {
+                        "description": "List of Interfaces and subinterface indices",
+                        "items": {
+                          "properties": {
+                            "index": {
+                              "description": "Index of the sub-interface. This is ignored on a node running SROS.",
+                              "title": "Subinterface Index",
+                              "type": "integer",
+                              "x-eda-nokia-com": {
+                                "ui-column-span": 2,
+                                "ui-order-priority": 200
+                              }
+                            },
+                            "interfaceName": {
+                              "description": "Reference to an Interface resource, the combination of the Interface and the specified subinterface index will build the subinterface to be used as a source of traffic to be mirrored. A combination of VLANs, BridgeInterfaces and subinterfaces can be configured as sources together.",
+                              "title": "Interface Name",
+                              "type": "string",
+                              "x-eda-nokia-com": {
+                                "ui-auto-completes": [
+                                  {
+                                    "condition": "true",
+                                    "group": "interfaces.eda.nokia.com",
+                                    "resource": "interfaces",
+                                    "type": "gvr",
+                                    "version": "v1alpha1"
+                                  }
+                                ],
+                                "ui-column-span": 2,
+                                "ui-order-priority": 100
+                              }
+                            },
+                            "vlan": {
+                              "description": "Reference to the VLAN resource under which the sub-interface is configured. This is mandatory when the sub-interface is on a node running SROS and ignored for all other node operating systems.",
+                              "title": "VLAN",
+                              "type": "string",
+                              "x-eda-nokia-com": {
+                                "ui-auto-completes": [
+                                  {
+                                    "condition": "true",
+                                    "group": "services.eda.nokia.com",
+                                    "resource": "vlans",
+                                    "type": "gvr",
+                                    "version": "v1alpha1"
+                                  }
+                                ],
+                                "ui-column-span": 2,
+                                "ui-order-priority": 300
+                              }
+                            }
+                          },
+                          "required": [
+                            "interfaceName"
+                          ],
+                          "type": "object"
+                        },
+                        "title": "Subinterfaces",
+                        "type": "array",
+                        "x-eda-nokia-com": {
+                          "ui-column-span": 4,
+                          "ui-order-priority": 300
+                        }
+                      },
+                      "vlans": {
+                        "description": "List of VLAN resources, all subinterfaces attached to the VLAN will be used as sources to be mirrored.  A combination of VLANs, BridgeInterfaces and subinterfaces can be configured as sources together.",
+                        "items": {
+                          "type": "string"
+                        },
+                        "title": "VLAN",
+                        "type": "array",
+                        "x-eda-nokia-com": {
+                          "ui-auto-completes": [
+                            {
+                              "condition": "true",
+                              "group": "services.eda.nokia.com",
+                              "resource": "vlans",
+                              "type": "gvr",
+                              "version": "v1alpha1"
+                            }
+                          ],
+                          "ui-column-span": 2,
+                          "ui-order-priority": 100
+                        }
+                      }
+                    },
+                    "title": "Subinterfaces",
+                    "type": "object",
+                    "x-eda-nokia-com": {
+                      "ui-order-priority": 300
+                    }
+                  }
+                },
+                "required": [
+                  "direction"
+                ],
+                "title": "Sources",
+                "type": "object",
+                "x-eda-nokia-com": {
+                  "ui-order-priority": 100
+                }
+              }
+            },
+            "required": [
+              "sources"
+            ],
+            "title": "Specification",
+            "type": "object",
+            "x-eda-nokia-com": {
+              "ui-conditions": [
+                {
+                  "condition": "(spec.localDestination.interface === undefined && spec.remoteDestination.destinationIP !== undefined) || (spec.localDestination.interface !== undefined && spec.remoteDestination.destinationIP === undefined)",
+                  "errorMsg": "Either Local Destination or Remote Destination must be configured, but not both."
+                },
+                {
+                  "condition": "(spec.remoteDestination.destinationIP !== undefined && spec.remoteDestination.sourceIP !== undefined) || (spec.remoteDestination.destinationIP === undefined && spec.remoteDestination.sourceIP === undefined)",
+                  "errorMsg": "Both Destination IP and Source IP must be configured together or left unset."
+                },
+                {
+                  "condition": "(spec.remoteDestination.destinationIP === undefined || spec.remoteDestination.sourceIP === undefined) || ((spec.remoteDestination.router !== undefined) !== (spec.remoteDestination.defaultRouter !== undefined))",
+                  "errorMsg": "When both Destination IP and Source IP are set, either Router or Default Router must be set, but not both."
+                }
+              ],
+              "ui-order-priority": 30
+            }
+          },
+          "status": {
+            "description": "MirrorStatus defines the observed state of Mirror",
+            "properties": {
+              "lastChange": {
+                "description": "Indicates when this SubInterface last changed state.",
+                "format": "date",
+                "title": "Last Change",
+                "type": "string"
+              },
+              "mirrorID": {
+                "description": "Mirror Identifier used as the name of the mirror.",
+                "title": "MirrorID",
+                "type": "string"
+              },
+              "numActiveInterfaces": {
+                "description": "Total number of active Interfaces used as sources of the mirror.",
+                "title": "Number of Active Interfaces",
+                "type": "integer"
+              },
+              "numActiveSubinterfaces": {
+                "description": "Total number of active subinterfaces used as sources of the mirror.",
+                "title": "Number of Active Subinterfaces",
+                "type": "integer"
+              },
+              "numActiveV4FilterSubinterfaces": {
+                "description": "Total number of active subinterfaces used as sources of the mirror derived from IPV4Filter associations.",
+                "title": "Number of Active V4 Filter Subinterfaces",
+                "type": "integer"
+              },
+              "numActiveV6FilterSubinterfaces": {
+                "description": "Total number of active subinterfaces used as sources of the mirror derived from IPV6Filter associations.",
+                "title": "Number of Active V6 Filter Subinterfaces",
+                "type": "integer"
+              },
+              "numActiveVLANSubinterfaces": {
+                "description": "Total number of active subinterfaces used as sources of the mirror derived from VLAN resource references.",
+                "title": "Number of Active VLAN Subinterfaces",
+                "type": "integer"
+              },
+              "numberActiveBridgeInterfaces": {
+                "description": "Total number of active subinterfaces used as sources of the mirror derived from BridgeInterface resource references.",
+                "title": "Number of Active Bridge Interfaces",
+                "type": "integer"
+              },
+              "operationalState": {
+                "description": "Indicates the current operational state of the Mirror instance.",
+                "title": "Operational State",
+                "type": "string"
+              },
+              "subinterfaces": {
+                "description": "List of members in this Interface.",
+                "items": {
+                  "properties": {
+                    "configuredSource": {
+                      "description": "Indicates what is driving the particular subinterface to be selected as a mirror source.",
+                      "enum": [
+                        "VLAN",
+                        "BridgeInterface",
+                        "Subinterface",
+                        "Interface",
+                        "FilterV4",
+                        "FilterV6"
+                      ],
+                      "title": "Configured Source",
+                      "type": "string"
+                    },
+                    "interface": {
+                      "description": "Node specific interface name.",
+                      "title": "Interface",
+                      "type": "string"
+                    },
+                    "node": {
+                      "description": "Reference to Node object.",
+                      "title": "Node",
+                      "type": "string"
+                    },
+                    "operatingSystem": {
+                      "description": "Operating System of the Node.",
+                      "title": "Operating System",
+                      "type": "string"
+                    },
+                    "subinterfaceIndex": {
+                      "description": "Index allocated to the subinterface which is being mirrored. If an interface is used as a source, this will not be set.",
+                      "title": "Subinterface Index",
+                      "type": "integer"
+                    },
+                    "vlanID": {
+                      "description": "vlan assigned to this subinterface.",
+                      "title": "VLAN ID",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "configuredSource",
+                    "interface",
+                    "node",
+                    "operatingSystem"
+                  ],
+                  "type": "object"
+                },
+                "title": "Subinterfaces",
+                "type": "array"
+              }
+            },
+            "readOnly": true,
+            "title": "Status",
+            "type": "object",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 20
+            }
+          }
+        },
+        "required": [
+          "apiVersion",
+          "kind",
+          "metadata",
+          "spec"
+        ],
+        "type": "object"
+      },
+      "com.nokia.eda.oam.v1alpha1.MirrorList": {
+        "description": "MirrorList is a list of mirrors",
+        "properties": {
+          "apiVersion": {
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Mirror"
+            },
+            "type": "array"
+          },
+          "kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "apiVersion",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "com.nokia.eda.oam.v1alpha1.Mirror_DeletedResourceEntry": {
+        "properties": {
+          "commitTime": {
+            "type": "string",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 50,
+              "ui-title": "Commit Time",
+              "ui-title-key": "commitTime"
+            }
+          },
+          "hash": {
+            "type": "string",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 40,
+              "ui-title": "Commit Hash",
+              "ui-title-key": "commitHash"
+            }
+          },
+          "name": {
+            "type": "string",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 10,
+              "ui-title": "Name",
+              "ui-title-key": "name"
+            }
+          },
+          "namespace": {
+            "type": "string",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 20,
+              "ui-title": "Namespace",
+              "ui-title-key": "namespace"
+            }
+          },
+          "transactionId": {
+            "format": "uint64",
+            "type": "integer",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 30,
+              "ui-title": "Transaction ID",
+              "ui-title-key": "transactionId"
+            }
+          }
+        },
+        "type": "object"
+      },
+      "com.nokia.eda.oam.v1alpha1.Mirror_DeletedResources": {
+        "items": {
+          "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Mirror_DeletedResourceEntry"
+        },
+        "type": "array"
+      },
+      "com.nokia.eda.oam.v1alpha1.Mirror_metadata": {
+        "properties": {
+          "annotations": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 40,
+              "ui-title": "Annotations",
+              "ui-title-key": "annotations"
+            }
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "x-eda-nokia-com": {
+              "ui-auto-completes": [
+                {
+                  "condition": "true",
+                  "group": "oam.eda.nokia.com",
+                  "kind": "Mirror",
+                  "type": "label",
+                  "version": "v1alpha1"
+                }
+              ],
+              "ui-order-priority": 30,
+              "ui-title": "Labels",
+              "ui-title-key": "labels"
+            }
+          },
+          "name": {
+            "maxLength": 253,
+            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$",
+            "type": "string",
+            "x-eda-nokia-com": {
+              "immutable": true,
+              "ui-order-priority": 10,
+              "ui-pattern-error": "A valid name is made up of one or more components where each component is separated by period characters.  Each component must start and end with a lower case alphanumeric character and the body of the component is made up of zero or more lower case alphanumeric and hyphen characters.",
+              "ui-title": "Name",
+              "ui-title-key": "name"
+            }
+          },
+          "namespace": {
+            "type": "string",
+            "x-eda-nokia-com": {
+              "immutable": true,
+              "ui-order-priority": 20,
+              "ui-title": "Namespace",
+              "ui-title-key": "namespace"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "namespace"
+        ],
+        "type": "object",
+        "x-eda-nokia-com": {
+          "ui-order-priority": 10,
+          "ui-title": "Metadata",
+          "ui-title-key": "metadata"
+        }
+      },
+      "com.nokia.eda.oam.v1alpha1.Ping": {
+        "description": "Ping is the Schema for the pings API",
+        "properties": {
+          "apiVersion": {
+            "default": "oam.eda.nokia.com/v1alpha1",
+            "type": "string",
+            "x-eda-nokia-com": {
+              "ui-visible-if": "false"
+            }
+          },
+          "kind": {
+            "default": "Ping",
+            "type": "string",
+            "x-eda-nokia-com": {
+              "ui-visible-if": "false"
+            }
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Ping_metadata"
+          },
+          "spec": {
+            "description": "PingSpec defines the desired state of Ping",
+            "properties": {
+              "address": {
+                "title": "address",
+                "type": "string"
+              },
+              "networkInstance": {
+                "title": "NetworkInstance",
+                "type": "string"
+              },
+              "node": {
+                "title": "node",
+                "type": "string"
+              },
+              "pingType": {
+                "enum": [
+                  "isl",
+                  "node",
+                  "system"
+                ],
+                "title": "pingtype",
+                "type": "string"
+              },
+              "pods": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Pods",
+                "type": "array"
+              },
+              "roles": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "roles",
+                "type": "array"
+              }
+            },
+            "required": [
+              "pingType"
+            ],
+            "title": "Specification",
+            "type": "object",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 30
+            }
+          },
+          "status": {
+            "description": "PingStatus defines the observed state of Ping",
+            "properties": {
+              "id": {
+                "description": "Id",
+                "title": "ID",
+                "type": "integer"
+              },
+              "result": {
+                "description": "Aggregate result of the Flow",
+                "enum": [
+                  "OK",
+                  "Failed",
+                  "Terminated",
+                  "WaitingForInput",
+                  "Running",
+                  "WaitingToStart",
+                  "SubflowWaitingForInput"
+                ],
+                "title": "Result",
+                "type": "string"
+              }
+            },
+            "readOnly": true,
+            "required": [
+              "result"
+            ],
+            "title": "Status",
+            "type": "object",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 20
+            }
+          }
+        },
+        "required": [
+          "apiVersion",
+          "kind",
+          "metadata",
+          "spec"
+        ],
+        "type": "object"
+      },
+      "com.nokia.eda.oam.v1alpha1.PingList": {
+        "description": "PingList is a list of pings",
+        "properties": {
+          "apiVersion": {
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Ping"
+            },
+            "type": "array"
+          },
+          "kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "apiVersion",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "com.nokia.eda.oam.v1alpha1.Ping_DeletedResourceEntry": {
+        "properties": {
+          "commitTime": {
+            "type": "string",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 50,
+              "ui-title": "Commit Time",
+              "ui-title-key": "commitTime"
+            }
+          },
+          "hash": {
+            "type": "string",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 40,
+              "ui-title": "Commit Hash",
+              "ui-title-key": "commitHash"
+            }
+          },
+          "name": {
+            "type": "string",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 10,
+              "ui-title": "Name",
+              "ui-title-key": "name"
+            }
+          },
+          "namespace": {
+            "type": "string",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 20,
+              "ui-title": "Namespace",
+              "ui-title-key": "namespace"
+            }
+          },
+          "transactionId": {
+            "format": "uint64",
+            "type": "integer",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 30,
+              "ui-title": "Transaction ID",
+              "ui-title-key": "transactionId"
+            }
+          }
+        },
+        "type": "object"
+      },
+      "com.nokia.eda.oam.v1alpha1.Ping_DeletedResources": {
+        "items": {
+          "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Ping_DeletedResourceEntry"
+        },
+        "type": "array"
+      },
+      "com.nokia.eda.oam.v1alpha1.Ping_metadata": {
+        "properties": {
+          "annotations": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 40,
+              "ui-title": "Annotations",
+              "ui-title-key": "annotations"
+            }
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "x-eda-nokia-com": {
+              "ui-auto-completes": [
+                {
+                  "condition": "true",
+                  "group": "oam.eda.nokia.com",
+                  "kind": "Ping",
+                  "type": "label",
+                  "version": "v1alpha1"
+                }
+              ],
+              "ui-order-priority": 30,
+              "ui-title": "Labels",
+              "ui-title-key": "labels"
+            }
+          },
+          "name": {
+            "maxLength": 253,
+            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$",
+            "type": "string",
+            "x-eda-nokia-com": {
+              "immutable": true,
+              "ui-order-priority": 10,
+              "ui-pattern-error": "A valid name is made up of one or more components where each component is separated by period characters.  Each component must start and end with a lower case alphanumeric character and the body of the component is made up of zero or more lower case alphanumeric and hyphen characters.",
+              "ui-title": "Name",
+              "ui-title-key": "name"
+            }
+          },
+          "namespace": {
+            "type": "string",
+            "x-eda-nokia-com": {
+              "immutable": true,
+              "ui-order-priority": 20,
+              "ui-title": "Namespace",
+              "ui-title-key": "namespace"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "namespace"
+        ],
+        "type": "object",
+        "x-eda-nokia-com": {
+          "ui-order-priority": 10,
+          "ui-title": "Metadata",
+          "ui-title-key": "metadata"
+        }
+      },
+      "com.nokia.eda.oam.v1alpha1.Threshold": {
+        "description": "Threshold is the Schema for the thresholds API",
+        "properties": {
+          "apiVersion": {
+            "default": "oam.eda.nokia.com/v1alpha1",
+            "type": "string",
+            "x-eda-nokia-com": {
+              "ui-visible-if": "false"
+            }
+          },
+          "kind": {
+            "default": "Threshold",
+            "type": "string",
+            "x-eda-nokia-com": {
+              "ui-visible-if": "false"
+            }
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Threshold_metadata"
+          },
+          "spec": {
+            "description": "A Threshold allows you to monitor a field in EDB and trigger severity-correct alarms based on the value of that field.\nBy using EDB as a source you are able to trigger thresholds on any published field from a TopoNode, or any other EDB source.",
+            "properties": {
+              "alarm": {
+                "description": "Alarm details for this threshold.",
+                "properties": {
+                  "description": {
+                    "description": "The description of the alarm.",
+                    "title": "Description",
+                    "type": "string",
+                    "x-eda-nokia-com": {
+                      "ui-column-span": 5,
+                      "ui-order-priority": 100
+                    }
+                  },
+                  "probableCause": {
+                    "description": "The probable cause of the alarm.",
+                    "title": "Probable Cause",
+                    "type": "string",
+                    "x-eda-nokia-com": {
+                      "ui-column-span": 5,
+                      "ui-order-priority": 200
+                    }
+                  },
+                  "remedialAction": {
+                    "description": "The remedial action for the alarm.",
+                    "title": "Remedial Action",
+                    "type": "string",
+                    "x-eda-nokia-com": {
+                      "ui-column-span": 5,
+                      "ui-order-priority": 300
+                    }
+                  }
+                },
+                "title": "Thresholds",
+                "type": "object",
+                "x-eda-nokia-com": {
+                  "ui-column-span": 5,
+                  "ui-order-priority": 800
+                }
+              },
+              "enabled": {
+                "default": true,
+                "description": "Enable or disable this threshold.",
+                "title": "Enabled",
+                "type": "boolean",
+                "x-eda-nokia-com": {
+                  "ui-category": "NameEnabled",
+                  "ui-column-span": 2,
+                  "ui-order-priority": 100,
+                  "ui-single-line-group": "NameEnabled"
+                }
+              },
+              "field": {
+                "description": "Field to monitor for this threshold, for example `utilization`.",
+                "title": "Field",
+                "type": "string",
+                "x-eda-nokia-com": {
+                  "ui-column-span": 5,
+                  "ui-order-priority": 300
+                }
+              },
+              "generateOverlay": {
+                "default": false,
+                "description": "Enable or disable generation of a topology overlay for this threshold.",
+                "title": "Generate Overlay",
+                "type": "boolean",
+                "x-eda-nokia-com": {
+                  "ui-category": "GenerateOverlay",
+                  "ui-column-span": 2,
+                  "ui-order-priority": 500,
+                  "ui-single-line-group": "GenerateOverlay"
+                }
+              },
+              "name": {
+                "description": "The name of this threshold. This name will be used to generate the alarm name, so should follow CamelCase conventions, e.g. VolumeUtilization.",
+                "title": "Threshold Name",
+                "type": "string",
+                "x-eda-nokia-com": {
+                  "ui-category": "NameEnabled",
+                  "ui-column-span": 3,
+                  "ui-order-priority": 100,
+                  "ui-single-line-group": "NameEnabled"
+                }
+              },
+              "path": {
+                "description": "Path to monitor for this threshold. This should be the full EDB path to the table containing the field you wish to trigger a threshold on.\nFor example, to monitor the utilization field of the component volume table, you would use `.namespace.node.normal.components_eda_nokia_com.v1.controlmodule.volume`, and set field to `utilization`.",
+                "title": "Path",
+                "type": "string",
+                "x-eda-nokia-com": {
+                  "ui-column-span": 5,
+                  "ui-order-priority": 200
+                }
+              },
+              "resource": {
+                "description": "Which resource to associate with this threshold. This overrides the destination resource in alarms raised as a result of threshold breaches.\nBy default a resource will attempt to be derived based on the monitored path.",
+                "properties": {
+                  "group": {
+                    "description": "The group of the resource to monitor.",
+                    "title": "Group",
+                    "type": "string",
+                    "x-eda-nokia-com": {
+                      "ui-category": "Resource",
+                      "ui-column-span": 3,
+                      "ui-order-priority": 100,
+                      "ui-single-line-group": "Resource"
+                    }
+                  },
+                  "kind": {
+                    "description": "The kind of resource to monitor.",
+                    "title": "Kind",
+                    "type": "string",
+                    "x-eda-nokia-com": {
+                      "ui-category": "Resource",
+                      "ui-column-span": 2,
+                      "ui-order-priority": 100,
+                      "ui-single-line-group": "Resource"
+                    }
+                  },
+                  "name": {
+                    "description": "The name of the resource to monitor.",
+                    "title": "Name",
+                    "type": "string",
+                    "x-eda-nokia-com": {
+                      "ui-column-span": 5,
+                      "ui-order-priority": 300
+                    }
+                  }
+                },
+                "required": [
+                  "group",
+                  "kind",
+                  "name"
+                ],
+                "title": "Associated Resource",
+                "type": "object",
+                "x-eda-nokia-com": {
+                  "ui-column-span": 5,
+                  "ui-order-priority": 600
+                }
+              },
+              "thresholds": {
+                "description": "Severities and their associated values.",
+                "properties": {
+                  "criticalThreshold": {
+                    "description": "The minimum average utilization over the last 1 minute to trigger a critical alarm.\nThis value must be greater than the majorThreshold.",
+                    "title": "Critical Threshold",
+                    "type": "integer",
+                    "x-eda-nokia-com": {
+                      "ui-category": "Thresholds",
+                      "ui-column-span": 1,
+                      "ui-order-priority": 500,
+                      "ui-single-line-group": "Thresholds"
+                    }
+                  },
+                  "delta": {
+                    "default": 5,
+                    "description": "The delta value for clearing a threshold.\nFor example, with a critical threshold of 90, direction of Rising and a delta of 5, the critical alarm will clear when the utilization drops below 85.",
+                    "title": "Delta",
+                    "type": "integer",
+                    "x-eda-nokia-com": {
+                      "ui-category": "DirectionDelta",
+                      "ui-column-span": 1,
+                      "ui-order-priority": 700,
+                      "ui-single-line-group": "DirectionDelta"
+                    }
+                  },
+                  "direction": {
+                    "default": "Rising",
+                    "description": "Direction of the threshold: \"Rising\" or \"Falling\".",
+                    "enum": [
+                      "Rising",
+                      "Falling"
+                    ],
+                    "title": "Threshold Direction",
+                    "type": "string",
+                    "x-eda-nokia-com": {
+                      "ui-category": "DirectionDelta",
+                      "ui-column-span": 2,
+                      "ui-order-priority": 600,
+                      "ui-single-line-group": "DirectionDelta"
+                    }
+                  },
+                  "majorThreshold": {
+                    "description": "The minimum average utilization over the last 1 minute to trigger a major alarm.\nThis value must be greater than the minorThreshold.",
+                    "title": "Major Threshold",
+                    "type": "integer",
+                    "x-eda-nokia-com": {
+                      "ui-category": "Thresholds",
+                      "ui-column-span": 1,
+                      "ui-order-priority": 400,
+                      "ui-single-line-group": "Thresholds"
+                    }
+                  },
+                  "minorThreshold": {
+                    "description": "The minimum average utilization over the last 1 minute to trigger a minor alarm.",
+                    "title": "Minor Threshold",
+                    "type": "integer",
+                    "x-eda-nokia-com": {
+                      "ui-category": "Thresholds",
+                      "ui-column-span": 1,
+                      "ui-order-priority": 300,
+                      "ui-single-line-group": "Thresholds"
+                    }
+                  },
+                  "warningThreshold": {
+                    "description": "The minimum average utilization over the last 1 minute to trigger a warning alarm.",
+                    "title": "Warning Threshold",
+                    "type": "integer",
+                    "x-eda-nokia-com": {
+                      "ui-category": "Thresholds",
+                      "ui-column-span": 1,
+                      "ui-order-priority": 200,
+                      "ui-single-line-group": "Thresholds"
+                    }
+                  }
+                },
+                "required": [
+                  "direction"
+                ],
+                "title": "Thresholds",
+                "type": "object",
+                "x-eda-nokia-com": {
+                  "ui-column-span": 5,
+                  "ui-order-priority": 700
+                }
+              }
+            },
+            "required": [
+              "field",
+              "name",
+              "path",
+              "thresholds"
+            ],
+            "title": "Specification",
+            "type": "object",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 30
+            }
+          },
+          "status": {
+            "description": "ThresholdStatus defines the observed state of Threshold",
+            "readOnly": true,
+            "title": "Status",
+            "type": "object",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 20,
+              "ui-visible-if": "false"
+            }
+          }
+        },
+        "required": [
+          "apiVersion",
+          "kind",
+          "metadata",
+          "spec"
+        ],
+        "type": "object"
+      },
+      "com.nokia.eda.oam.v1alpha1.ThresholdList": {
+        "description": "ThresholdList is a list of thresholds",
+        "properties": {
+          "apiVersion": {
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Threshold"
+            },
+            "type": "array"
+          },
+          "kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "apiVersion",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "com.nokia.eda.oam.v1alpha1.Threshold_DeletedResourceEntry": {
+        "properties": {
+          "commitTime": {
+            "type": "string",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 50,
+              "ui-title": "Commit Time",
+              "ui-title-key": "commitTime"
+            }
+          },
+          "hash": {
+            "type": "string",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 40,
+              "ui-title": "Commit Hash",
+              "ui-title-key": "commitHash"
+            }
+          },
+          "name": {
+            "type": "string",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 10,
+              "ui-title": "Name",
+              "ui-title-key": "name"
+            }
+          },
+          "namespace": {
+            "type": "string",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 20,
+              "ui-title": "Namespace",
+              "ui-title-key": "namespace"
+            }
+          },
+          "transactionId": {
+            "format": "uint64",
+            "type": "integer",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 30,
+              "ui-title": "Transaction ID",
+              "ui-title-key": "transactionId"
+            }
+          }
+        },
+        "type": "object"
+      },
+      "com.nokia.eda.oam.v1alpha1.Threshold_DeletedResources": {
+        "items": {
+          "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Threshold_DeletedResourceEntry"
+        },
+        "type": "array"
+      },
+      "com.nokia.eda.oam.v1alpha1.Threshold_metadata": {
+        "properties": {
+          "annotations": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "x-eda-nokia-com": {
+              "ui-order-priority": 40,
+              "ui-title": "Annotations",
+              "ui-title-key": "annotations"
+            }
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "x-eda-nokia-com": {
+              "ui-auto-completes": [
+                {
+                  "condition": "true",
+                  "group": "oam.eda.nokia.com",
+                  "kind": "Threshold",
+                  "type": "label",
+                  "version": "v1alpha1"
+                }
+              ],
+              "ui-order-priority": 30,
+              "ui-title": "Labels",
+              "ui-title-key": "labels"
+            }
+          },
+          "name": {
+            "maxLength": 253,
+            "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$",
+            "type": "string",
+            "x-eda-nokia-com": {
+              "immutable": true,
+              "ui-order-priority": 10,
+              "ui-pattern-error": "A valid name is made up of one or more components where each component is separated by period characters.  Each component must start and end with a lower case alphanumeric character and the body of the component is made up of zero or more lower case alphanumeric and hyphen characters.",
+              "ui-title": "Name",
+              "ui-title-key": "name"
+            }
+          },
+          "namespace": {
+            "type": "string",
+            "x-eda-nokia-com": {
+              "immutable": true,
+              "ui-order-priority": 20,
+              "ui-title": "Namespace",
+              "ui-title-key": "namespace"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "namespace"
+        ],
+        "type": "object",
+        "x-eda-nokia-com": {
+          "ui-order-priority": 10,
+          "ui-title": "Metadata",
+          "ui-title-key": "metadata"
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "bearerFormat": "JWT",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "Mirror Application APIs.",
+    "version": "v1alpha1"
+  },
+  "openapi": "3.0.1",
+  "paths": {
+    "/apps/oam.eda.nokia.com": {
+      "get": {
+        "description": "list versions available from oam.eda.nokia.com",
+        "operationId": "getVersionOamEdaNokiaCom",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppGroup"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/apps/oam.eda.nokia.com/v1alpha1": {
+      "get": {
+        "description": "list resources available from oam.eda.nokia.com/v1alpha1",
+        "operationId": "getResourcesOamEdaNokiaComV1alpha1",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/apps/oam.eda.nokia.com/v1alpha1/_ui/{pathname}": {
+      "get": {
+        "description": "get UI specification for oam.eda.nokia.com v1alpha1",
+        "operationId": "uiOamEdaNokiaComV1alpha1",
+        "parameters": [
+          {
+            "description": "pathname to the UI specification to retrieve",
+            "in": "path",
+            "name": "pathname",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UIResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/apps/oam.eda.nokia.com/v1alpha1/mirrors": {
+      "get": {
+        "description": "list mirrors",
+        "operationId": "listOamEdaNokiaComV1alpha1Mirrors",
+        "parameters": [
+          {
+            "description": "a label selector string to filter the results based on CR labels",
+            "in": "query",
+            "name": "label-selector",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "client information for streaming request",
+            "in": "query",
+            "name": "eventclient",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "stream information for streaming request",
+            "in": "query",
+            "name": "stream",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.MirrorList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/apps/oam.eda.nokia.com/v1alpha1/namespaces/{namespace}/mirrors": {
+      "delete": {
+        "operationId": "deleteAllOamEdaNokiaComV1alpha1NamespaceMirrors",
+        "parameters": [
+          {
+            "description": "the namespace scope from which to perform the delete",
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "a label selector string to filter the set of CRs deleted based on CR labels",
+            "in": "query",
+            "name": "label-selector",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.MirrorList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "summary": "Delete all instances of Mirror in the specified namespace.",
+        "tags": [
+          "apps"
+        ]
+      },
+      "get": {
+        "description": "list mirrors in namespace",
+        "operationId": "listOamEdaNokiaComV1alpha1NamespaceMirrors",
+        "parameters": [
+          {
+            "description": "the namespace scope from which to retrieve the result",
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "a label selector string to filter the results based on CR labels",
+            "in": "query",
+            "name": "label-selector",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "client information for streaming request",
+            "in": "query",
+            "name": "eventclient",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "stream information for streaming request",
+            "in": "query",
+            "name": "stream",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.MirrorList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      },
+      "post": {
+        "description": "create a Mirror",
+        "operationId": "createOamEdaNokiaComV1alpha1NamespaceMirrors",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Mirror"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Mirror"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/apps/oam.eda.nokia.com/v1alpha1/namespaces/{namespace}/mirrors/_deleted": {
+      "get": {
+        "operationId": "getDeletedOamEdaNokiaComV1alpha1NamespaceMirrors",
+        "parameters": [
+          {
+            "description": "the namespace scope from which to retrieve the result",
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Mirror_DeletedResources"
+                }
+              }
+            },
+            "description": "Returns list of deleted resource entries"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "summary": "Get information about the instances of Mirror that have been deleted that existed in the specified namespace.",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/apps/oam.eda.nokia.com/v1alpha1/namespaces/{namespace}/mirrors/{name}": {
+      "delete": {
+        "description": "delete the specified Mirror",
+        "operationId": "deleteOamEdaNokiaComV1alpha1NamespaceMirrors",
+        "parameters": [
+          {
+            "description": "the namespace scope from which to perform the delete",
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "name of the Mirror to delete",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      },
+      "get": {
+        "description": "read the specified Mirror.  If a git hash query parameter\nis supplied, the resource as it existed at the time of the git hash\nwill be returned. Streaming is not supported when a particular revision\nis asked for.",
+        "operationId": "readOamEdaNokiaComV1alpha1NamespaceMirrors",
+        "parameters": [
+          {
+            "description": "the namespace scope from which to retrieve the result",
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "name of the Mirror to retrieve",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "a label selector string to filter the results based on CR labels",
+            "in": "query",
+            "name": "label-selector",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "client information for streaming request",
+            "in": "query",
+            "name": "eventclient",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "stream information for streaming request",
+            "in": "query",
+            "name": "stream",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "resource content will be returned as it was at the time of this git hash",
+            "in": "query",
+            "name": "hash",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Mirror"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      },
+      "patch": {
+        "description": "patch a Mirror",
+        "operationId": "patchOamEdaNokiaComV1alpha1NamespaceMirrors",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Patch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Mirror"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      },
+      "put": {
+        "description": "replace a Mirror",
+        "operationId": "replaceOamEdaNokiaComV1alpha1NamespaceMirrors",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Mirror"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Mirror"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/apps/oam.eda.nokia.com/v1alpha1/namespaces/{namespace}/mirrors/{name}/_revs": {
+      "get": {
+        "operationId": "getHistoryOamEdaNokiaComV1alpha1NamespaceMirrors",
+        "parameters": [
+          {
+            "description": "name of the Mirror to retrieve",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "the namespace scope from which to retrieve the result",
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "client information for streaming request",
+            "in": "query",
+            "name": "eventclient",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "stream information for streaming request",
+            "in": "query",
+            "name": "stream",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "maximum number of history entries to return",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "format": "uint64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceHistory"
+                }
+              }
+            },
+            "description": "Returns the change history of the specified resource"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "summary": "Get revision history for the specified namespaced Mirror.",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/apps/oam.eda.nokia.com/v1alpha1/namespaces/{namespace}/pings": {
+      "delete": {
+        "operationId": "deleteAllOamEdaNokiaComV1alpha1NamespacePings",
+        "parameters": [
+          {
+            "description": "the namespace scope from which to perform the delete",
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "a label selector string to filter the set of CRs deleted based on CR labels",
+            "in": "query",
+            "name": "label-selector",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.PingList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "summary": "Delete all instances of Ping in the specified namespace.",
+        "tags": [
+          "apps"
+        ]
+      },
+      "get": {
+        "description": "list pings in namespace",
+        "operationId": "listOamEdaNokiaComV1alpha1NamespacePings",
+        "parameters": [
+          {
+            "description": "the namespace scope from which to retrieve the result",
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "a label selector string to filter the results based on CR labels",
+            "in": "query",
+            "name": "label-selector",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "client information for streaming request",
+            "in": "query",
+            "name": "eventclient",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "stream information for streaming request",
+            "in": "query",
+            "name": "stream",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.PingList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      },
+      "post": {
+        "description": "create a Ping",
+        "operationId": "createOamEdaNokiaComV1alpha1NamespacePings",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Ping"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Ping"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/apps/oam.eda.nokia.com/v1alpha1/namespaces/{namespace}/pings/_deleted": {
+      "get": {
+        "operationId": "getDeletedOamEdaNokiaComV1alpha1NamespacePings",
+        "parameters": [
+          {
+            "description": "the namespace scope from which to retrieve the result",
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Ping_DeletedResources"
+                }
+              }
+            },
+            "description": "Returns list of deleted resource entries"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "summary": "Get information about the instances of Ping that have been deleted that existed in the specified namespace.",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/apps/oam.eda.nokia.com/v1alpha1/namespaces/{namespace}/pings/{name}": {
+      "delete": {
+        "description": "delete the specified Ping",
+        "operationId": "deleteOamEdaNokiaComV1alpha1NamespacePings",
+        "parameters": [
+          {
+            "description": "the namespace scope from which to perform the delete",
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "name of the Ping to delete",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      },
+      "get": {
+        "description": "read the specified Ping.  If a git hash query parameter\nis supplied, the resource as it existed at the time of the git hash\nwill be returned. Streaming is not supported when a particular revision\nis asked for.",
+        "operationId": "readOamEdaNokiaComV1alpha1NamespacePings",
+        "parameters": [
+          {
+            "description": "the namespace scope from which to retrieve the result",
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "name of the Ping to retrieve",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "a label selector string to filter the results based on CR labels",
+            "in": "query",
+            "name": "label-selector",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "client information for streaming request",
+            "in": "query",
+            "name": "eventclient",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "stream information for streaming request",
+            "in": "query",
+            "name": "stream",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "resource content will be returned as it was at the time of this git hash",
+            "in": "query",
+            "name": "hash",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Ping"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      },
+      "patch": {
+        "description": "patch a Ping",
+        "operationId": "patchOamEdaNokiaComV1alpha1NamespacePings",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Patch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Ping"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      },
+      "put": {
+        "description": "replace a Ping",
+        "operationId": "replaceOamEdaNokiaComV1alpha1NamespacePings",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Ping"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Ping"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/apps/oam.eda.nokia.com/v1alpha1/namespaces/{namespace}/pings/{name}/_revs": {
+      "get": {
+        "operationId": "getHistoryOamEdaNokiaComV1alpha1NamespacePings",
+        "parameters": [
+          {
+            "description": "name of the Ping to retrieve",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "the namespace scope from which to retrieve the result",
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "client information for streaming request",
+            "in": "query",
+            "name": "eventclient",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "stream information for streaming request",
+            "in": "query",
+            "name": "stream",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "maximum number of history entries to return",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "format": "uint64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceHistory"
+                }
+              }
+            },
+            "description": "Returns the change history of the specified resource"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "summary": "Get revision history for the specified namespaced Ping.",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/apps/oam.eda.nokia.com/v1alpha1/namespaces/{namespace}/thresholds": {
+      "delete": {
+        "operationId": "deleteAllOamEdaNokiaComV1alpha1NamespaceThresholds",
+        "parameters": [
+          {
+            "description": "the namespace scope from which to perform the delete",
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "a label selector string to filter the set of CRs deleted based on CR labels",
+            "in": "query",
+            "name": "label-selector",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.ThresholdList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "summary": "Delete all instances of Threshold in the specified namespace.",
+        "tags": [
+          "apps"
+        ]
+      },
+      "get": {
+        "description": "list thresholds in namespace",
+        "operationId": "listOamEdaNokiaComV1alpha1NamespaceThresholds",
+        "parameters": [
+          {
+            "description": "the namespace scope from which to retrieve the result",
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "a label selector string to filter the results based on CR labels",
+            "in": "query",
+            "name": "label-selector",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "client information for streaming request",
+            "in": "query",
+            "name": "eventclient",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "stream information for streaming request",
+            "in": "query",
+            "name": "stream",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.ThresholdList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      },
+      "post": {
+        "description": "create a Threshold",
+        "operationId": "createOamEdaNokiaComV1alpha1NamespaceThresholds",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Threshold"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Threshold"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/apps/oam.eda.nokia.com/v1alpha1/namespaces/{namespace}/thresholds/_deleted": {
+      "get": {
+        "operationId": "getDeletedOamEdaNokiaComV1alpha1NamespaceThresholds",
+        "parameters": [
+          {
+            "description": "the namespace scope from which to retrieve the result",
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Threshold_DeletedResources"
+                }
+              }
+            },
+            "description": "Returns list of deleted resource entries"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "summary": "Get information about the instances of Threshold that have been deleted that existed in the specified namespace.",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/apps/oam.eda.nokia.com/v1alpha1/namespaces/{namespace}/thresholds/{name}": {
+      "delete": {
+        "description": "delete the specified Threshold",
+        "operationId": "deleteOamEdaNokiaComV1alpha1NamespaceThresholds",
+        "parameters": [
+          {
+            "description": "the namespace scope from which to perform the delete",
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "name of the Threshold to delete",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      },
+      "get": {
+        "description": "read the specified Threshold.  If a git hash query parameter\nis supplied, the resource as it existed at the time of the git hash\nwill be returned. Streaming is not supported when a particular revision\nis asked for.",
+        "operationId": "readOamEdaNokiaComV1alpha1NamespaceThresholds",
+        "parameters": [
+          {
+            "description": "the namespace scope from which to retrieve the result",
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "name of the Threshold to retrieve",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "a label selector string to filter the results based on CR labels",
+            "in": "query",
+            "name": "label-selector",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "client information for streaming request",
+            "in": "query",
+            "name": "eventclient",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "stream information for streaming request",
+            "in": "query",
+            "name": "stream",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "resource content will be returned as it was at the time of this git hash",
+            "in": "query",
+            "name": "hash",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Threshold"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      },
+      "patch": {
+        "description": "patch a Threshold",
+        "operationId": "patchOamEdaNokiaComV1alpha1NamespaceThresholds",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Patch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Threshold"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      },
+      "put": {
+        "description": "replace a Threshold",
+        "operationId": "replaceOamEdaNokiaComV1alpha1NamespaceThresholds",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Threshold"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.Threshold"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/apps/oam.eda.nokia.com/v1alpha1/namespaces/{namespace}/thresholds/{name}/_revs": {
+      "get": {
+        "operationId": "getHistoryOamEdaNokiaComV1alpha1NamespaceThresholds",
+        "parameters": [
+          {
+            "description": "name of the Threshold to retrieve",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "the namespace scope from which to retrieve the result",
+            "in": "path",
+            "name": "namespace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "client information for streaming request",
+            "in": "query",
+            "name": "eventclient",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "stream information for streaming request",
+            "in": "query",
+            "name": "stream",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "maximum number of history entries to return",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "format": "uint64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourceHistory"
+                }
+              }
+            },
+            "description": "Returns the change history of the specified resource"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "summary": "Get revision history for the specified namespaced Threshold.",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/apps/oam.eda.nokia.com/v1alpha1/pings": {
+      "get": {
+        "description": "list pings",
+        "operationId": "listOamEdaNokiaComV1alpha1Pings",
+        "parameters": [
+          {
+            "description": "a label selector string to filter the results based on CR labels",
+            "in": "query",
+            "name": "label-selector",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "client information for streaming request",
+            "in": "query",
+            "name": "eventclient",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "stream information for streaming request",
+            "in": "query",
+            "name": "stream",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.PingList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/apps/oam.eda.nokia.com/v1alpha1/thresholds": {
+      "get": {
+        "description": "list thresholds",
+        "operationId": "listOamEdaNokiaComV1alpha1Thresholds",
+        "parameters": [
+          {
+            "description": "a label selector string to filter the results based on CR labels",
+            "in": "query",
+            "name": "label-selector",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "client information for streaming request",
+            "in": "query",
+            "name": "eventclient",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "stream information for streaming request",
+            "in": "query",
+            "name": "stream",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/com.nokia.eda.oam.v1alpha1.ThresholdList"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Details of an error in response to an API REST request."
+          }
+        },
+        "tags": [
+          "apps"
+        ]
+      }
+    }
+  },
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ]
+}

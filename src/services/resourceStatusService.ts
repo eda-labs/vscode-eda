@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { CoreService } from './coreService';
-import { KubernetesClient } from '../clients/kubernetesClient';
 import { LogLevel, log } from '../extension';
 
 /**
@@ -12,17 +11,13 @@ export class ResourceStatusService extends CoreService {
   private statusIconCache: Map<string, vscode.Uri> = new Map();
   private transactionIconCache: Map<string, vscode.Uri> = new Map();
 
-  // Store CRD status schemas for improved status handling
-  private crdStatusSchemas: Map<string, any> = new Map();
   private initialized: boolean = false;
 
   // Extension context for resource loading
   private extensionContext?: vscode.ExtensionContext;
-  private k8sClient: KubernetesClient;
 
-  constructor(k8sClient: KubernetesClient) {
+  constructor() {
     super();
-    this.k8sClient = k8sClient;
     log('Initializing ResourceStatusService', LogLevel.INFO);
   }
 
@@ -35,7 +30,6 @@ export class ResourceStatusService extends CoreService {
 
     try {
       this.extensionContext = context;
-      await this.loadCrdStatusSchemas();
       this.initialized = true;
       log('ResourceStatusService initialized successfully', LogLevel.INFO);
     } catch (error) {
@@ -43,73 +37,6 @@ export class ResourceStatusService extends CoreService {
     }
   }
 
-  /**
-   * Load status schemas for all CRDs
-   */
-  private async loadCrdStatusSchemas(): Promise<void> {
-    try {
-      const crds = this.k8sClient.getCachedCrds();
-      log(`Loading status schemas for ${crds.length} CRDs...`, LogLevel.INFO);
-
-      for (const crd of crds) {
-        const kind = crd.spec?.names?.kind;
-        if (!kind) continue;
-
-        // Extract schema from CRD
-        const schema = this.extractStatusSchema(crd);
-        if (schema) {
-          this.crdStatusSchemas.set(kind, schema);
-        }
-      }
-
-      log(`Loaded status schemas for ${this.crdStatusSchemas.size} CRDs`, LogLevel.INFO);
-    } catch (error) {
-      log(`Failed to load CRD status schemas: ${error}`, LogLevel.ERROR);
-    }
-  }
-
-  /**
-   * Extract status schema from CRD definition
-   */
-  private extractStatusSchema(crd: any): any {
-    try {
-      // Find the schema section
-      let schema = null;
-
-      if (crd.spec?.versions && Array.isArray(crd.spec.versions)) {
-        // Find the version marked as storage or the first one
-        const version = crd.spec.versions.find((v: any) => v.storage === true) ||
-                      crd.spec.versions[0];
-
-        if (version?.schema?.openAPIV3Schema?.properties?.status) {
-          schema = version.schema.openAPIV3Schema.properties.status;
-        }
-      }
-
-      // Check for legacy format if schema is still null
-      if (!schema && crd.spec) {
-        const specObj = crd.spec as Record<string, any>;
-        if ('validation' in specObj &&
-            specObj.validation &&
-            typeof specObj.validation === 'object' &&
-            'openAPIV3Schema' in specObj.validation &&
-            specObj.validation.openAPIV3Schema &&
-            typeof specObj.validation.openAPIV3Schema === 'object' &&
-            'properties' in specObj.validation.openAPIV3Schema &&
-            specObj.validation.openAPIV3Schema.properties &&
-            typeof specObj.validation.openAPIV3Schema.properties === 'object' &&
-            'status' in specObj.validation.openAPIV3Schema.properties) {
-
-          schema = specObj.validation.openAPIV3Schema.properties.status;
-        }
-      }
-
-      return schema;
-    } catch (error) {
-      log(`Error extracting status schema: ${error}`, LogLevel.ERROR);
-      return null;
-    }
-  }
 
   // --- Status Icon Methods ---
 
@@ -140,28 +67,59 @@ export class ResourceStatusService extends CoreService {
   }
 
   /**
-   * Get transaction icon based on success/failure
-   * Only used for transaction items
+   * Get transaction icon based on a color indicator
    */
-  public getTransactionIcon(success: boolean): vscode.Uri {
+  private getTransactionIconByColor(color: string): vscode.Uri {
     if (!this.extensionContext) {
       throw new Error('ResourceStatusService not properly initialized with context');
     }
 
-    const status = success ? 'green' : 'red';
+    const valid = ['green', 'red', 'yellow'];
+    const indicator = valid.includes(color) ? color : 'red';
 
-    // Use cached icon if available
-    if (this.transactionIconCache.has(status)) {
-      return this.transactionIconCache.get(status)!;
+    if (this.transactionIconCache.has(indicator)) {
+      return this.transactionIconCache.get(indicator)!;
     }
 
-    // Create and cache the icon
     const iconUri = vscode.Uri.file(
-      this.extensionContext.asAbsolutePath(path.join('resources', 'status', `transaction-${status}.svg`))
+      this.extensionContext.asAbsolutePath(path.join('resources', 'status', `transaction-${indicator}.svg`))
     );
 
-    this.transactionIconCache.set(status, iconUri);
+    this.transactionIconCache.set(indicator, iconUri);
     return iconUri;
+  }
+
+  /**
+   * Get transaction icon based on success/failure
+   */
+  public getTransactionIcon(success: boolean): vscode.Uri {
+    return this.getTransactionIconByColor(success ? 'green' : 'red');
+  }
+
+  /**
+   * Get transaction icon based on transaction state string
+   */
+  public getTransactionStatusIcon(state: string | undefined, success?: boolean): vscode.Uri {
+    const s = (state || '').toLowerCase();
+    if (s.includes('running')) {
+      return this.getTransactionIconByColor('yellow');
+    }
+    if (s.includes('complete')) {
+      if (success === false) {
+        return this.getTransactionIconByColor('red');
+      }
+      return this.getTransactionIconByColor('green');
+    }
+    if (s.includes('success') || s.includes('succeeded')) {
+      return this.getTransactionIconByColor('green');
+    }
+    if (s.includes('fail') || s.includes('error')) {
+      return this.getTransactionIconByColor('red');
+    }
+    if (success !== undefined) {
+      return this.getTransactionIcon(success);
+    }
+    return this.getTransactionIconByColor('red');
   }
 
   /**
@@ -333,19 +291,7 @@ export class ResourceStatusService extends CoreService {
         desc += (desc ? ', ' : '') + `State: ${resource.status.state}`;
       }
 
-      // Look for other important status fields defined in schema
-      if (!desc && this.crdStatusSchemas.has(kind)) {
-        const schema = this.crdStatusSchemas.get(kind);
-        if (schema && schema.properties) {
-          // Use priority fields if defined in schema
-          const priorityFields = ['phase', 'status', 'condition', 'ready'];
-          for (const field of priorityFields) {
-            if (resource.status[field] !== undefined) {
-              desc += (desc ? ', ' : '') + `${this.formatFieldName(field)}: ${resource.status[field]}`;
-            }
-          }
-        }
-      }
+
 
       return desc;
     }
@@ -685,12 +631,4 @@ export class ResourceStatusService extends CoreService {
     return 'gray';
   }
 
-  /**
-   * Refresh CRD status schemas
-   * This should be called when CRDs are updated
-   */
-  public async refreshStatusSchemas(): Promise<void> {
-    this.crdStatusSchemas.clear();
-    await this.loadCrdStatusSchemas();
-  }
 }

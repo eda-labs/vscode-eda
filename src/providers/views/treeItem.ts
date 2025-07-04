@@ -16,6 +16,7 @@ export class TreeItemBase extends vscode.TreeItem {
   public namespace?: string;
   public resourceType?: string;
   public resourceCategory?: string;
+  public streamGroup?: string;
   public crdInfo?: any;
   public status?: {
     indicator: string;

@@ -1,23 +1,25 @@
-// eslint.config.mjs  – works with ESLint 9+
+// eslint.config.mjs
 import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 
 export default [
-  /* ─── files & globs ESLint must ignore ─────────────────────────── */
+  // ─── ignore JS bundles, build output, etc. ───────────────────────
   {
     ignores: [
-      '**/*.js',          // ← ignore *all* JavaScript bundles
+      '**/*.js',
       'out/**',
       'dist/**',
+      'esbuild.config.mjs',
       'node_modules/**',
-      '.vscode-test.mjs'  // VS Code test harness
+      '.vscode-test.mjs',
+      'spec_example/**'
     ]
   },
 
-  /* ---------- every other JS/JSON file ---------- */
-  eslint.configs.recommended,   // same as "eslint:recommended"
+  // ─── base JS/JSON files ──────────────────────────────────────────
+  eslint.configs.recommended,
 
-  /* ---------- TypeScript (syntax + type-aware) ---------- */
+  // ─── TypeScript files ───────────────────────────────────────────
   {
     files: ['**/*.ts', '**/*.tsx'],
     languageOptions: {
@@ -38,34 +40,50 @@ export default [
         clearInterval: 'readonly',
         window: 'readonly',
         document: 'readonly',
-        fetch: 'readonly'
+        fetch: 'readonly',
+        URLSearchParams: 'readonly',
+        URL: 'readonly'
       }
     },
     plugins: { '@typescript-eslint': tseslint.plugin },
-    // merge the two rule-sets
     rules: {
+      // merge recommended rules + type-checked rules
       ...tseslint.configs.recommended.rules,
       ...tseslint.configs.recommendedTypeChecked.rules,
-      // disallow any trailing whitespace
 
+      // disallow trailing whitespace
       'no-trailing-spaces': ['error', {
-        skipBlankLines: false,    // also flag lines that are purely whitespace
-        ignoreComments: false     // also flag whitespace at end of comments
-      }]
+        skipBlankLines: false,
+        ignoreComments: false
+      }],
 
+      // turn off core unused-vars and use the TS-aware one
+      'no-unused-vars': 'off',
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          vars: 'all',
+          args: 'after-used',
+          ignoreRestSiblings: true,
+          argsIgnorePattern: '^_',    // allow unused args named _foo
+          varsIgnorePattern: '^_'     // allow unused vars named _bar
+        }
+      ]
     }
   },
+
+  // ─── tests ───────────────────────────────────────────────────────
   {
-    files: ["test/**/*.ts"],
+    files: ['test/**/*.ts'],
     languageOptions: {
       globals: {
-        describe: "readonly",
-        it: "readonly",
-        before: "readonly",
-        after: "readonly",
-        beforeEach: "readonly",
-        afterEach: "readonly",
-        __dirname: "readonly"
+        describe: 'readonly',
+        it: 'readonly',
+        before: 'readonly',
+        after: 'readonly',
+        beforeEach: 'readonly',
+        afterEach: 'readonly',
+        __dirname: 'readonly'
       }
     }
   }

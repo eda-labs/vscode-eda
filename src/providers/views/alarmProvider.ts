@@ -1,93 +1,37 @@
 import * as vscode from 'vscode';
 import { TreeItemBase } from './treeItem';
+import { FilteredTreeProvider } from './filteredTreeProvider';
 import { serviceManager } from '../../services/serviceManager';
-import { EdactlClient } from '../../clients/edactlClient';
+import { EdaClient } from '../../clients/edaClient';
 import { ResourceStatusService } from '../../services/resourceStatusService';
-import { log, LogLevel } from '../../extension';
 
-/**
- * TreeDataProvider for the EDA Alarms view
- */
-export class EdaAlarmProvider implements vscode.TreeDataProvider<TreeItemBase> {
-  private _onDidChangeTreeData = new vscode.EventEmitter<TreeItemBase | undefined>();
-  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
-
-  private edactlClient: EdactlClient;
+export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
+  private edaClient: EdaClient;
   private statusService: ResourceStatusService;
-  private refreshInterval: number;
-  private treeFilter: string = '';
-  private refreshTimer?: ReturnType<typeof setInterval>;
-  private _refreshDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+  private alarms: Map<string, any> = new Map();
+  private _onAlarmCountChanged = new vscode.EventEmitter<number>();
+  readonly onAlarmCountChanged = this._onAlarmCountChanged.event;
 
-  constructor(refreshIntervalMs: number = 10000) {
-    this.edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+  public get count(): number {
+    return this.alarms.size;
+  }
+
+  constructor() {
+    super();
+    this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
-    this.refreshInterval = refreshIntervalMs;
-    this.startRefreshTimer();
+
+    void this.edaClient.streamEdaAlarms();
+    this.edaClient.onStreamMessage((stream, msg) => {
+      if (stream === 'current-alarms') {
+        this.processAlarmMessage(msg);
+      }
+    });
+
+    // Emit initial count
+    this._onAlarmCountChanged.fire(this.count);
   }
 
-  /**
-   * Start automatic refresh timer
-   */
-  private startRefreshTimer(): void {
-    if (this.refreshTimer) {
-      clearInterval(this.refreshTimer);
-    }
-    this.refreshTimer = setInterval(() => {
-      this.refresh();
-    }, this.refreshInterval);
-    log(`Alarm polling started, refresh interval: ${this.refreshInterval}ms`, LogLevel.INFO);
-  }
-
-  /**
-   * Stop automatic refresh timer
-   */
-  public dispose(): void {
-    if (this.refreshTimer) {
-      clearInterval(this.refreshTimer);
-      this.refreshTimer = undefined;
-      log('Alarm polling stopped', LogLevel.INFO);
-    }
-
-    if (this._refreshDebounceTimer) {
-      clearTimeout(this._refreshDebounceTimer);
-      this._refreshDebounceTimer = undefined;
-    }
-  }
-
-  /**
-   * Refresh the alarm tree
-   */
-  public refresh(): void {
-    log('Refreshing EDA alarms tree view...', LogLevel.DEBUG);
-    if (this._refreshDebounceTimer) {
-      clearTimeout(this._refreshDebounceTimer);
-    }
-
-    this._refreshDebounceTimer = setTimeout(() => {
-      this._onDidChangeTreeData.fire(undefined);
-      this._refreshDebounceTimer = undefined;
-    }, 100);
-  }
-
-  /**
-   * Filter the tree by text
-   * @param filterText Text to filter by
-   */
-  public setTreeFilter(filterText: string): void {
-    this.treeFilter = filterText.toLowerCase();
-    log(`Setting alarm tree filter to: "${filterText}"`, LogLevel.INFO);
-    this.refresh();
-  }
-
-  /**
-   * Clear the current tree filter
-   */
-  public clearTreeFilter(): void {
-    this.treeFilter = '';
-    log(`Clearing alarm tree filter`, LogLevel.INFO);
-    this.refresh();
-  }
 
   getTreeItem(element: TreeItemBase): vscode.TreeItem {
     return element;
@@ -95,93 +39,79 @@ export class EdaAlarmProvider implements vscode.TreeDataProvider<TreeItemBase> {
 
   async getChildren(element?: TreeItemBase): Promise<TreeItemBase[]> {
     if (element) {
-      // We don't do nested children for alarms; each alarm is a leaf
       return [];
     }
-
-    try {
-      const alarms = await this.edactlClient.getEdaAlarms();
-
-      if (alarms.length === 0) {
-        return [this.createNoAlarmsItem()];
-      }
-
-      let alarmItems = alarms.map(alarm => this.createAlarmItem(alarm));
-
-      // Apply filter if one is set
-      if (this.treeFilter) {
-        alarmItems = alarmItems.filter(item => {
-          const label = item.label.toString().toLowerCase();
-          const description = item.description?.toString().toLowerCase() || '';
-          return label.includes(this.treeFilter) || description.includes(this.treeFilter);
-        });
-
-        if (alarmItems.length === 0) {
-          return [this.createNoAlarmsItem(`(no matches for "${this.treeFilter}")`)];
-        }
-      }
-
-      return alarmItems;
-    } catch (error) {
-      log(`Error getting alarms for tree view: ${error}`, LogLevel.ERROR);
-      const errorItem = new TreeItemBase(
-        'Error loading alarms',
-        vscode.TreeItemCollapsibleState.None,
-        'error'
-      );
-      errorItem.iconPath = new vscode.ThemeIcon('error');
-      errorItem.tooltip = `${error}`;
-      return [errorItem];
+    let list = Array.from(this.alarms.values());
+    if (this.treeFilter) {
+      list = list.filter(a => {
+        const desc = a.description || '';
+        return this.matchesFilter(a.name) || this.matchesFilter(desc);
+      });
     }
+    if (list.length === 0) {
+      const item = new TreeItemBase('No Alarms Found', vscode.TreeItemCollapsibleState.None, 'message');
+      item.iconPath = this.statusService.getThemeStatusIcon('gray');
+      return [item];
+    }
+    list.sort((a, b) => {
+      const aTime = a.lastChanged ? new Date(a.lastChanged).getTime() : 0;
+      const bTime = b.lastChanged ? new Date(b.lastChanged).getTime() : 0;
+      return bTime - aTime;
+    });
+    return list.map(a => this.createAlarmItem(a));
   }
 
-  /**
-   * Create a tree item for when there are no alarms
-   */
-  private createNoAlarmsItem(extraText = ''): TreeItemBase {
-    const label = extraText ? `No Alarms Found ${extraText}` : 'No Alarms Found';
-    const item = new TreeItemBase(
-      label,
-      vscode.TreeItemCollapsibleState.None,
-      'message'
-    );
-
-    // Use the status icon from statusService
-    item.iconPath = this.statusService.getThemeStatusIcon('gray');
-    return item;
-  }
-
-  /**
-   * Create a tree item for an alarm
-   */
   private createAlarmItem(alarm: any): TreeItemBase {
-    const label = `${alarm.severity.toUpperCase()} - ${alarm.type}`;
-    const item = new TreeItemBase(
-      label,
-      vscode.TreeItemCollapsibleState.None,
-      'eda-alarm',
-      { metadata: { name: alarm.name } }
-    );
-
-    item.description = `ns: ${alarm["namespace.name"] || 'unknown'}`;
+    const label = `${(alarm.severity || 'info').toUpperCase()} - ${alarm.type}`;
+    const item = new TreeItemBase(label, vscode.TreeItemCollapsibleState.None, 'eda-alarm', { metadata: { name: alarm.name } });
+    const ns =
+      alarm['.namespace.name'] ||
+      alarm['namespace.name'] ||
+      alarm.namespace ||
+      'unknown';
+    item.description = `ns: ${ns}`;
     item.tooltip = [
       `Name: ${alarm.name}`,
       `Description: ${alarm.description || 'No description'}`,
       `Resource: ${alarm.resource || 'Unknown'}`,
-      `Severity: ${alarm.severity}`,
-      `Cause: ${alarm.probableCause || 'Unknown'}`
+      `Severity: ${alarm.severity}`
     ].join('\n');
-
-    // Use alarm theme icon from statusService
-    item.iconPath = this.statusService.getAlarmThemeIcon(alarm.severity);
-
-    // Set command to show alarm details
+    item.iconPath = this.statusService.getAlarmThemeIcon(alarm.severity || 'INFO');
     item.command = {
       command: 'vscode-eda.showAlarmDetails',
       title: 'Show Alarm Details',
       arguments: [alarm]
     };
-
     return item;
+  }
+
+  /** Process alarm stream updates */
+  private processAlarmMessage(msg: any): void {
+    const ops: any[] = Array.isArray(msg.msg?.op) ? msg.msg.op : [];
+    if (ops.length === 0) {
+      return;
+    }
+    let changed = false;
+    for (const op of ops) {
+      if (op.delete && Array.isArray(op.delete.ids)) {
+        for (const id of op.delete.ids) {
+          if (this.alarms.delete(String(id))) {
+            changed = true;
+          }
+        }
+      } else if (op.insert_or_modify && Array.isArray(op.insert_or_modify.rows)) {
+        for (const row of op.insert_or_modify.rows) {
+          if (row && row.id !== undefined) {
+            const data = row.data || row;
+            this.alarms.set(String(row.id), data);
+            changed = true;
+          }
+        }
+      }
+    }
+    if (changed) {
+      this.refresh();
+      this._onAlarmCountChanged.fire(this.count);
+    }
   }
 }

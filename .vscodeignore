@@ -12,3 +12,4 @@ patch.sh
 .gitignore
 package-lock.json
 **/*.map
+spec_example/**

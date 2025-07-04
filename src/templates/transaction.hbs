@@ -1,0 +1,48 @@
+# Transaction Details
+
+**ID:** `{{id}}`
+
+**State:** `{{state}}`
+
+**User:** `{{username}}`
+
+**Description:** `{{description}}`
+
+**Dry Run:** `{{dryRun}}`
+
+**Success:** <span style="color: {{successColor}};">{{success}}</span>
+
+---
+
+{{#if changedCrs.length}}
+### Changed Resources
+{{#each changedCrs}}
+- `{{gvk.kind}}` in namespace `{{namespace}}` names: {{#each names}}`{{this}}` {{/each}}
+{{/each}}
+{{/if}}
+
+{{#if inputCrs.length}}
+### Input Resources
+{{#each inputCrs}}
+- `{{name.gvk.kind}}` in namespace `{{name.namespace}}` name: `{{name.name}}` {{#if isDelete}}(delete){{/if}}
+{{/each}}
+{{/if}}
+
+{{#if nodesWithConfigChanges.length}}
+### Nodes With Config Changes
+{{#each nodesWithConfigChanges}}
+- `{{name}}` (namespace: `{{namespace}}`) {{#if errors}}Errors: `{{errors}}`{{/if}}
+{{/each}}
+{{/if}}
+
+{{#if generalErrors}}
+### General Errors
+{{generalErrors}}
+{{/if}}
+
+---
+
+### Raw JSON
+```json
+{{{rawJson}}}
+```

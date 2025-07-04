@@ -1,0 +1,10 @@
+{
+  "edaUrl": "https://100.82.85.163",
+  "edaUsername": "admin",
+  "edaPassword": "admin",
+  "kcUsername": "admin",
+  "kcPassword": "admin",
+  "clientId": "eda",
+  "messageIntervalMs": 500,
+  "skipTlsVerify": true
+}

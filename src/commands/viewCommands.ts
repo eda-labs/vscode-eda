@@ -1,13 +1,14 @@
 // src/commands/viewCommands.ts
 import * as vscode from 'vscode';
 import { serviceManager } from '../services/serviceManager';
-import { EdactlClient } from '../clients/edactlClient';
+import { EdaClient } from '../clients/edaClient';
 import { KubernetesClient } from '../clients/kubernetesClient';
 import { edaOutputChannel } from '../extension';
 import { CrdDefinitionFileSystemProvider } from '../providers/documents/crdDefinitionProvider';
 import { TransactionDetailsDocumentProvider } from '../providers/documents/transactionDetailsProvider';
 import { AlarmDetailsDocumentProvider } from '../providers/documents/alarmDetailsProvider';
 import { DeviationDetailsDocumentProvider } from '../providers/documents/deviationDetailsProvider';
+import { BasketTransactionDocumentProvider } from '../providers/documents/basketTransactionProvider';
 import { loadTemplate } from '../utils/templateLoader';
 
 export function registerViewCommands(
@@ -15,7 +16,8 @@ export function registerViewCommands(
   crdFsProvider: CrdDefinitionFileSystemProvider,
   transactionDetailsProvider: TransactionDetailsDocumentProvider,
   alarmDetailsProvider: AlarmDetailsDocumentProvider,
-  deviationDetailsProvider: DeviationDetailsDocumentProvider
+  deviationDetailsProvider: DeviationDetailsDocumentProvider,
+  basketProvider: BasketTransactionDocumentProvider
 ) {
   // Show transaction details command
   const showTransactionDetailsCommand = vscode.commands.registerCommand(
@@ -27,27 +29,53 @@ export function registerViewCommands(
       }
 
       try {
-        // Get EdactlClient from service manager
-        const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+        // Get EdaClient from service manager
+        const edaClient = serviceManager.getClient<EdaClient>('eda');
 
-        // Retrieve text from "edactl transaction <id>"
-        const detailsText = await edactlClient.getTransactionDetails(transactionId);
+        // Retrieve transaction details and summary JSON
+        const [detailsObj, summaryObj] = await Promise.all([
+          edaClient.getTransactionDetails(transactionId),
+          edaClient.getTransactionSummary(transactionId)
+        ]);
+
+        const mergedObj = { ...summaryObj, ...detailsObj } as any;
+
+        const success = mergedObj.success ? 'Yes' : 'No';
+        const successColor = mergedObj.success ? '#2ECC71' : '#E74C3C';
+
+        const templateVars: Record<string, any> = {
+          id: mergedObj.id,
+          state: mergedObj.state,
+          username: mergedObj.username,
+          description: mergedObj.description || 'N/A',
+          dryRun: mergedObj.dryRun ? 'Yes' : 'No',
+          success,
+          successColor,
+          changedCrs: Array.isArray(mergedObj.changedCrs)
+            ? mergedObj.changedCrs
+            : [],
+          inputCrs: Array.isArray(mergedObj.inputCrs)
+            ? mergedObj.inputCrs
+            : [],
+          nodesWithConfigChanges: Array.isArray(mergedObj.nodesWithConfigChanges)
+            ? mergedObj.nodesWithConfigChanges
+            : [],
+          generalErrors: mergedObj.generalErrors,
+          rawJson: JSON.stringify(mergedObj, null, 2)
+        };
+
+        const detailsText = loadTemplate('transaction', context, templateVars);
 
         // Create a "eda-transaction:" URI for read-only
         const docUri = vscode.Uri.parse(
           `eda-transaction:/${transactionId}?ts=${Date.now()}`
         );
 
-        // Store the text in the read-only provider
+        // Store the markdown text in the read-only provider
         transactionDetailsProvider.setTransactionContent(docUri, detailsText);
 
-        // Open the doc
-        const doc = await vscode.workspace.openTextDocument(docUri);
-
-        // Force syntax highlighting to "log" format
-        await vscode.languages.setTextDocumentLanguage(doc, 'log');
-
-        await vscode.window.showTextDocument(doc, { preview: true });
+        // Show markdown preview
+        await vscode.commands.executeCommand('markdown.showPreview', docUri);
       } catch (err: any) {
         const msg = `Failed to load transaction details for ID ${transactionId}: ${err.message}`;
         vscode.window.showErrorMessage(msg);
@@ -130,7 +158,10 @@ export function registerViewCommands(
         type: alarm.type,
         severity: alarm.severity,
         severityColor,
-        namespace: alarm["namespace.name"],
+        namespace:
+          alarm[".namespace.name"] ||
+          alarm["namespace.name"] ||
+          alarm.namespace,
         group: alarm.group,
         sourceGroup: alarm.sourceGroup,
         sourceKind: alarm.sourceKind,
@@ -166,21 +197,22 @@ export function registerViewCommands(
     }
 
     try {
-      const name = deviation.name;
-      const namespace = deviation["namespace.name"];
-      const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+      const name = deviation.name || deviation.metadata?.name;
+      const namespace =
+        deviation["namespace.name"] || deviation.namespace || deviation.metadata?.namespace;
+      const edaClient = serviceManager.getClient<EdaClient>('eda');
 
       // Prepare base template variables
       const templateVars: Record<string, any> = {
-        name: deviation.name,
+        name,
         kind: deviation.kind || 'Deviation',
         apiVersion: deviation.apiVersion || 'v1',
-        namespace: deviation["namespace.name"]
+        namespace
       };
 
       try {
         // Fetch the YAML for the deviation
-        const resourceYaml = await edactlClient.executeEdactl(`get deviation ${name} -n ${namespace} -o yaml`);
+        const resourceYaml = await edaClient.getEdaResourceYaml('deviation', name, namespace);
         templateVars.resourceYaml = resourceYaml;
       } catch (error) {
         // Add error message if we couldn't get the YAML
@@ -201,5 +233,17 @@ export function registerViewCommands(
     }
   });
 
-  context.subscriptions.push(showTransactionDetailsCommand, showCRDDefinitionCommand);
+  const showBasketTxCommand = vscode.commands.registerCommand('vscode-eda.showBasketTransaction', async (tx: any) => {
+    if (!tx) {
+      vscode.window.showErrorMessage('No transaction details available.');
+      return;
+    }
+    const docUri = vscode.Uri.parse(`basket-tx:/${Date.now()}`);
+    basketProvider.setContentForUri(docUri, JSON.stringify(tx, null, 2));
+    const doc = await vscode.workspace.openTextDocument(docUri);
+    await vscode.languages.setTextDocumentLanguage(doc, 'json');
+    await vscode.window.showTextDocument(doc, { preview: true });
+  });
+
+  context.subscriptions.push(showTransactionDetailsCommand, showCRDDefinitionCommand, showBasketTxCommand);
 }

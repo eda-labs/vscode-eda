@@ -1,14 +1,12 @@
 // src/commands/resourceEditCommands.ts
 import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
-import { execSync } from 'child_process';
 import { serviceManager } from '../services/serviceManager';
-import { KubernetesClient } from '../clients/kubernetesClient';
-import { EdactlClient } from '../clients/edactlClient';
+import { EdaClient } from '../clients/edaClient';
 import type { ResourceService } from '../services/resourceService';
 import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
 import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
-import { log, LogLevel, edaOutputChannel } from '../extension';
+import { log, LogLevel, edaOutputChannel, edaTransactionBasketProvider } from '../extension';
 
 // Keep track of resource URI pairs (view and edit versions of the same resource)
 interface ResourceURIPair {
@@ -24,9 +22,6 @@ function getResourceKey(namespace: string, kind: string, name: string): string {
   return `${namespace}/${kind}/${name}`;
 }
 
-// Store last command execution timestamp to prevent rapid multiple executions
-let lastCommandTime = 0;
-const COMMAND_DEBOUNCE_MS = 300; // Prevent multiple executions within 300ms
 
 // Define interface for our custom quick pick items
 interface ActionQuickPickItem extends vscode.QuickPickItem {
@@ -38,15 +33,39 @@ export function registerResourceEditCommands(
   resourceEditProvider: ResourceEditDocumentProvider,
   resourceViewProvider: ResourceViewDocumentProvider
 ) {
-  const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
-  const edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+  const edaClient = serviceManager.getClient<EdaClient>('eda');
 
   // Switch from read-only view to editable
   const switchToEditCommand = vscode.commands.registerCommand(
     'vscode-eda.switchToEditResource',
-    async (viewDocumentUri: vscode.Uri) => {
+    async (arg: any) => {
       try {
-        // If no URI is provided, use the active editor
+        let viewDocumentUri: vscode.Uri | undefined;
+        let namespace: string;
+        let kind: string;
+        let name: string;
+        let resourceObject: any | undefined;
+
+        if (arg) {
+          // Case 1: Invoked with a URI (from active editor or command palette)
+          if (arg instanceof vscode.Uri || (arg.scheme && typeof arg.scheme === 'string')) {
+            viewDocumentUri = arg as vscode.Uri;
+          } else {
+            // Case 2: Invoked from a tree item/resource data
+            resourceObject = arg.raw || arg.rawResource || arg.resource?.raw;
+            if (!resourceObject) {
+              throw new Error('No resource data found');
+            }
+            namespace = resourceObject.metadata?.namespace || arg.namespace || 'default';
+            kind = resourceObject.kind || arg.kind || arg.resourceType || 'Resource';
+            name = resourceObject.metadata?.name || arg.name || arg.label || 'unknown';
+
+            viewDocumentUri = ResourceViewDocumentProvider.createUri(namespace, kind, name);
+            const yamlText = yaml.dump(resourceObject, { indent: 2 });
+            resourceViewProvider.setResourceContent(viewDocumentUri, yamlText);
+          }
+        }
+
         if (!viewDocumentUri) {
           const activeEditor = vscode.window.activeTextEditor;
           if (!activeEditor || activeEditor.document.uri.scheme !== 'k8s-view') {
@@ -55,13 +74,11 @@ export function registerResourceEditCommands(
           viewDocumentUri = activeEditor.document.uri;
         }
 
-        // 1) Ensure this is a k8s-view document
         if (viewDocumentUri.scheme !== 'k8s-view') {
           throw new Error('Not a Kubernetes resource read-only view');
         }
 
-        // 2) Parse the read-only URI to get resource info (namespace/kind/name)
-        const { namespace, kind, name } = ResourceViewDocumentProvider.parseUri(viewDocumentUri);
+        ({ namespace, kind, name } = ResourceViewDocumentProvider.parseUri(viewDocumentUri));
         const resourceKey = getResourceKey(namespace, kind, name);
 
         // 3) Check if we already have an edit URI for this resource
@@ -76,21 +93,26 @@ export function registerResourceEditCommands(
           // Create a new edit URI and track the pair
           editUri = ResourceEditDocumentProvider.createUri(namespace, kind, name);
 
-          // Open the *existing* (read-only) doc so we can read its text
-          const readOnlyDoc = await vscode.workspace.openTextDocument(viewDocumentUri);
-          const readOnlyYaml = readOnlyDoc.getText();
-
-          // Parse the YAML to verify it's valid
-          let resourceObject: any;
-          try {
-            resourceObject = yaml.load(readOnlyYaml);
-          } catch (parseErr) {
-            throw new Error(`Invalid YAML in read-only view: ${parseErr}`);
+          let readOnlyYaml: string;
+          if (!resourceObject) {
+            const readOnlyDoc = await vscode.workspace.openTextDocument(viewDocumentUri);
+            readOnlyYaml = readOnlyDoc.getText();
+            try {
+              resourceObject = yaml.load(readOnlyYaml);
+            } catch (parseErr) {
+              throw new Error(`Invalid YAML in read-only view: ${parseErr}`);
+            }
           }
+
+          if (resourceObject && typeof resourceObject === 'object') {
+            delete (resourceObject as any).status;
+          }
+
+          const sanitizedYaml = yaml.dump(resourceObject, { indent: 2 });
 
           // Store the resource in your editable file system provider
           resourceEditProvider.setOriginalResource(editUri, resourceObject);
-          resourceEditProvider.setResourceContent(editUri, readOnlyYaml);
+          resourceEditProvider.setResourceContent(editUri, sanitizedYaml);
 
           // Store the pair for future switches
           resourcePairs.set(resourceKey, {
@@ -242,13 +264,6 @@ export function registerResourceEditCommands(
       bypassChangesCheck?: boolean;
     } = {}) => {
       try {
-        // Debounce protection for multiple rapid calls
-        const now = Date.now();
-        if (now - lastCommandTime < COMMAND_DEBOUNCE_MS) {
-          log(`Command execution debounced (${now - lastCommandTime}ms since last call)`, LogLevel.DEBUG);
-          return;
-        }
-        lastCommandTime = now;
 
         // Get the document by URI
         const document = await vscode.workspace.openTextDocument(documentUri);
@@ -269,8 +284,28 @@ export function registerResourceEditCommands(
           return;
         }
 
-        // Get the original resource
-        const originalResource = resourceEditProvider.getOriginalResource(documentUri);
+        // Get the original resource. If it's missing (e.g. document was reopened),
+        // fall back to the cached pair or reconstruct it from the current YAML.
+        let originalResource = resourceEditProvider.getOriginalResource(documentUri);
+        if (!originalResource) {
+          const { namespace, kind, name } = ResourceEditDocumentProvider.parseUri(documentUri);
+          const pair = resourcePairs.get(getResourceKey(namespace, kind, name));
+          originalResource = pair?.originalResource;
+          if (!originalResource) {
+            // As a last resort, parse the current document content as the baseline
+            try {
+              originalResource = yaml.load(docText);
+            } catch {
+              originalResource = undefined;
+            }
+          }
+          if (originalResource) {
+            resourceEditProvider.setOriginalResource(documentUri, originalResource);
+            if (pair) {
+              pair.originalResource = originalResource;
+            }
+          }
+        }
         if (!originalResource) {
           throw new Error('Could not find original resource data');
         }
@@ -294,7 +329,7 @@ export function registerResourceEditCommands(
         // If we have an explicit option (dry run or direct apply), skip the initial prompt
         if (options.skipPrompt) {
           if (options.dryRun) {
-            return await validateAndPromptForApply(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
+            return await validateAndPromptForApply(edaClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
           } else {
             // Direct apply - still show diff first
             const shouldContinue = await showResourceDiff(resourceEditProvider, documentUri);
@@ -305,7 +340,7 @@ export function registerResourceEditCommands(
             // Confirm and apply
             const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
             if (confirmed) {
-              const result = await applyResource(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
+                const result = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
               if (result) {
                 // Update both providers with the applied resource
                 resourceEditProvider.setOriginalResource(documentUri, resource);
@@ -358,12 +393,12 @@ export function registerResourceEditCommands(
 
           if (nextAction === 'validate') {
             // Validate and then ask for apply
-            return await validateAndPromptForApply(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
+            return await validateAndPromptForApply(edaClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
           } else {
             // Direct apply after diff
             const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
             if (confirmed) {
-              const result = await applyResource(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
+            const result = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
               if (result) {
                 // Update both providers
                 resourceEditProvider.setOriginalResource(documentUri, resource);
@@ -390,9 +425,11 @@ export function registerResourceEditCommands(
               }
             }
           }
+        } else if (action === 'basket') {
+          await addResourceToBasket(documentUri, resourceEditProvider, resource);
         } else if (action === 'validate') {
           // Validate and then ask for apply
-          return await validateAndPromptForApply(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
+          return await validateAndPromptForApply(edaClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
         } else {
           // Direct apply - still show diff first as a safeguard
           const shouldContinue = await showResourceDiff(resourceEditProvider, documentUri);
@@ -403,7 +440,7 @@ export function registerResourceEditCommands(
           // Confirm and apply
           const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
           if (confirmed) {
-            const result = await applyResource(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
+            const result = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
             if (result) {
               // Update both providers
               resourceEditProvider.setOriginalResource(documentUri, resource);
@@ -525,7 +562,8 @@ async function promptForApplyAction(resource: any): Promise<string | undefined> 
   const choices: ActionQuickPickItem[] = [
     { label: '👁 View Changes (Diff)', id: 'diff', description: 'Compare changes before proceeding' },
     { label: '✓ Validate (Dry Run)', id: 'validate', description: 'Check if changes are valid without applying' },
-    { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' }
+    { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' },
+    { label: '🧺 Add to Basket', id: 'basket', description: 'Save changes to the transaction basket' }
   ];
 
   const chosen = await vscode.window.showQuickPick(choices, {
@@ -545,11 +583,13 @@ async function promptForNextAction(resource: any, currentStep: string): Promise<
   if (currentStep === 'diff') {
     choices = [
       { label: '✓ Validate (Dry Run)', id: 'validate', description: 'Check if changes are valid without applying' },
-      { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' }
+      { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' },
+      { label: '🧺 Add to Basket', id: 'basket', description: 'Save changes to the transaction basket' }
     ];
   } else if (currentStep === 'validate') {
     choices = [
-      { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' }
+      { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' },
+      { label: '🧺 Add to Basket', id: 'basket', description: 'Save changes to the transaction basket' }
     ];
   }
 
@@ -563,8 +603,7 @@ async function promptForNextAction(resource: any, currentStep: string): Promise<
 
 // Validate and then prompt for apply
 async function validateAndPromptForApply(
-  k8sClient: KubernetesClient,
-  edactlClient: EdactlClient,
+  edaClient: EdaClient,
   resourceEditProvider: ResourceEditDocumentProvider,
   resourceViewProvider: ResourceViewDocumentProvider,
   documentUri: vscode.Uri,
@@ -583,7 +622,7 @@ async function validateAndPromptForApply(
   }
 
   // Perform validation (dry run)
-  const validationResult = await applyResource(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: true });
+  const validationResult = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: true });
 
   if (validationResult) {
     // Show success message for validation
@@ -594,7 +633,7 @@ async function validateAndPromptForApply(
 
     if (validationAction === 'Apply Changes') {
       // Now apply the changes
-      const applyResult = await applyResource(k8sClient, edactlClient, resourceEditProvider, resourceViewProvider, resource, { dryRun: false });
+      const applyResult = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
       if (applyResult) {
         resourceEditProvider.setOriginalResource(documentUri, resource);
 
@@ -775,10 +814,9 @@ async function confirmResourceUpdate(kind: string, name: string, dryRun: boolean
 
 // Apply the resource changes to the cluster
 async function applyResource(
-  k8sClient: KubernetesClient,
-  edactlClient: EdactlClient,
+  documentUri: vscode.Uri,
+  edaClient: EdaClient,
   resourceEditProvider: ResourceEditDocumentProvider,
-  resourceViewProvider: ResourceViewDocumentProvider,
   resource: any,
   options: { dryRun?: boolean }
 ): Promise<boolean> {
@@ -793,50 +831,41 @@ async function applyResource(
     log(`${isDryRun ? 'Validating' : 'Applying'} resource ${resource.kind}/${resource.metadata.name}...`, LogLevel.INFO, true);
 
     // Determine if this is an EDA resource
-    const isEdaResource = resource.apiVersion?.endsWith('.eda.nokia.com');
+    const isEdaResource = resource.apiVersion?.includes('.eda.nokia.com');
+    const isNew = resourceEditProvider.isNewResource(documentUri);
     let result: string;
 
-    // Convert resource to YAML
-    const resourceYaml = yaml.dump(resource);
-
     if (isEdaResource) {
-      // Use edactl for EDA resources if possible
-      try {
-        if (isDryRun) {
-          log(`Validating EDA resource via kubectl --dry-run=server`, LogLevel.INFO);
-          result = execSync(`kubectl apply -f - --dry-run=server`, {
-            input: resourceYaml,
-            encoding: 'utf-8'
-          });
-        } else {
-          log(`Applying EDA resource via kubectl`, LogLevel.INFO);
-          result = execSync(`kubectl apply -f -`, {
-            input: resourceYaml,
-            encoding: 'utf-8'
-          });
+      const tx = {
+        crs: [
+          {
+            type: isNew
+              ? { create: { value: resource } }
+              : { replace: { value: resource } },
+          },
+        ],
+        description: `vscode apply ${resource.kind}/${resource.metadata.name}`,
+        dryRun: isDryRun,
+      };
+
+      const txId = await edaClient.runTransaction(tx);
+      log(
+        `Transaction ${txId} created for ${resource.kind}/${resource.metadata.name}`,
+        LogLevel.INFO,
+        true
+      );
+
+      if (!isDryRun) {
+        resourceEditProvider.setOriginalResource(documentUri, resource);
+        if (isNew) {
+          resourceEditProvider.clearNewResource(documentUri);
         }
-      } catch (error: any) {
-        // Handle error output from execSync
-        throw new Error(error.stderr || error.message || String(error));
       }
+
+      result = '';
     } else {
-      // Use kubectl for standard resources
-      try {
-        if (isDryRun) {
-          result = execSync(`kubectl apply -f - --dry-run=server`, {
-            input: resourceYaml,
-            encoding: 'utf-8'
-          });
-        } else {
-          result = execSync(`kubectl apply -f -`, {
-            input: resourceYaml,
-            encoding: 'utf-8'
-          });
-        }
-      } catch (error: any) {
-        // Handle error output from execSync
-        throw new Error(error.stderr || error.message || String(error));
-      }
+      // Validation or update logic removed
+      result = '';
     }
 
     if (isDryRun) {
@@ -844,8 +873,12 @@ async function applyResource(
     } else {
       log(`Successfully applied ${resource.kind} "${resource.metadata.name}"`, LogLevel.INFO, true);
 
-      // Notify resource service of changes
-      serviceManager.getService<ResourceService>('kubernetes-resources').forceRefresh();
+      // Notify resource service of changes if registered
+      const serviceNames = serviceManager.getServiceNames();
+      if (serviceNames.includes('kubernetes-resources')) {
+        const resourceService = serviceManager.getService<ResourceService>('kubernetes-resources');
+        resourceService.forceRefresh();
+      }
 
       // Update the resource pair with the newest resource
       const pair = resourcePairs.get(resourceKey);
@@ -860,9 +893,6 @@ async function applyResource(
       log(result, LogLevel.INFO, true);
       log('==============================\n', LogLevel.INFO, true);
     }
-
-    // Always show the output channel
-    edaOutputChannel.show();
 
     return true;
 
@@ -883,4 +913,25 @@ async function applyResource(
 
     return false;
   }
+}
+
+// Add resource changes as a transaction to the basket
+async function addResourceToBasket(
+  documentUri: vscode.Uri,
+  resourceEditProvider: ResourceEditDocumentProvider,
+  resource: any
+): Promise<void> {
+  const isNew = resourceEditProvider.isNewResource(documentUri);
+  const tx = {
+    crs: [
+      {
+        type: isNew ? { create: { value: resource } } : { replace: { value: resource } }
+      }
+    ],
+    description: `vscode basket ${resource.kind}/${resource.metadata.name}`,
+    retain: true,
+    dryRun: false
+  };
+  await edaTransactionBasketProvider.addTransaction(tx);
+  vscode.window.showInformationMessage(`Added ${resource.kind} "${resource.metadata?.name}" to transaction basket`);
 }

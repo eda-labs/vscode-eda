@@ -8,7 +8,6 @@ import { CoreService } from './coreService';
 export class ServiceManager {
   private services: Map<string, CoreService> = new Map();
   private clients: Map<string, any> = new Map();
-  private isInitialized: boolean = false;
 
   constructor() {}
 
@@ -112,7 +111,6 @@ export class ServiceManager {
 
     this.services.clear();
     this.clients.clear();
-    this.isInitialized = false;
 
     log('Service manager disposed', LogLevel.INFO);
   }

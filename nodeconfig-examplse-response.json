@@ -1,0 +1,328 @@
+{
+    "running": "bfd {\n    subinterface ethernet-1/49.0 {\n        admin-state enable\n        desired-minimum-transmit-interval 1000000\n        required-minimum-receive 1000000\n        detection-multiplier 3\n        minimum-echo-receive-interval 1000000\n    }\n    subinterface ethernet-1/50.0 {\n        admin-state enable\n        desired-minimum-transmit-interval 1000000\n        required-minimum-receive 1000000\n        detection-multiplier 3\n        minimum-echo-receive-interval 1000000\n    }\n    subinterface system0.0 {\n        admin-state enable\n        desired-minimum-transmit-interval 1000000\n        required-minimum-receive 1000000\n        detection-multiplier 3\n        minimum-echo-receive-interval 1000000\n    }\n}\ninterface ethernet-1/1 {\n    description afd\n    admin-state enable\n    ethernet {\n        aggregate-id lag1\n        lacp-port-priority 32768\n        port-speed 10G\n    }\n}\ninterface ethernet-1/2 {\n    description lag2-l1-l2-eth-1-2\n    admin-state enable\n    ethernet {\n        aggregate-id lag2\n        lacp-port-priority 32768\n        port-speed 10G\n    }\n}\ninterface ethernet-1/49 {\n    description \"interSwitch link to spine1\"\n    admin-state enable\n    subinterface 0 {\n        admin-state enable\n        ipv6 {\n            admin-state enable\n            router-advertisement {\n                router-role {\n                    admin-state enable\n                    max-advertisement-interval 10\n                    min-advertisement-interval 4\n                }\n            }\n        }\n    }\n}\ninterface ethernet-1/50 {\n    description \"interSwitch link to spine2\"\n    admin-state enable\n    subinterface 0 {\n        admin-state enable\n        ipv6 {\n            admin-state enable\n            router-advertisement {\n                router-role {\n                    admin-state enable\n                    max-advertisement-interval 10\n                    min-advertisement-interval 4\n                }\n            }\n        }\n    }\n}\ninterface irb0 {\n    subinterface 0 {\n        description macvrf201-irb\n        ip-mtu 1500\n        ipv4 {\n            admin-state enable\n            address 10.20.1.254/24 {\n                anycast-gw true\n            }\n            arp {\n                timeout 14400\n            }\n        }\n        anycast-gw {\n            virtual-router-id 1\n        }\n    }\n    subinterface 1 {\n        description macvrf202-irb\n        ip-mtu 1500\n        ipv4 {\n            admin-state enable\n            address 10.20.2.254/24 {\n                anycast-gw true\n            }\n            arp {\n                timeout 14400\n            }\n        }\n        anycast-gw {\n            virtual-router-id 1\n        }\n    }\n}\ninterface lag1 {\n    description afd\n    admin-state enable\n    vlan-tagging true\n    subinterface 201 {\n        type bridged\n        description macvrf201\n        admin-state enable\n        vlan {\n            encap {\n                single-tagged {\n                    vlan-id 201\n                }\n            }\n        }\n    }\n    subinterface 1001 {\n        type bridged\n        description macvrf1001\n        admin-state enable\n        vlan {\n            encap {\n                single-tagged {\n                    vlan-id 1001\n                }\n            }\n        }\n    }\n    lag {\n        lag-type lacp\n        min-links 1\n        lacp {\n            interval FAST\n            lacp-mode ACTIVE\n            admin-key 1\n            system-id-mac FE:2F:AA:00:00:01\n            system-priority 32768\n        }\n    }\n}\ninterface lag2 {\n    description lag2-l1-l2-eth-1-2\n    admin-state enable\n    vlan-tagging true\n    subinterface 202 {\n        type bridged\n        description macvrf202\n        admin-state enable\n        vlan {\n            encap {\n                single-tagged {\n                    vlan-id 202\n                }\n            }\n        }\n    }\n    subinterface 1001 {\n        type bridged\n        description macvrf1001\n        admin-state enable\n        vlan {\n            encap {\n                single-tagged {\n                    vlan-id 1001\n                }\n            }\n        }\n    }\n    lag {\n        lag-type lacp\n        min-links 1\n        lacp {\n            interval FAST\n            lacp-mode ACTIVE\n            admin-key 2\n            system-id-mac FE:2F:AA:00:00:02\n            system-priority 32768\n        }\n    }\n}\ninterface mgmt0 {\n    admin-state enable\n    subinterface 0 {\n        admin-state enable\n        ipv4 {\n            admin-state enable\n            dhcp-client {\n                trace-options {\n                    trace [\n                        messages\n                    ]\n                }\n            }\n        }\n        ipv6 {\n            admin-state enable\n            dhcp-client {\n                trace-options {\n                    trace [\n                        messages\n                    ]\n                }\n            }\n        }\n    }\n}\ninterface system0 {\n    subinterface 0 {\n        admin-state enable\n        ipv4 {\n            admin-state enable\n            address 11.0.0.6/32 {\n            }\n        }\n    }\n}\nnetwork-instance default {\n    type default\n    admin-state enable\n    description \"fabric: fabric role: leaf\"\n    router-id 11.0.0.6\n    ip-forwarding {\n        receive-ipv4-check false\n    }\n    interface ethernet-1/49.0 {\n    }\n    interface ethernet-1/50.0 {\n    }\n    interface system0.0 {\n    }\n    protocols {\n        bgp {\n            admin-state enable\n            autonomous-system 102\n            router-id 11.0.0.6\n            dynamic-neighbors {\n                interface ethernet-1/49.0 {\n                    peer-group bgpgroup-ebgp-fabric\n                    allowed-peer-as [\n                        101\n                    ]\n                }\n                interface ethernet-1/50.0 {\n                    peer-group bgpgroup-ebgp-fabric\n                    allowed-peer-as [\n                        101\n                    ]\n                }\n            }\n            ebgp-default-policy {\n                import-reject-all true\n                export-reject-all true\n            }\n            afi-safi evpn {\n                admin-state enable\n                multipath {\n                    allow-multiple-as true\n                    maximum-paths 64\n                }\n                evpn {\n                    rapid-update true\n                }\n            }\n            afi-safi ipv4-unicast {\n                admin-state enable\n                multipath {\n                    allow-multiple-as true\n                    maximum-paths 2\n                }\n                ipv4-unicast {\n                    advertise-ipv6-next-hops true\n                    receive-ipv6-next-hops true\n                }\n            }\n            afi-safi ipv6-unicast {\n                admin-state enable\n                multipath {\n                    allow-multiple-as true\n                    maximum-paths 2\n                }\n            }\n            preference {\n                ebgp 170\n                ibgp 170\n            }\n            route-advertisement {\n                rapid-withdrawal true\n                wait-for-fib-install false\n            }\n            group bgpgroup-ebgp-fabric {\n                admin-state enable\n                export-policy [\n                    ebgp-isl-export-policy-fabric\n                ]\n                import-policy [\n                    ebgp-isl-import-policy-fabric\n                ]\n                failure-detection {\n                    enable-bfd true\n                    fast-failover true\n                }\n                afi-safi evpn {\n                    admin-state disable\n                }\n                afi-safi ipv4-unicast {\n                    admin-state enable\n                    ipv4-unicast {\n                        advertise-ipv6-next-hops true\n                        receive-ipv6-next-hops true\n                    }\n                }\n                afi-safi ipv6-unicast {\n                    admin-state enable\n                }\n                timers {\n                    connect-retry 10\n                    hold-time 3\n                    keepalive-interval 1\n                    minimum-advertisement-interval 1\n                }\n            }\n            group bgpgroup-ibgp-rrclient-fabric {\n                admin-state enable\n                export-policy [\n                    ibgp-export-policy-fabric\n                ]\n                import-policy [\n                    ibgp-import-policy-fabric\n                ]\n                failure-detection {\n                    enable-bfd true\n                    fast-failover true\n                }\n                afi-safi evpn {\n                    admin-state enable\n                }\n                afi-safi ipv4-unicast {\n                    admin-state disable\n                }\n                afi-safi ipv6-unicast {\n                    admin-state disable\n                }\n                timers {\n                    connect-retry 10\n                    hold-time 3\n                    keepalive-interval 1\n                    minimum-advertisement-interval 1\n                }\n            }\n            neighbor 11.0.0.2 {\n                admin-state enable\n                description \"Connected to system interface leaf1-system0\"\n                peer-as 65100\n                peer-group bgpgroup-ibgp-rrclient-fabric\n                afi-safi evpn {\n                    admin-state enable\n                }\n                afi-safi ipv4-unicast {\n                    admin-state disable\n                }\n                afi-safi ipv6-unicast {\n                    admin-state disable\n                }\n                local-as {\n                    as-number 65100\n                }\n            }\n            neighbor 11.0.0.4 {\n                admin-state enable\n                description \"Connected to system interface leaf1-system0\"\n                peer-as 65100\n                peer-group bgpgroup-ibgp-rrclient-fabric\n                afi-safi evpn {\n                    admin-state enable\n                }\n                afi-safi ipv4-unicast {\n                    admin-state disable\n                }\n                afi-safi ipv6-unicast {\n                    admin-state disable\n                }\n                local-as {\n                    as-number 65100\n                }\n            }\n        }\n    }\n}\nnetwork-instance ipvrf2001 {\n    type ip-vrf\n    admin-state enable\n    description ipvrf2001\n    interface irb0.0 {\n    }\n    interface irb0.1 {\n    }\n    vxlan-interface vxlan0.503 {\n    }\n    protocols {\n        bgp-evpn {\n            bgp-instance 1 {\n                vxlan-interface vxlan0.503\n                evi 103\n                ecmp 8\n                routes {\n                    route-table {\n                        mac-ip {\n                            advertise-gateway-mac true\n                        }\n                    }\n                }\n            }\n        }\n        bgp-vpn {\n            bgp-instance 1 {\n                route-target {\n                    export-rt target:1:103\n                    import-rt target:1:103\n                }\n            }\n        }\n    }\n}\nnetwork-instance macvrf1001 {\n    type mac-vrf\n    admin-state enable\n    description macvrf1001\n    interface lag1.1001 {\n    }\n    interface lag2.1001 {\n    }\n    vxlan-interface vxlan0.501 {\n    }\n    protocols {\n        bgp-evpn {\n            bgp-instance 1 {\n                vxlan-interface vxlan0.501\n                evi 101\n                ecmp 8\n            }\n        }\n        bgp-vpn {\n            bgp-instance 1 {\n                route-target {\n                    export-rt target:1:101\n                    import-rt target:1:101\n                }\n            }\n        }\n    }\n    bridge-table {\n        mac-learning {\n            admin-state enable\n            aging {\n                admin-state enable\n                age-time 300\n            }\n        }\n        mac-duplication {\n            admin-state enable\n            monitoring-window 3\n            num-moves 5\n            hold-down-time 9\n            action stop-learning\n        }\n        mac-limit {\n            maximum-entries 250\n        }\n    }\n}\nnetwork-instance macvrf201 {\n    type mac-vrf\n    admin-state enable\n    description macvrf201\n    interface irb0.0 {\n    }\n    interface lag1.201 {\n    }\n    vxlan-interface vxlan0.502 {\n    }\n    protocols {\n        bgp-evpn {\n            bgp-instance 1 {\n                vxlan-interface vxlan0.502\n                evi 102\n                ecmp 8\n            }\n        }\n        bgp-vpn {\n            bgp-instance 1 {\n                route-target {\n                    export-rt target:1:102\n                    import-rt target:1:102\n                }\n            }\n        }\n    }\n    bridge-table {\n        mac-learning {\n            admin-state enable\n            aging {\n                admin-state enable\n                age-time 300\n            }\n        }\n        mac-duplication {\n            admin-state enable\n            monitoring-window 3\n            num-moves 5\n            hold-down-time 9\n            action stop-learning\n        }\n        mac-limit {\n            maximum-entries 250\n        }\n    }\n}\nnetwork-instance macvrf202 {\n    type mac-vrf\n    admin-state enable\n    description macvrf202\n    interface irb0.1 {\n    }\n    interface lag2.202 {\n    }\n    vxlan-interface vxlan0.500 {\n    }\n    protocols {\n        bgp-evpn {\n            bgp-instance 1 {\n                vxlan-interface vxlan0.500\n                evi 100\n                ecmp 8\n            }\n        }\n        bgp-vpn {\n            bgp-instance 1 {\n                route-target {\n                    export-rt target:1:100\n                    import-rt target:1:100\n                }\n            }\n        }\n    }\n    bridge-table {\n        mac-learning {\n            admin-state enable\n            aging {\n                admin-state enable\n                age-time 300\n            }\n        }\n        mac-duplication {\n            admin-state enable\n            monitoring-window 3\n            num-moves 5\n            hold-down-time 9\n            action stop-learning\n        }\n        mac-limit {\n            maximum-entries 250\n        }\n    }\n}\nnetwork-instance mgmt {\n    type ip-vrf\n    admin-state enable\n    description \"Management network instance\"\n    interface mgmt0.0 {\n    }\n    protocols {\n        linux {\n            import-routes true\n            export-routes true\n        }\n    }\n}\nrouting-policy {\n    prefix-set prefixset-fabric {\n        prefix 11.0.0.0/8 mask-length-range32..32 {\n        }\n    }\n    policy ebgp-isl-export-policy-fabric {\n        default-action {\n            policy-result reject\n        }\n        statement 10 {\n            match {\n                prefix-set prefixset-fabric\n                protocol local\n            }\n            action {\n                policy-result accept\n                bgp {\n                    local-preference {\n                        set 100\n                    }\n                }\n            }\n        }\n        statement 15 {\n            match {\n                protocol bgp\n            }\n            action {\n                policy-result accept\n                bgp {\n                    local-preference {\n                        set 100\n                    }\n                }\n            }\n        }\n        statement 20 {\n            match {\n                protocol aggregate\n            }\n            action {\n                policy-result accept\n                bgp {\n                    local-preference {\n                        set 100\n                    }\n                }\n            }\n        }\n        statement 25 {\n            match {\n                bgp {\n                    evpn {\n                        route-type [\n                            1\n                        ]\n                    }\n                }\n            }\n            action {\n                policy-result accept\n                bgp {\n                    local-preference {\n                        set 100\n                    }\n                }\n            }\n        }\n        statement 30 {\n            match {\n                bgp {\n                    evpn {\n                        route-type [\n                            2\n                        ]\n                    }\n                }\n            }\n            action {\n                policy-result accept\n                bgp {\n                    local-preference {\n                        set 100\n                    }\n                }\n            }\n        }\n        statement 35 {\n            match {\n                bgp {\n                    evpn {\n                        route-type [\n                            3\n                        ]\n                    }\n                }\n            }\n            action {\n                policy-result accept\n                bgp {\n                    local-preference {\n                        set 100\n                    }\n                }\n            }\n        }\n        statement 40 {\n            match {\n                bgp {\n                    evpn {\n                        route-type [\n                            4\n                        ]\n                    }\n                }\n            }\n            action {\n                policy-result accept\n                bgp {\n                    local-preference {\n                        set 100\n                    }\n                }\n            }\n        }\n        statement 45 {\n            match {\n                bgp {\n                    evpn {\n                        route-type [\n                            5\n                        ]\n                    }\n                }\n            }\n            action {\n                policy-result accept\n                bgp {\n                    local-preference {\n                        set 100\n                    }\n                }\n            }\n        }\n    }\n    policy ebgp-isl-import-policy-fabric {\n        default-action {\n            policy-result reject\n        }\n        statement 10 {\n            match {\n                protocol bgp\n            }\n            action {\n                policy-result accept\n                bgp {\n                    local-preference {\n                        set 100\n                    }\n                }\n            }\n        }\n    }\n    policy ibgp-export-policy-fabric {\n        statement 15 {\n            match {\n                bgp {\n                    evpn {\n                        route-type [\n                            1\n                        ]\n                    }\n                }\n            }\n            action {\n                policy-result accept\n                bgp {\n                    local-preference {\n                        set 100\n                    }\n                }\n            }\n        }\n        statement 20 {\n            match {\n                bgp {\n                    evpn {\n                        route-type [\n                            2\n                        ]\n                    }\n                }\n            }\n            action {\n                policy-result accept\n                bgp {\n                    local-preference {\n                        set 100\n                    }\n                }\n            }\n        }\n        statement 25 {\n            match {\n                bgp {\n                    evpn {\n                        route-type [\n                            3\n                        ]\n                    }\n                }\n            }\n            action {\n                policy-result accept\n                bgp {\n                    local-preference {\n                        set 100\n                    }\n                }\n            }\n        }\n        statement 30 {\n            match {\n                bgp {\n                    evpn {\n                        route-type [\n                            4\n                        ]\n                    }\n                }\n            }\n            action {\n                policy-result accept\n                bgp {\n                    local-preference {\n                        set 100\n                    }\n                }\n            }\n        }\n        statement 35 {\n            match {\n                bgp {\n                    evpn {\n                        route-type [\n                            5\n                        ]\n                    }\n                }\n            }\n            action {\n                policy-result accept\n                bgp {\n                    local-preference {\n                        set 100\n                    }\n                }\n            }\n        }\n    }\n    policy ibgp-import-policy-fabric {\n        statement 15 {\n            match {\n                bgp {\n                    evpn {\n                        route-type [\n                            1\n                        ]\n                    }\n                }\n            }\n            action {\n                policy-result accept\n                bgp {\n                    local-preference {\n                        set 100\n                    }\n                }\n            }\n        }\n        statement 20 {\n            match {\n                bgp {\n                    evpn {\n                        route-type [\n                            2\n                        ]\n                    }\n                }\n            }\n            action {\n                policy-result accept\n                bgp {\n                    local-preference {\n                        set 100\n                    }\n                }\n            }\n        }\n        statement 25 {\n            match {\n                bgp {\n                    evpn {\n                        route-type [\n                            3\n                        ]\n                    }\n                }\n            }\n            action {\n                policy-result accept\n                bgp {\n                    local-preference {\n                        set 100\n                    }\n                }\n            }\n        }\n        statement 30 {\n            match {\n                bgp {\n                    evpn {\n                        route-type [\n                            4\n                        ]\n                    }\n                }\n            }\n            action {\n                policy-result accept\n                bgp {\n                    local-preference {\n                        set 100\n                    }\n                }\n            }\n        }\n        statement 35 {\n            match {\n                bgp {\n                    evpn {\n                        route-type [\n                            5\n                        ]\n                    }\n                }\n            }\n            action {\n                policy-result accept\n                bgp {\n                    local-preference {\n                        set 100\n                    }\n                }\n            }\n        }\n    }\n}\nsystem {\n    aaa {\n        authentication {\n            authentication-method [\n                local\n            ]\n            admin-user {\n                password $aes1$ATeMXiz6bAfplW8=$/pUcSVUogJINMUc/Qspieg==\n                ssh-key [\n                    \"ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCsbNOFM7mXY1ULwOhcwY0M0VLx9XCeyxspRE2OAT7Du2zSIra7LBndr2yOVkvvWJsXcfClGzF7d+doQu5fOs9RZP9meFnEeF45ur7oAnUubcyFNcHksWthjogz289ohNBW3Hoewu7W4UgGwaSc7Hf/yU/T40jHeNjAO3Xgl81gSVDWm2VqPkN1NTibuuj6rzzRy78Pif34zjJEAQ9hN+BqvFazSaeUO62q0FwmRfGQYVgBNvI3R6L9Z/Q2CK579bB1Jy6ivtz+WdLuALLYqt72rVNwSKeb1Oc1HioxKctmONrGYch6Jn6xwDrtA+geAxGB3uWtNtNOL8xN8G+fk58fRhKSe8LvSHfraeQmDkUHFZLlEGYQIF5H1ejg/Rv6C8X+uYCnhGgBti/sY5fLebcCt6c84zAkeQVMyd80SF2ZAzq4kUFdA7ztzyuwCPDcq4K6DkB0j0c3nzYPTFLRUpwU0JD3rTkmjvtuSrorFnamDTh9rBvbOIrQcVSVMpcriD8=\"\n                ]\n            }\n        }\n        authorization {\n            role sudo {\n                superuser true\n                services [\n                    cli\n                    gnmi\n                    gnoi\n                    netconf\n                ]\n            }\n        }\n        server-group local {\n            type local\n        }\n    }\n    ssh-server mgmt {\n        admin-state enable\n        network-instance mgmt\n    }\n    boot {\n        autoboot {\n            admin-state enable\n        }\n    }\n    configuration {\n        role sudo {\n        }\n    }\n    grpc-server mgmt {\n        admin-state enable\n        rate-limit 65535\n        session-limit 1024\n        metadata-authentication true\n        tls-profile EDA\n        network-instance mgmt\n        port 57410\n        services [\n            gnmi\n            gnoi\n        ]\n        gnmi {\n            commit-save true\n        }\n    }\n    lldp {\n        interface ethernet-1/1 {\n            admin-state enable\n        }\n        interface ethernet-1/2 {\n            admin-state enable\n        }\n        interface ethernet-1/49 {\n            admin-state enable\n        }\n        interface ethernet-1/50 {\n            admin-state enable\n        }\n    }\n    json-rpc-server {\n        admin-state enable\n        network-instance mgmt {\n            http {\n                admin-state enable\n            }\n        }\n    }\n    logging {\n        network-instance mgmt\n        remote-server 10.58.2.44 {\n            transport udp\n            remote-port 1514\n            facility local6 {\n                priority {\n                    match-above informational\n                }\n            }\n        }\n    }\n    name {\n        host-name leaf1\n    }\n    network-instance {\n        protocols {\n            evpn {\n                ethernet-segments {\n                    bgp-instance 1 {\n                        ethernet-segment lag1-l1-l2-eth-1-1 {\n                            admin-state enable\n                            esi 00:FE:2F:AA:00:00:01:00:00:00\n                            multi-homing-mode all-active\n                            interface lag1 {\n                            }\n                            df-election {\n                                timers {\n                                    activation-timer 0\n                                }\n                                algorithm {\n                                    type default\n                                }\n                            }\n                        }\n                        ethernet-segment lag2-l1-l2-eth-1-2 {\n                            admin-state enable\n                            esi 00:FE:2F:AA:00:00:02:00:00:00\n                            multi-homing-mode all-active\n                            interface lag2 {\n                            }\n                            df-election {\n                                timers {\n                                    activation-timer 0\n                                }\n                                algorithm {\n                                    type default\n                                }\n                            }\n                        }\n                    }\n                }\n            }\n            bgp-vpn {\n                bgp-instance 1 {\n                }\n            }\n        }\n    }\n}\ntunnel-interface vxlan0 {\n    vxlan-interface 500 {\n        type bridged\n        ingress {\n            vni 200\n        }\n        egress {\n            source-ip use-system-ipv4-address\n        }\n    }\n    vxlan-interface 501 {\n        type bridged\n        ingress {\n            vni 201\n        }\n        egress {\n            source-ip use-system-ipv4-address\n        }\n    }\n    vxlan-interface 502 {\n        type bridged\n        ingress {\n            vni 202\n        }\n        egress {\n            source-ip use-system-ipv4-address\n        }\n    }\n    vxlan-interface 503 {\n        type routed\n        ingress {\n            vni 203\n        }\n        egress {\n            source-ip use-system-ipv4-address\n        }\n    }\n}\n",
+    "annotations": [
+        {
+            "cr": {
+                "name": "init-base",
+                "gvk": {
+                    "group": "bootstrap.eda.nokia.com",
+                    "version": "v1alpha1",
+                    "kind": "Init"
+                }
+            },
+            "lines": [
+                {
+                    "startLine": 189,
+                    "endLine": 214
+                },
+                {
+                    "startLine": 573,
+                    "endLine": 585
+                },
+                {
+                    "startLine": 944,
+                    "endLine": 949
+                },
+                {
+                    "startLine": 956,
+                    "endLine": 956
+                },
+                {
+                    "startLine": 968,
+                    "endLine": 980
+                },
+                {
+                    "startLine": 985,
+                    "endLine": 1001
+                },
+                {
+                    "startLine": 1014,
+                    "endLine": 1014
+                },
+                {
+                    "startLine": 1035,
+                    "endLine": 1037
+                },
+                {
+                    "startLine": 1082,
+                    "endLine": 1082
+                }
+            ]
+        },
+        {
+            "cr": {
+                "name": "jsonrpc",
+                "gvk": {
+                    "group": "config.eda.nokia.com",
+                    "version": "v1alpha1",
+                    "kind": "Configlet"
+                }
+            },
+            "lines": [
+                {
+                    "startLine": 1015,
+                    "endLine": 1022
+                }
+            ]
+        },
+        {
+            "cr": {
+                "name": "syslog",
+                "gvk": {
+                    "group": "config.eda.nokia.com",
+                    "version": "v1alpha1",
+                    "kind": "Configlet"
+                }
+            },
+            "lines": [
+                {
+                    "startLine": 944,
+                    "endLine": 944
+                },
+                {
+                    "startLine": 1023,
+                    "endLine": 1034
+                },
+                {
+                    "startLine": 1082,
+                    "endLine": 1082
+                }
+            ]
+        },
+        {
+            "cr": {
+                "name": "fabric",
+                "gvk": {
+                    "group": "fabrics.eda.nokia.com",
+                    "version": "v1alpha1",
+                    "kind": "Fabric"
+                }
+            },
+            "lines": [
+                {
+                    "endLine": 22
+                },
+                {
+                    "startLine": 44,
+                    "endLine": 56
+                },
+                {
+                    "startLine": 61,
+                    "endLine": 73
+                },
+                {
+                    "startLine": 215,
+                    "endLine": 396
+                },
+                {
+                    "startLine": 587,
+                    "endLine": 942
+                }
+            ]
+        },
+        {
+            "cr": {
+                "name": "lag1-l1-l2-eth-1-1",
+                "gvk": {
+                    "group": "interfaces.eda.nokia.com",
+                    "version": "v1alpha1",
+                    "kind": "Interface"
+                }
+            },
+            "lines": [
+                {
+                    "startLine": 23,
+                    "endLine": 31
+                },
+                {
+                    "startLine": 109,
+                    "endLine": 112
+                },
+                {
+                    "startLine": 137,
+                    "endLine": 148
+                },
+                {
+                    "startLine": 944,
+                    "endLine": 944
+                },
+                {
+                    "startLine": 1002,
+                    "endLine": 1004
+                },
+                {
+                    "startLine": 1038,
+                    "endLine": 1057
+                },
+                {
+                    "startLine": 1073,
+                    "endLine": 1082
+                }
+            ]
+        },
+        {
+            "cr": {
+                "name": "lag2-l1-l2-eth-1-2",
+                "gvk": {
+                    "group": "interfaces.eda.nokia.com",
+                    "version": "v1alpha1",
+                    "kind": "Interface"
+                }
+            },
+            "lines": [
+                {
+                    "startLine": 32,
+                    "endLine": 40
+                },
+                {
+                    "startLine": 149,
+                    "endLine": 152
+                },
+                {
+                    "startLine": 177,
+                    "endLine": 188
+                },
+                {
+                    "startLine": 944,
+                    "endLine": 944
+                },
+                {
+                    "startLine": 1005,
+                    "endLine": 1007
+                },
+                {
+                    "startLine": 1038,
+                    "endLine": 1042
+                },
+                {
+                    "startLine": 1058,
+                    "endLine": 1082
+                }
+            ]
+        },
+        {
+            "cr": {
+                "name": "leaf1-ethernet-1-49",
+                "gvk": {
+                    "group": "interfaces.eda.nokia.com",
+                    "version": "v1alpha1",
+                    "kind": "Interface"
+                }
+            },
+            "lines": [
+                {
+                    "startLine": 41,
+                    "endLine": 43
+                },
+                {
+                    "startLine": 57,
+                    "endLine": 57
+                },
+                {
+                    "startLine": 1008,
+                    "endLine": 1010
+                }
+            ]
+        },
+        {
+            "cr": {
+                "name": "leaf1-ethernet-1-50",
+                "gvk": {
+                    "group": "interfaces.eda.nokia.com",
+                    "version": "v1alpha1",
+                    "kind": "Interface"
+                }
+            },
+            "lines": [
+                {
+                    "startLine": 58,
+                    "endLine": 60
+                },
+                {
+                    "startLine": 74,
+                    "endLine": 74
+                },
+                {
+                    "startLine": 1011,
+                    "endLine": 1013
+                }
+            ]
+        },
+        {
+            "cr": {
+                "name": "ipvrf2001",
+                "gvk": {
+                    "group": "services.eda.nokia.com",
+                    "version": "v1alpha1",
+                    "kind": "VirtualNetwork"
+                }
+            },
+            "lines": [
+                {
+                    "startLine": 75,
+                    "endLine": 108
+                },
+                {
+                    "startLine": 113,
+                    "endLine": 124
+                },
+                {
+                    "startLine": 153,
+                    "endLine": 164
+                },
+                {
+                    "startLine": 397,
+                    "endLine": 431
+                },
+                {
+                    "startLine": 479,
+                    "endLine": 572
+                },
+                {
+                    "startLine": 1083,
+                    "endLine": 1092
+                },
+                {
+                    "startLine": 1102,
+                    "endLine": 1120
+                }
+            ]
+        },
+        {
+            "cr": {
+                "name": "macvrf1001",
+                "gvk": {
+                    "group": "services.eda.nokia.com",
+                    "version": "v1alpha1",
+                    "kind": "VirtualNetwork"
+                }
+            },
+            "lines": [
+                {
+                    "startLine": 125,
+                    "endLine": 136
+                },
+                {
+                    "startLine": 165,
+                    "endLine": 176
+                },
+                {
+                    "startLine": 432,
+                    "endLine": 478
+                },
+                {
+                    "startLine": 1083,
+                    "endLine": 1083
+                },
+                {
+                    "startLine": 1093,
+                    "endLine": 1101
+                },
+                {
+                    "startLine": 1120,
+                    "endLine": 1120
+                }
+            ]
+        }
+    ]
+}

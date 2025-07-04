@@ -1,108 +1,94 @@
 import * as vscode from 'vscode';
 import { TreeItemBase } from './treeItem';
+import { FilteredTreeProvider } from './filteredTreeProvider';
 import { serviceManager } from '../../services/serviceManager';
-import { EdactlClient } from '../../clients/edactlClient';
+import { EdaClient } from '../../clients/edaClient';
 import { ResourceStatusService } from '../../services/resourceStatusService';
 import { log, LogLevel } from '../../extension';
+import { parseUpdateKey } from '../../utils/parseUpdateKey';
 
-// Define interface for Deviation data structure
-interface EdaDeviation {
-  name: string;
-  "namespace.name": string;
+export interface EdaDeviation {
+  name?: string;
+  namespace?: string;
+  "namespace.name"?: string;
+  metadata?: { name?: string; namespace?: string };
   kind?: string;
   apiVersion?: string;
   [key: string]: any;
 }
 
-/**
- * EdaDeviationProvider displays the list of deviations from
- * "edactl query .namespace.resources.cr.core_eda_nokia_com.v1.deviation -f json".
- */
-export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTreeItem> {
-  private _onDidChangeTreeData = new vscode.EventEmitter<DeviationTreeItem | undefined | null | void>();
-  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+function getDeviationName(d: EdaDeviation): string | undefined {
+  return d.name || d.metadata?.name;
+}
 
-  // Cache of currently displayed deviations
-  private deviations: EdaDeviation[] = [];
-  private edactlClient: EdactlClient;
+function getDeviationNamespace(d: EdaDeviation): string | undefined {
+  return d['namespace.name'] || d.namespace || d.metadata?.namespace;
+}
+
+export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem> {
+  private deviations: Map<string, EdaDeviation> = new Map();
+  private edaClient: EdaClient;
   private statusService: ResourceStatusService;
-  private treeFilter: string = '';
+  private _onDeviationCountChanged = new vscode.EventEmitter<number>();
+  readonly onDeviationCountChanged = this._onDeviationCountChanged.event;
+
+  public get count(): number {
+    return this.deviations.size;
+  }
 
   constructor() {
-    this.edactlClient = serviceManager.getClient<EdactlClient>('edactl');
+    super();
+    this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
+    void this.edaClient.streamEdaDeviations();
+    this.edaClient.onStreamMessage((stream, msg) => {
+      if (stream === 'deviations') {
+        this.processDeviationMessage(msg);
+      }
+    });
+
+    // Emit initial count
+    this._onDeviationCountChanged.fire(this.count);
   }
 
-  /**
-   * Refresh method, to be called from our extension-level refresh
-   */
-  refresh(): void {
-    log('EdaDeviationProvider: Refresh called', LogLevel.DEBUG);
-    this._onDidChangeTreeData.fire();
+  public dispose(): void {
+    this.edaClient.closeDeviationStream();
   }
 
-  /**
-   * Update a specific deviation's status
-   */
+
   updateDeviation(name: string, namespace: string, status: string): void {
     log(`Updating deviation ${name} in namespace ${namespace} with status: ${status}`, LogLevel.DEBUG);
-
-    // Find the deviation in our cache
-    const deviation = this.deviations.find(d =>
-      d.name === name && d["namespace.name"] === namespace
-    );
-
-    if (deviation) {
-      // Update the deviation's status
-      (deviation as any).status = status;
-
-      // Notify tree view of the change for this specific item
+    const key = `${namespace}/${name}`;
+    const dev = this.deviations.get(key);
+    if (dev) {
+      (dev as any).status = status;
       this._onDidChangeTreeData.fire();
     }
   }
 
-  /**
-   * Remove a specific deviation from the tree view
-   */
   removeDeviation(name: string, namespace: string): void {
     log(`Removing deviation ${name} from namespace ${namespace} from the tree view`, LogLevel.DEBUG);
-
-    // Remove the deviation from our cache
-    this.deviations = this.deviations.filter(d =>
-      !(d.name === name && d["namespace.name"] === namespace)
-    );
-
-    // Notify tree view of the change
-    this._onDidChangeTreeData.fire();
+    const key = `${namespace}/${name}`;
+    if (this.deviations.delete(key)) {
+      this._onDidChangeTreeData.fire();
+      this._onDeviationCountChanged.fire(this.count);
+    }
   }
 
-  /**
-   * Set tree filter text
-   */
-  setTreeFilter(filter: string): void {
-    this.treeFilter = filter.toLowerCase();
-    this.refresh();
+  /** Return all currently cached deviations */
+  public getAllDeviations(): EdaDeviation[] {
+    return Array.from(this.deviations.values());
   }
 
-  /**
-   * Clear tree filter
-   */
-  clearTreeFilter(): void {
-    this.treeFilter = '';
-    this.refresh();
-  }
 
   getTreeItem(element: DeviationTreeItem): vscode.TreeItem {
     return element;
   }
 
   async getChildren(element?: DeviationTreeItem): Promise<DeviationTreeItem[]> {
-    // If there's an element, we've reached a leaf node
     if (element) {
       return [];
     }
-
-    // If there's a filter, do filtering. Otherwise, list all.
     if (!this.treeFilter) {
       return this.getAllDeviationItems();
     } else {
@@ -110,96 +96,106 @@ export class EdaDeviationProvider implements vscode.TreeDataProvider<DeviationTr
     }
   }
 
-  /**
-   * Load all deviations (no filter).
-   */
   private async getAllDeviationItems(): Promise<DeviationTreeItem[]> {
-    const deviations = await this.edactlClient.getEdaDeviations();
-
-    // Update our cache
-    this.deviations = deviations;
-
-    if (!deviations.length) {
+    if (this.deviations.size === 0) {
       return [this.noDeviationsItem()];
     }
-
-    return deviations.map((d: EdaDeviation) => this.createDeviationItem(d));
+    return Array.from(this.deviations.values()).map(d => this.createDeviationItem(d));
   }
 
-  /**
-   * Filter deviations by name, namespace, etc.
-   */
   private async getFilteredDeviationItems(filter: string): Promise<DeviationTreeItem[]> {
-    // If the "Deviations" category itself matches the filter, show all deviations
-    if ("deviations".includes(filter.toLowerCase())) {
+    if (this.matchesFilter('deviations')) {
       return this.getAllDeviationItems();
     }
-
-    const lowerFilter = filter.toLowerCase();
-    const all = await this.edactlClient.getEdaDeviations();
-
-    // Update our cache
-    this.deviations = all;
-
-    const matches = all.filter((d: EdaDeviation) =>
-      d.name.toLowerCase().includes(lowerFilter) ||
-      d["namespace.name"]?.toLowerCase().includes(lowerFilter) ||
-      d.kind?.toLowerCase().includes(lowerFilter)
-    );
-
+    const matches = Array.from(this.deviations.values()).filter(d => {
+      const name = getDeviationName(d) || '';
+      const ns = getDeviationNamespace(d) || '';
+      const kind = d.kind || '';
+      return (
+        this.matchesFilter(name) ||
+        this.matchesFilter(ns) ||
+        this.matchesFilter(kind)
+      );
+    });
     if (!matches.length) {
       return [this.noDeviationsItem(`(no matches for "${filter}")`)];
     }
-
-    return matches.map((d: EdaDeviation) => this.createDeviationItem(d));
+    return matches.map(d => this.createDeviationItem(d));
   }
 
-  /**
-   * Create a single Deviation tree item from EdaDeviation object
-   */
   private createDeviationItem(deviation: EdaDeviation): DeviationTreeItem {
-    const label = deviation.name;
-    const item = new DeviationTreeItem(
-      label,
-      vscode.TreeItemCollapsibleState.None,
-      'eda-deviation',
-      deviation
-    );
-    // Show the namespace in 'description'
-    item.description = `ns: ${deviation["namespace.name"]}`;
-
-    // Add status if available
+    const label = getDeviationName(deviation) || '(unknown)';
+    const ns = getDeviationNamespace(deviation) || 'unknown';
+    const item = new DeviationTreeItem(label, vscode.TreeItemCollapsibleState.None, 'eda-deviation', deviation);
+    item.description = `ns: ${ns}`;
     if ((deviation as any).status) {
       item.description += ` (${(deviation as any).status})`;
     }
-
     item.tooltip = [
-      `Name: ${deviation.name}`,
-      `Namespace: ${deviation["namespace.name"]}`,
+      `Name: ${label}`,
+      `Namespace: ${ns}`,
       `Kind: ${deviation.kind || 'Deviation'}`,
-      `API Version: ${deviation.apiVersion || 'v1'}`
+      `API Version: ${deviation.apiVersion || 'v1'}`,
     ].join('\n');
-
-    // Use status icon from statusService
-    item.iconPath = this.statusService.getStatusIcon('blue');
-
+    item.iconPath = this.statusService.getThemeStatusIcon('blue');
     item.command = {
       command: 'vscode-eda.showDeviationDetails',
       title: 'Show Deviation Details',
-      arguments: [deviation]
+      arguments: [deviation],
     };
-
     return item;
   }
 
   private noDeviationsItem(extraText = ''): DeviationTreeItem {
-    const label = extraText ? `No Deviations Found ${extraText}` : `No Deviations Found`;
+    const label = extraText ? `No Deviations Found ${extraText}` : 'No Deviations Found';
     const item = new DeviationTreeItem(label, vscode.TreeItemCollapsibleState.None, 'info');
-
-    // Use standard status icon from statusService
-    item.iconPath = this.statusService.getStatusIcon('gray');
-
+    item.iconPath = this.statusService.getThemeStatusIcon('gray');
     return item;
+  }
+
+  /** Process deviation stream updates */
+  private processDeviationMessage(msg: any): void {
+    if ('items' in msg && Array.isArray(msg.items)) {
+      this.deviations = new Map(
+        msg.items
+          .map((d: any) => {
+            const ns = getDeviationNamespace(d);
+            const name = getDeviationName(d);
+            return ns && name ? [`${ns}/${name}`, d] : undefined;
+          })
+          .filter((v: [string, EdaDeviation] | undefined): v is [string, EdaDeviation] => v !== undefined),
+      );
+      this.refresh();
+      this._onDeviationCountChanged.fire(this.count);
+      return;
+    }
+
+    if (msg.stream !== 'deviations' || !Array.isArray(msg.msg?.updates)) {
+      return;
+    }
+
+    let changed = false;
+    for (const up of msg.msg.updates) {
+      let name: string | undefined = up.data?.metadata?.name || up.data?.name;
+      let ns: string | undefined = up.data?.metadata?.namespace;
+      if ((!name || !ns) && up.key) {
+        const parsed = parseUpdateKey(String(up.key));
+        if (!name) name = parsed.name;
+        if (!ns) ns = parsed.namespace;
+      }
+      if (!name || !ns) continue;
+      const key = `${ns}/${name}`;
+      if (up.data === null) {
+        if (this.deviations.delete(key)) changed = true;
+      } else {
+        this.deviations.set(key, up.data);
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.refresh();
+      this._onDeviationCountChanged.fire(this.count);
+    }
   }
 }
 
@@ -208,7 +204,7 @@ export class DeviationTreeItem extends TreeItemBase {
     label: string,
     collapsibleState: vscode.TreeItemCollapsibleState,
     contextValue: string,
-    public deviation?: EdaDeviation
+    public deviation?: EdaDeviation,
   ) {
     super(label, collapsibleState, contextValue, deviation);
   }
