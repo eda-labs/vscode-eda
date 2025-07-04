@@ -2,6 +2,8 @@
 import * as vscode from 'vscode';
 import { serviceManager } from '../services/serviceManager';
 import { EdaClient } from '../clients/edaClient';
+import * as yaml from 'js-yaml';
+const Diff: any = require('diff');
 import { KubernetesClient } from '../clients/kubernetesClient';
 import { edaOutputChannel } from '../extension';
 import { CrdDefinitionFileSystemProvider } from '../providers/documents/crdDefinitionProvider';
@@ -220,6 +222,27 @@ export function registerViewCommands(
         apiVersion: deviation.apiVersion || 'v1',
         namespace
       };
+
+      // Compute diff between intended and running values if present
+      try {
+        const intended = deviation.spec?.intendedValues
+          ? JSON.parse(deviation.spec.intendedValues as string)
+          : {};
+        const running = deviation.spec?.runningValues
+          ? JSON.parse(deviation.spec.runningValues as string)
+          : {};
+
+        const intendedYaml = yaml.dump(intended, { indent: 2 });
+        const runningYaml = yaml.dump(running, { indent: 2 });
+        const patch = Diff.createPatch('values', intendedYaml, runningYaml);
+        const lines = patch.split('\n');
+        const start = lines.findIndex((l: string) => l.startsWith('@@'));
+        if (start !== -1) {
+          templateVars.valueDiff = lines.slice(start).join('\n').trim();
+        }
+      } catch (err) {
+        console.error('Failed to compute deviation diff', err);
+      }
 
       try {
         // Fetch the YAML for the deviation

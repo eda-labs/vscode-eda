@@ -35,12 +35,15 @@ describe('loadTemplate utility', () => {
       kind: 'Deviation',
       apiVersion: 'v1',
       namespace: 'default',
+      valueDiff: '@@ -1 +1 @@\n-a: old\n+a: new',
       resourceYaml: 'kind: Deviation\nmetadata:\n  name: my-dev'
     });
 
     // Basic expectations showing placeholders are replaced
     expect(result).to.contain('# Deviation Details');
     expect(result).to.contain('`my-dev`');
+    expect(result).to.contain('```diff');
+    expect(result).to.contain('+a: new');
     expect(result).to.contain('```yaml');
     expect(result).to.contain('kind: Deviation');
   });
