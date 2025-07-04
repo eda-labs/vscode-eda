@@ -43,11 +43,22 @@ export function registerViewCommands(
         const success = mergedObj.success ? 'Yes' : 'No';
         const successColor = mergedObj.success ? '#2ECC71' : '#E74C3C';
 
+        const deletedInputs = Array.isArray(mergedObj.inputCrs)
+          ? mergedObj.inputCrs.filter((cr: any) => cr.isDelete)
+          : [];
+        const deletedSummary = deletedInputs
+          .map(
+            (cr: any) =>
+              `${cr.name.gvk.kind} ${cr.name.name} (namespace: ${cr.name.namespace})`
+          )
+          .join(', ');
+
         const templateVars: Record<string, any> = {
           id: mergedObj.id,
           state: mergedObj.state,
           username: mergedObj.username,
           description: mergedObj.description || 'N/A',
+          deleteResources: deletedSummary,
           dryRun: mergedObj.dryRun ? 'Yes' : 'No',
           success,
           successColor,
