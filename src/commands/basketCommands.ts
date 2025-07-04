@@ -50,7 +50,6 @@ export function registerBasketCommands(context: vscode.ExtensionContext): void {
       vscode.window.showInformationMessage(`Basket transaction ${id} submitted.`);
       edaOutputChannel.appendLine(`Basket transaction ${id}: ${dryRun ? 'dry run' : 'commit'}`);
       if (!dryRun) {
-        edaOutputChannel.show();
         await edaTransactionBasketProvider.clearBasket();
       }
     } catch (err: any) {

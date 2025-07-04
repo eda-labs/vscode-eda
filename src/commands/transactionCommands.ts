@@ -37,7 +37,6 @@ export function registerTransactionCommands(context: vscode.ExtensionContext): v
       const result = await edaClient.revertTransaction(transactionId);
       vscode.window.showInformationMessage(`Transaction ${transactionId} revert submitted.`);
       edaOutputChannel.appendLine(`Revert Transaction ${transactionId} -> ${JSON.stringify(result)}`);
-      edaOutputChannel.show();
     } catch (err: any) {
       const errMsg = `Failed to revert transaction: ${err.message || err}`;
       vscode.window.showErrorMessage(errMsg);
@@ -65,7 +64,6 @@ export function registerTransactionCommands(context: vscode.ExtensionContext): v
       const result = await edaClient.restoreTransaction(transactionId);
       vscode.window.showInformationMessage(`Transaction ${transactionId} restore submitted.`);
       edaOutputChannel.appendLine(`Restore Transaction ${transactionId} -> ${JSON.stringify(result)}`);
-      edaOutputChannel.show();
     } catch (err: any) {
       const errMsg = `Failed to restore transaction: ${err.message || err}`;
       vscode.window.showErrorMessage(errMsg);
