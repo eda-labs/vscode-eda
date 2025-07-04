@@ -7,7 +7,7 @@ import { ResourceStatusService } from '../../services/resourceStatusService';
 import { log, LogLevel } from '../../extension';
 import { parseUpdateKey } from '../../utils/parseUpdateKey';
 
-interface EdaDeviation {
+export interface EdaDeviation {
   name?: string;
   namespace?: string;
   "namespace.name"?: string;
@@ -73,6 +73,11 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
       this._onDidChangeTreeData.fire();
       this._onDeviationCountChanged.fire(this.count);
     }
+  }
+
+  /** Return all currently cached deviations */
+  public getAllDeviations(): EdaDeviation[] {
+    return Array.from(this.deviations.values());
   }
 
 

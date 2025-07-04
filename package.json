@@ -226,6 +226,10 @@
         "title": "EDA: Reject Deviation"
       },
       {
+        "command": "vscode-eda.rejectAllDeviations",
+        "title": "EDA: Reject All Deviations"
+      },
+      {
         "command": "vscode-eda.acceptDeviation",
         "title": "EDA: Accept Deviation",
         "icon": "$(check)"
@@ -233,6 +237,11 @@
       {
         "command": "vscode-eda.rejectDeviation",
         "title": "EDA: Reject Deviation",
+        "icon": "$(x)"
+      },
+      {
+        "command": "vscode-eda.rejectAllDeviations",
+        "title": "EDA: Reject All Deviations",
         "icon": "$(x)"
       },
       {
@@ -358,6 +367,11 @@
         {
           "command": "vscode-eda.expandAllNamespaces",
           "when": "view == edaNamespaces",
+          "group": "navigation@5"
+        },
+        {
+          "command": "vscode-eda.rejectAllDeviations",
+          "when": "view == edaDeviations",
           "group": "navigation@5"
         },
         {

@@ -27,7 +27,8 @@ export function registerDeviationCommands(
 
   async function handleAction(
     dev: Deviation,
-    action: 'setAccept' | 'reject'
+    action: 'setAccept' | 'reject',
+    silent = false
   ): Promise<void> {
     const name = getDeviationName(dev);
     const ns = getDeviationNamespace(dev);
@@ -55,9 +56,11 @@ export function registerDeviationCommands(
     };
     try {
       await edaClient.createDeviationAction(ns, body);
-      vscode.window.showInformationMessage(
-        `Deviation ${name} ${action === 'setAccept' ? 'accepted' : 'rejected'} successfully.`,
-      );
+      if (!silent) {
+        vscode.window.showInformationMessage(
+          `Deviation ${name} ${action === 'setAccept' ? 'accepted' : 'rejected'} successfully.`,
+        );
+      }
       edaDeviationProvider.updateDeviation(name, ns, 'Processing...');
     } catch (err: any) {
       const msg = `Failed to ${action === 'setAccept' ? 'accept' : 'reject'} deviation: ${err.message || err}`;
@@ -88,5 +91,39 @@ export function registerDeviationCommands(
     },
   );
 
-  context.subscriptions.push(acceptCmd, rejectCmd);
+  const rejectAllCmd = vscode.commands.registerCommand(
+    'vscode-eda.rejectAllDeviations',
+    async () => {
+      const deviations = edaDeviationProvider.getAllDeviations();
+      if (deviations.length === 0) {
+        vscode.window.showInformationMessage('No deviations to reject.');
+        return;
+      }
+      const confirmed = await vscode.window.showWarningMessage(
+        `Reject all ${deviations.length} deviations?`,
+        { modal: true },
+        'Yes',
+        'No'
+      );
+      if (confirmed !== 'Yes') {
+        return;
+      }
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `Rejecting ${deviations.length} deviations`,
+        },
+        async () => {
+          for (const d of deviations) {
+            await handleAction(d as Deviation, 'reject', true);
+          }
+        }
+      );
+      vscode.window.showInformationMessage(
+        `Submitted reject actions for ${deviations.length} deviations.`
+      );
+    }
+  );
+
+  context.subscriptions.push(acceptCmd, rejectCmd, rejectAllCmd);
 }

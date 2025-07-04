@@ -22,7 +22,7 @@
 3. **Alarms & Deviations**
 
    - See active alarms
-   - View or reject deviations
+   - View deviations and reject them individually or all at once
 
 4. **Transactions**
 
