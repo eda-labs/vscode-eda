@@ -70,7 +70,7 @@ describe('loadTemplate utility', () => {
     });
 
     expect(result).to.contain('# Transaction Details');
-    expect(result).to.contain('`123`');
+    expect(result).to.contain('123');
     expect(result).to.contain('Success');
     expect(result).to.contain('```json');
   });

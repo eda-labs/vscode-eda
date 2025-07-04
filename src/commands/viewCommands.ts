@@ -48,12 +48,10 @@ export function registerViewCommands(
         const deletedInputs = Array.isArray(mergedObj.inputCrs)
           ? mergedObj.inputCrs.filter((cr: any) => cr.isDelete)
           : [];
-        const deletedSummary = deletedInputs
-          .map(
-            (cr: any) =>
-              `${cr.name.gvk.kind} ${cr.name.name} (namespace: ${cr.name.namespace})`
-          )
-          .join(', ');
+        const deletedSummary = deletedInputs.map(
+          (cr: any) =>
+            `${cr.name.gvk.kind} ${cr.name.name} (namespace: ${cr.name.namespace})`
+        );
 
         const templateVars: Record<string, any> = {
           id: mergedObj.id,
