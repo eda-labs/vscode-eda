@@ -664,7 +664,15 @@ constructor() {
         (this.matchesFilter(stream) ||
           (streamGroup && this.matchesFilter(streamGroup)));
       for (const resource of items) {
-        const name = resource.metadata?.name || 'unknown';
+        const name = resource.metadata?.name;
+        if (!name) {
+          const snippet = JSON.stringify(resource).slice(0, 200);
+          log(
+            `Resource in stream ${stream} missing name: ${snippet}`,
+            LogLevel.DEBUG
+          );
+          continue;
+        }
         if (!parentMatched && this.treeFilter && !this.matchesFilter(name)) {
           continue;
         }

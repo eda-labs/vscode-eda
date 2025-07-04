@@ -322,6 +322,13 @@ export class KubernetesClient {
                 }
                 resourceVersion = evt.object?.metadata?.resourceVersion || resourceVersion;
                 const obj = evt.object;
+                if (!obj?.metadata?.name) {
+                  const snippet = JSON.stringify(obj).slice(0, 200);
+                  log(
+                    `Received ${def.name} event without name: ${snippet}`,
+                    LogLevel.DEBUG
+                  );
+                }
                 const cacheName = `${def.name}Cache` as keyof this;
                 if (def.namespaced) {
                   const map = (this as any)[cacheName] as Map<string, any[]>;
