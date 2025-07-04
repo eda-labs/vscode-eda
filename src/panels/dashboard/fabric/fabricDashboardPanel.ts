@@ -596,24 +596,43 @@ export class FabricDashboardPanel extends BasePanel {
   }
 
   private handleFabricStatusStream(msg: any): void {
-    const rows = msg.msg?.op?.[0]?.insert_or_modify?.rows;
-    if (!Array.isArray(rows) || rows.length === 0) return;
-    const data = rows[0].data;
-    const ns = data?.['.namespace.name'] as string | undefined;
-    if (!ns) return;
-    let stats = this.fabricMap.get(ns);
-    if (!stats) {
-      stats = {
-        leafs: { nodes: new Map(), health: 0 },
-        borderleafs: { nodes: new Map(), health: 0 },
-        spines: { nodes: new Map(), health: 0 },
-        superspines: { nodes: new Map(), health: 0 },
-        health: 0
-      };
-      this.fabricMap.set(ns, stats);
+    const ops = msg.msg?.op;
+    if (!Array.isArray(ops) || ops.length === 0) return;
+
+    const changed = new Set<string>();
+
+    for (const op of ops) {
+      const rows = op?.insert_or_modify?.rows;
+      if (!Array.isArray(rows)) continue;
+
+      for (const r of rows) {
+        const data = r.data;
+        const ns = data?.['.namespace.name'] as string | undefined;
+        if (!ns) continue;
+
+        let stats = this.fabricMap.get(ns);
+        if (!stats) {
+          stats = {
+            leafs: { nodes: new Map(), health: 0 },
+            borderleafs: { nodes: new Map(), health: 0 },
+            spines: { nodes: new Map(), health: 0 },
+            superspines: { nodes: new Map(), health: 0 },
+            health: 0
+          };
+          this.fabricMap.set(ns, stats);
+        }
+
+        const newHealth = Number(data?.health ?? 0);
+        if (stats.health !== newHealth) {
+          stats.health = newHealth;
+          changed.add(ns);
+        }
+      }
     }
-    stats.health = Number(data?.health ?? 0);
-    this.postFabricHealthIfNeeded(ns);
+
+    for (const ns of changed) {
+      this.postFabricHealthIfNeeded(ns);
+    }
   }
 
   private calculateGroupHealth(ns: string, nodes: string[]): number {
