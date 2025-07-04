@@ -378,6 +378,9 @@ export class EdaStreamClient {
       throw new Error('Auth client not set');
     }
 
+    const urlObj = new URL(url);
+    const streamName = urlObj.searchParams.get('stream') || 'unknown';
+
     const doRequest = async () => {
       const authHeaders = this.authClient!.getHeaders();
       const finalHeaders: Record<string, string> = { ...authHeaders };
@@ -395,7 +398,7 @@ export class EdaStreamClient {
         sanitizedHeaders.Authorization = 'Bearer ***';
       }
 
-      log(`[STREAM] request ${url} with ${JSON.stringify(sanitizedHeaders)}`, LogLevel.DEBUG);
+      log(`[STREAM:${streamName}] request ${url} with ${JSON.stringify(sanitizedHeaders)}`, LogLevel.DEBUG);
 
       return fetch(url, {
         headers: finalHeaders,
@@ -409,9 +412,9 @@ export class EdaStreamClient {
       res = await doRequest();
     } catch (err) {
       if ((err as Error).name === 'AbortError') {
-        log('[STREAM] request aborted', LogLevel.DEBUG);
+        log(`[STREAM:${streamName}] request aborted`, LogLevel.DEBUG);
       } else {
-        log(`[STREAM] request failed ${err}`, LogLevel.ERROR);
+        log(`[STREAM:${streamName}] request failed for ${url}: ${err}`, LogLevel.ERROR);
       }
       return;
     }
@@ -430,20 +433,20 @@ export class EdaStreamClient {
           res = await doRequest();
         } catch (err) {
           if ((err as Error).name === 'AbortError') {
-            log('[STREAM] request aborted', LogLevel.DEBUG);
+            log(`[STREAM:${streamName}] request aborted`, LogLevel.DEBUG);
           } else {
-            log(`[STREAM] request failed ${err}`, LogLevel.ERROR);
+            log(`[STREAM:${streamName}] request failed for ${url}: ${err}`, LogLevel.ERROR);
           }
           return;
         }
       }
 
       if (!res.ok || !res.body) {
-        log(`[STREAM] failed ${url}: HTTP ${res.status}`, LogLevel.ERROR);
+        log(`[STREAM:${streamName}] failed ${url}: HTTP ${res.status}`, LogLevel.ERROR);
         return;
       }
     }
-    log(`[STREAM] connected → ${url}`, LogLevel.DEBUG);
+    log(`[STREAM:${streamName}] connected → ${url}`, LogLevel.DEBUG);
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -452,7 +455,7 @@ export class EdaStreamClient {
     for (;;) {
       const { value, done } = await reader.read();
       if (done) {
-        log('[STREAM] ended', LogLevel.DEBUG);
+        log(`[STREAM:${streamName}] ended`, LogLevel.DEBUG);
         break;
       }
 
