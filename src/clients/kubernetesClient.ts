@@ -54,6 +54,7 @@ export class KubernetesClient {
   private configmapsCache: Map<string, any[]> = new Map();
   private secretsCache: Map<string, any[]> = new Map();
   private artifactsCache: Map<string, any[]> = new Map();
+  private engineconfigsCache: Map<string, any[]> = new Map();
   private crdCache: any[] = [];
 
 
@@ -83,6 +84,9 @@ export class KubernetesClient {
 
     // artifacts.eda.nokia.com/v1
     { name: 'artifacts', group: 'artifacts.eda.nokia.com', version: 'v1', plural: 'artifacts', namespaced: true },
+
+    // core.eda.nokia.com/v1
+    { name: 'engineconfigs', group: 'core.eda.nokia.com', version: 'v1', plural: 'engineconfigs', namespaced: true },
 
     // apps/v1
     { name: 'deployments', group: 'apps', version: 'v1', plural: 'deployments', namespaced: true },
@@ -458,6 +462,10 @@ export class KubernetesClient {
     return this.artifactsCache.get(ns) || [];
   }
 
+  public getCachedEngineconfigs(ns: string): any[] {
+    return this.engineconfigsCache.get(ns) || [];
+  }
+
 
   public async getCustomResourceYaml(
     group: string,
@@ -477,6 +485,16 @@ export class KubernetesClient {
       'artifacts.eda.nokia.com',
       'v1',
       'artifacts',
+      name,
+      namespace
+    );
+  }
+
+  public async getEngineconfigYaml(name: string, namespace: string): Promise<string> {
+    return this.getCustomResourceYaml(
+      'core.eda.nokia.com',
+      'v1',
+      'engineconfigs',
       name,
       namespace
     );

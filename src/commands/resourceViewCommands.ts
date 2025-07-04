@@ -167,6 +167,14 @@ export function registerResourceViewCommands(
               log(`Error fetching artifact via K8s API: ${error}`, LogLevel.ERROR);
               finalYaml = `# Error fetching ${resourceKind}/${resourceName}: ${error}`;
             }
+          } else if (resourceKind.toLowerCase() === 'engineconfig' && k8sClient) {
+            log(`Fetching engineconfig ${resourceName} via Kubernetes API`, LogLevel.DEBUG);
+            try {
+              finalYaml = await k8sClient.getEngineconfigYaml(resourceName, resourceNamespace);
+            } catch (error) {
+              log(`Error fetching engineconfig via K8s API: ${error}`, LogLevel.ERROR);
+              finalYaml = `# Error fetching ${resourceKind}/${resourceName}: ${error}`;
+            }
           } else {
             // 3) For standard K8s resources, just use kubectl
             log(`Using kubectl get -o yaml for ${resourceKind}/${resourceName}...`, LogLevel.DEBUG);
