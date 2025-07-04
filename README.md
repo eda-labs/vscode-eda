@@ -56,7 +56,8 @@
 
 1. **Prerequisites**
 
-   - Access to an EDA API server. The extension communicates with EDA directly and no longer requires a Kubernetes cluster.
+   - Access to an EDA API server. The extension communicates directly with EDA so a Kubernetes cluster is not required.
+   - Optional: a `kubeconfig` file to enable Kubernetes features such as listing cluster resources.
 
 2. **Install from VSIX or Marketplace**
 
@@ -128,24 +129,6 @@ In VS Code settings (`File → Preferences → Settings`), navigate to `Extensio
 
 ---
 
-## Standalone Streaming Tool
-
-Use `stream.ts` to watch any EDA SSE endpoint or EQL query outside of VS Code.
-
-1. Copy `stream.config.json.example` to `stream.config.json` and edit the `edaUrl`
-   and credentials if needed.
-2. Run the script with a path or an EQL query:
-
-   ```bash
-   npx ts-node stream.ts /core/access/v1/namespaces
-   npx ts-node stream.ts .namespace.alarms.v1.current-alarm
-   ```
-
-The tool connects to the `/events` WebSocket, registers a client, and then
-streams the specified endpoint or query using Server Sent Events. TLS
-verification is skipped by default.
-
----
 
 ## Contributing
 
