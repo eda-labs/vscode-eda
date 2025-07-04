@@ -242,6 +242,24 @@ export class FabricDashboardPanel extends BasePanel {
         stats
       });
     }
+
+    // Recalculate fabric group health when node states change
+    for (const ns of changed) {
+      const stats = this.fabricMap.get(ns);
+      if (!stats) continue;
+      const groups: Array<'leafs' | 'borderleafs' | 'spines' | 'superspines'> = [
+        'leafs',
+        'borderleafs',
+        'spines',
+        'superspines'
+      ];
+      for (const key of groups) {
+        const nodes = Array.from(stats[key].nodes.values());
+        stats[key].health = this.calculateGroupHealth(ns, nodes);
+        this.postFabricGroupStatsIfNeeded(ns, key);
+      }
+      this.postFabricHealthIfNeeded(ns);
+    }
   }
 
   private computeStats(ns: string): { total: number; synced: number; notSynced: number } {
