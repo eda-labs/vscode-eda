@@ -78,23 +78,32 @@ export const crdBrowserScripts = `
     const spec = root.properties?.spec;
     const status = root.properties?.status;
     if (spec) {
-      const details = document.createElement('details');
-      details.open = true;
-      const summary = document.createElement('summary');
-      summary.textContent = 'spec';
-      details.appendChild(summary);
-      details.appendChild(buildSchema(spec, spec.required || []));
-      schemaEl.appendChild(details);
+      schemaEl.appendChild(renderSection('spec', spec));
     }
     if (status) {
-      const details = document.createElement('details');
-      details.open = true;
-      const summary = document.createElement('summary');
-      summary.textContent = 'status';
-      details.appendChild(summary);
-      details.appendChild(buildSchema(status, status.required || []));
-      schemaEl.appendChild(details);
+      schemaEl.appendChild(renderSection('status', status));
     }
+  }
+
+  function renderSection(name, node) {
+    const details = document.createElement('details');
+    details.open = true;
+    details.className = 'schema-section';
+    const summary = document.createElement('summary');
+    summary.className = 'section-header';
+
+    const label = document.createElement('span');
+    label.textContent = name;
+    summary.appendChild(label);
+
+    const badge = document.createElement('span');
+    badge.className = 'type-badge';
+    badge.textContent = node.type || (node.properties ? 'object' : '');
+    summary.appendChild(badge);
+
+    details.appendChild(summary);
+    details.appendChild(buildSchema(node, node.required || []));
+    return details;
   }
 
   function buildSchema(node, required) {
@@ -108,7 +117,9 @@ export const crdBrowserScripts = `
 
   function renderProp(name, node, isReq) {
     const details = document.createElement('details');
+    details.className = 'schema-card';
     const summary = document.createElement('summary');
+    summary.className = 'prop-header';
     const nameSpan = document.createElement('span');
     nameSpan.className = 'prop-name';
     nameSpan.textContent = name;

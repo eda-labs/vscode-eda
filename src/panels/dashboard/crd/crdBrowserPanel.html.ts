@@ -6,7 +6,9 @@ export const crdBrowserHtml = `
       <button id="yamlBtn" class="yaml-btn">View YAML</button>
     </header>
     <h1 id="crdTitle" class="title"></h1>
-    <pre id="metadataYaml" class="metadata"></pre>
+    <div class="metadata-header">
+      <pre id="metadataYaml" class="metadata"></pre>
+    </div>
     <p id="crdDescription" class="description"></p>
     <div class="schema-controls">
       <button id="expandAll" class="schema-btn">+ Expand All</button>

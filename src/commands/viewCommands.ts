@@ -2,6 +2,8 @@
 import * as vscode from 'vscode';
 import { serviceManager } from '../services/serviceManager';
 import { EdaClient } from '../clients/edaClient';
+import * as yaml from 'js-yaml';
+const Diff: any = require('diff');
 import { KubernetesClient } from '../clients/kubernetesClient';
 import { edaOutputChannel } from '../extension';
 import { CrdDefinitionFileSystemProvider } from '../providers/documents/crdDefinitionProvider';
@@ -43,11 +45,20 @@ export function registerViewCommands(
         const success = mergedObj.success ? 'Yes' : 'No';
         const successColor = mergedObj.success ? '#2ECC71' : '#E74C3C';
 
+        const deletedInputs = Array.isArray(mergedObj.inputCrs)
+          ? mergedObj.inputCrs.filter((cr: any) => cr.isDelete)
+          : [];
+        const deletedSummary = deletedInputs.map(
+          (cr: any) =>
+            `${cr.name.gvk.kind} ${cr.name.name} (namespace: ${cr.name.namespace})`
+        );
+
         const templateVars: Record<string, any> = {
           id: mergedObj.id,
           state: mergedObj.state,
           username: mergedObj.username,
           description: mergedObj.description || 'N/A',
+          deleteResources: deletedSummary,
           dryRun: mergedObj.dryRun ? 'Yes' : 'No',
           success,
           successColor,
@@ -209,6 +220,33 @@ export function registerViewCommands(
         apiVersion: deviation.apiVersion || 'v1',
         namespace
       };
+
+      // Compute diff between intended and running values if present
+      try {
+        const intended = deviation.spec?.intendedValues
+          ? JSON.parse(deviation.spec.intendedValues as string)
+          : {};
+        const running = deviation.spec?.runningValues
+          ? JSON.parse(deviation.spec.runningValues as string)
+          : {};
+
+        let intendedYaml = yaml.dump(intended, { indent: 2 });
+        let runningYaml = yaml.dump(running, { indent: 2 });
+        if (intendedYaml.trim() === '{}') {
+          intendedYaml = '';
+        }
+        if (runningYaml.trim() === '{}') {
+          runningYaml = '';
+        }
+        const patch = Diff.createPatch('values', intendedYaml, runningYaml);
+        const lines = patch.split('\n');
+        const start = lines.findIndex((l: string) => l.startsWith('@@'));
+        if (start !== -1) {
+          templateVars.valueDiff = lines.slice(start).join('\n').trim();
+        }
+      } catch (err) {
+        console.error('Failed to compute deviation diff', err);
+      }
 
       try {
         // Fetch the YAML for the deviation

@@ -1,14 +1,21 @@
 # Transaction Details
 
-**ID:** `{{id}}`
+**ID:** {{id}}
 
-**State:** `{{state}}`
+**State:** {{state}}
 
-**User:** `{{username}}`
+**User:** {{username}}
 
-**Description:** `{{description}}`
+**Description:** {{description}}
 
-**Dry Run:** `{{dryRun}}`
+{{#if deleteResources.length}}
+### Deleted Resources
+{{#each deleteResources}}
+- {{this}}
+{{/each}}
+{{/if}}
+
+**Dry Run:** {{dryRun}}
 
 **Success:** <span style="color: {{successColor}};">{{success}}</span>
 
@@ -17,21 +24,24 @@
 {{#if changedCrs.length}}
 ### Changed Resources
 {{#each changedCrs}}
-- `{{gvk.kind}}` in namespace `{{namespace}}` names: {{#each names}}`{{this}}` {{/each}}
+- {{gvk.kind}} in namespace {{namespace}}
+  {{#each names}}
+  - {{this}}
+  {{/each}}
 {{/each}}
 {{/if}}
 
 {{#if inputCrs.length}}
 ### Input Resources
 {{#each inputCrs}}
-- `{{name.gvk.kind}}` in namespace `{{name.namespace}}` name: `{{name.name}}` {{#if isDelete}}(delete){{/if}}
+- {{name.gvk.kind}} in namespace {{name.namespace}} name: {{name.name}} {{#if isDelete}}(delete){{/if}}
 {{/each}}
 {{/if}}
 
 {{#if nodesWithConfigChanges.length}}
 ### Nodes With Config Changes
 {{#each nodesWithConfigChanges}}
-- `{{name}}` (namespace: `{{namespace}}`) {{#if errors}}Errors: `{{errors}}`{{/if}}
+- {{name}} (namespace: {{namespace}}) {{#if errors}}Errors: {{errors}}{{/if}}
 {{/each}}
 {{/if}}
 

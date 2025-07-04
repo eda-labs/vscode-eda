@@ -99,28 +99,83 @@ export function registerDeviationCommands(
         vscode.window.showInformationMessage('No deviations to reject.');
         return;
       }
-      const confirmed = await vscode.window.showWarningMessage(
+      const choice = await vscode.window.showWarningMessage(
         `Reject all ${deviations.length} deviations?`,
         { modal: true },
         'Yes',
+        'Yes (Recurse)',
         'No'
       );
-      if (confirmed !== 'Yes') {
+      if (!choice || choice === 'No') {
         return;
       }
+      const recurse = choice === 'Yes (Recurse)';
+
+      const crs: any[] = [];
+      for (const d of deviations) {
+        const name = getDeviationName(d);
+        const ns = getDeviationNamespace(d);
+        const nodeEndpoint = d.spec?.nodeEndpoint;
+        const path = d.spec?.path;
+        if (!name || !ns || !nodeEndpoint || !path) {
+          continue;
+        }
+        crs.push({
+          type: {
+            create: {
+              value: {
+                apiVersion: 'core.eda.nokia.com/v1',
+                kind: 'DeviationAction',
+                metadata: { name: `reject-${name}`, namespace: ns },
+                spec: {
+                  actions: [
+                    {
+                      action: 'reject',
+                      path,
+                      recurse,
+                    },
+                  ],
+                  nodeEndpoint,
+                },
+              },
+            },
+          },
+        });
+      }
+
+      if (crs.length === 0) {
+        vscode.window.showInformationMessage('No valid deviations to reject.');
+        return;
+      }
+
+      const tx = {
+        description: '',
+        dryRun: false,
+        retain: true,
+        resultType: 'normal',
+        crs,
+      };
+
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: `Rejecting ${deviations.length} deviations`,
+          title: `Rejecting ${crs.length} deviations`,
         },
         async () => {
-          for (const d of deviations) {
-            await handleAction(d as Deviation, 'reject', true);
-          }
+          await edaClient.runTransaction(tx);
         }
       );
+
+      for (const d of deviations) {
+        const name = getDeviationName(d);
+        const ns = getDeviationNamespace(d);
+        if (name && ns) {
+          edaDeviationProvider.updateDeviation(name, ns, 'Processing...');
+        }
+      }
+
       vscode.window.showInformationMessage(
-        `Submitted reject actions for ${deviations.length} deviations.`
+        `Submitted reject actions for ${crs.length} deviations.`
       );
     }
   );
