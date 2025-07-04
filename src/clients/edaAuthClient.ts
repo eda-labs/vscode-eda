@@ -54,6 +54,7 @@ export class EdaAuthClient {
   private clientSecret?: string;
   private agent: Agent | undefined;
   private skipTlsVerify = false;
+  private refreshTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(baseUrl: string, opts: EdaAuthOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
@@ -67,8 +68,16 @@ export class EdaAuthClient {
     this.skipTlsVerify = opts.skipTlsVerify || process.env.EDA_SKIP_TLS_VERIFY === 'true';
     this.agent = this.skipTlsVerify ? new Agent({ connect: { rejectUnauthorized: false } }) : undefined;
 
-    log(`EdaAuthClient initialized for ${this.baseUrl} (clientId=${this.clientId})`, LogLevel.DEBUG);
+    log(
+      `EdaAuthClient initialized for ${this.baseUrl} (clientId=${this.clientId})`,
+      LogLevel.DEBUG
+    );
     this.authPromise = this.auth();
+    this.refreshTimer = setInterval(() => {
+      void this.refreshAuth().catch(err =>
+        log(`Failed to refresh auth token: ${err}`, LogLevel.WARN)
+      );
+    }, 60_000);
   }
 
   /**
@@ -115,6 +124,7 @@ export class EdaAuthClient {
   public async waitForAuth(): Promise<void> {
     await this.authPromise;
   }
+
 
   /**
    * Refresh authentication token
@@ -230,5 +240,15 @@ export class EdaAuthClient {
     const data = (await res.json()) as any;
     this.token = data.access_token || '';
     log('Access token obtained', LogLevel.DEBUG);
+  }
+
+  /**
+   * Dispose resources
+   */
+  public dispose(): void {
+    if (this.refreshTimer) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = undefined;
+    }
   }
 }

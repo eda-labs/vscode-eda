@@ -30,6 +30,8 @@ describe('EdaApiClient token refresh', () => {
       getAgent: () => undefined,
       waitForAuth: sinon.stub().resolves(),
       refreshAuth: sinon.stub().resolves(),
+      onTokenRefreshed: sinon.stub(),
+      offTokenRefreshed: sinon.stub(),
       isTokenExpiredResponse: (status: number, body: string) => status === 401 && body.includes('Access token has expired'),
     } as unknown as EdaAuthClient;
   });

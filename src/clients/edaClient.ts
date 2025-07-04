@@ -305,5 +305,6 @@ export class EdaClient {
    */
   public dispose(): void {
     this.streamClient.dispose();
+    this.authClient.dispose();
   }
 }
