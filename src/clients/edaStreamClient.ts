@@ -37,6 +37,9 @@ export class EdaStreamClient {
   private _onStreamMessage = new vscode.EventEmitter<StreamMessage>();
   public readonly onStreamMessage = this._onStreamMessage.event;
 
+  private messageBuffer: StreamMessage[] = [];
+  private processingBuffer = false;
+
   private authClient: EdaAuthClient | undefined;
   private streamEndpoints: StreamEndpoint[] = [];
 
@@ -55,6 +58,24 @@ export class EdaStreamClient {
     this.messageIntervalMs = messageIntervalMs;
     this.disposed = false;
     log('EdaStreamClient initialized', LogLevel.DEBUG);
+  }
+
+  private enqueueStreamMessage(msg: StreamMessage): void {
+    this.messageBuffer.push(msg);
+    if (!this.processingBuffer) {
+      this.processingBuffer = true;
+      this.flushMessageBuffer();
+    }
+  }
+
+  private flushMessageBuffer(): void {
+    const next = this.messageBuffer.shift();
+    if (!next) {
+      this.processingBuffer = false;
+      return;
+    }
+    this._onStreamMessage.fire(next);
+    setTimeout(() => this.flushMessageBuffer(), 0);
   }
 
   public isConnected(): boolean {
@@ -569,7 +590,7 @@ export class EdaStreamClient {
         log(`Stream ${msg.stream} event received`, LogLevel.DEBUG);
       }
       if (msg.stream) {
-        this._onStreamMessage.fire({ stream: msg.stream, message: msg });
+        this.enqueueStreamMessage({ stream: msg.stream, message: msg });
       }
     } catch (err) {
       log(`Failed to parse event message: ${err}`, LogLevel.ERROR);

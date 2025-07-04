@@ -10,7 +10,7 @@ import { randomUUID } from 'crypto';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
 
 interface NodeGroupStats {
-  nodes: Set<string>;
+  nodes: Map<number, string>;
   health: number;
 }
 
@@ -287,10 +287,10 @@ export class FabricDashboardPanel extends BasePanel {
   private async initializeFabricData(namespaces: string[]): Promise<void> {
     for (const ns of namespaces) {
       this.fabricMap.set(ns, {
-        leafs: { nodes: new Set(), health: 0 },
-        borderleafs: { nodes: new Set(), health: 0 },
-        spines: { nodes: new Set(), health: 0 },
-        superspines: { nodes: new Set(), health: 0 },
+        leafs: { nodes: new Map(), health: 0 },
+        borderleafs: { nodes: new Map(), health: 0 },
+        spines: { nodes: new Map(), health: 0 },
+        superspines: { nodes: new Map(), health: 0 },
         health: 0
       });
     }
@@ -550,38 +550,49 @@ export class FabricDashboardPanel extends BasePanel {
   ): void {
     const ops = msg.msg?.op;
     if (!Array.isArray(ops) || ops.length === 0) return;
-    let ns: string | undefined;
-    const nodes: string[] = [];
+    const changed = new Set<string>();
     for (const op of ops) {
       const rows = op?.insert_or_modify?.rows;
-      if (!Array.isArray(rows)) continue;
-      for (const r of rows) {
-        if (ns === undefined) {
-          ns = r.data?.['.namespace.name'] as string | undefined;
+      if (Array.isArray(rows)) {
+        for (const r of rows) {
+          const ns = r.data?.['.namespace.name'] as string | undefined;
+          const name = r.data?.node as string | undefined;
+          const id = r.id as number | undefined;
+          if (!ns || !name || id === undefined) continue;
+          let stats = this.fabricMap.get(ns);
+          if (!stats) {
+            stats = {
+              leafs: { nodes: new Map(), health: 0 },
+              borderleafs: { nodes: new Map(), health: 0 },
+              spines: { nodes: new Map(), health: 0 },
+              superspines: { nodes: new Map(), health: 0 },
+              health: 0
+            };
+            this.fabricMap.set(ns, stats);
+          }
+          stats[key].nodes.set(id, name);
+          changed.add(ns);
         }
-        const name = r.data?.node as string | undefined;
-        if (name) nodes.push(name);
+      }
+      const delIds = op?.delete?.ids;
+      if (Array.isArray(delIds)) {
+        for (const delId of delIds) {
+          for (const [ns, stats] of this.fabricMap) {
+            if (stats[key].nodes.delete(delId)) {
+              changed.add(ns);
+            }
+          }
+        }
       }
     }
-    if (!ns) return;
-    let stats = this.fabricMap.get(ns);
-    if (!stats) {
-      stats = {
-        leafs: { nodes: new Set(), health: 0 },
-        borderleafs: { nodes: new Set(), health: 0 },
-        spines: { nodes: new Set(), health: 0 },
-        superspines: { nodes: new Set(), health: 0 },
-        health: 0
-      };
-      this.fabricMap.set(ns, stats);
+
+    for (const ns of changed) {
+      const stats = this.fabricMap.get(ns);
+      if (!stats) continue;
+      const nodes = Array.from(stats[key].nodes.values());
+      stats[key].health = this.calculateGroupHealth(ns, nodes);
+      this.postFabricGroupStatsIfNeeded(ns, key);
     }
-    const set = stats[key].nodes;
-    set.clear();
-    for (const n of nodes) {
-      set.add(n);
-    }
-    stats[key].health = this.calculateGroupHealth(ns, Array.from(set));
-    this.postFabricGroupStatsIfNeeded(ns, key);
   }
 
   private handleFabricStatusStream(msg: any): void {
@@ -593,10 +604,10 @@ export class FabricDashboardPanel extends BasePanel {
     let stats = this.fabricMap.get(ns);
     if (!stats) {
       stats = {
-        leafs: { nodes: new Set(), health: 0 },
-        borderleafs: { nodes: new Set(), health: 0 },
-        spines: { nodes: new Set(), health: 0 },
-        superspines: { nodes: new Set(), health: 0 },
+        leafs: { nodes: new Map(), health: 0 },
+        borderleafs: { nodes: new Map(), health: 0 },
+        spines: { nodes: new Map(), health: 0 },
+        superspines: { nodes: new Map(), health: 0 },
         health: 0
       };
       this.fabricMap.set(ns, stats);
