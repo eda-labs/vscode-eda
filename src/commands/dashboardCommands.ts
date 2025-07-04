@@ -8,12 +8,12 @@ export function registerDashboardCommands(context: vscode.ExtensionContext): voi
   const cmd = vscode.commands.registerCommand('vscode-eda.showDashboard', (name: string) => {
     if (name === 'Queries') {
       QueriesDashboardPanel.show(context, name);
-    } else if (name === 'Toponodes') {
+    } else if (name === 'Nodes') {
       ToponodesDashboardPanel.show(context, name);
     } else if (name === 'CRD Browser') {
       CrdBrowserPanel.show(context, name);
     } else {
-      FabricDashboardPanel.show(context, name || 'Fabric Dashboard');
+      FabricDashboardPanel.show(context, name || 'Fabric');
     }
   });
   context.subscriptions.push(cmd);
