@@ -1,9 +1,14 @@
 export const topologyDashboardStyles = `
   :root {
     --bg-primary: var(--vscode-editor-background);
-    --text-primary: var(--vscode-editor-foreground);
+    --bg-secondary: var(--vscode-panel-background);
     --border: var(--vscode-panel-border);
+    --text-primary: var(--vscode-editor-foreground);
+    --text-secondary: var(--vscode-descriptionForeground);
+    --accent: var(--vscode-button-background);
+    --accent-hover: var(--vscode-button-hoverBackground);
   }
+
   body {
     margin: 0;
     padding: 0;
@@ -12,14 +17,24 @@ export const topologyDashboardStyles = `
     font-family: var(--vscode-font-family);
     font-size: var(--vscode-font-size);
   }
+
   .dashboard {
-    padding: 8px;
+    padding: 24px;
+    max-width: 1400px;
+    margin: 0 auto;
     height: 100vh;
     box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
   }
+
   .header {
-    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    margin-bottom: 16px;
   }
+
   .select {
     background-color: var(--vscode-input-background);
     color: var(--vscode-input-foreground);
@@ -27,9 +42,13 @@ export const topologyDashboardStyles = `
     border-radius: 4px;
     padding: 4px 8px;
   }
-  #cy {
+
+  .cy {
+    flex: 1;
     width: 100%;
-    height: calc(100% - 40px);
     border: 1px solid var(--border);
+    border-radius: 8px;
+    background-color: var(--bg-secondary);
+    overflow: hidden;
   }
 `;

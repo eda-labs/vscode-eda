@@ -30,6 +30,15 @@ export const topologyDashboardScripts = `
     }
   });
 
+  function getThemeColors() {
+    const computedStyle = getComputedStyle(document.documentElement);
+    return {
+      textPrimary: computedStyle.getPropertyValue('--text-primary').trim() || '#cccccc',
+      textSecondary: computedStyle.getPropertyValue('--text-secondary').trim() || '#999999',
+      border: computedStyle.getPropertyValue('--border').trim() || '#555555'
+    };
+  }
+
   function renderTopology(nodes, edges) {
     const elements = [];
     nodes.forEach(n => {
@@ -38,6 +47,8 @@ export const topologyDashboardScripts = `
     edges.forEach(e => {
       elements.push({ group: 'edges', data: { id: e.source + '--' + e.target, source: e.source, target: e.target } });
     });
+
+    const colors = getThemeColors();
 
     if (!cy) {
       cy = cytoscape({
@@ -50,38 +61,64 @@ export const topologyDashboardScripts = `
               'background-color': '#60a5fa',
               'background-image': nodeIcon,
               'background-fit': 'contain',
-              'background-width': '100%',
-              'background-height': '100%',
+              'background-width': '70%',
+              'background-height': '70%',
               'background-position-x': '50%',
               'background-position-y': '50%',
               'shape': 'rectangle',
               'label': 'data(label)',
-              'color': 'var(--text-primary)',
+              'color': colors.textPrimary,
               'text-valign': 'bottom',
               'text-halign': 'center',
+              'text-margin-y': 5,
               'font-size': 12,
-              'width': 40,
-              'height': 40
+              'width': 50,
+              'height': 50
             }
           },
           {
             selector: 'edge',
             style: {
-              'width': 2,
-              'line-color': '#888',
-              'target-arrow-shape': 'triangle',
-              'target-arrow-color': '#888',
-              'curve-style': 'bezier'
+              'width': 1,
+              'line-color': colors.border,
+              'target-arrow-shape': 'none',
+              'curve-style': 'bezier',
+              'control-point-step-size': 20
             }
           }
-        ]
+        ],
+        layout: {
+          name: 'preset'
+        },
+        userZoomingEnabled: true,
+        userPanningEnabled: true,
+        boxSelectionEnabled: false,
+        wheelSensitivity: 0.2,
+        minZoom: 0.2,
+        maxZoom: 5
+      });
+      
+      // Wait for Cytoscape to be ready before initial layout
+      cy.ready(() => {
+        layoutByTier();
+        cy.fit(cy.elements(), 50);
       });
     } else {
       cy.elements().remove();
       cy.add(elements);
+      
+      // Update colors when data changes (theme might have changed)
+      const newColors = getThemeColors();
+      cy.style()
+        .selector('node')
+        .style('color', newColors.textPrimary)
+        .selector('edge')
+        .style('line-color', newColors.border)
+        .update();
+      
+      layoutByTier();
+      cy.fit(cy.elements(), 50);
     }
-    layoutByTier();
-    cy.fit();
   }
 
   function layoutByTier() {
@@ -91,22 +128,46 @@ export const topologyDashboardScripts = `
       if (!tiers[t]) tiers[t] = [];
       tiers[t].push(n);
     });
+    
     const spacingX = 120;
     const spacingY = 120;
+    
     Object.keys(tiers)
-      .sort((a, b) => a - b)
-      .forEach(t => {
+      .sort((a, b) => Number(a) - Number(b))
+      .forEach((t, tierIndex) => {
         const nodes = tiers[t];
         const width = (nodes.length - 1) * spacingX;
         nodes.forEach((node, idx) => {
           node.position({
             x: idx * spacingX - width / 2,
-            y: (t - 1) * spacingY,
+            y: tierIndex * spacingY,
           });
         });
       });
   }
 
+  // Listen for theme changes
+  const observer = new MutationObserver(() => {
+    if (cy) {
+      const colors = getThemeColors();
+      cy.style()
+        .selector('node')
+        .style('color', colors.textPrimary)
+        .selector('edge')
+        .style('line-color', colors.border)
+        .update();
+    }
+  });
+  
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class', 'data-vscode-theme-kind']
+  });
+
   vscode.postMessage({ command: 'ready' });
-  loadScript(cytoscapeUri);
+  
+  // Load cytoscape after DOM is ready
+  loadScript(cytoscapeUri).then(() => {
+    // Cytoscape is now loaded
+  });
 `;
