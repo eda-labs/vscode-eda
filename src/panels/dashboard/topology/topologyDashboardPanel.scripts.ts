@@ -30,15 +30,6 @@ export const topologyDashboardScripts = `
     }
   });
 
-  function getThemeColors() {
-    const computedStyle = getComputedStyle(document.documentElement);
-    return {
-      textPrimary: computedStyle.getPropertyValue('--text-primary').trim() || '#cccccc',
-      textSecondary: computedStyle.getPropertyValue('--text-secondary').trim() || '#999999',
-      border: computedStyle.getPropertyValue('--border').trim() || '#555555'
-    };
-  }
-
   function renderTopology(nodes, edges) {
     const elements = [];
     nodes.forEach(n => {
@@ -47,8 +38,6 @@ export const topologyDashboardScripts = `
     edges.forEach(e => {
       elements.push({ group: 'edges', data: { id: e.source + '--' + e.target, source: e.source, target: e.target } });
     });
-
-    const colors = getThemeColors();
 
     if (!cy) {
       cy = cytoscape({
@@ -67,7 +56,7 @@ export const topologyDashboardScripts = `
               'background-position-y': '50%',
               'shape': 'rectangle',
               'label': 'data(label)',
-              'color': colors.textPrimary,
+              'color': getComputedStyle(document.documentElement).getPropertyValue('--text-primary').trim(),
               'text-valign': 'bottom',
               'text-halign': 'center',
               'text-margin-y': 5,
@@ -80,7 +69,7 @@ export const topologyDashboardScripts = `
             selector: 'edge',
             style: {
               'width': 1,
-              'line-color': colors.border,
+              'line-color': getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim(),
               'target-arrow-shape': 'none',
               'curve-style': 'bezier',
               'control-point-step-size': 20
@@ -90,12 +79,9 @@ export const topologyDashboardScripts = `
         layout: {
           name: 'preset'
         },
-        userZoomingEnabled: true,
-        userPanningEnabled: true,
-        boxSelectionEnabled: false,
-        wheelSensitivity: 0.2,
-        minZoom: 0.2,
-        maxZoom: 5
+        wheelSensitivity: 0.3,
+        minZoom: 0.3,
+        maxZoom: 3
       });
       
       // Wait for Cytoscape to be ready before initial layout
@@ -106,16 +92,6 @@ export const topologyDashboardScripts = `
     } else {
       cy.elements().remove();
       cy.add(elements);
-      
-      // Update colors when data changes (theme might have changed)
-      const newColors = getThemeColors();
-      cy.style()
-        .selector('node')
-        .style('color', newColors.textPrimary)
-        .selector('edge')
-        .style('line-color', newColors.border)
-        .update();
-      
       layoutByTier();
       cy.fit(cy.elements(), 50);
     }
@@ -145,24 +121,6 @@ export const topologyDashboardScripts = `
         });
       });
   }
-
-  // Listen for theme changes
-  const observer = new MutationObserver(() => {
-    if (cy) {
-      const colors = getThemeColors();
-      cy.style()
-        .selector('node')
-        .style('color', colors.textPrimary)
-        .selector('edge')
-        .style('line-color', colors.border)
-        .update();
-    }
-  });
-  
-  observer.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ['class', 'data-vscode-theme-kind']
-  });
 
   vscode.postMessage({ command: 'ready' });
   
