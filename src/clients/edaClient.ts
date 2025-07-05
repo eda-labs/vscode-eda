@@ -81,6 +81,12 @@ export class EdaClient {
     await this.streamClient.connect();
   }
 
+  public async streamTopoLinks(): Promise<void> {
+    await this.initPromise;
+    this.streamClient.subscribeToStream('topolinks');
+    await this.streamClient.connect();
+  }
+
   public async streamInterfaces(): Promise<void> {
     await this.initPromise;
     this.streamClient.subscribeToStream('interfaces');
@@ -125,6 +131,10 @@ export class EdaClient {
 
   public closeTopoNodeStream(): void {
     this.streamClient.unsubscribeFromStream('toponodes');
+  }
+
+  public closeTopoLinkStream(): void {
+    this.streamClient.unsubscribeFromStream('topolinks');
   }
 
   public closeInterfaceStream(): void {
@@ -248,6 +258,16 @@ export class EdaClient {
   public async listInterfaces(namespace: string): Promise<any[]> {
     await this.initPromise;
     return this.apiClient.listInterfaces(namespace);
+  }
+
+  public async listTopoLinks(namespace: string): Promise<any[]> {
+    await this.initPromise;
+    return this.apiClient.listTopoLinks(namespace);
+  }
+
+  public async listTopologyGroupings(): Promise<any[]> {
+    await this.initPromise;
+    return this.apiClient.listTopologyGroupings();
   }
 
   public async queryEql(query: string, namespaces?: string): Promise<any> {

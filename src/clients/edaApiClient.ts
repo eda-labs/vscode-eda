@@ -411,6 +411,35 @@ export class EdaApiClient {
   }
 
   /**
+   * List TopoLinks in a namespace
+   */
+  public async listTopoLinks(namespace: string): Promise<any[]> {
+    if (!this.specManager) {
+      throw new Error('Spec manager not initialized');
+    }
+    const template = await this.specManager.getPathByOperationId(
+      'listCoreEdaNokiaComV1NamespaceTopolinks'
+    );
+    const path = template.replace('{namespace}', namespace);
+    const data = await this.fetchJSON<any>(path);
+    return Array.isArray(data?.items) ? data.items : [];
+  }
+
+  /**
+   * List TopologyGroupings
+   */
+  public async listTopologyGroupings(): Promise<any[]> {
+    if (!this.specManager) {
+      throw new Error('Spec manager not initialized');
+    }
+    const template = await this.specManager.getPathByOperationId(
+      'listTopologiesEdaNokiaComV1alpha1Topologygroupings'
+    );
+    const data = await this.fetchJSON<any>(template);
+    return Array.isArray(data?.items) ? data.items : [];
+  }
+
+  /**
    * Execute an EQL query
    */
   public async queryEql(query: string, namespaces?: string): Promise<any> {
