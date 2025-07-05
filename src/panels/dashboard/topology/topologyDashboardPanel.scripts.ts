@@ -1,4 +1,4 @@
-export const topologieDashboardScripts = `
+export const topologyDashboardScripts = `
   const vscode = acquireVsCodeApi();
   const nsSelect = document.getElementById('namespaceSelect');
   let cy;
@@ -49,7 +49,12 @@ export const topologieDashboardScripts = `
             style: {
               'background-color': '#60a5fa',
               'background-image': nodeIcon,
-              'background-fit': 'cover',
+              'background-fit': 'contain',
+              'background-width': '100%',
+              'background-height': '100%',
+              'background-position-x': '50%',
+              'background-position-y': '50%',
+              'shape': 'rectangle',
               'label': 'data(label)',
               'color': 'var(--text-primary)',
               'text-valign': 'bottom',
@@ -88,12 +93,18 @@ export const topologieDashboardScripts = `
     });
     const spacingX = 120;
     const spacingY = 120;
-    Object.keys(tiers).sort((a,b)=>a-b).forEach(t => {
-      const nodes = tiers[t];
-      nodes.forEach((node, idx) => {
-        node.position({ x: idx * spacingX, y: (t - 1) * spacingY });
+    Object.keys(tiers)
+      .sort((a, b) => a - b)
+      .forEach(t => {
+        const nodes = tiers[t];
+        const width = (nodes.length - 1) * spacingX;
+        nodes.forEach((node, idx) => {
+          node.position({
+            x: idx * spacingX - width / 2,
+            y: (t - 1) * spacingY,
+          });
+        });
       });
-    });
   }
 
   vscode.postMessage({ command: 'ready' });

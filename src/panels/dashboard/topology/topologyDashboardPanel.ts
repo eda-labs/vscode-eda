@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 import { BasePanel } from '../../basePanel';
-import { topologieDashboardHtml } from './topologieDashboardPanel.html';
-import { topologieDashboardStyles } from './topologieDashboardPanel.styles';
-import { topologieDashboardScripts } from './topologieDashboardPanel.scripts';
+import { topologyDashboardHtml } from './topologyDashboardPanel.html';
+import { topologyDashboardStyles } from './topologyDashboardPanel.styles';
+import { topologyDashboardScripts } from './topologyDashboardPanel.scripts';
 import { serviceManager } from '../../../services/serviceManager';
 import { EdaClient } from '../../../clients/edaClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
@@ -12,7 +12,7 @@ interface TierSelector {
   nodeSelector?: string[];
 }
 
-export class TopologieDashboardPanel extends BasePanel {
+export class TopologyDashboardPanel extends BasePanel {
   private edaClient: EdaClient;
   private nodeMap: Map<string, Map<string, any>> = new Map();
   private linkMap: Map<string, any[]> = new Map();
@@ -20,7 +20,7 @@ export class TopologieDashboardPanel extends BasePanel {
   private selectedNamespace = 'All Namespaces';
 
   constructor(context: vscode.ExtensionContext, title: string) {
-    super(context, 'topologieDashboard', title, undefined, {
+    super(context, 'topologyDashboard', title, undefined, {
       light: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-black.svg'),
       dark: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-white.svg')
     });
@@ -56,11 +56,11 @@ export class TopologieDashboardPanel extends BasePanel {
   }
 
   protected getHtml(): string {
-    return topologieDashboardHtml;
+    return topologyDashboardHtml;
   }
 
   protected getCustomStyles(): string {
-    return topologieDashboardStyles;
+    return topologyDashboardStyles;
   }
 
   protected getScripts(): string {
@@ -69,7 +69,7 @@ export class TopologieDashboardPanel extends BasePanel {
     return `
       const cytoscapeUri = "${cytoscapeUri}";
       const nodeIcon = "${nodeIcon}";
-      ${topologieDashboardScripts}
+      ${topologyDashboardScripts}
     `;
   }
 
@@ -239,6 +239,6 @@ export class TopologieDashboardPanel extends BasePanel {
   }
 
   static show(context: vscode.ExtensionContext, title: string): void {
-    new TopologieDashboardPanel(context, title);
+    new TopologyDashboardPanel(context, title);
   }
 }

@@ -1,4 +1,4 @@
-export const topologieDashboardStyles = `
+export const topologyDashboardStyles = `
   :root {
     --bg-primary: var(--vscode-editor-background);
     --text-primary: var(--vscode-editor-foreground);

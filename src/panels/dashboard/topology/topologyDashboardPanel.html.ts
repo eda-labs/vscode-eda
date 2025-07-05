@@ -1,4 +1,4 @@
-export const topologieDashboardHtml = `
+export const topologyDashboardHtml = `
   <div class="dashboard">
     <header class="header">
       <select id="namespaceSelect" class="select"></select>

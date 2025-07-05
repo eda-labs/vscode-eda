@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { FabricDashboardPanel } from '../panels/dashboard/fabric/fabricDashboardPanel';
 import { QueriesDashboardPanel } from '../panels/dashboard/queries/queriesDashboardPanel';
 import { ToponodesDashboardPanel } from '../panels/dashboard/toponodes/toponodesDashboardPanel';
-import { TopologieDashboardPanel } from '../panels/dashboard/topologie/topologieDashboardPanel';
+import { TopologyDashboardPanel } from '../panels/dashboard/topology/topologyDashboardPanel';
 import { CrdBrowserPanel } from '../panels/dashboard/crd/crdBrowserPanel';
 
 export function registerDashboardCommands(context: vscode.ExtensionContext): void {
@@ -11,8 +11,8 @@ export function registerDashboardCommands(context: vscode.ExtensionContext): voi
       QueriesDashboardPanel.show(context, name);
     } else if (name === 'Nodes') {
       ToponodesDashboardPanel.show(context, name);
-    } else if (name === 'Topologie') {
-      TopologieDashboardPanel.show(context, name);
+    } else if (name === 'Topology') {
+      TopologyDashboardPanel.show(context, name);
     } else if (name === 'CRD Browser') {
       CrdBrowserPanel.show(context, name);
     } else {
