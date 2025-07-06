@@ -40,6 +40,15 @@ async function run() {
     sourcemap: false,
     outfile: 'dist/fabricDashboard.js'
   });
+
+  await build({
+    entryPoints: ['src/webviews/dashboard/queries/queriesDashboard.webview.ts'],
+    bundle: true,
+    platform: 'browser',
+    format: 'iife',
+    sourcemap: false,
+    outfile: 'dist/queriesDashboard.js'
+  });
 }
 
 run().catch(err => {

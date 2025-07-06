@@ -1,26 +1,32 @@
-export const queriesDashboardScripts = `
+/// <reference lib="dom" />
+/* eslint-env browser */
+/* eslint-disable no-undef */
+declare function acquireVsCodeApi(): {
+  postMessage: (msg: any) => void;
+};
+(function () {
   const vscode = acquireVsCodeApi();
-  const queryInput = document.getElementById('queryInput');
-  const autocompleteList = document.getElementById('autocompleteList');
-  const runButton = document.getElementById('runButton');
-  const nsSelect = document.getElementById('namespaceSelect');
-  const copyButton = document.getElementById('copyButton');
-  const formatToggle = document.getElementById('formatToggle');
-  const formatToggleArea = document.getElementById('formatToggleArea');
-  const formatMenu = document.getElementById('formatMenu');
-  const headerRow = document.getElementById('headerRow');
-  const resultsBody = document.getElementById('resultsBody');
-  const filterRow = document.getElementById('filterRow');
-  const statusEl = document.getElementById('status');
+  const queryInput = document.getElementById('queryInput') as HTMLInputElement;
+  const autocompleteList = document.getElementById('autocompleteList') as HTMLUListElement;
+  const runButton = document.getElementById('runButton') as HTMLButtonElement;
+  const nsSelect = document.getElementById('namespaceSelect') as HTMLSelectElement;
+  const copyButton = document.getElementById('copyButton') as HTMLButtonElement;
+  const formatToggle = document.getElementById('formatToggle') as HTMLElement;
+  const formatToggleArea = document.getElementById('formatToggleArea') as HTMLElement;
+  const formatMenu = document.getElementById('formatMenu') as HTMLUListElement;
+  const headerRow = document.getElementById('headerRow') as HTMLTableRowElement;
+  const resultsBody = document.getElementById('resultsBody') as HTMLTableSectionElement;
+  const filterRow = document.getElementById('filterRow') as HTMLTableRowElement;
+  const statusEl = document.getElementById('status') as HTMLElement;
 
-  let allRows = [];
-  let columns = [];
+  let allRows: any[] = [];
+  let columns: string[] = [];
   let autocompleteIndex = -1;
   let sortIndex = -1;
   let sortAsc = true;
-  let copyFormat = 'ascii';
+  let copyFormat: 'ascii' | 'markdown' | 'json' | 'yaml' = 'ascii';
 
-  function insertAutocomplete(text) {
+  function insertAutocomplete(text: string): void {
     const start = queryInput.selectionStart ?? queryInput.value.length;
     const end = queryInput.selectionEnd ?? queryInput.value.length;
     const before = queryInput.value.slice(0, start);
@@ -49,14 +55,14 @@ export const queriesDashboardScripts = `
   });
 
   copyButton.addEventListener('click', e => {
-    if (formatToggleArea.contains(e.target)) {
+    if (formatToggleArea.contains(e.target as Node)) {
       toggleMenu();
       return;
     }
     copyData();
   });
 
-  function copyData() {
+  function copyData(): void {
     const rows = getFilteredRows();
     let text = '';
     if (copyFormat === 'ascii') {
@@ -73,12 +79,12 @@ export const queriesDashboardScripts = `
       statusEl.textContent = 'Copied to clipboard';
       setTimeout(() => {
         copyButton.classList.remove('copy-success');
-        statusEl.textContent = \`Count: \${rows.length}\`;
+        statusEl.textContent = `Count: ${rows.length}`;
       }, 1000);
     });
   }
 
-  function toggleMenu() {
+  function toggleMenu(): void {
     formatMenu.style.display =
       formatMenu.style.display === 'block' ? 'none' : 'block';
   }
@@ -90,7 +96,7 @@ export const queriesDashboardScripts = `
 
   Array.from(formatMenu.querySelectorAll('li')).forEach(li => {
     li.addEventListener('click', () => {
-      copyFormat = li.dataset.format || 'ascii';
+      copyFormat = (li as HTMLElement).dataset.format as any || 'ascii';
       formatMenu.style.display = 'none';
       copyData();
     });
@@ -106,8 +112,8 @@ export const queriesDashboardScripts = `
       e.preventDefault();
       const target =
         autocompleteIndex >= 0
-          ? autocompleteList.children[autocompleteIndex]
-          : autocompleteList.querySelector('li');
+          ? (autocompleteList.children[autocompleteIndex] as HTMLElement)
+          : (autocompleteList.querySelector('li') as HTMLElement | null);
       if (target) {
         insertAutocomplete(target.textContent || '');
       }
@@ -137,7 +143,7 @@ export const queriesDashboardScripts = `
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (autocompleteIndex >= 0 && !e.metaKey && !e.ctrlKey) {
-        const item = autocompleteList.children[autocompleteIndex];
+        const item = autocompleteList.children[autocompleteIndex] as HTMLElement;
         if (item) {
           insertAutocomplete(item.textContent || '');
         }
@@ -152,11 +158,11 @@ export const queriesDashboardScripts = `
   });
 
   document.addEventListener('click', e => {
-    if (e.target !== queryInput && !autocompleteList.contains(e.target)) {
+    if (e.target !== queryInput && !autocompleteList.contains(e.target as Node)) {
       autocompleteList.innerHTML = '';
       autocompleteList.style.display = 'none';
     }
-    if (!copyButton.contains(e.target) && !formatMenu.contains(e.target)) {
+    if (!copyButton.contains(e.target as Node) && !formatMenu.contains(e.target as Node)) {
       formatMenu.style.display = 'none';
     }
   });
@@ -169,7 +175,7 @@ export const queriesDashboardScripts = `
     const msg = event.data;
     if (msg.command === 'init') {
       nsSelect.innerHTML = '';
-      msg.namespaces.forEach(ns => {
+      msg.namespaces.forEach((ns: string) => {
         const opt = document.createElement('option');
         opt.value = ns;
         opt.textContent = ns;
@@ -208,7 +214,7 @@ export const queriesDashboardScripts = `
     } else if (msg.command === 'autocomplete') {
       autocompleteList.innerHTML = '';
       autocompleteIndex = -1;
-      (msg.list || []).forEach((item, idx) => {
+      (msg.list || []).forEach((item: string, idx: number) => {
         const li = document.createElement('li');
         li.textContent = item;
         li.dataset.index = String(idx);
@@ -231,7 +237,7 @@ export const queriesDashboardScripts = `
     }
   });
 
-  function renderTable(rows) {
+  function renderTable(rows: any[]): void {
     headerRow.innerHTML = '';
     resultsBody.innerHTML = '';
     filterRow.innerHTML = '';
@@ -247,7 +253,7 @@ export const queriesDashboardScripts = `
       headerRow.appendChild(th);
 
       const filterInput = document.createElement('input');
-      filterInput.dataset.idx = idx;
+      filterInput.dataset.idx = String(idx);
       filterInput.addEventListener('input', applyFilters);
       const td = document.createElement('td');
       td.appendChild(filterInput);
@@ -257,7 +263,7 @@ export const queriesDashboardScripts = `
     renderRows(rows);
   }
 
-  function renderRows(rows) {
+  function renderRows(rows: any[]): void {
     resultsBody.innerHTML = '';
     rows.forEach(row => {
       const tr = document.createElement('tr');
@@ -271,11 +277,11 @@ export const queriesDashboardScripts = `
     });
   }
 
-  function getFilteredRows() {
-    const inputs = Array.from(filterRow.querySelectorAll('input'));
+  function getFilteredRows(): any[] {
+    const inputs = Array.from(filterRow.querySelectorAll('input')) as HTMLInputElement[];
     return allRows.filter(row => {
       return inputs.every(inp => {
-        const idx = parseInt(inp.dataset.idx);
+        const idx = parseInt(inp.dataset.idx || '0');
         const val = inp.value.toLowerCase();
         if (!val) return true;
         return String(row[idx] ?? '').toLowerCase().includes(val);
@@ -283,13 +289,13 @@ export const queriesDashboardScripts = `
     });
   }
 
-  function applyFilters() {
+  function applyFilters(): void {
     const filtered = getFilteredRows();
     renderRows(filtered);
-    statusEl.textContent = \`Count: \${filtered.length}\`;
+    statusEl.textContent = `Count: ${filtered.length}`;
   }
 
-  function sortTable(idx) {
+  function sortTable(idx: number): void {
     if (sortIndex === idx) {
       sortAsc = !sortAsc;
     } else {
@@ -301,7 +307,7 @@ export const queriesDashboardScripts = `
     applyFilters();
   }
 
-  function sortRows() {
+  function sortRows(): void {
     if (sortIndex < 0) return;
     allRows.sort((a, b) => {
       const av = a[sortIndex] ?? '';
@@ -312,7 +318,7 @@ export const queriesDashboardScripts = `
     });
   }
 
-  function updateSortClasses() {
+  function updateSortClasses(): void {
     Array.from(headerRow.children).forEach((el, i) => {
       el.classList.remove('asc', 'desc');
       if (i === sortIndex) {
@@ -321,7 +327,7 @@ export const queriesDashboardScripts = `
     });
   }
 
-  function arraysEqual(a, b) {
+  function arraysEqual(a: string[], b: string[]): boolean {
     if (!Array.isArray(a) || !Array.isArray(b)) return false;
     if (a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) {
@@ -330,7 +336,7 @@ export const queriesDashboardScripts = `
     return true;
   }
 
-  function toMarkdownTable(cols, rows) {
+  function toMarkdownTable(cols: string[], rows: any[]): string {
     if (!cols.length) return '';
     const header = '| ' + cols.join(' | ') + ' |';
     const sep = '| ' + cols.map(() => '---').join(' | ') + ' |';
@@ -341,10 +347,10 @@ export const queriesDashboardScripts = `
         .join(' | ') +
       ' |'
     );
-    return [header, sep, ...lines].join('\\n');
+    return [header, sep, ...lines].join('\n');
   }
 
-  function toAsciiTable(cols, rows) {
+  function toAsciiTable(cols: string[], rows: any[]): string {
     if (!cols.length) return '';
     const widths = cols.map((c, i) =>
       Math.max(c.length, ...rows.map(r => String(r[i] ?? '').length))
@@ -359,12 +365,12 @@ export const queriesDashboardScripts = `
         .join('|') +
       '|'
     );
-    return [hr, header, hr, ...lines, hr].join('\\n');
+    return [hr, header, hr, ...lines, hr].join('\n');
   }
 
-  function toJson(cols, rows) {
+  function toJson(cols: string[], rows: any[]): string {
     const objs = rows.map(r => {
-      const obj = {};
+      const obj: Record<string, any> = {};
       cols.forEach((c, i) => {
         obj[c] = r[i];
       });
@@ -373,9 +379,9 @@ export const queriesDashboardScripts = `
     return JSON.stringify(objs, null, 2);
   }
 
-  function toYaml(cols, rows) {
+  function toYaml(cols: string[], rows: any[]): string {
     const objs = rows.map(r => {
-      const obj = {};
+      const obj: Record<string, any> = {};
       cols.forEach((c, i) => {
         obj[c] = r[i];
       });
@@ -385,21 +391,22 @@ export const queriesDashboardScripts = `
       .map(o =>
         Object.entries(o)
           .map(([k, v]) => k + ': ' + v)
-          .join('\\n')
+          .join('\n')
       )
-      .join('\\n---\\n');
+      .join('\n---\n');
   }
 
-  function highlightAutocomplete() {
+  function highlightAutocomplete(): void {
     Array.from(autocompleteList.children).forEach((li, idx) => {
+      const elem = li as HTMLElement;
       if (idx === autocompleteIndex) {
-        li.classList.add('selected');
-        li.scrollIntoView({ block: 'nearest' });
+        elem.classList.add('selected');
+        elem.scrollIntoView({ block: 'nearest' });
       } else {
-        li.classList.remove('selected');
+        elem.classList.remove('selected');
       }
     });
   }
 
   vscode.postMessage({ command: 'ready' });
-`;
+})();

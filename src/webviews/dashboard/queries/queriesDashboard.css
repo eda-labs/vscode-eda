@@ -1,4 +1,3 @@
-export const queriesDashboardStyles = `
   :root {
     --bg-primary: var(--vscode-editor-background);
     --bg-secondary: var(--vscode-panel-background);
@@ -214,4 +213,3 @@ export const queriesDashboardStyles = `
     border-top: 1px solid var(--border);
     margin-top: 8px;
   }
-`;
