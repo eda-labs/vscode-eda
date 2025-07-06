@@ -1,6 +1,3 @@
-/// <reference lib="dom" />
-/* eslint-env browser */
-/* eslint-disable no-undef */
 declare function acquireVsCodeApi(): {
   postMessage: (msg: unknown) => void;
 };
@@ -43,48 +40,49 @@ interface SetNamespaceMessage {
 
 type OutboundMessage = ReadyMessage | SetNamespaceMessage;
 
-(() => {
-  const vscode = acquireVsCodeApi();
-  const nsSelect = document.getElementById('namespaceSelect') as HTMLSelectElement;
-  const bodyEl = document.body as HTMLBodyElement;
-  const cytoscapeUri = bodyEl.dataset.cytoscapeUri ?? '';
-  const nodeIcon = bodyEl.dataset.nodeIcon ?? '';
-  let cy: cytoscape.Core | undefined;
+class TopologyDashboard {
+  private readonly vscode = acquireVsCodeApi();
+  private readonly nsSelect = document.getElementById('namespaceSelect') as HTMLSelectElement;
+  private readonly cytoscapeUri: string;
+  private readonly nodeIcon: string;
+  private cy?: cytoscape.Core;
 
-  const loadScript = (src: string): Promise<void> => {
-    const script = document.createElement('script');
-    script.src = src;
-    document.head.appendChild(script);
-    return new Promise(resolve => {
-      script.onload = () => resolve();
+  constructor() {
+    const bodyEl = document.body as HTMLBodyElement;
+    this.cytoscapeUri = bodyEl.dataset.cytoscapeUri ?? '';
+    this.nodeIcon = bodyEl.dataset.nodeIcon ?? '';
+    this.registerEvents();
+    this.postMessage({ command: 'ready' });
+    void this.loadScript(this.cytoscapeUri);
+  }
+
+  private registerEvents(): void {
+    this.nsSelect.addEventListener('change', () => {
+      this.postMessage({ command: 'setNamespace', namespace: this.nsSelect.value });
     });
-  };
 
-  const postMessage = (msg: OutboundMessage): void => {
-    vscode.postMessage(msg);
-  };
+    window.addEventListener('message', event => {
+      const msg = event.data as InboundMessage;
+      if (msg.command === 'init') {
+        this.populateNamespaces(msg.namespaces, msg.selected);
+      } else if (msg.command === 'data') {
+        this.renderTopology(msg.nodes, msg.edges);
+      }
+    });
+  }
 
-  nsSelect.addEventListener('change', () => {
-    postMessage({ command: 'setNamespace', namespace: nsSelect.value });
-  });
+  private populateNamespaces(namespaces: string[], selected?: string): void {
+    this.nsSelect.innerHTML = '';
+    namespaces.forEach(ns => {
+      const opt = document.createElement('option');
+      opt.value = ns;
+      opt.textContent = ns;
+      this.nsSelect.appendChild(opt);
+    });
+    this.nsSelect.value = selected ?? namespaces[0] ?? '';
+  }
 
-  window.addEventListener('message', event => {
-    const msg = event.data as InboundMessage;
-    if (msg.command === 'init') {
-      nsSelect.innerHTML = '';
-      msg.namespaces.forEach(ns => {
-        const opt = document.createElement('option');
-        opt.value = ns;
-        opt.textContent = ns;
-        nsSelect.appendChild(opt);
-      });
-      nsSelect.value = msg.selected ?? msg.namespaces[0] ?? '';
-    } else if (msg.command === 'data') {
-      renderTopology(msg.nodes, msg.edges);
-    }
-  });
-
-  function renderTopology(nodes: TopologyNode[], edges: TopologyEdge[]): void {
+  private renderTopology(nodes: TopologyNode[], edges: TopologyEdge[]): void {
     const elements: cytoscape.ElementDefinition[] = [];
     nodes.forEach(n => {
       elements.push({ group: 'nodes', data: { id: n.id, label: n.label, tier: n.tier } });
@@ -93,8 +91,9 @@ type OutboundMessage = ReadyMessage | SetNamespaceMessage;
       elements.push({ group: 'edges', data: { id: `${e.source}--${e.target}`, source: e.source, target: e.target } });
     });
 
-    if (!cy) {
-      cy = (window as any).cytoscape({
+    if (!this.cy) {
+      const win = window as unknown as { cytoscape: (opts: cytoscape.CytoscapeOptions) => cytoscape.Core };
+      this.cy = win.cytoscape({
         container: document.getElementById('cy'),
         elements,
         style: [
@@ -102,10 +101,10 @@ type OutboundMessage = ReadyMessage | SetNamespaceMessage;
             selector: 'node',
             style: {
               'background-color': '#60a5fa',
-              'background-image': nodeIcon,
+              'background-image': this.nodeIcon,
               'background-fit': 'contain',
-              'background-width': '70%',
-              'background-height': '70%',
+              'background-width': '90%',
+              'background-height': '90%',
               'background-position-x': '50%',
               'background-position-y': '50%',
               'shape': 'rectangle',
@@ -115,8 +114,8 @@ type OutboundMessage = ReadyMessage | SetNamespaceMessage;
               'text-halign': 'center',
               'text-margin-y': 5,
               'font-size': 12,
-              'width': 50,
-              'height': 50
+              'width': 70,
+              'height': 70
             }
           },
           {
@@ -138,24 +137,22 @@ type OutboundMessage = ReadyMessage | SetNamespaceMessage;
         maxZoom: 3
       });
 
-      // Wait for Cytoscape to be ready before initial layout
-      const instance = cy!;
-      instance.ready(() => {
-        layoutByTier();
-        instance.fit(instance.elements(), 50);
+      this.cy.ready(() => {
+        this.layoutByTier();
+        this.cy!.fit(this.cy!.elements(), 50);
       });
     } else {
-      cy.elements().remove();
-      cy.add(elements);
-      layoutByTier();
-      cy!.fit(cy!.elements(), 50);
+      this.cy.elements().remove();
+      this.cy.add(elements);
+      this.layoutByTier();
+      this.cy.fit(this.cy.elements(), 50);
     }
   }
 
-  function layoutByTier(): void {
-    if (!cy) return;
+  private layoutByTier(): void {
+    if (!this.cy) return;
     const tiers: Record<string, cytoscape.NodeSingular[]> = {};
-    cy.nodes().forEach(n => {
+    this.cy.nodes().forEach(n => {
       const t = Number(n.data('tier') ?? 1);
       if (!tiers[t]) tiers[t] = [];
       tiers[t].push(n);
@@ -172,16 +169,26 @@ type OutboundMessage = ReadyMessage | SetNamespaceMessage;
         nodes.forEach((node, idx) => {
           node.position({
             x: idx * spacingX - width / 2,
-            y: tierIndex * spacingY,
+            y: tierIndex * spacingY
           });
         });
       });
   }
 
-  postMessage({ command: 'ready' });
+  private postMessage(msg: OutboundMessage): void {
+    this.vscode.postMessage(msg);
+  }
 
-  // Load cytoscape after DOM is ready
-  loadScript(cytoscapeUri).then(() => {
-    // Cytoscape is now loaded
-  });
-})();
+  private loadScript(src: string): Promise<void> {
+    return new Promise(resolve => {
+      const script = document.createElement('script');
+      script.src = src;
+      script.onload = () => resolve();
+      document.head.appendChild(script);
+    });
+  }
+}
+
+new TopologyDashboard();
+
+export {};
