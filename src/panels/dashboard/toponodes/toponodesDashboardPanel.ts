@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import { BasePanel } from '../../basePanel';
 import { toponodesDashboardHtml } from './toponodesDashboardPanel.html';
 import { toponodesDashboardStyles } from './toponodesDashboardPanel.styles';
-import { toponodesDashboardScripts } from './toponodesDashboardPanel.scripts';
 import { serviceManager } from '../../../services/serviceManager';
 import { EdaClient } from '../../../clients/edaClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
@@ -71,7 +70,31 @@ export class ToponodesDashboardPanel extends BasePanel {
   }
 
   protected getScripts(): string {
-    return toponodesDashboardScripts;
+    return '';
+  }
+
+  protected buildHtml(): string {
+    const nonce = this.getNonce();
+    const csp = this.panel.webview.cspSource;
+    const codiconUri = this.getResourceUri('resources', 'codicon.css');
+    const scriptUri = this.getResourceUri('dist', 'toponodesDashboard.js');
+    const tailwind = (BasePanel as any).tailwind ?? '';
+    const styles = `${tailwind}\n${this.getCustomStyles()}`;
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${csp} https:; style-src ${csp} 'unsafe-inline'; font-src ${csp}; script-src 'nonce-${nonce}' ${csp};">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="${codiconUri}" rel="stylesheet">
+  <style>${styles}</style>
+</head>
+<body>
+  ${this.getHtml()}
+  <script nonce="${nonce}" src="${scriptUri}"></script>
+</body>
+</html>`;
   }
 
   private async sendNamespaces(): Promise<void> {

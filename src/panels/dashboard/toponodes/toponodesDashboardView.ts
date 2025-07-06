@@ -1,14 +1,20 @@
-export const toponodesDashboardScripts = `
+/// <reference lib="dom" />
+/* eslint-env browser */
+/* eslint-disable no-undef */
+declare function acquireVsCodeApi(): {
+  postMessage: (msg: any) => void;
+};
+(function () {
   const vscode = acquireVsCodeApi();
-  const nsSelect = document.getElementById('namespaceSelect');
-  const showTreeBtn = document.getElementById('showTreeBtn');
-  const headerRow = document.getElementById('headerRow');
-  const resultsBody = document.getElementById('resultsBody');
-  const filterRow = document.getElementById('filterRow');
-  const statusEl = document.getElementById('status');
+  const nsSelect = document.getElementById('namespaceSelect') as HTMLSelectElement;
+  const showTreeBtn = document.getElementById('showTreeBtn') as HTMLButtonElement;
+  const headerRow = document.getElementById('headerRow') as HTMLTableRowElement;
+  const resultsBody = document.getElementById('resultsBody') as HTMLTableSectionElement;
+  const filterRow = document.getElementById('filterRow') as HTMLTableRowElement;
+  const statusEl = document.getElementById('status') as HTMLElement;
 
-  let allRows = [];
-  let columns = [];
+  let allRows: any[][] = [];
+  let columns: string[] = [];
   let sortIndex = -1;
   let sortAsc = true;
   let nameIdx = -1;
@@ -27,7 +33,7 @@ export const toponodesDashboardScripts = `
     const msg = event.data;
     if (msg.command === 'init') {
       nsSelect.innerHTML = '';
-      msg.namespaces.forEach(ns => {
+      msg.namespaces.forEach((ns: string) => {
         const opt = document.createElement('option');
         opt.value = ns;
         opt.textContent = ns;
@@ -65,7 +71,7 @@ export const toponodesDashboardScripts = `
     }
   });
 
-  function renderTable(rows) {
+  function renderTable(rows: any[][]) {
     headerRow.innerHTML = '';
     resultsBody.innerHTML = '';
     filterRow.innerHTML = '';
@@ -86,7 +92,7 @@ export const toponodesDashboardScripts = `
       headerRow.appendChild(th);
 
       const filterInput = document.createElement('input');
-      filterInput.dataset.idx = idx;
+      filterInput.dataset.idx = String(idx);
       filterInput.addEventListener('input', applyFilters);
       const td = document.createElement('td');
       td.appendChild(filterInput);
@@ -96,7 +102,7 @@ export const toponodesDashboardScripts = `
     renderRows(rows);
   }
 
-  function renderRows(rows) {
+  function renderRows(rows: any[][]) {
     resultsBody.innerHTML = '';
     rows.forEach(row => {
       const tr = document.createElement('tr');
@@ -141,20 +147,20 @@ export const toponodesDashboardScripts = `
   }
 
   function applyFilters() {
-    const inputs = Array.from(filterRow.querySelectorAll('input'));
+    const inputs = Array.from(filterRow.querySelectorAll('input')) as HTMLInputElement[];
     const filtered = allRows.filter(row => {
       return inputs.every(inp => {
-        const idx = parseInt(inp.dataset.idx);
+        const idx = parseInt(inp.dataset.idx || '0');
         const val = inp.value.toLowerCase();
         if (!val) return true;
         return String(row[idx] ?? '').toLowerCase().includes(val);
       });
     });
     renderRows(filtered);
-    statusEl.textContent = \`Count: \${filtered.length}\`;
+    statusEl.textContent = `Count: ${filtered.length}`;
   }
 
-  function sortTable(idx) {
+  function sortTable(idx: number) {
     if (sortIndex === idx) {
       sortAsc = !sortAsc;
     } else {
@@ -186,7 +192,7 @@ export const toponodesDashboardScripts = `
     });
   }
 
-  function arraysEqual(a, b) {
+  function arraysEqual(a: string[], b: string[]) {
     if (!Array.isArray(a) || !Array.isArray(b)) return false;
     if (a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) {
@@ -196,4 +202,4 @@ export const toponodesDashboardScripts = `
   }
 
   vscode.postMessage({ command: 'ready' });
-`;
+})();
