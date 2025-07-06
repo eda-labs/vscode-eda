@@ -1,6 +1,8 @@
 # Exclude development directories and config
 src/**
 !src/templates/**
+!src/webviews/dashboard/toponodes/toponodesDashboard.html
+!src/webviews/dashboard/toponodes/toponodesDashboard.css
 test/**
 javascript/**
 vscode-kubernetes-tools/**

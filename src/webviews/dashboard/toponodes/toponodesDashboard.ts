@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { BasePanel } from '../../basePanel';
-import { toponodesDashboardHtml } from './toponodesDashboard.html';
-import { toponodesDashboardStyles } from './toponodesDashboard.styles';
+import * as fs from 'fs';
+import * as path from 'path';
 import { serviceManager } from '../../../services/serviceManager';
 import { EdaClient } from '../../../clients/edaClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
@@ -62,11 +62,39 @@ export class ToponodesDashboardPanel extends BasePanel {
   }
 
   protected getHtml(): string {
-    return toponodesDashboardHtml;
+    try {
+      const filePath = this.context.asAbsolutePath(
+        path.join(
+          'src',
+          'webviews',
+          'dashboard',
+          'toponodes',
+          'toponodesDashboard.html'
+        )
+      );
+      return fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+      console.error('Failed to load Toponodes dashboard HTML', err);
+      return '';
+    }
   }
 
   protected getCustomStyles(): string {
-    return toponodesDashboardStyles;
+    try {
+      const filePath = this.context.asAbsolutePath(
+        path.join(
+          'src',
+          'webviews',
+          'dashboard',
+          'toponodes',
+          'toponodesDashboard.css'
+        )
+      );
+      return fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+      console.error('Failed to load Toponodes dashboard CSS', err);
+      return '';
+    }
   }
 
   protected getScripts(): string {
