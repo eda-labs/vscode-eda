@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
-import { CrdBrowserPanel } from '../panels/dashboard/crd/crdBrowserPanel';
+import { CrdBrowserPanel } from '../webviews/dashboard/crd/crdBrowserPanel';
 
 export function registerCrdBrowserCommand(
   context: vscode.ExtensionContext

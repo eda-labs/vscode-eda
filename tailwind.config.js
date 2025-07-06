@@ -1,6 +1,6 @@
 module.exports = {
   content: [
-    './src/panels/**/*.{ts,html}',
+    './src/webviews/**/*.{ts,html}',
     './src/styles/**/*.{css,ts}',
   ],
   safelist: [

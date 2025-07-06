@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { BasePanel } from '../../basePanel';
-import { toponodesDashboardHtml } from './toponodesDashboardPanel.html';
-import { toponodesDashboardStyles } from './toponodesDashboardPanel.styles';
+import { toponodesDashboardHtml } from './toponodesDashboard.html';
+import { toponodesDashboardStyles } from './toponodesDashboard.styles';
 import { serviceManager } from '../../../services/serviceManager';
 import { EdaClient } from '../../../clients/edaClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';

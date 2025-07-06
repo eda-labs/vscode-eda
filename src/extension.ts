@@ -37,7 +37,7 @@ import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand'
 import { registerDashboardCommands } from './commands/dashboardCommands';
 import { registerApplyYamlFileCommand } from './commands/applyYamlFileCommand';
 import { registerCrdBrowserCommand } from './commands/crdBrowserCommand';
-import { configureTargets } from './panels/targetWizard/targetWizardPanel';
+import { configureTargets } from './webviews/targetWizard/targetWizardPanel';
 // import { registerResourceViewCommands } from './commands/resourceViewCommands';
 // import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 

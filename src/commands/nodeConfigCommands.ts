@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { serviceManager } from '../services/serviceManager';
 import { EdaClient } from '../clients/edaClient';
 import { LogLevel, log } from '../extension';
-import { NodeConfigPanel, Annotation } from '../panels/nodeConfig/nodeConfigPanel';
+import { NodeConfigPanel, Annotation } from '../webviews/nodeConfig/nodeConfigPanel';
 
 export function registerNodeConfigCommands(context: vscode.ExtensionContext) {
   const viewCmd = vscode.commands.registerCommand('vscode-eda.viewNodeConfig', async (treeItem: any) => {

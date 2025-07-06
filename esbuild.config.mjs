@@ -15,7 +15,7 @@ async function run() {
   });
 
   await build({
-    entryPoints: ['src/panels/dashboard/toponodes/toponodesDashboardView.ts'],
+    entryPoints: ['src/webviews/dashboard/toponodes/toponodesDashboard.webview.ts'],
     bundle: true,
     platform: 'browser',
     format: 'iife',
