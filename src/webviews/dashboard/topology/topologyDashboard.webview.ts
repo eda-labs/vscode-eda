@@ -103,10 +103,7 @@ class TopologyDashboard {
               'background-color': '#60a5fa',
               'background-image': this.nodeIcon,
               'background-fit': 'contain',
-              'background-width': '90%',
-              'background-height': '90%',
-              'background-position-x': '50%',
-              'background-position-y': '50%',
+              'background-clip': 'none',
               'shape': 'rectangle',
               'label': 'data(label)',
               'color': getComputedStyle(document.documentElement).getPropertyValue('--text-primary').trim(),
@@ -134,7 +131,7 @@ class TopologyDashboard {
         },
         wheelSensitivity: 1.5,
         minZoom: 0.3,
-        maxZoom: 3
+        maxZoom: 300
       });
 
       this.cy.ready(() => {
