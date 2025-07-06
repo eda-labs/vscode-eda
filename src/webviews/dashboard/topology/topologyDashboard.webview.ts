@@ -2,52 +2,95 @@
 /* eslint-env browser */
 /* eslint-disable no-undef */
 declare function acquireVsCodeApi(): {
-  postMessage: (msg: any) => void;
+  postMessage: (msg: unknown) => void;
 };
-(function () {
+
+import type cytoscape from 'cytoscape';
+
+interface TopologyNode {
+  id: string;
+  label: string;
+  tier?: number;
+}
+
+interface TopologyEdge {
+  source: string;
+  target: string;
+}
+
+interface InitMessage {
+  command: 'init';
+  namespaces: string[];
+  selected?: string;
+}
+
+interface DataMessage {
+  command: 'data';
+  nodes: TopologyNode[];
+  edges: TopologyEdge[];
+}
+
+type InboundMessage = InitMessage | DataMessage;
+
+interface ReadyMessage {
+  command: 'ready';
+}
+
+interface SetNamespaceMessage {
+  command: 'setNamespace';
+  namespace: string;
+}
+
+type OutboundMessage = ReadyMessage | SetNamespaceMessage;
+
+(() => {
   const vscode = acquireVsCodeApi();
   const nsSelect = document.getElementById('namespaceSelect') as HTMLSelectElement;
   const bodyEl = document.body as HTMLBodyElement;
-  const cytoscapeUri = bodyEl.dataset.cytoscapeUri || '';
-  const nodeIcon = bodyEl.dataset.nodeIcon || '';
-  let cy: any;
+  const cytoscapeUri = bodyEl.dataset.cytoscapeUri ?? '';
+  const nodeIcon = bodyEl.dataset.nodeIcon ?? '';
+  let cy: cytoscape.Core | undefined;
 
-  const loadScript = (src: string) => {
+  const loadScript = (src: string): Promise<void> => {
     const script = document.createElement('script');
     script.src = src;
     document.head.appendChild(script);
-    return new Promise(res => {
-      script.onload = res as any;
+    return new Promise(resolve => {
+      script.onload = () => resolve();
     });
   };
 
+  const postMessage = (msg: OutboundMessage): void => {
+    vscode.postMessage(msg);
+  };
+
   nsSelect.addEventListener('change', () => {
-    vscode.postMessage({ command: 'setNamespace', namespace: nsSelect.value });
+    postMessage({ command: 'setNamespace', namespace: nsSelect.value });
   });
 
   window.addEventListener('message', event => {
-    const msg = event.data;
+    const msg = event.data as InboundMessage;
     if (msg.command === 'init') {
       nsSelect.innerHTML = '';
-      msg.namespaces.forEach((ns: string) => {
+      msg.namespaces.forEach(ns => {
         const opt = document.createElement('option');
         opt.value = ns;
         opt.textContent = ns;
         nsSelect.appendChild(opt);
       });
-      nsSelect.value = msg.selected || msg.namespaces[0] || '';
+      nsSelect.value = msg.selected ?? msg.namespaces[0] ?? '';
     } else if (msg.command === 'data') {
       renderTopology(msg.nodes, msg.edges);
     }
   });
 
-  function renderTopology(nodes: any[], edges: any[]) {
-    const elements: any[] = [];
+  function renderTopology(nodes: TopologyNode[], edges: TopologyEdge[]): void {
+    const elements: cytoscape.ElementDefinition[] = [];
     nodes.forEach(n => {
       elements.push({ group: 'nodes', data: { id: n.id, label: n.label, tier: n.tier } });
     });
     edges.forEach(e => {
-      elements.push({ group: 'edges', data: { id: e.source + '--' + e.target, source: e.source, target: e.target } });
+      elements.push({ group: 'edges', data: { id: `${e.source}--${e.target}`, source: e.source, target: e.target } });
     });
 
     if (!cy) {
@@ -90,28 +133,30 @@ declare function acquireVsCodeApi(): {
         layout: {
           name: 'preset'
         },
-        wheelSensitivity: 0.3,
+        wheelSensitivity: 1.5,
         minZoom: 0.3,
         maxZoom: 3
       });
 
       // Wait for Cytoscape to be ready before initial layout
-      cy.ready(() => {
+      const instance = cy!;
+      instance.ready(() => {
         layoutByTier();
-        cy.fit(cy.elements(), 50);
+        instance.fit(instance.elements(), 50);
       });
     } else {
       cy.elements().remove();
       cy.add(elements);
       layoutByTier();
-      cy.fit(cy.elements(), 50);
+      cy!.fit(cy!.elements(), 50);
     }
   }
 
-  function layoutByTier() {
-    const tiers: Record<string, any[]> = {};
-    cy.nodes().forEach((n: any) => {
-      const t = Number(n.data('tier') || 1);
+  function layoutByTier(): void {
+    if (!cy) return;
+    const tiers: Record<string, cytoscape.NodeSingular[]> = {};
+    cy.nodes().forEach(n => {
+      const t = Number(n.data('tier') ?? 1);
       if (!tiers[t]) tiers[t] = [];
       tiers[t].push(n);
     });
@@ -133,7 +178,7 @@ declare function acquireVsCodeApi(): {
       });
   }
 
-  vscode.postMessage({ command: 'ready' });
+  postMessage({ command: 'ready' });
 
   // Load cytoscape after DOM is ready
   loadScript(cytoscapeUri).then(() => {
