@@ -22,6 +22,15 @@ async function run() {
     sourcemap: false,
     outfile: 'dist/toponodesDashboard.js'
   });
+
+  await build({
+    entryPoints: ['src/webviews/dashboard/crd/crdBrowserPanel.webview.ts'],
+    bundle: true,
+    platform: 'browser',
+    format: 'iife',
+    sourcemap: false,
+    outfile: 'dist/crdBrowserPanel.js'
+  });
 }
 
 run().catch(err => {

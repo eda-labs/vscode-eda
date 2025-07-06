@@ -1,16 +1,22 @@
-export const crdBrowserScripts = `
+/// <reference lib="dom" />
+/* eslint-env browser */
+/* eslint-disable no-undef */
+declare function acquireVsCodeApi(): {
+  postMessage: (msg: any) => void;
+};
+(function () {
   const vscode = acquireVsCodeApi();
-  const crdSelect = document.getElementById('crdSelect');
-  const filterInput = document.getElementById('filterInput');
-  const titleEl = document.getElementById('crdTitle');
-  const metadataEl = document.getElementById('metadataYaml');
-  const descEl = document.getElementById('crdDescription');
-  const schemaEl = document.getElementById('schema');
-  const expandBtn = document.getElementById('expandAll');
-  const collapseBtn = document.getElementById('collapseAll');
-  const yamlBtn = document.getElementById('yamlBtn');
+  const crdSelect = document.getElementById('crdSelect') as HTMLSelectElement;
+  const filterInput = document.getElementById('filterInput') as HTMLInputElement;
+  const titleEl = document.getElementById('crdTitle') as HTMLElement;
+  const metadataEl = document.getElementById('metadataYaml') as HTMLElement;
+  const descEl = document.getElementById('crdDescription') as HTMLElement;
+  const schemaEl = document.getElementById('schema') as HTMLElement;
+  const expandBtn = document.getElementById('expandAll') as HTMLButtonElement;
+  const collapseBtn = document.getElementById('collapseAll') as HTMLButtonElement;
+  const yamlBtn = document.getElementById('yamlBtn') as HTMLButtonElement;
 
-  let allCrds = [];
+  let allCrds: any[] = [];
 
   window.addEventListener('message', event => {
     const msg = event.data;
@@ -68,7 +74,7 @@ export const crdBrowserScripts = `
     vscode.postMessage({ command: 'viewYaml', name: crdSelect.value });
   });
 
-  function renderCrd(crd, yaml) {
+  function renderCrd(crd: any, yaml: any) {
     titleEl.textContent = crd.spec?.names?.kind || crd.metadata?.name || '';
     metadataEl.textContent = yaml;
     descEl.textContent = crd.spec?.versions?.[0]?.schema?.openAPIV3Schema?.description || '';
@@ -85,7 +91,7 @@ export const crdBrowserScripts = `
     }
   }
 
-  function renderSection(name, node) {
+  function renderSection(name: string, node: any) {
     const details = document.createElement('details');
     details.open = true;
     details.className = 'schema-section';
@@ -106,7 +112,7 @@ export const crdBrowserScripts = `
     return details;
   }
 
-  function buildSchema(node, required) {
+  function buildSchema(node: any, required: any[]) {
     const container = document.createElement('div');
     const props = node.properties || {};
     Object.entries(props).forEach(([key, val]) => {
@@ -115,7 +121,7 @@ export const crdBrowserScripts = `
     return container;
   }
 
-  function renderProp(name, node, isReq) {
+  function renderProp(name: string, node: any, isReq: boolean) {
     const details = document.createElement('details');
     details.className = 'schema-card';
     const summary = document.createElement('summary');
@@ -158,4 +164,4 @@ export const crdBrowserScripts = `
   }
 
   vscode.postMessage({ command: 'ready' });
-`;
+})();

@@ -1,4 +1,3 @@
-export const crdBrowserStyles = `
   :root {
     --bg-primary: var(--vscode-editor-background);
     --border: var(--vscode-panel-border);
@@ -160,4 +159,3 @@ export const crdBrowserStyles = `
     padding: 0;
     margin-left: 4px;
   }
-`;
