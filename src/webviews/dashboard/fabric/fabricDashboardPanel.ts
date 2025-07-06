@@ -1,8 +1,7 @@
 import * as vscode from 'vscode';
 import { BasePanel } from '../../basePanel';
-import { fabricDashboardStyles } from './fabricDashboardPanel.styles';
-import { fabricDashboardHtml } from './fabricDashboardPanel.html';
-import { fabricDashboardScripts } from './fabricDashboardPanel.scripts';
+import * as fs from 'fs';
+import * as path from 'path';
 import { serviceManager } from '../../../services/serviceManager';
 import { EdaClient } from '../../../clients/edaClient';
 import { EdaStreamClient, StreamEndpoint } from '../../../clients/edaStreamClient';
@@ -118,20 +117,68 @@ export class FabricDashboardPanel extends BasePanel {
   }
 
   protected getHtml(): string {
-    return fabricDashboardHtml;
+    try {
+      const filePath = this.context.asAbsolutePath(
+        path.join(
+          'src',
+          'webviews',
+          'dashboard',
+          'fabric',
+          'fabricDashboardPanel.html'
+        )
+      );
+      return fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+      console.error('Failed to load Fabric dashboard HTML', err);
+      return '';
+    }
   }
 
   protected getCustomStyles(): string {
-    return fabricDashboardStyles;
+    try {
+      const filePath = this.context.asAbsolutePath(
+        path.join(
+          'src',
+          'webviews',
+          'dashboard',
+          'fabric',
+          'fabricDashboardPanel.css'
+        )
+      );
+      return fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+      console.error('Failed to load Fabric dashboard CSS', err);
+      return '';
+    }
   }
 
   protected getScripts(): string {
-    const echartsJs = this.getResourceUri('resources', 'echarts.min.js');
+    return '';
+  }
 
-    return `
-      const echartsJsUri = "${echartsJs}";
-      ${fabricDashboardScripts}
-    `;
+  protected buildHtml(): string {
+    const nonce = this.getNonce();
+    const csp = this.panel.webview.cspSource;
+    const codiconUri = this.getResourceUri('resources', 'codicon.css');
+    const scriptUri = this.getResourceUri('dist', 'fabricDashboard.js');
+    const echartsUri = this.getResourceUri('resources', 'echarts.min.js');
+    const tailwind = (BasePanel as any).tailwind ?? '';
+    const styles = `${tailwind}\n${this.getCustomStyles()}`;
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${csp} https:; style-src ${csp} 'unsafe-inline'; font-src ${csp}; script-src 'nonce-${nonce}' ${csp};">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="${codiconUri}" rel="stylesheet">
+  <style>${styles}</style>
+</head>
+<body>
+  ${this.getHtml()}
+  <script nonce="${nonce}" data-echarts-uri="${echartsUri}" src="${scriptUri}"></script>
+</body>
+</html>`;
   }
 
   private async sendNamespaces(): Promise<void> {

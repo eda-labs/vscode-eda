@@ -31,6 +31,15 @@ async function run() {
     sourcemap: false,
     outfile: 'dist/crdBrowserPanel.js'
   });
+
+  await build({
+    entryPoints: ['src/webviews/dashboard/fabric/fabricDashboard.webview.ts'],
+    bundle: true,
+    platform: 'browser',
+    format: 'iife',
+    sourcemap: false,
+    outfile: 'dist/fabricDashboard.js'
+  });
 }
 
 run().catch(err => {
