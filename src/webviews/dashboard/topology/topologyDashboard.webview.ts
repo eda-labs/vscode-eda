@@ -1,13 +1,24 @@
-export const topologyDashboardScripts = `
+/// <reference lib="dom" />
+/* eslint-env browser */
+/* eslint-disable no-undef */
+declare function acquireVsCodeApi(): {
+  postMessage: (msg: any) => void;
+};
+(function () {
   const vscode = acquireVsCodeApi();
-  const nsSelect = document.getElementById('namespaceSelect');
-  let cy;
+  const nsSelect = document.getElementById('namespaceSelect') as HTMLSelectElement;
+  const bodyEl = document.body as HTMLBodyElement;
+  const cytoscapeUri = bodyEl.dataset.cytoscapeUri || '';
+  const nodeIcon = bodyEl.dataset.nodeIcon || '';
+  let cy: any;
 
-  const loadScript = src => {
+  const loadScript = (src: string) => {
     const script = document.createElement('script');
     script.src = src;
     document.head.appendChild(script);
-    return new Promise(res => { script.onload = res; });
+    return new Promise(res => {
+      script.onload = res as any;
+    });
   };
 
   nsSelect.addEventListener('change', () => {
@@ -18,7 +29,7 @@ export const topologyDashboardScripts = `
     const msg = event.data;
     if (msg.command === 'init') {
       nsSelect.innerHTML = '';
-      msg.namespaces.forEach(ns => {
+      msg.namespaces.forEach((ns: string) => {
         const opt = document.createElement('option');
         opt.value = ns;
         opt.textContent = ns;
@@ -30,8 +41,8 @@ export const topologyDashboardScripts = `
     }
   });
 
-  function renderTopology(nodes, edges) {
-    const elements = [];
+  function renderTopology(nodes: any[], edges: any[]) {
+    const elements: any[] = [];
     nodes.forEach(n => {
       elements.push({ group: 'nodes', data: { id: n.id, label: n.label, tier: n.tier } });
     });
@@ -40,7 +51,7 @@ export const topologyDashboardScripts = `
     });
 
     if (!cy) {
-      cy = cytoscape({
+      cy = (window as any).cytoscape({
         container: document.getElementById('cy'),
         elements,
         style: [
@@ -83,7 +94,7 @@ export const topologyDashboardScripts = `
         minZoom: 0.3,
         maxZoom: 3
       });
-      
+
       // Wait for Cytoscape to be ready before initial layout
       cy.ready(() => {
         layoutByTier();
@@ -98,16 +109,16 @@ export const topologyDashboardScripts = `
   }
 
   function layoutByTier() {
-    const tiers = {};
-    cy.nodes().forEach(n => {
+    const tiers: Record<string, any[]> = {};
+    cy.nodes().forEach((n: any) => {
       const t = Number(n.data('tier') || 1);
       if (!tiers[t]) tiers[t] = [];
       tiers[t].push(n);
     });
-    
+
     const spacingX = 120;
     const spacingY = 120;
-    
+
     Object.keys(tiers)
       .sort((a, b) => Number(a) - Number(b))
       .forEach((t, tierIndex) => {
@@ -123,9 +134,9 @@ export const topologyDashboardScripts = `
   }
 
   vscode.postMessage({ command: 'ready' });
-  
+
   // Load cytoscape after DOM is ready
   loadScript(cytoscapeUri).then(() => {
     // Cytoscape is now loaded
   });
-`;
+})();

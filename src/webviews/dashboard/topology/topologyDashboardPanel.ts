@@ -1,8 +1,7 @@
 import * as vscode from 'vscode';
 import { BasePanel } from '../../basePanel';
-import { topologyDashboardHtml } from './topologyDashboardPanel.html';
-import { topologyDashboardStyles } from './topologyDashboardPanel.styles';
-import { topologyDashboardScripts } from './topologyDashboardPanel.scripts';
+import * as fs from 'fs';
+import * as path from 'path';
 import { serviceManager } from '../../../services/serviceManager';
 import { EdaClient } from '../../../clients/edaClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
@@ -55,22 +54,59 @@ export class TopologyDashboardPanel extends BasePanel {
     this.panel.webview.html = this.buildHtml();
   }
 
+
   protected getHtml(): string {
-    return topologyDashboardHtml;
+    try {
+      const filePath = this.context.asAbsolutePath(
+        path.join('src', 'webviews', 'dashboard', 'topology', 'topologyDashboard.html')
+      );
+      return fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+      console.error('Failed to load Topology dashboard HTML', err);
+      return '';
+    }
   }
 
   protected getCustomStyles(): string {
-    return topologyDashboardStyles;
+    try {
+      const filePath = this.context.asAbsolutePath(
+        path.join('src', 'webviews', 'dashboard', 'topology', 'topologyDashboard.css')
+      );
+      return fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+      console.error('Failed to load Topology dashboard CSS', err);
+      return '';
+    }
   }
 
   protected getScripts(): string {
+    return '';
+  }
+
+  protected buildHtml(): string {
+    const nonce = this.getNonce();
+    const csp = this.panel.webview.cspSource;
+    const codiconUri = this.getResourceUri('resources', 'codicon.css');
+    const scriptUri = this.getResourceUri('dist', 'topologyDashboard.js');
     const cytoscapeUri = this.getResourceUri('resources', 'cytoscape.min.js');
     const nodeIcon = this.getResourceUri('resources', 'node.svg');
-    return `
-      const cytoscapeUri = "${cytoscapeUri}";
-      const nodeIcon = "${nodeIcon}";
-      ${topologyDashboardScripts}
-    `;
+    const tailwind = (BasePanel as any).tailwind ?? '';
+    const styles = `${tailwind}\n${this.getCustomStyles()}`;
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${csp} https:; style-src ${csp} 'unsafe-inline'; font-src ${csp}; script-src 'nonce-${nonce}' ${csp};">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="${codiconUri}" rel="stylesheet">
+  <style>${styles}</style>
+</head>
+<body data-cytoscape-uri="${cytoscapeUri}" data-node-icon="${nodeIcon}">
+  ${this.getHtml()}
+  <script nonce="${nonce}" src="${scriptUri}"></script>
+</body>
+</html>`;
   }
 
   private async sendNamespaces(): Promise<void> {

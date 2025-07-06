@@ -49,6 +49,15 @@ async function run() {
     sourcemap: false,
     outfile: 'dist/queriesDashboard.js'
   });
+
+  await build({
+    entryPoints: ['src/webviews/dashboard/topology/topologyDashboard.webview.ts'],
+    bundle: true,
+    platform: 'browser',
+    format: 'iife',
+    sourcemap: false,
+    outfile: 'dist/topologyDashboard.js'
+  });
 }
 
 run().catch(err => {
