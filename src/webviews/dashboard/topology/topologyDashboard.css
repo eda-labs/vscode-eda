@@ -6,6 +6,8 @@
   --text-secondary: var(--vscode-descriptionForeground);
   --accent: var(--vscode-button-background);
   --accent-hover: var(--vscode-button-hoverBackground);
+  --edge-label-bg: var(--vscode-editor-background);
+  --edge-label-border: var(--vscode-panel-border);
 }
 
 body {
@@ -54,4 +56,13 @@ body {
 .node-icon,                  /* the <img> tag */
 .react-flow__node svg {      /* or inline fallback */
   overflow: visible;
+}
+
+/* Cytoscape edge labels styling helpers */
+.cy-edge-label {
+  font-size: 10px;
+  background-color: var(--edge-label-bg);
+  padding: 2px 4px;
+  border-radius: 2px;
+  border: 1px solid var(--edge-label-border);
 }

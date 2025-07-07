@@ -11,6 +11,14 @@ interface TierSelector {
   nodeSelector?: string[];
 }
 
+interface EdgeData {
+  source: string;
+  target: string;
+  sourceInterface?: string;
+  targetInterface?: string;
+  label?: string;
+}
+
 export class TopologyDashboardPanel extends BasePanel {
   private edaClient: EdaClient;
   private nodeMap: Map<string, Map<string, any>> = new Map();
@@ -53,7 +61,6 @@ export class TopologyDashboardPanel extends BasePanel {
 
     this.panel.webview.html = this.buildHtml();
   }
-
 
   protected getHtml(): string {
     try {
@@ -181,6 +188,12 @@ export class TopologyDashboardPanel extends BasePanel {
     return 1;
   }
 
+  private shortenInterfaceName(name: string | undefined): string {
+    if (!name) return '';
+    // Replace ethernet with e-
+    return name.replace(/ethernet/gi, 'e-');
+  }
+
   private postGraph(): void {
     const coreNs = this.edaClient.getCoreNamespace();
     const namespaces =
@@ -188,7 +201,8 @@ export class TopologyDashboardPanel extends BasePanel {
         ? Array.from(this.nodeMap.keys()).filter(n => n !== coreNs)
         : [this.selectedNamespace];
     const nodes: { id: string; label: string; tier: number }[] = [];
-    const edges: { source: string; target: string }[] = [];
+    const edges: EdgeData[] = [];
+
     for (const ns of namespaces) {
       const nm = this.nodeMap.get(ns);
       if (nm) {
@@ -208,7 +222,20 @@ export class TopologyDashboardPanel extends BasePanel {
             const src = l.local?.node;
             const dst = l.remote?.node;
             if (src && dst) {
-              edges.push({ source: `${ns}/${src}`, target: `${ns}/${dst}` });
+              const edgeData: EdgeData = {
+                source: `${ns}/${src}`,
+                target: `${ns}/${dst}`
+              };
+
+              // Extract and shorten interface information
+              if (l.local?.interface) {
+                edgeData.sourceInterface = this.shortenInterfaceName(l.local.interface);
+              }
+              if (l.remote?.interface) {
+                edgeData.targetInterface = this.shortenInterfaceName(l.remote.interface);
+              }
+
+              edges.push(edgeData);
             }
           }
         }

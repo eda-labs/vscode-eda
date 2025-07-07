@@ -13,6 +13,9 @@ interface TopologyNode {
 interface TopologyEdge {
   source: string;
   target: string;
+  sourceInterface?: string;
+  targetInterface?: string;
+  label?: string;
 }
 
 interface InitMessage {
@@ -88,13 +91,33 @@ class TopologyDashboard {
     this.nsSelect.value = selected ?? namespaces[0] ?? '';
   }
 
+  private shortenInterfaceName(name: string | undefined): string {
+    if (!name) return '';
+    // Replace ethernet with e-
+    return name.replace(/ethernet/gi, 'e-');
+  }
+
   private renderTopology(nodes: TopologyNode[], edges: TopologyEdge[]): void {
     const elements: cytoscape.ElementDefinition[] = [];
     nodes.forEach(n => {
       elements.push({ group: 'nodes', data: { id: n.id, label: n.label, tier: n.tier } });
     });
     edges.forEach(e => {
-      elements.push({ group: 'edges', data: { id: `${e.source}--${e.target}`, source: e.source, target: e.target } });
+      const edgeData: any = {
+        id: `${e.source}--${e.target}`,
+        source: e.source,
+        target: e.target
+      };
+
+      // Add interface names (shortened) without middle label
+      if (e.sourceInterface) {
+        edgeData.sourceInterface = this.shortenInterfaceName(e.sourceInterface);
+      }
+      if (e.targetInterface) {
+        edgeData.targetInterface = this.shortenInterfaceName(e.targetInterface);
+      }
+
+      elements.push({ group: 'edges', data: edgeData });
     });
 
     if (!this.cy) {
@@ -118,14 +141,35 @@ class TopologyDashboard {
               'font-size': 12,
               'width': 70,
               'height': 70
-            }
+            } as any
           },
           {
             selector: 'edge',
             style: {
               'width': 1,
               'target-arrow-shape': 'none',
-            }
+              'curve-style': 'bezier'
+            } as any
+          },
+          {
+            selector: 'edge[sourceInterface]',
+            style: {
+              'source-label': 'data(sourceInterface)',
+              'source-text-offset': 50,
+              'source-text-rotation': 'autorotate',
+              'source-text-margin-y': -10,
+              'font-size': 9
+            } as any
+          },
+          {
+            selector: 'edge[targetInterface]',
+            style: {
+              'target-label': 'data(targetInterface)',
+              'target-text-offset': 50,
+              'target-text-rotation': 'autorotate',
+              'target-text-margin-y': -10,
+              'font-size': 9
+            } as any
           }
         ],
         layout: {
@@ -159,8 +203,8 @@ class TopologyDashboard {
       tiers[t].push(n);
     });
 
-    const spacingX = 120;
-    const spacingY = 120;
+    const spacingX = 200; // Increased spacing for interface labels
+    const spacingY = 150;
 
     Object.keys(tiers)
       .sort((a, b) => Number(a) - Number(b))
@@ -184,11 +228,16 @@ class TopologyDashboard {
     const textSecondary = getComputedStyle(document.documentElement)
       .getPropertyValue('--text-secondary')
       .trim();
+
     this.cy.style()
       .selector('node')
       .style('color', textPrimary)
       .selector('edge')
       .style('line-color', textSecondary)
+      .selector('edge[sourceInterface]')
+      .style('color', textPrimary)
+      .selector('edge[targetInterface]')
+      .style('color', textPrimary)
       .update();
   }
 

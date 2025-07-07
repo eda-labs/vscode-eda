@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 /* eslint-env browser */
-/* eslint-disable no-undef */
+
 declare function acquireVsCodeApi(): {
   postMessage: (msg: any) => void;
 };
