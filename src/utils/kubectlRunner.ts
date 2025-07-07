@@ -1,6 +1,8 @@
 // src/utils/kubectlRunner.ts
 import { execSync, ExecSyncOptions } from 'child_process';
 import { LogLevel, log } from '../extension';
+import { serviceManager } from '../services/serviceManager';
+import { KubernetesClient } from '../clients/kubernetesClient';
 
 /**
  * Interface for kubectl execution options
@@ -9,6 +11,25 @@ export interface KubectlOptions extends ExecSyncOptions {
   namespace?: string;
   jsonOutput?: boolean;
   ignoreErrors?: boolean;
+  context?: string;
+}
+
+/**
+ * Get the current kubectl context from the Kubernetes client or environment.
+ */
+export function getKubectlContext(): string | undefined {
+  try {
+    if (serviceManager.getClientNames().includes('kubernetes')) {
+      const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
+      const ctx = k8sClient.getCurrentContext();
+      if (ctx && ctx !== 'none') {
+        return ctx;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return process.env.KUBECTL_CONTEXT;
 }
 
 /**
@@ -26,8 +47,15 @@ export function runKubectl(
   try {
     // Add namespace if provided
     const finalArgs = [...args];
+
+    // Determine context from options or current Kubernetes client
+    const ctx = options.context || getKubectlContext();
+
     if (options.namespace) {
       finalArgs.unshift('--namespace', options.namespace);
+    }
+    if (ctx) {
+      finalArgs.unshift('--context', ctx);
     }
 
     // Add json output if requested

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { PodDescribeDocumentProvider } from '../providers/documents/podDescribeProvider';
-import { runKubectl } from '../utils/kubectlRunner';
+import { runKubectl, getKubectlContext } from '../utils/kubectlRunner';
 
 export function registerPodCommands(
   context: vscode.ExtensionContext,
@@ -54,10 +54,14 @@ export function registerPodCommands(
     }
 
     // Create a new VS Code Terminal that runs `kubectl exec -it`
+    const ctx = getKubectlContext();
+    const execArgs = ctx
+      ? ['--context', ctx, 'exec', '-it', '-n', ns, name, '--', '/bin/sh']
+      : ['exec', '-it', '-n', ns, name, '--', '/bin/sh'];
     const term = vscode.window.createTerminal({
       name: `Shell: ${name}`,
       shellPath: 'kubectl',
-      shellArgs: ['exec', '-it', '-n', ns, name, '--', '/bin/sh']
+      shellArgs: execArgs
     });
     term.show();
   });
@@ -79,10 +83,14 @@ export function registerPodCommands(
     }
 
     // Create a new Terminal that runs `kubectl logs` with follow mode (-f)
+    const ctx = getKubectlContext();
+    const logArgs = ctx
+      ? ['--context', ctx, 'logs', '-f', '--tail=100', '-n', ns, name]
+      : ['logs', '-f', '--tail=100', '-n', ns, name];
     const term = vscode.window.createTerminal({
       name: `Logs: ${name}`,
       shellPath: 'kubectl',
-      shellArgs: ['logs', '-f', '--tail=100', '-n', ns, name]
+      shellArgs: logArgs
     });
     term.show();
   });
