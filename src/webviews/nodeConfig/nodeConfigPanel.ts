@@ -32,7 +32,7 @@ export class NodeConfigPanel extends BasePanel {
     annotations: Annotation[],
     title: string
   ) {
-    super(context, 'nodeConfig', `Node Config: ${title}`, undefined, {
+    super(context, 'nodeConfig', `Node Config: ${title}`, { enableFindWidget: true }, {
       light: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-black.svg'),
       dark: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-white.svg')
     });
