@@ -12,7 +12,8 @@ export default [
       'esbuild.config.mjs',
       'node_modules/**',
       '.vscode-test.mjs',
-      'spec_example/**'
+      'spec_example/**',
+      'topoViewerEditor/**'
     ]
   },
 

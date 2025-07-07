@@ -125,8 +125,6 @@ class TopologyDashboard {
             style: {
               'width': 1,
               'target-arrow-shape': 'none',
-              'curve-style': 'bezier',
-              'control-point-step-size': 20
             }
           }
         ],
