@@ -109,7 +109,7 @@ class TopologyDashboard {
         target: e.target
       };
 
-      // Add interface names (shortened) without middle label
+      // Add interface names (shortened)
       if (e.sourceInterface) {
         edgeData.sourceInterface = this.shortenInterfaceName(e.sourceInterface);
       }
@@ -148,27 +148,29 @@ class TopologyDashboard {
             style: {
               'width': 1,
               'target-arrow-shape': 'none',
-              'curve-style': 'bezier'
+              'curve-style': 'straight'
             } as any
           },
           {
             selector: 'edge[sourceInterface]',
             style: {
               'source-label': 'data(sourceInterface)',
-              'source-text-offset': 50,
-              'source-text-rotation': 'autorotate',
-              'source-text-margin-y': -10,
-              'font-size': 9
+              'source-text-offset': 5,
+              'font-size': 7,
+              'source-text-background-color': 'white',
+              'source-text-background-opacity': 0.7,
+              'source-text-background-padding': '1px'
             } as any
           },
           {
             selector: 'edge[targetInterface]',
             style: {
               'target-label': 'data(targetInterface)',
-              'target-text-offset': 50,
-              'target-text-rotation': 'autorotate',
-              'target-text-margin-y': -10,
-              'font-size': 9
+              'target-text-offset': 5,
+              'font-size': 7,
+              'target-text-background-color': 'white',
+              'target-text-background-opacity': 0.7,
+              'target-text-background-padding': '1px'
             } as any
           }
         ],
@@ -182,6 +184,7 @@ class TopologyDashboard {
 
       this.cy.ready(() => {
         this.layoutByTier();
+        this.adjustEdgeLabels();
         this.cy!.fit(this.cy!.elements(), 50);
         this.applyThemeColors();
       });
@@ -189,6 +192,7 @@ class TopologyDashboard {
       this.cy.elements().remove();
       this.cy.add(elements);
       this.layoutByTier();
+      this.adjustEdgeLabels();
       this.cy.fit(this.cy.elements(), 50);
       this.applyThemeColors();
     }
@@ -220,6 +224,33 @@ class TopologyDashboard {
       });
   }
 
+  private adjustEdgeLabels(): void {
+    if (!this.cy) return;
+
+    // For each node, check how many edges connect to it
+    // and adjust label positions to avoid overlap
+    this.cy.nodes().forEach(node => {
+      const connectedEdges = node.connectedEdges();
+
+      connectedEdges.forEach((edge, index) => {
+        const isSource = edge.source().id() === node.id();
+        const offset = 15 + (index * 12); // Stagger labels
+
+        if (isSource && edge.data('sourceInterface')) {
+          edge.style({
+            'source-text-margin-x': index % 2 === 0 ? offset : -offset,
+            'source-text-margin-y': -5 - (Math.floor(index / 2) * 10)
+          } as any);
+        } else if (!isSource && edge.data('targetInterface')) {
+          edge.style({
+            'target-text-margin-x': index % 2 === 0 ? offset : -offset,
+            'target-text-margin-y': -5 - (Math.floor(index / 2) * 10)
+          } as any);
+        }
+      });
+    });
+  }
+
   private applyThemeColors(): void {
     if (!this.cy) return;
     const textPrimary = getComputedStyle(document.documentElement)
@@ -228,6 +259,9 @@ class TopologyDashboard {
     const textSecondary = getComputedStyle(document.documentElement)
       .getPropertyValue('--text-secondary')
       .trim();
+    const bgPrimary = getComputedStyle(document.documentElement)
+      .getPropertyValue('--bg-primary')
+      .trim();
 
     this.cy.style()
       .selector('node')
@@ -235,9 +269,15 @@ class TopologyDashboard {
       .selector('edge')
       .style('line-color', textSecondary)
       .selector('edge[sourceInterface]')
-      .style('color', textPrimary)
+      .style({
+        'color': textSecondary,
+        'source-text-background-color': bgPrimary
+      } as any)
       .selector('edge[targetInterface]')
-      .style('color', textPrimary)
+      .style({
+        'color': textSecondary,
+        'target-text-background-color': bgPrimary
+      } as any)
       .update();
   }
 
