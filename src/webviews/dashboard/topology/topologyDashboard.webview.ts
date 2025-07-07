@@ -8,6 +8,7 @@ interface TopologyNode {
   id: string;
   label: string;
   tier?: number;
+  raw?: unknown;
 }
 
 interface TopologyEdge {
@@ -16,6 +17,7 @@ interface TopologyEdge {
   sourceInterface?: string;
   targetInterface?: string;
   label?: string;
+  raw?: unknown;
 }
 
 interface InitMessage {
@@ -48,6 +50,7 @@ class TopologyDashboard {
   private readonly nsSelect = document.getElementById('namespaceSelect') as HTMLSelectElement;
   private readonly cytoscapeUri: string;
   private readonly nodeIcon: string;
+  private readonly infoCard = document.getElementById('infoCard') as HTMLDivElement;
   private cy?: cytoscape.Core;
   private themeObserver?: MutationObserver;
 
@@ -101,13 +104,14 @@ class TopologyDashboard {
   private renderTopology(nodes: TopologyNode[], edges: TopologyEdge[]): void {
     const elements: cytoscape.ElementDefinition[] = [];
     nodes.forEach(n => {
-      elements.push({ group: 'nodes', data: { id: n.id, label: n.label, tier: n.tier } });
+      elements.push({ group: 'nodes', data: { id: n.id, label: n.label, tier: n.tier, raw: n.raw } });
     });
     edges.forEach(e => {
       const edgeData: any = {
         id: `${e.source}--${e.target}`,
         source: e.source,
-        target: e.target
+        target: e.target,
+        raw: e.raw
       };
 
       // Add interface names (shortened)
@@ -200,6 +204,7 @@ class TopologyDashboard {
         this.adjustEdgeLabels();
         this.cy!.fit(this.cy!.elements(), 50);
         this.applyThemeColors();
+        this.registerCyClickEvents();
       });
     } else {
       this.cy.elements().remove();
@@ -290,6 +295,69 @@ class TopologyDashboard {
         }
       }
     });
+  }
+
+  private registerCyClickEvents(): void {
+    if (!this.cy) return;
+    this.cy.on('tap', 'node', evt => {
+      this.displayInfo('Node', evt.target.data('raw'));
+    });
+    this.cy.on('tap', 'edge', evt => {
+      this.displayInfo('Link', evt.target.data('raw'));
+    });
+  }
+
+  private displayInfo(title: 'Node' | 'Link', data: any): void {
+    if (!this.infoCard) return;
+
+    const row = (label: string, value: string | undefined) =>
+      value ? `<tr><td>${label}</td><td>${value}</td></tr>` : '';
+
+    if (title === 'Node') {
+      const name = data?.metadata?.name ?? '';
+      const labelsObj = data?.metadata?.labels ?? {};
+      const labels = Object.keys(labelsObj)
+        .map(k => `${k}: ${labelsObj[k]}`)
+        .join('<br>');
+      const status = data?.status?.status;
+      const sync = data?.status?.sync;
+      const nodeDetails =
+        data?.status?.['node-details'] ?? data?.spec?.productionAddress?.ipv4;
+      const nodeState = data?.status?.['node-state'] ?? data?.status?.nodeState;
+      const nppState = data?.status?.['npp-state'] ?? data?.status?.nppState;
+      const os =
+        data?.spec?.operatingSystem ?? data?.status?.operatingSystem ?? '';
+      const platform = data?.spec?.platform ?? data?.status?.platform ?? '';
+      const version = data?.spec?.version ?? data?.status?.version ?? '';
+      this.infoCard.innerHTML = `
+        <h3><span class="codicon codicon-server-environment"></span> ${name}</h3>
+        <table class="info-table">
+          ${row('Labels', labels)}
+          ${row('Status', status)}
+          ${row('Sync', sync)}
+          ${row('Node Details', nodeDetails)}
+          ${row('Node State', nodeState)}
+          ${row('NPP State', nppState)}
+          ${row('Operating System', os)}
+          ${row('Platform', platform)}
+          ${row('Version', version)}
+        </table>
+      `;
+    } else {
+      const localNode = data?.local?.node ?? '';
+      const localIf = data?.local?.interface ?? '';
+      const remoteNode = data?.remote?.node ?? '';
+      const remoteIf = data?.remote?.interface ?? '';
+      const type = data?.type ?? '';
+      this.infoCard.innerHTML = `
+        <h3><span class="codicon codicon-plug"></span> ${localNode} → ${remoteNode}</h3>
+        <table class="info-table">
+          ${row('Local', `${localNode} (${localIf})`)}
+          ${row('Remote', `${remoteNode} (${remoteIf})`)}
+          ${row('Type', type)}
+        </table>
+      `;
+    }
   }
 
   private applyThemeColors(): void {

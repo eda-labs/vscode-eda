@@ -44,13 +44,50 @@ body {
   padding: 4px 8px;
 }
 
-.cy {
+.body {
+  display: flex;
   flex: 1;
-  width: 100%;
+  gap: 16px;
+}
+
+.cy {
+  flex: 4;
   border: 1px solid var(--border);
   border-radius: 8px;
   background-color: var(--bg-secondary);
   overflow: hidden;
+}
+
+.info-card {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background-color: var(--bg-secondary);
+  padding: 8px;
+  overflow: auto;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+.info-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 8px 0;
+  font-size: 14px;
+}
+
+.info-card table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.info-card td {
+  padding: 2px 4px;
+}
+
+.info-card td:first-child {
+  color: var(--text-secondary);
 }
 
 .node-icon,                  /* the <img> tag */

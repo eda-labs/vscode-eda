@@ -17,6 +17,7 @@ interface EdgeData {
   sourceInterface?: string;
   targetInterface?: string;
   label?: string;
+  raw?: any;
 }
 
 export class TopologyDashboardPanel extends BasePanel {
@@ -200,7 +201,7 @@ export class TopologyDashboardPanel extends BasePanel {
       this.selectedNamespace === 'All Namespaces'
         ? Array.from(this.nodeMap.keys()).filter(n => n !== coreNs)
         : [this.selectedNamespace];
-    const nodes: { id: string; label: string; tier: number }[] = [];
+    const nodes: { id: string; label: string; tier: number; raw: any }[] = [];
     const edges: EdgeData[] = [];
 
     for (const ns of namespaces) {
@@ -211,7 +212,7 @@ export class TopologyDashboardPanel extends BasePanel {
           if (!name) continue;
           const labels = node.metadata?.labels || {};
           const tier = this.getTier(labels);
-          nodes.push({ id: `${ns}/${name}`, label: name, tier });
+          nodes.push({ id: `${ns}/${name}`, label: name, tier, raw: node });
         }
       }
       const lm = this.linkMap.get(ns);
@@ -224,7 +225,8 @@ export class TopologyDashboardPanel extends BasePanel {
             if (src && dst) {
               const edgeData: EdgeData = {
                 source: `${ns}/${src}`,
-                target: `${ns}/${dst}`
+                target: `${ns}/${dst}`,
+                raw: l
               };
 
               // Extract and shorten interface information
