@@ -16,6 +16,7 @@ interface TopologyEdge {
   target: string;
   sourceInterface?: string;
   targetInterface?: string;
+  state?: string;
   label?: string;
   raw?: unknown;
 }
@@ -148,6 +149,9 @@ class TopologyDashboard {
         edgeData.targetInterface = this.shortenInterfaceName(e.targetInterface);
       }
 
+      if (e.state) {
+        edgeData.state = e.state;
+      }
       elements.push({ group: 'edges', data: edgeData });
     });
 
@@ -231,9 +235,9 @@ class TopologyDashboard {
         this.layoutByTier();
         this.adjustEdgeLabels();
         this.cy!.fit(this.cy!.elements(), 50);
-      this.applyThemeColors();
-      this.updateEdgeLabelVisibility();
-      this.registerCyClickEvents();
+        this.applyThemeColors();
+        this.updateEdgeLabelVisibility();
+        this.registerCyClickEvents();
       });
     } else {
       this.cy.elements().remove();
@@ -418,6 +422,32 @@ class TopologyDashboard {
         'target-text-background-color': bgPrimary
       } as any)
       .update();
+
+    this.updateEdgeColors();
+  }
+
+  private updateEdgeColors(): void {
+    if (!this.cy) return;
+    const success = getComputedStyle(document.documentElement)
+      .getPropertyValue('--success')
+      .trim();
+    const error = getComputedStyle(document.documentElement)
+      .getPropertyValue('--error')
+      .trim();
+    const defaultColor = getComputedStyle(document.documentElement)
+      .getPropertyValue('--text-secondary')
+      .trim();
+
+    this.cy.edges().forEach(edge => {
+      const state = String(edge.data('state') ?? '').toLowerCase();
+      let color = defaultColor;
+      if (state === 'up' || state === 'active') {
+        color = success || '#4ade80';
+      } else if (state) {
+        color = error || '#f87171';
+      }
+      edge.style('line-color', color);
+    });
   }
 
   private updateEdgeLabelVisibility(): void {

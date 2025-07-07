@@ -16,6 +16,7 @@ interface EdgeData {
   target: string;
   sourceInterface?: string;
   targetInterface?: string;
+  state?: string;
   label?: string;
   raw?: any;
 }
@@ -226,7 +227,11 @@ export class TopologyDashboardPanel extends BasePanel {
               const edgeData: EdgeData = {
                 source: `${ns}/${src}`,
                 target: `${ns}/${dst}`,
-                raw: l
+                raw: l,
+                state:
+                  link.status?.operationalState ??
+                  link.status?.operationalstate ??
+                  ''
               };
 
               // Extract and shorten interface information

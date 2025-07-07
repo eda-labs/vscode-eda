@@ -8,6 +8,8 @@
   --accent-hover: var(--vscode-button-hoverBackground);
   --edge-label-bg: var(--vscode-editor-background);
   --edge-label-border: var(--vscode-panel-border);
+  --success: #4ade80;
+  --error: #f87171;
 }
 
 body {
