@@ -218,7 +218,7 @@ class TopologyDashboard {
             selector: 'edge[sourceInterface]',
             style: {
               'source-label': 'data(sourceInterface)',
-              'source-text-offset': 18,
+              'source-text-offset': 15,
               'font-size': 9,
               'source-text-background-color': 'white',
               'source-text-background-opacity': 0.9,
@@ -230,7 +230,7 @@ class TopologyDashboard {
             selector: 'edge[targetInterface]',
             style: {
               'target-label': 'data(targetInterface)',
-              'target-text-offset': 18,
+              'target-text-offset': 15,
               'font-size': 9,
               'target-text-background-color': 'white',
               'target-text-background-opacity': 0.9,
@@ -249,17 +249,19 @@ class TopologyDashboard {
 
       this.cy.ready(() => {
         this.layoutByTier();
+        this.adjustEdgeCurves();
         this.adjustEdgeLabels();
         this.cy!.fit(this.cy!.elements(), 50);
         this.applyThemeColors();
         this.updateEdgeLabelVisibility();
         this.registerCyClickEvents();
-      this.registerCustomZoom();
+        this.registerCustomZoom();
       });
     } else {
       this.cy.elements().remove();
       this.cy.add(elements);
       this.layoutByTier();
+      this.adjustEdgeCurves();
       this.adjustEdgeLabels();
       this.cy.fit(this.cy.elements(), 50);
       this.applyThemeColors();
@@ -294,6 +296,56 @@ class TopologyDashboard {
       });
   }
 
+  private adjustEdgeCurves(): void {
+    if (!this.cy) return;
+
+    // Group edges by node pairs
+    const edgePairs: Record<string, cytoscape.EdgeSingular[]> = {};
+    this.cy.edges().forEach(edge => {
+      const key = `${edge.source().id()}|${edge.target().id()}`;
+      if (!edgePairs[key]) edgePairs[key] = [];
+      edgePairs[key].push(edge);
+    });
+
+    // Adjust curves for each pair
+    Object.entries(edgePairs).forEach(([_, edges]) => {
+      if (edges.length === 0) return;
+
+      const sourcePos = edges[0].source().position();
+      const targetPos = edges[0].target().position();
+      const sourceTier = edges[0].source().data('tier');
+      const targetTier = edges[0].target().data('tier');
+
+      // For edges between different tiers
+      if (sourceTier !== targetTier) {
+        const dx = targetPos.x - sourcePos.x;
+        const absDx = Math.abs(dx);
+
+        edges.forEach((edge, idx) => {
+          // For spine-to-leaf connections
+          if (idx === 0) {
+            // For edges going to far left or far right, curve outward
+            if (absDx > 200) {
+              const newSign = dx > 0 ? -1 : 1;
+              edge.data('dist', newSign * 40);
+            } else if (absDx > 100) {
+              // Medium distance, moderate curve
+              const newSign = dx > 0 ? -1 : 1;
+              edge.data('dist', newSign * 30);
+            } else if (absDx > 30) {
+              // Small distance, small curve
+              edge.data('dist', 20);
+            } else {
+              // Nearly vertical, minimal curve
+              edge.data('dist', 15);
+            }
+          }
+          // Other edges keep their default curves
+        });
+      }
+    });
+  }
+
   private adjustEdgeLabels(): void {
     if (!this.cy) return;
 
@@ -312,11 +364,11 @@ class TopologyDashboard {
       const isVertical = (angleDeg > 60 && angleDeg < 120) || (angleDeg > 240 && angleDeg < 300);
 
       if (isVertical) {
-        // For vertical edges, position labels to the right side
+        // For vertical edges, position labels extremely close to the edge line
         if (edge.data('sourceInterface')) {
           edge.style({
             'source-text-rotation': 'none',
-            'source-text-margin-x': 25,
+            'source-text-margin-x': 2,
             'source-text-margin-y': 0
           } as any);
         }
@@ -324,7 +376,7 @@ class TopologyDashboard {
         if (edge.data('targetInterface')) {
           edge.style({
             'target-text-rotation': 'none',
-            'target-text-margin-x': 25,
+            'target-text-margin-x': 2,
             'target-text-margin-y': 0
           } as any);
         }
@@ -334,7 +386,7 @@ class TopologyDashboard {
           edge.style({
             'source-text-rotation': 'autorotate',
             'source-text-margin-x': 0,
-            'source-text-margin-y': -12
+            'source-text-margin-y': -8
           } as any);
         }
 
@@ -342,7 +394,7 @@ class TopologyDashboard {
           edge.style({
             'target-text-rotation': 'autorotate',
             'target-text-margin-x': 0,
-            'target-text-margin-y': -12
+            'target-text-margin-y': -8
           } as any);
         }
       }
