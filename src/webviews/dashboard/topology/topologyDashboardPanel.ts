@@ -60,6 +60,12 @@ export class TopologyDashboardPanel extends BasePanel {
         await this.loadInitial('All Namespaces');
       } else if (msg.command === 'setNamespace') {
         await this.loadInitial(msg.namespace as string);
+      } else if (msg.command === 'sshTopoNode') {
+        await vscode.commands.executeCommand('vscode-eda.sshTopoNode', {
+          name: msg.name,
+          namespace: msg.namespace,
+          nodeDetails: msg.nodeDetails
+        });
       }
     });
 

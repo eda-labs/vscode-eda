@@ -46,7 +46,14 @@ interface SetNamespaceMessage {
   namespace: string;
 }
 
-type OutboundMessage = ReadyMessage | SetNamespaceMessage;
+interface SshTopoNodeMessage {
+  command: 'sshTopoNode';
+  name: string;
+  namespace?: string;
+  nodeDetails?: string;
+}
+
+type OutboundMessage = ReadyMessage | SetNamespaceMessage | SshTopoNodeMessage;
 
 class TopologyDashboard {
   private readonly vscode = acquireVsCodeApi();
@@ -347,6 +354,23 @@ class TopologyDashboard {
     this.cy.on('tap', 'node', evt => {
       this.displayInfo('Node', evt.target.data('raw'));
     });
+    const dbl = (evt: any) => {
+      const raw = evt.target.data('raw');
+      const name = raw?.metadata?.name;
+      const namespace = raw?.metadata?.namespace;
+      const nodeDetails =
+        raw?.status?.['node-details'] ?? raw?.spec?.productionAddress?.ipv4;
+      if (name) {
+        this.postMessage({
+          command: 'sshTopoNode',
+          name,
+          namespace,
+          nodeDetails
+        });
+      }
+    };
+    this.cy.on('dblclick', 'node', dbl);
+    this.cy.on('dbltap', 'node', dbl);
     this.cy.on('tap', 'edge', evt => {
       const raw = evt.target.data('raw');
       const state = evt.target.data('state');
