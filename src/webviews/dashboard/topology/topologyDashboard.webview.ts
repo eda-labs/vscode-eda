@@ -48,17 +48,20 @@ type OutboundMessage = ReadyMessage | SetNamespaceMessage;
 class TopologyDashboard {
   private readonly vscode = acquireVsCodeApi();
   private readonly nsSelect = document.getElementById('namespaceSelect') as HTMLSelectElement;
+  private readonly toggleLabelBtn = document.getElementById('toggleLabelBtn') as HTMLButtonElement;
   private readonly cytoscapeUri: string;
   private readonly nodeIcon: string;
   private readonly infoCard = document.getElementById('infoCard') as HTMLDivElement;
   private cy?: cytoscape.Core;
   private themeObserver?: MutationObserver;
+  private labelsVisible = true;
 
   constructor() {
     const bodyEl = document.body as HTMLBodyElement;
     this.cytoscapeUri = bodyEl.dataset.cytoscapeUri ?? '';
     this.nodeIcon = bodyEl.dataset.nodeIcon ?? '';
     this.registerEvents();
+    this.updateToggleButton();
     void this.loadScript(this.cytoscapeUri).then(() => {
       this.postMessage({ command: 'ready' });
     });
@@ -67,6 +70,10 @@ class TopologyDashboard {
   private registerEvents(): void {
     this.nsSelect.addEventListener('change', () => {
       this.postMessage({ command: 'setNamespace', namespace: this.nsSelect.value });
+    });
+
+    this.toggleLabelBtn.addEventListener('click', () => {
+      this.toggleLinkLabels();
     });
 
     window.addEventListener('message', event => {
@@ -203,8 +210,9 @@ class TopologyDashboard {
         this.layoutByTier();
         this.adjustEdgeLabels();
         this.cy!.fit(this.cy!.elements(), 50);
-        this.applyThemeColors();
-        this.registerCyClickEvents();
+      this.applyThemeColors();
+      this.updateEdgeLabelVisibility();
+      this.registerCyClickEvents();
       });
     } else {
       this.cy.elements().remove();
@@ -213,6 +221,7 @@ class TopologyDashboard {
       this.adjustEdgeLabels();
       this.cy.fit(this.cy.elements(), 50);
       this.applyThemeColors();
+      this.updateEdgeLabelVisibility();
     }
   }
 
@@ -388,6 +397,29 @@ class TopologyDashboard {
         'target-text-background-color': bgPrimary
       } as any)
       .update();
+  }
+
+  private updateEdgeLabelVisibility(): void {
+    if (!this.cy) return;
+    const opacity = this.labelsVisible ? 1 : 0;
+    this.cy.edges().forEach(edge => {
+      edge.style({
+        'text-opacity': opacity,
+        'source-text-background-opacity': this.labelsVisible ? 0.9 : 0,
+        'target-text-background-opacity': this.labelsVisible ? 0.9 : 0
+      } as any);
+    });
+  }
+
+  private updateToggleButton(): void {
+    if (!this.toggleLabelBtn) return;
+    this.toggleLabelBtn.textContent = this.labelsVisible ? 'Hide Labels' : 'Show Labels';
+  }
+
+  private toggleLinkLabels(): void {
+    this.labelsVisible = !this.labelsVisible;
+    this.updateEdgeLabelVisibility();
+    this.updateToggleButton();
   }
 
   private postMessage(msg: OutboundMessage): void {

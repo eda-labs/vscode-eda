@@ -44,6 +44,20 @@ body {
   padding: 4px 8px;
 }
 
+.toggle-btn {
+  margin-right: 8px;
+  padding: 4px 12px;
+  border: none;
+  background-color: var(--accent);
+  color: var(--vscode-button-foreground);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.toggle-btn:hover {
+  background-color: var(--accent-hover);
+}
+
 .body {
   display: flex;
   flex: 1;
