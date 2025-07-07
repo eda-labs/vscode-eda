@@ -16,6 +16,8 @@ interface EdgeData {
   target: string;
   sourceInterface?: string;
   targetInterface?: string;
+  sourceState?: string;
+  targetState?: string;
   state?: string;
   label?: string;
   raw?: any;
@@ -220,6 +222,9 @@ export class TopologyDashboardPanel extends BasePanel {
       if (lm) {
         for (const link of lm) {
           const arr = Array.isArray(link.spec?.links) ? link.spec.links : [];
+          const members: any[] = Array.isArray(link.status?.members)
+            ? link.status.members
+            : [];
           for (const l of arr) {
             const src = l.local?.node;
             const dst = l.remote?.node;
@@ -237,9 +242,21 @@ export class TopologyDashboardPanel extends BasePanel {
               // Extract and shorten interface information
               if (l.local?.interface) {
                 edgeData.sourceInterface = this.shortenInterfaceName(l.local.interface);
+                const ms = members.find(
+                  (m: any) =>
+                    m.node === l.local?.node &&
+                    m.interface === l.local?.interface
+                );
+                if (ms) edgeData.sourceState = ms.operationalState;
               }
               if (l.remote?.interface) {
                 edgeData.targetInterface = this.shortenInterfaceName(l.remote.interface);
+                const ms = members.find(
+                  (m: any) =>
+                    m.node === l.remote?.node &&
+                    m.interface === l.remote?.interface
+                );
+                if (ms) edgeData.targetState = ms.operationalState;
               }
 
               edges.push(edgeData);

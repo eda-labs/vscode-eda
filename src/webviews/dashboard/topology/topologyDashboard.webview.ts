@@ -16,6 +16,8 @@ interface TopologyEdge {
   target: string;
   sourceInterface?: string;
   targetInterface?: string;
+  sourceState?: string;
+  targetState?: string;
   state?: string;
   label?: string;
   raw?: unknown;
@@ -152,6 +154,12 @@ class TopologyDashboard {
 
       if (e.state) {
         edgeData.state = e.state;
+      }
+      if (e.sourceState) {
+        edgeData.sourceState = e.sourceState;
+      }
+      if (e.targetState) {
+        edgeData.targetState = e.targetState;
       }
       elements.push({ group: 'edges', data: edgeData });
     });
@@ -340,7 +348,11 @@ class TopologyDashboard {
       this.displayInfo('Node', evt.target.data('raw'));
     });
     this.cy.on('tap', 'edge', evt => {
-      this.displayInfo('Link', evt.target.data('raw'));
+      const raw = evt.target.data('raw');
+      const state = evt.target.data('state');
+      const sourceState = evt.target.data('sourceState');
+      const targetState = evt.target.data('targetState');
+      this.displayInfo('Link', { ...raw, state, sourceState, targetState });
     });
   }
 
@@ -386,12 +398,18 @@ class TopologyDashboard {
       const remoteNode = data?.remote?.node ?? '';
       const remoteIf = data?.remote?.interface ?? '';
       const type = data?.type ?? '';
+      const state = data?.state ?? '';
+      const sourceState = data?.sourceState ?? '';
+      const targetState = data?.targetState ?? '';
       this.infoCard.innerHTML = `
         <h3><span class="codicon codicon-plug"></span> ${localNode} → ${remoteNode}</h3>
         <table class="info-table">
           ${row('Local', `${localNode} (${localIf})`)}
+          ${row('Local State', sourceState)}
           ${row('Remote', `${remoteNode} (${remoteIf})`)}
+          ${row('Remote State', targetState)}
           ${row('Type', type)}
+          ${row('State', state)}
         </table>
       `;
     }
