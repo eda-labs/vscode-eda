@@ -113,12 +113,31 @@ class TopologyDashboard {
     nodes.forEach(n => {
       elements.push({ group: 'nodes', data: { id: n.id, label: n.label, tier: n.tier, raw: n.raw } });
     });
+    let edgeCount = 0;
+    const pairIndex: Record<string, number> = {};
     edges.forEach(e => {
+      const pairKey = `${e.source}|${e.target}`;
+      const idx = pairIndex[pairKey] ?? 0;
+      pairIndex[pairKey] = idx + 1;
+
+      const sign = idx % 2 === 0 ? 1 : -1;
+      const magnitude = Math.floor(idx / 2) + 1;
+      const distance = sign * magnitude * 30;
+
+      const idParts = [e.source];
+      if (e.sourceInterface) idParts.push(e.sourceInterface);
+      idParts.push(e.target);
+      if (e.targetInterface) idParts.push(e.targetInterface);
+      idParts.push(String(edgeCount++));
+
       const edgeData: any = {
-        id: `${e.source}--${e.target}`,
+        // Construct a unique ID to support multiple links between nodes
+        id: idParts.join('--'),
         source: e.source,
         target: e.target,
-        raw: e.raw
+        raw: e.raw,
+        dist: distance,
+        weight: 0.5
       };
 
       // Add interface names (shortened)
@@ -168,7 +187,9 @@ class TopologyDashboard {
             style: {
               'width': 1,
               'target-arrow-shape': 'none',
-              'curve-style': 'straight',
+              'curve-style': 'unbundled-bezier',
+              'control-point-distances': 'data(dist)',
+              'control-point-weights': 'data(weight)',
               'source-endpoint': 'outside-to-node',
               'target-endpoint': 'outside-to-node'
             } as any
