@@ -66,6 +66,13 @@ class TopologyDashboard {
   private readonly nsSelect = document.getElementById('namespaceSelect') as HTMLSelectElement;
   private readonly labelModeSelect = document.getElementById('labelModeSelect') as HTMLSelectElement;
   private readonly exportBtn = document.getElementById('exportSvgBtn') as HTMLButtonElement;
+  private readonly exportPopup = document.getElementById('exportPopup') as HTMLDivElement;
+  private readonly exportConfirmBtn = document.getElementById('exportConfirmBtn') as HTMLButtonElement;
+  private readonly exportCancelBtn = document.getElementById('exportCancelBtn') as HTMLButtonElement;
+  private readonly exportBgColor = document.getElementById('exportBgColor') as HTMLInputElement;
+  private readonly exportBgTransparent = document.getElementById('exportBgTransparent') as HTMLInputElement;
+  private readonly exportLinkThickness = document.getElementById('exportLinkThickness') as HTMLInputElement;
+  private readonly exportIncludeLabels = document.getElementById('exportIncludeLabels') as HTMLInputElement;
   private readonly cytoscapeUri: string;
   private readonly cytoscapeSvgUri: string;
   private readonly nodeIcon: string;
@@ -96,7 +103,15 @@ class TopologyDashboard {
     });
 
     this.exportBtn.addEventListener('click', () => {
-      this.exportSvg();
+      this.showExportPopup();
+    });
+
+    this.exportConfirmBtn.addEventListener('click', () => {
+      this.performExport();
+    });
+
+    this.exportCancelBtn.addEventListener('click', () => {
+      this.hideExportPopup();
     });
 
     this.labelModeSelect.addEventListener('change', () => {
@@ -762,9 +777,85 @@ class TopologyDashboard {
     });
   }
 
-  private exportSvg(): void {
+  private showExportPopup(): void {
+    this.exportPopup.classList.remove('hidden');
+  }
+
+  private hideExportPopup(): void {
+    this.exportPopup.classList.add('hidden');
+  }
+
+  private buildEdgeExportLabel(edge: cytoscape.EdgeSingular): string {
+    const parts: string[] = [];
+    const src = edge.data('sourceInterface');
+    const tgt = edge.data('targetInterface');
+    const mid = edge.data('label');
+    if (src) parts.push(src);
+    if (mid) parts.push(mid);
+    if (tgt) parts.push(tgt);
+    return parts.join(' ');
+  }
+
+  private performExport(): void {
     if (!this.cy) return;
-    const svg = this.cy.svg({ full: true, bg: 'white' });
+    const includeLabels = this.exportIncludeLabels.checked;
+    const linkThickness = parseInt(this.exportLinkThickness.value, 10) || 1;
+    const transparent = this.exportBgTransparent.checked;
+    const bgColor = this.exportBgColor.value;
+
+    const nodes = this.cy.nodes();
+    const edges = this.cy.edges();
+    const prevNodeLabels: string[] = [];
+    const prevEdgeLabels: { sl: string; tl: string; l: string }[] = [];
+    const prevBorders: string[] = [];
+    const prevEdgeWidths: string[] = [];
+
+    nodes.forEach(n => {
+      prevNodeLabels.push(n.style('label'));
+      prevBorders.push(n.style('border-width'));
+      if (!includeLabels) {
+        n.style('label', '');
+      }
+      n.style('border-width', 0);
+    });
+
+    edges.forEach(e => {
+      prevEdgeLabels.push({
+        sl: e.style('source-label'),
+        tl: e.style('target-label'),
+        l: e.style('label')
+      });
+      prevEdgeWidths.push(e.style('width'));
+      if (!includeLabels) {
+        e.style('source-label', '');
+        e.style('target-label', '');
+        e.style('label', '');
+        e.style('text-opacity', 0);
+        e.style('source-text-background-opacity', 0);
+        e.style('target-text-background-opacity', 0);
+      } else {
+        e.style('text-opacity', 1);
+        e.style('source-label', e.data('sourceInterface') ?? '');
+        e.style('target-label', e.data('targetInterface') ?? '');
+        e.style('label', this.buildEdgeExportLabel(e));
+        e.style(
+          'source-text-background-opacity',
+          e.data('sourceInterface') ? 0.9 : 0
+        );
+        e.style(
+          'target-text-background-opacity',
+          e.data('targetInterface') ? 0.9 : 0
+        );
+      }
+      e.style('width', linkThickness);
+    });
+
+    const svgOpts: any = { full: true };
+    if (!transparent) {
+      svgOpts.bg = bgColor;
+    }
+
+    const svg = this.cy.svg(svgOpts);
     const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -772,6 +863,20 @@ class TopologyDashboard {
     a.download = 'topology.svg';
     a.click();
     URL.revokeObjectURL(url);
+
+    nodes.forEach((n, idx) => {
+      n.style('label', prevNodeLabels[idx]);
+      n.style('border-width', prevBorders[idx]);
+    });
+    edges.forEach((e, idx) => {
+      e.style('source-label', prevEdgeLabels[idx].sl);
+      e.style('target-label', prevEdgeLabels[idx].tl);
+      e.style('label', prevEdgeLabels[idx].l);
+      e.style('width', prevEdgeWidths[idx]);
+    });
+
+    this.updateEdgeLabelVisibility();
+    this.hideExportPopup();
   }
 
   private updateLabelMode(): void {
