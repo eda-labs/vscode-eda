@@ -106,6 +106,7 @@ export class TopologyDashboardPanel extends BasePanel {
     const codiconUri = this.getResourceUri('resources', 'codicon.css');
     const scriptUri = this.getResourceUri('dist', 'topologyDashboard.js');
     const cytoscapeUri = this.getResourceUri('resources', 'cytoscape.min.js');
+    const cytoscapeSvgUri = this.getResourceUri('resources', 'cytoscape-svg.js');
     const nodeIcon = this.getResourceUri('resources', 'node.svg');
     const tailwind = (BasePanel as any).tailwind ?? '';
     const styles = `${tailwind}\n${this.getCustomStyles()}`;
@@ -119,7 +120,7 @@ export class TopologyDashboardPanel extends BasePanel {
   <link href="${codiconUri}" rel="stylesheet">
   <style>${styles}</style>
 </head>
-<body data-cytoscape-uri="${cytoscapeUri}" data-node-icon="${nodeIcon}">
+<body data-cytoscape-uri="${cytoscapeUri}" data-cytoscape-svg-uri="${cytoscapeSvgUri}" data-node-icon="${nodeIcon}">
   ${this.getHtml()}
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>

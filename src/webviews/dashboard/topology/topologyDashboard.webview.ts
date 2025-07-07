@@ -4,6 +4,12 @@ declare function acquireVsCodeApi(): {
 
 import type cytoscape from 'cytoscape';
 
+declare module 'cytoscape' {
+  interface Core {
+    svg(options?: any): string;
+  }
+}
+
 interface TopologyNode {
   id: string;
   label: string;
@@ -59,7 +65,9 @@ class TopologyDashboard {
   private readonly vscode = acquireVsCodeApi();
   private readonly nsSelect = document.getElementById('namespaceSelect') as HTMLSelectElement;
   private readonly labelModeSelect = document.getElementById('labelModeSelect') as HTMLSelectElement;
+  private readonly exportBtn = document.getElementById('exportSvgBtn') as HTMLButtonElement;
   private readonly cytoscapeUri: string;
+  private readonly cytoscapeSvgUri: string;
   private readonly nodeIcon: string;
   private readonly infoCard = document.getElementById('infoCard') as HTMLDivElement;
   private cy?: cytoscape.Core;
@@ -70,17 +78,24 @@ class TopologyDashboard {
   constructor() {
     const bodyEl = document.body as HTMLBodyElement;
     this.cytoscapeUri = bodyEl.dataset.cytoscapeUri ?? '';
+    this.cytoscapeSvgUri = bodyEl.dataset.cytoscapeSvgUri ?? '';
     this.nodeIcon = bodyEl.dataset.nodeIcon ?? '';
     this.registerEvents();
     this.updateLabelMode();
-    void this.loadScript(this.cytoscapeUri).then(() => {
-      this.postMessage({ command: 'ready' });
-    });
+    void this.loadScript(this.cytoscapeUri)
+      .then(() => this.loadScript(this.cytoscapeSvgUri))
+      .then(() => {
+        this.postMessage({ command: 'ready' });
+      });
   }
 
   private registerEvents(): void {
     this.nsSelect.addEventListener('change', () => {
       this.postMessage({ command: 'setNamespace', namespace: this.nsSelect.value });
+    });
+
+    this.exportBtn.addEventListener('click', () => {
+      this.exportSvg();
     });
 
     this.labelModeSelect.addEventListener('change', () => {
@@ -647,6 +662,18 @@ class TopologyDashboard {
       level: newZoom,
       renderedPosition: { x: event.offsetX, y: event.offsetY }
     });
+  }
+
+  private exportSvg(): void {
+    if (!this.cy) return;
+    const svg = this.cy.svg({ full: true, bg: 'white' });
+    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'topology.svg';
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   private updateLabelMode(): void {
