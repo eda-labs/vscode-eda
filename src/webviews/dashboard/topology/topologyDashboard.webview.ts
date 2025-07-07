@@ -129,18 +129,26 @@ class TopologyDashboard {
           {
             selector: 'node',
             style: {
-              'background-color': '#60a5fa',
+              'background-color': '#001135',
               'background-image': this.nodeIcon,
               'background-fit': 'contain',
-              'background-clip': 'none',
+              'background-clip': 'node',
+              'background-width': '55%',
+              'background-height': '55%',
+              'background-position-y': '-15%',
               'shape': 'rectangle',
               'label': 'data(label)',
-              'text-valign': 'bottom',
+              'text-valign': 'center',
               'text-halign': 'center',
-              'text-margin-y': 5,
+              'text-margin-y': 42,
               'font-size': 12,
-              'width': 70,
-              'height': 70
+              'font-weight': 'bold',
+              'color': '#ffffff',
+              'text-background-color': 'transparent',
+              'text-background-opacity': 0,
+              'width': 100,
+              'height': 100,
+              'border-width': 0
             } as any
           },
           {
@@ -157,7 +165,7 @@ class TopologyDashboard {
             selector: 'edge[sourceInterface]',
             style: {
               'source-label': 'data(sourceInterface)',
-              'source-text-offset': 12,
+              'source-text-offset': 18,
               'font-size': 9,
               'source-text-background-color': 'white',
               'source-text-background-opacity': 0.9,
@@ -169,7 +177,7 @@ class TopologyDashboard {
             selector: 'edge[targetInterface]',
             style: {
               'target-label': 'data(targetInterface)',
-              'target-text-offset': 12,
+              'target-text-offset': 18,
               'font-size': 9,
               'target-text-background-color': 'white',
               'target-text-background-opacity': 0.9,
@@ -211,8 +219,8 @@ class TopologyDashboard {
       tiers[t].push(n);
     });
 
-    const spacingX = 200; // Reduced spacing since labels are closer
-    const spacingY = 180; // Reduced vertical spacing
+    const spacingX = 240; // Increased spacing for larger nodes
+    const spacingY = 220; // Increased vertical spacing for larger nodes
 
     Object.keys(tiers)
       .sort((a, b) => Number(a) - Number(b))
@@ -250,7 +258,7 @@ class TopologyDashboard {
         if (edge.data('sourceInterface')) {
           edge.style({
             'source-text-rotation': 'none',
-            'source-text-margin-x': 15,
+            'source-text-margin-x': 25,
             'source-text-margin-y': 0
           } as any);
         }
@@ -258,7 +266,7 @@ class TopologyDashboard {
         if (edge.data('targetInterface')) {
           edge.style({
             'target-text-rotation': 'none',
-            'target-text-margin-x': 15,
+            'target-text-margin-x': 25,
             'target-text-margin-y': 0
           } as any);
         }
@@ -268,7 +276,7 @@ class TopologyDashboard {
           edge.style({
             'source-text-rotation': 'autorotate',
             'source-text-margin-x': 0,
-            'source-text-margin-y': -8
+            'source-text-margin-y': -12
           } as any);
         }
 
@@ -276,7 +284,7 @@ class TopologyDashboard {
           edge.style({
             'target-text-rotation': 'autorotate',
             'target-text-margin-x': 0,
-            'target-text-margin-y': -8
+            'target-text-margin-y': -12
           } as any);
         }
       }
@@ -285,9 +293,6 @@ class TopologyDashboard {
 
   private applyThemeColors(): void {
     if (!this.cy) return;
-    const textPrimary = getComputedStyle(document.documentElement)
-      .getPropertyValue('--text-primary')
-      .trim();
     const textSecondary = getComputedStyle(document.documentElement)
       .getPropertyValue('--text-secondary')
       .trim();
@@ -297,7 +302,10 @@ class TopologyDashboard {
 
     this.cy.style()
       .selector('node')
-      .style('color', textPrimary)
+      .style({
+        'color': '#ffffff', // Keep white text for visibility on dark icon
+        'background-color': '#001135' // Match the SVG's dark blue
+      })
       .selector('edge')
       .style('line-color', textSecondary)
       .selector('edge[sourceInterface]')
