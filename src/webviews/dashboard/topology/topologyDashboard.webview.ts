@@ -93,8 +93,8 @@ class TopologyDashboard {
 
   private shortenInterfaceName(name: string | undefined): string {
     if (!name) return '';
-    // Replace ethernet with e-
-    return name.replace(/ethernet/gi, 'e-');
+    // Replace ethernet with e- (handle ethernet-1-2 -> e-1-2)
+    return name.replace(/ethernet-/gi, 'e-');
   }
 
   private renderTopology(nodes: TopologyNode[], edges: TopologyEdge[]): void {
@@ -148,29 +148,33 @@ class TopologyDashboard {
             style: {
               'width': 1,
               'target-arrow-shape': 'none',
-              'curve-style': 'straight'
+              'curve-style': 'straight',
+              'source-endpoint': 'outside-to-node',
+              'target-endpoint': 'outside-to-node'
             } as any
           },
           {
             selector: 'edge[sourceInterface]',
             style: {
               'source-label': 'data(sourceInterface)',
-              'source-text-offset': 5,
-              'font-size': 7,
+              'source-text-offset': 12,
+              'font-size': 9,
               'source-text-background-color': 'white',
-              'source-text-background-opacity': 0.7,
-              'source-text-background-padding': '1px'
+              'source-text-background-opacity': 0.9,
+              'source-text-background-padding': '2px',
+              'source-text-background-shape': 'roundrectangle'
             } as any
           },
           {
             selector: 'edge[targetInterface]',
             style: {
               'target-label': 'data(targetInterface)',
-              'target-text-offset': 5,
-              'font-size': 7,
+              'target-text-offset': 12,
+              'font-size': 9,
               'target-text-background-color': 'white',
-              'target-text-background-opacity': 0.7,
-              'target-text-background-padding': '1px'
+              'target-text-background-opacity': 0.9,
+              'target-text-background-padding': '2px',
+              'target-text-background-shape': 'roundrectangle'
             } as any
           }
         ],
@@ -207,8 +211,8 @@ class TopologyDashboard {
       tiers[t].push(n);
     });
 
-    const spacingX = 200; // Increased spacing for interface labels
-    const spacingY = 150;
+    const spacingX = 200; // Reduced spacing since labels are closer
+    const spacingY = 180; // Reduced vertical spacing
 
     Object.keys(tiers)
       .sort((a, b) => Number(a) - Number(b))
@@ -227,27 +231,55 @@ class TopologyDashboard {
   private adjustEdgeLabels(): void {
     if (!this.cy) return;
 
-    // For each node, check how many edges connect to it
-    // and adjust label positions to avoid overlap
-    this.cy.nodes().forEach(node => {
-      const connectedEdges = node.connectedEdges();
+    // Adjust labels for each edge
+    this.cy.edges().forEach(edge => {
+      const sourcePos = edge.source().position();
+      const targetPos = edge.target().position();
 
-      connectedEdges.forEach((edge, index) => {
-        const isSource = edge.source().id() === node.id();
-        const offset = 15 + (index * 12); // Stagger labels
+      // Calculate angle of the edge
+      const dx = targetPos.x - sourcePos.x;
+      const dy = targetPos.y - sourcePos.y;
+      const angle = Math.atan2(dy, dx);
+      const angleDeg = Math.abs(angle * 180 / Math.PI);
 
-        if (isSource && edge.data('sourceInterface')) {
+      // Check if edge is mostly vertical (between 60-120 degrees or 240-300 degrees)
+      const isVertical = (angleDeg > 60 && angleDeg < 120) || (angleDeg > 240 && angleDeg < 300);
+
+      if (isVertical) {
+        // For vertical edges, position labels to the right side
+        if (edge.data('sourceInterface')) {
           edge.style({
-            'source-text-margin-x': index % 2 === 0 ? offset : -offset,
-            'source-text-margin-y': -5 - (Math.floor(index / 2) * 10)
-          } as any);
-        } else if (!isSource && edge.data('targetInterface')) {
-          edge.style({
-            'target-text-margin-x': index % 2 === 0 ? offset : -offset,
-            'target-text-margin-y': -5 - (Math.floor(index / 2) * 10)
+            'source-text-rotation': 'none',
+            'source-text-margin-x': 15,
+            'source-text-margin-y': 0
           } as any);
         }
-      });
+
+        if (edge.data('targetInterface')) {
+          edge.style({
+            'target-text-rotation': 'none',
+            'target-text-margin-x': 15,
+            'target-text-margin-y': 0
+          } as any);
+        }
+      } else {
+        // For non-vertical edges, use autorotate
+        if (edge.data('sourceInterface')) {
+          edge.style({
+            'source-text-rotation': 'autorotate',
+            'source-text-margin-x': 0,
+            'source-text-margin-y': -8
+          } as any);
+        }
+
+        if (edge.data('targetInterface')) {
+          edge.style({
+            'target-text-rotation': 'autorotate',
+            'target-text-margin-x': 0,
+            'target-text-margin-y': -8
+          } as any);
+        }
+      }
     });
   }
 

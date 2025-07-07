@@ -190,8 +190,8 @@ export class TopologyDashboardPanel extends BasePanel {
 
   private shortenInterfaceName(name: string | undefined): string {
     if (!name) return '';
-    // Replace ethernet with e-
-    return name.replace(/ethernet/gi, 'e-');
+    // Replace ethernet with e- (handle ethernet-1-2 -> e-1-2)
+    return name.replace(/ethernet-/gi, 'e-');
   }
 
   private postGraph(): void {
