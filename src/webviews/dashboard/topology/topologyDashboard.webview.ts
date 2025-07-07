@@ -74,6 +74,7 @@ class TopologyDashboard {
   private themeObserver?: MutationObserver;
   private labelMode: 'hide' | 'show' | 'select' = 'select';
   private zoomHandlerRegistered = false;
+  private currentNamespace?: string;
 
   constructor() {
     const bodyEl = document.body as HTMLBodyElement;
@@ -135,6 +136,9 @@ class TopologyDashboard {
   }
 
   private renderTopology(nodes: TopologyNode[], edges: TopologyEdge[]): void {
+    const selectedNs = this.nsSelect.value;
+    const namespaceChanged = this.currentNamespace !== selectedNs;
+    this.currentNamespace = selectedNs;
     const elements: cytoscape.ElementDefinition[] = [];
     nodes.forEach(n => {
       elements.push({ group: 'nodes', data: { id: n.id, label: n.label, tier: n.tier, raw: n.raw } });
@@ -290,7 +294,7 @@ class TopologyDashboard {
         this.registerCyClickEvents();
         this.registerCustomZoom();
       });
-    } else {
+    } else if (namespaceChanged) {
       this.clearHighlights();
       this.cy.elements().remove();
       this.cy.add(elements);
@@ -298,6 +302,100 @@ class TopologyDashboard {
       this.adjustEdgeCurves();
       this.adjustEdgeLabels();
       this.cy.fit(this.cy.elements(), 50);
+      this.applyThemeColors();
+      this.updateEdgeLabelVisibility();
+      this.registerCustomZoom();
+    } else {
+      this.clearHighlights();
+      const cy = this.cy;
+
+      const incomingNodeIds = new Set(nodes.map(n => n.id));
+      const existingTierNodes: Record<string, cytoscape.NodeSingular[]> = {};
+
+      cy.nodes().forEach(n => {
+        if (!incomingNodeIds.has(n.id())) {
+          n.remove();
+        } else {
+          const t = String(n.data('tier') ?? 1);
+          if (!existingTierNodes[t]) existingTierNodes[t] = [];
+          existingTierNodes[t].push(n);
+        }
+      });
+
+      const uniqueTiers = Array.from(new Set(nodes.map(n => Number(n.tier ?? 1)))).sort((a, b) => a - b);
+      const tierIndexMap = new Map<number, number>();
+      uniqueTiers.forEach((t, idx) => tierIndexMap.set(t, idx));
+
+      const spacingX = 240;
+      const spacingY = 220;
+
+      nodes.forEach(n => {
+        const existing = cy.$id(n.id);
+        if (existing.nonempty()) {
+          existing.data({ ...existing.data(), label: n.label, tier: n.tier, raw: n.raw });
+        } else {
+          const newNode = cy.add({ group: 'nodes', data: { id: n.id, label: n.label, tier: n.tier, raw: n.raw } });
+          const tier = Number(n.tier ?? 1);
+          const idxNodes = existingTierNodes[String(tier)] ?? [];
+          const maxX = idxNodes.length ? Math.max(...idxNodes.map(no => no.position('x'))) : 0;
+          const tierIndex = tierIndexMap.get(tier) ?? 0;
+          newNode.position({ x: idxNodes.length ? maxX + spacingX : 0, y: tierIndex * spacingY });
+          idxNodes.push(newNode);
+          existingTierNodes[String(tier)] = idxNodes;
+        }
+      });
+
+      const newEdges: cytoscape.EdgeDefinition[] = [];
+      let edgeCount = 0;
+      const pairIndex: Record<string, number> = {};
+      edges.forEach(e => {
+        const pairKey = `${e.source}|${e.target}`;
+        const idx = pairIndex[pairKey] ?? 0;
+        pairIndex[pairKey] = idx + 1;
+
+        const sign = idx % 2 === 0 ? 1 : -1;
+        const magnitude = Math.floor(idx / 2) + 1;
+        const distance = sign * magnitude * 30;
+
+        const idParts = [e.source];
+        if (e.sourceInterface) idParts.push(this.shortenInterfaceName(e.sourceInterface));
+        idParts.push(e.target);
+        if (e.targetInterface) idParts.push(this.shortenInterfaceName(e.targetInterface));
+        idParts.push(String(edgeCount++));
+
+        const edgeData: any = {
+          id: idParts.join('--'),
+          source: e.source,
+          target: e.target,
+          raw: e.raw,
+          dist: distance,
+          weight: 0.5,
+          pairIndex: idx
+        };
+
+        if (e.state) edgeData.state = e.state;
+        if (e.sourceState) edgeData.sourceState = e.sourceState;
+        if (e.targetState) edgeData.targetState = e.targetState;
+        if (e.sourceInterface) edgeData.sourceInterface = this.shortenInterfaceName(e.sourceInterface);
+        if (e.targetInterface) edgeData.targetInterface = this.shortenInterfaceName(e.targetInterface);
+
+        newEdges.push({ group: 'edges', data: edgeData });
+      });
+
+      const incomingEdgeIds = new Set(newEdges.map(e => e.data.id));
+      cy.edges().forEach(edge => { if (!incomingEdgeIds.has(edge.id())) edge.remove(); });
+
+      newEdges.forEach(def => {
+        const existing = cy.$id(def.data.id!);
+        if (existing.nonempty()) {
+          existing.data(def.data);
+        } else {
+          cy.add(def);
+        }
+      });
+
+      this.adjustEdgeCurves();
+      this.adjustEdgeLabels();
       this.applyThemeColors();
       this.updateEdgeLabelVisibility();
       this.registerCustomZoom();
