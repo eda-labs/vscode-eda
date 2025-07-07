@@ -63,7 +63,10 @@ constructor() {
       this.k8sClient = undefined;
     }
     if (this.k8sClient) {
-      this.k8sStreams = this.k8sClient.getWatchedResourceTypes();
+      this.k8sStreams = this.k8sClient
+        .getWatchedResourceTypes()
+        .slice()
+        .sort();
     }
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
     try {
@@ -267,7 +270,7 @@ constructor() {
       }
       return false;
     }
-    const streams = this.cachedStreamGroups[group] || [];
+    const streams = (this.cachedStreamGroups[group] || []).slice().sort();
     for (const stream of streams) {
       if (this.streamMatches(namespace, stream)) {
         return true;
@@ -288,7 +291,7 @@ constructor() {
 
   /** Determine if a group should be flattened because it only repeats a stream */
   private isGroupRedundant(group: string): boolean {
-    const streams = this.cachedStreamGroups[group] || [];
+    const streams = (this.cachedStreamGroups[group] || []).slice().sort();
     return streams.length === 1 && streams[0] === group;
   }
 
@@ -384,7 +387,8 @@ constructor() {
       return [msgItem];
     }
 
-    return this.cachedNamespaces.map(ns => {
+    const sorted = this.cachedNamespaces.slice().sort();
+    return sorted.map(ns => {
       const treeItem = new TreeItemBase(
         ns,
         this.expandAll ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
@@ -415,7 +419,7 @@ constructor() {
     if (!this.k8sClient) {
       return [];
     }
-    const namespaces = this.k8sClient.getCachedNamespaces();
+    const namespaces = this.k8sClient.getCachedNamespaces().slice().sort();
     if (namespaces.length === 0) {
       const msgItem = new TreeItemBase(
         'No Kubernetes namespaces found',
@@ -445,7 +449,9 @@ constructor() {
 
   /** Get stream group items under a namespace */
   private getStreamGroups(namespace: string): TreeItemBase[] {
-    const groups = Object.keys(this.cachedStreamGroups).filter(g => g !== 'kubernetes');
+    const groups = Object.keys(this.cachedStreamGroups)
+      .filter(g => g !== 'kubernetes')
+      .sort();
     if (groups.length === 0) {
       const item = new TreeItemBase(
         'No streams found',
@@ -518,7 +524,7 @@ constructor() {
 
   /** Get stream items under a group */
   private getStreamsForGroup(namespace: string, group: string): TreeItemBase[] {
-    const streams = this.cachedStreamGroups[group] || [];
+    const streams = (this.cachedStreamGroups[group] || []).slice().sort();
     const items: TreeItemBase[] = [];
     const parentMatched = !!this.treeFilter && this.matchesFilter(group);
     for (const s of streams) {
