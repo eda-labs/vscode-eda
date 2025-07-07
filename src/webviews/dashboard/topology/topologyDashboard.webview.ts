@@ -238,6 +238,20 @@ class TopologyDashboard {
               'target-text-background-padding': '2px',
               'target-text-background-shape': 'roundrectangle'
             } as any
+          },
+          {
+            selector: 'node.highlight',
+            style: {
+              'border-width': 2,
+              'border-color': '#ffa500'
+            } as any
+          },
+          {
+            selector: 'edge.highlight',
+            style: {
+              'line-color': '#ffa500',
+              'width': 3
+            } as any
           }
         ],
         layout: {
@@ -259,6 +273,7 @@ class TopologyDashboard {
         this.registerCustomZoom();
       });
     } else {
+      this.clearHighlights();
       this.cy.elements().remove();
       this.cy.add(elements);
       this.layoutByTier();
@@ -419,7 +434,11 @@ class TopologyDashboard {
   private registerCyClickEvents(): void {
     if (!this.cy) return;
     this.cy.on('tap', 'node', evt => {
-      this.displayInfo('Node', evt.target.data('raw'));
+      this.clearHighlights();
+      const node = evt.target;
+      node.addClass('highlight');
+      node.connectedEdges().addClass('highlight');
+      this.displayInfo('Node', node.data('raw'));
     });
     const dbl = (evt: any) => {
       const raw = evt.target.data('raw');
@@ -442,11 +461,21 @@ class TopologyDashboard {
     // Using only `dblclick` covers both mouse and touch interactions.
     this.cy.on('dblclick', 'node', dbl);
     this.cy.on('tap', 'edge', evt => {
-      const raw = evt.target.data('raw');
-      const state = evt.target.data('state');
-      const sourceState = evt.target.data('sourceState');
-      const targetState = evt.target.data('targetState');
+      this.clearHighlights();
+      const edge = evt.target;
+      edge.addClass('highlight');
+      edge.connectedNodes().addClass('highlight');
+      const raw = edge.data('raw');
+      const state = edge.data('state');
+      const sourceState = edge.data('sourceState');
+      const targetState = edge.data('targetState');
       this.displayInfo('Link', { ...raw, state, sourceState, targetState });
+    });
+
+    this.cy.on('tap', evt => {
+      if (evt.target === this.cy) {
+        this.clearHighlights();
+      }
     });
   }
 
@@ -612,6 +641,11 @@ class TopologyDashboard {
     this.labelsVisible = !this.labelsVisible;
     this.updateEdgeLabelVisibility();
     this.updateToggleButton();
+  }
+
+  private clearHighlights(): void {
+    if (!this.cy) return;
+    this.cy.elements().removeClass('highlight');
   }
 
   private postMessage(msg: OutboundMessage): void {
