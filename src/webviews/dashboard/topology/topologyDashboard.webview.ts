@@ -56,8 +56,9 @@ class TopologyDashboard {
     this.cytoscapeUri = bodyEl.dataset.cytoscapeUri ?? '';
     this.nodeIcon = bodyEl.dataset.nodeIcon ?? '';
     this.registerEvents();
-    this.postMessage({ command: 'ready' });
-    void this.loadScript(this.cytoscapeUri);
+    void this.loadScript(this.cytoscapeUri).then(() => {
+      this.postMessage({ command: 'ready' });
+    });
   }
 
   private registerEvents(): void {
