@@ -56,6 +56,7 @@ class TopologyDashboard {
   private cy?: cytoscape.Core;
   private themeObserver?: MutationObserver;
   private labelsVisible = true;
+  private zoomHandlerRegistered = false;
 
   constructor() {
     const bodyEl = document.body as HTMLBodyElement;
@@ -226,7 +227,7 @@ class TopologyDashboard {
         layout: {
           name: 'preset'
         },
-        wheelSensitivity: 1.5,
+        wheelSensitivity: 0,
         minZoom: 0.3,
         maxZoom: 300
       });
@@ -238,6 +239,7 @@ class TopologyDashboard {
         this.applyThemeColors();
         this.updateEdgeLabelVisibility();
         this.registerCyClickEvents();
+      this.registerCustomZoom();
       });
     } else {
       this.cy.elements().remove();
@@ -247,6 +249,7 @@ class TopologyDashboard {
       this.cy.fit(this.cy.elements(), 50);
       this.applyThemeColors();
       this.updateEdgeLabelVisibility();
+      this.registerCustomZoom();
     }
   }
 
@@ -459,6 +462,29 @@ class TopologyDashboard {
         'source-text-background-opacity': this.labelsVisible ? 0.9 : 0,
         'target-text-background-opacity': this.labelsVisible ? 0.9 : 0
       } as any);
+    });
+  }
+
+  private registerCustomZoom(): void {
+    if (!this.cy || this.zoomHandlerRegistered) return;
+    this.zoomHandlerRegistered = true;
+    this.cy.userZoomingEnabled(false);
+    const container = this.cy.container();
+    if (!container) return;
+    container.addEventListener('wheel', this.handleCustomWheel.bind(this), { passive: false });
+  }
+
+  private handleCustomWheel(event: WheelEvent): void {
+    if (!this.cy) return;
+    event.preventDefault();
+    const step = event.deltaY;
+    const isTrackpad = Math.abs(step) < 50;
+    const sensitivity = isTrackpad ? 0.002 : 0.0002;
+    const factor = Math.pow(10, -step * sensitivity);
+    const newZoom = this.cy.zoom() * factor;
+    this.cy.zoom({
+      level: newZoom,
+      renderedPosition: { x: event.offsetX, y: event.offsetY }
     });
   }
 
