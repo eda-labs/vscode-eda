@@ -148,7 +148,8 @@ class TopologyDashboard {
         target: e.target,
         raw: e.raw,
         dist: distance,
-        weight: 0.5
+        weight: 0.5,
+        pairIndex: idx  // Store the pair index for use in adjustEdgeCurves
       };
 
       // Add interface names (shortened)
@@ -321,26 +322,40 @@ class TopologyDashboard {
         const dx = targetPos.x - sourcePos.x;
         const absDx = Math.abs(dx);
 
-        edges.forEach((edge, idx) => {
-          // For spine-to-leaf connections
-          if (idx === 0) {
-            // For edges going to far left or far right, curve outward
-            if (absDx > 200) {
-              const newSign = dx > 0 ? -1 : 1;
-              edge.data('dist', newSign * 40);
-            } else if (absDx > 100) {
-              // Medium distance, moderate curve
-              const newSign = dx > 0 ? -1 : 1;
-              edge.data('dist', newSign * 30);
-            } else if (absDx > 30) {
-              // Small distance, small curve
-              edge.data('dist', 20);
-            } else {
-              // Nearly vertical, minimal curve
-              edge.data('dist', 15);
-            }
+        edges.forEach((edge) => {
+          const pairIdx = edge.data('pairIndex') || 0;
+
+          // Base curve calculation
+          let baseCurve = 30;
+
+          // For edges going to far left or far right, increase base curve
+          if (absDx > 200) {
+            baseCurve = 50;
+          } else if (absDx > 100) {
+            baseCurve = 40;
+          } else if (absDx > 50) {
+            baseCurve = 35;
           }
-          // Other edges keep their default curves
+
+          // Apply alternating pattern for multiple edges
+          const sign = pairIdx % 2 === 0 ? 1 : -1;
+          const magnitude = Math.floor(pairIdx / 2) + 1;
+
+          // For crossing edges (going opposite direction of tier progression)
+          const crossingSign = dx > 0 ? -1 : 1;
+
+          // Final distance calculation
+          const distance = crossingSign * sign * magnitude * baseCurve;
+
+          edge.data('dist', distance);
+        });
+      } else {
+        // For edges in the same tier, keep the original alternating pattern
+        edges.forEach((edge) => {
+          const pairIdx = edge.data('pairIndex') || 0;
+          const sign = pairIdx % 2 === 0 ? 1 : -1;
+          const magnitude = Math.floor(pairIdx / 2) + 1;
+          edge.data('dist', sign * magnitude * 30);
         });
       }
     });
