@@ -495,15 +495,18 @@ class TopologyDashboard {
       const state = data?.state ?? '';
       const sourceState = data?.sourceState ?? '';
       const targetState = data?.targetState ?? '';
+      const section = (title: string) => `<tr class="section"><td colspan="2">${title}</td></tr>`;
       this.infoCard.innerHTML = `
         <h3><span class="codicon codicon-plug"></span> ${localNode} → ${remoteNode}</h3>
         <table class="info-table">
-          ${row('Local', `${localNode} (${localIf})`)}
-          ${row('Local State', sourceState)}
-          ${row('Remote', `${remoteNode} (${remoteIf})`)}
-          ${row('Remote State', targetState)}
           ${row('Type', type)}
           ${row('State', state)}
+          ${section('Local Endpoint')}
+          ${row('State', sourceState)}
+          ${row('Interface', localIf)}
+          ${section('Remote Endpoint')}
+          ${row('State', targetState)}
+          ${row('Interface', remoteIf)}
         </table>
       `;
     }
