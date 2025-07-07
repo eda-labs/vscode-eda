@@ -50,3 +50,8 @@ body {
   background-color: var(--bg-secondary);
   overflow: hidden;
 }
+
+.node-icon,                  /* the <img> tag */
+.react-flow__node svg {      /* or inline fallback */
+  overflow: visible;
+}
