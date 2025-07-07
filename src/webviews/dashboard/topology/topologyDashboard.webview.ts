@@ -71,6 +71,7 @@ class TopologyDashboard {
   private readonly exportCancelBtn = document.getElementById('exportCancelBtn') as HTMLButtonElement;
   private readonly exportBgColor = document.getElementById('exportBgColor') as HTMLInputElement;
   private readonly exportBgTransparent = document.getElementById('exportBgTransparent') as HTMLInputElement;
+  private readonly exportFontColor = document.getElementById('exportFontColor') as HTMLInputElement;
   private readonly exportLinkThickness = document.getElementById('exportLinkThickness') as HTMLInputElement;
   private readonly exportIncludeLabels = document.getElementById('exportIncludeLabels') as HTMLInputElement;
   private readonly cytoscapeUri: string;
@@ -778,11 +779,36 @@ class TopologyDashboard {
   }
 
   private showExportPopup(): void {
+    const bodyColor = getComputedStyle(document.body).color;
+    const cyContainer = document.getElementById('cy');
+    const bgColor = cyContainer
+      ? getComputedStyle(cyContainer).backgroundColor
+      : 'white';
+
+    this.exportFontColor.value = this.rgbToHex(bodyColor);
+    this.exportBgColor.value = this.rgbToHex(bgColor);
     this.exportPopup.classList.remove('hidden');
   }
 
   private hideExportPopup(): void {
     this.exportPopup.classList.add('hidden');
+  }
+
+  private rgbToHex(color: string): string {
+    const ctx = document.createElement('div');
+    ctx.style.color = color;
+    document.body.appendChild(ctx);
+    const computed = getComputedStyle(ctx).color;
+    document.body.removeChild(ctx);
+    const m = computed.match(/\d+/g);
+    if (!m) return '#000000';
+    const [r, g, b] = m.map(x => Number(x));
+    return (
+      '#' +
+      [r, g, b]
+        .map(x => x.toString(16).padStart(2, '0'))
+        .join('')
+    );
   }
 
   private buildEdgeExportLabel(edge: cytoscape.EdgeSingular): string {
@@ -802,21 +828,26 @@ class TopologyDashboard {
     const linkThickness = parseInt(this.exportLinkThickness.value, 10) || 1;
     const transparent = this.exportBgTransparent.checked;
     const bgColor = this.exportBgColor.value;
+    const fontColor = this.exportFontColor.value;
 
     const nodes = this.cy.nodes();
     const edges = this.cy.edges();
     const prevNodeLabels: string[] = [];
+    const prevNodeColors: string[] = [];
     const prevEdgeLabels: { sl: string; tl: string; l: string }[] = [];
+    const prevEdgeColors: string[] = [];
     const prevBorders: string[] = [];
     const prevEdgeWidths: string[] = [];
 
     nodes.forEach(n => {
       prevNodeLabels.push(n.style('label'));
+      prevNodeColors.push(n.style('color'));
       prevBorders.push(n.style('border-width'));
       if (!includeLabels) {
         n.style('label', '');
       }
       n.style('border-width', 0);
+      n.style('color', fontColor);
     });
 
     edges.forEach(e => {
@@ -826,6 +857,7 @@ class TopologyDashboard {
         l: e.style('label')
       });
       prevEdgeWidths.push(e.style('width'));
+      prevEdgeColors.push(e.style('color'));
       if (!includeLabels) {
         e.style('source-label', '');
         e.style('target-label', '');
@@ -848,6 +880,7 @@ class TopologyDashboard {
         );
       }
       e.style('width', linkThickness);
+      e.style('color', fontColor);
     });
 
     const svgOpts: any = { full: true };
@@ -866,12 +899,14 @@ class TopologyDashboard {
 
     nodes.forEach((n, idx) => {
       n.style('label', prevNodeLabels[idx]);
+      n.style('color', prevNodeColors[idx]);
       n.style('border-width', prevBorders[idx]);
     });
     edges.forEach((e, idx) => {
       e.style('source-label', prevEdgeLabels[idx].sl);
       e.style('target-label', prevEdgeLabels[idx].tl);
       e.style('label', prevEdgeLabels[idx].l);
+      e.style('color', prevEdgeColors[idx]);
       e.style('width', prevEdgeWidths[idx]);
     });
 
