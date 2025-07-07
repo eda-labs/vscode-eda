@@ -46,6 +46,7 @@ class TopologyDashboard {
   private readonly cytoscapeUri: string;
   private readonly nodeIcon: string;
   private cy?: cytoscape.Core;
+  private themeObserver?: MutationObserver;
 
   constructor() {
     const bodyEl = document.body as HTMLBodyElement;
@@ -69,6 +70,11 @@ class TopologyDashboard {
         this.renderTopology(msg.nodes, msg.edges);
       }
     });
+
+    this.themeObserver = new MutationObserver(() => {
+      this.applyThemeColors();
+    });
+    this.themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
   }
 
   private populateNamespaces(namespaces: string[], selected?: string): void {
@@ -106,7 +112,6 @@ class TopologyDashboard {
               'background-clip': 'none',
               'shape': 'rectangle',
               'label': 'data(label)',
-              'color': getComputedStyle(document.documentElement).getPropertyValue('--text-primary').trim(),
               'text-valign': 'bottom',
               'text-halign': 'center',
               'text-margin-y': 5,
@@ -119,7 +124,6 @@ class TopologyDashboard {
             selector: 'edge',
             style: {
               'width': 1,
-              'line-color': getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim(),
               'target-arrow-shape': 'none',
               'curve-style': 'bezier',
               'control-point-step-size': 20
@@ -137,12 +141,14 @@ class TopologyDashboard {
       this.cy.ready(() => {
         this.layoutByTier();
         this.cy!.fit(this.cy!.elements(), 50);
+        this.applyThemeColors();
       });
     } else {
       this.cy.elements().remove();
       this.cy.add(elements);
       this.layoutByTier();
       this.cy.fit(this.cy.elements(), 50);
+      this.applyThemeColors();
     }
   }
 
@@ -170,6 +176,22 @@ class TopologyDashboard {
           });
         });
       });
+  }
+
+  private applyThemeColors(): void {
+    if (!this.cy) return;
+    const textPrimary = getComputedStyle(document.documentElement)
+      .getPropertyValue('--text-primary')
+      .trim();
+    const textSecondary = getComputedStyle(document.documentElement)
+      .getPropertyValue('--text-secondary')
+      .trim();
+    this.cy.style()
+      .selector('node')
+      .style('color', textPrimary)
+      .selector('edge')
+      .style('line-color', textSecondary)
+      .update();
   }
 
   private postMessage(msg: OutboundMessage): void {
