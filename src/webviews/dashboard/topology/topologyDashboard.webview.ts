@@ -436,8 +436,11 @@ class TopologyDashboard {
         });
       }
     };
+    // Register a single double-click handler. Cytoscape triggers both
+    // `dblclick` and `dbltap` events for mouse double clicks, which would
+    // result in this handler firing twice if both listeners are registered.
+    // Using only `dblclick` covers both mouse and touch interactions.
     this.cy.on('dblclick', 'node', dbl);
-    this.cy.on('dbltap', 'node', dbl);
     this.cy.on('tap', 'edge', evt => {
       const raw = evt.target.data('raw');
       const state = evt.target.data('state');
