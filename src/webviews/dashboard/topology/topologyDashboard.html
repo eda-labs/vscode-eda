@@ -1,6 +1,10 @@
 <div class="dashboard">
   <header class="header">
-    <button id="toggleLabelBtn" class="toggle-btn">Hide Labels</button>
+    <select id="labelModeSelect" class="select label-select">
+      <option value="hide">Hide Labels</option>
+      <option value="show">Show Labels</option>
+      <option value="select" selected>Show Link Labels on Select</option>
+    </select>
     <select id="namespaceSelect" class="select"></select>
   </header>
   <div class="body">

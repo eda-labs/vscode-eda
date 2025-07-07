@@ -58,13 +58,13 @@ type OutboundMessage = ReadyMessage | SetNamespaceMessage | SshTopoNodeMessage;
 class TopologyDashboard {
   private readonly vscode = acquireVsCodeApi();
   private readonly nsSelect = document.getElementById('namespaceSelect') as HTMLSelectElement;
-  private readonly toggleLabelBtn = document.getElementById('toggleLabelBtn') as HTMLButtonElement;
+  private readonly labelModeSelect = document.getElementById('labelModeSelect') as HTMLSelectElement;
   private readonly cytoscapeUri: string;
   private readonly nodeIcon: string;
   private readonly infoCard = document.getElementById('infoCard') as HTMLDivElement;
   private cy?: cytoscape.Core;
   private themeObserver?: MutationObserver;
-  private labelsVisible = true;
+  private labelMode: 'hide' | 'show' | 'select' = 'select';
   private zoomHandlerRegistered = false;
 
   constructor() {
@@ -72,7 +72,7 @@ class TopologyDashboard {
     this.cytoscapeUri = bodyEl.dataset.cytoscapeUri ?? '';
     this.nodeIcon = bodyEl.dataset.nodeIcon ?? '';
     this.registerEvents();
-    this.updateToggleButton();
+    this.updateLabelMode();
     void this.loadScript(this.cytoscapeUri).then(() => {
       this.postMessage({ command: 'ready' });
     });
@@ -83,8 +83,8 @@ class TopologyDashboard {
       this.postMessage({ command: 'setNamespace', namespace: this.nsSelect.value });
     });
 
-    this.toggleLabelBtn.addEventListener('click', () => {
-      this.toggleLinkLabels();
+    this.labelModeSelect.addEventListener('change', () => {
+      this.updateLabelMode();
     });
 
     window.addEventListener('message', event => {
@@ -250,7 +250,10 @@ class TopologyDashboard {
             selector: 'edge.highlight',
             style: {
               'line-color': '#ffa500',
-              'width': 3
+              'width': 3,
+              'text-opacity': 1,
+              'source-text-background-opacity': 0.9,
+              'target-text-background-opacity': 0.9
             } as any
           }
         ],
@@ -439,6 +442,7 @@ class TopologyDashboard {
       node.addClass('highlight');
       node.connectedEdges().addClass('highlight');
       this.displayInfo('Node', node.data('raw'));
+      this.updateEdgeLabelVisibility();
     });
     const dbl = (evt: any) => {
       const raw = evt.target.data('raw');
@@ -470,11 +474,13 @@ class TopologyDashboard {
       const sourceState = edge.data('sourceState');
       const targetState = edge.data('targetState');
       this.displayInfo('Link', { ...raw, state, sourceState, targetState });
+      this.updateEdgeLabelVisibility();
     });
 
     this.cy.on('tap', evt => {
       if (evt.target === this.cy) {
         this.clearHighlights();
+        this.updateEdgeLabelVisibility();
       }
     });
   }
@@ -599,12 +605,23 @@ class TopologyDashboard {
 
   private updateEdgeLabelVisibility(): void {
     if (!this.cy) return;
-    const opacity = this.labelsVisible ? 1 : 0;
     this.cy.edges().forEach(edge => {
+      let opacity = 0;
+      let sourceBg = 0;
+      let targetBg = 0;
+      if (this.labelMode === 'show') {
+        opacity = 1;
+        sourceBg = edge.data('sourceInterface') ? 0.9 : 0;
+        targetBg = edge.data('targetInterface') ? 0.9 : 0;
+      } else if (this.labelMode === 'select' && edge.hasClass('highlight')) {
+        opacity = 1;
+        sourceBg = edge.data('sourceInterface') ? 0.9 : 0;
+        targetBg = edge.data('targetInterface') ? 0.9 : 0;
+      }
       edge.style({
         'text-opacity': opacity,
-        'source-text-background-opacity': this.labelsVisible ? 0.9 : 0,
-        'target-text-background-opacity': this.labelsVisible ? 0.9 : 0
+        'source-text-background-opacity': sourceBg,
+        'target-text-background-opacity': targetBg
       } as any);
     });
   }
@@ -632,20 +649,16 @@ class TopologyDashboard {
     });
   }
 
-  private updateToggleButton(): void {
-    if (!this.toggleLabelBtn) return;
-    this.toggleLabelBtn.textContent = this.labelsVisible ? 'Hide Labels' : 'Show Labels';
-  }
-
-  private toggleLinkLabels(): void {
-    this.labelsVisible = !this.labelsVisible;
+  private updateLabelMode(): void {
+    if (!this.labelModeSelect) return;
+    this.labelMode = this.labelModeSelect.value as 'hide' | 'show' | 'select';
     this.updateEdgeLabelVisibility();
-    this.updateToggleButton();
   }
 
   private clearHighlights(): void {
     if (!this.cy) return;
     this.cy.elements().removeClass('highlight');
+    this.updateEdgeLabelVisibility();
   }
 
   private postMessage(msg: OutboundMessage): void {

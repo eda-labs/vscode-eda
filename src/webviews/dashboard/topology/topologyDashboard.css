@@ -46,6 +46,10 @@ body {
   padding: 4px 8px;
 }
 
+.label-select {
+  margin-right: 8px;
+}
+
 .toggle-btn {
   margin-right: 8px;
   padding: 4px 12px;
