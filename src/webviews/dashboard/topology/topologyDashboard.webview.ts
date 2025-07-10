@@ -533,7 +533,7 @@ class TopologyDashboard {
         const tip = edge.popper({
           content: () => content,
           renderedPosition: () =>
-            this.toRenderedPosition(this.edgeLabelPosition(edge, 0.25, 1))
+            this.toRenderedPosition(this.edgeLabelPosition(edge, 0.2, 0))
         }) as TippyInstance;
         tip.show();
         tips.source = tip;
@@ -546,7 +546,7 @@ class TopologyDashboard {
         const tip = edge.popper({
           content: () => content,
           renderedPosition: () =>
-            this.toRenderedPosition(this.edgeLabelPosition(edge, 0.75, -1))
+            this.toRenderedPosition(this.edgeLabelPosition(edge, 0.8, 0))
         }) as TippyInstance;
         tip.show();
         tips.target = tip;
@@ -559,7 +559,7 @@ class TopologyDashboard {
   private edgeLabelPosition(
     edge: cytoscape.EdgeSingular,
     t: number,
-    offsetDir: number
+    _offsetDir: number
   ): { x: number; y: number } {
     const src = edge.sourceEndpoint();
     const tgt = edge.targetEndpoint();
@@ -568,7 +568,8 @@ class TopologyDashboard {
     const dx = tgt.x - src.x;
     const dy = tgt.y - src.y;
     const len = Math.hypot(dx, dy) || 1;
-    const offset = 10 * offsetDir;
+    // Position label directly on the line with no perpendicular offset
+    const offset = 0;
     x += (-dy / len) * offset;
     y += (dx / len) * offset;
     return { x, y };
@@ -921,13 +922,13 @@ class TopologyDashboard {
         const src = edge.data('sourceInterface');
         const tgt = edge.data('targetInterface');
         if (src) {
-          const pos = this.edgeLabelPosition(edge, 0.25, 1);
+          const pos = this.edgeLabelPosition(edge, 0.2, 0);
           const x = (pos.x - bb.x1) * pxRatio;
           const y = (pos.y - bb.y1) * pxRatio;
           createLabel(x, y, src);
         }
         if (tgt) {
-          const pos = this.edgeLabelPosition(edge, 0.75, -1);
+          const pos = this.edgeLabelPosition(edge, 0.8, 0);
           const x = (pos.x - bb.x1) * pxRatio;
           const y = (pos.y - bb.y1) * pxRatio;
           createLabel(x, y, tgt);
