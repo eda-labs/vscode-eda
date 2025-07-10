@@ -17,7 +17,7 @@ export class ResourceBrowserPanel extends BasePanel {
     title: string,
     target?: { group: string; kind: string }
   ) {
-    super(context, 'resourceBrowser', title, undefined, {
+    super(context, 'resourceBrowser', title, { enableFindWidget: true }, {
       light: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-black.svg'),
       dark: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-white.svg')
     });
