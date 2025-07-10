@@ -251,6 +251,63 @@ constructor() {
     return false;
   }
 
+  /** Determine if an EDA namespace should be shown based on the current filter */
+  private namespaceMatches(namespace: string): boolean {
+    if (!this.treeFilter) {
+      return true;
+    }
+    if (this.matchesFilter(namespace)) {
+      return true;
+    }
+    const groups = Object.keys(this.cachedStreamGroups).filter(g => g !== 'kubernetes');
+    for (const group of groups) {
+      const streams = this.cachedStreamGroups[group] || [];
+      for (const s of streams) {
+        if (!this.streamHasData(namespace, s)) {
+          continue;
+        }
+        if (this.streamMatches(namespace, s)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /** Determine if a Kubernetes namespace should be shown based on the current filter */
+  private kubernetesNamespaceMatches(namespace: string): boolean {
+    if (!this.k8sClient) {
+      return false;
+    }
+    if (!this.treeFilter) {
+      return true;
+    }
+    if (this.matchesFilter(namespace)) {
+      return true;
+    }
+    for (const stream of this.k8sStreams) {
+      if (!this.streamHasData(namespace, stream)) {
+        continue;
+      }
+      if (this.streamMatches(namespace, stream)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private kubernetesRootMatches(): boolean {
+    if (!this.k8sClient) {
+      return false;
+    }
+    for (const ns of this.k8sClient.getCachedNamespaces()) {
+      if (this.kubernetesNamespaceMatches(ns)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /**
    * Determine if a stream group should be shown based on the current filter.
    * Matches on the group name or any streams/items within it.
@@ -388,7 +445,11 @@ constructor() {
     }
 
     const sorted = this.cachedNamespaces.slice().sort();
-    return sorted.map(ns => {
+    const items: TreeItemBase[] = [];
+    for (const ns of sorted) {
+      if (!this.namespaceMatches(ns)) {
+        continue;
+      }
       const treeItem = new TreeItemBase(
         ns,
         this.expandAll ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
@@ -396,12 +457,16 @@ constructor() {
       );
       treeItem.iconPath = new vscode.ThemeIcon('package');
       treeItem.namespace = ns;
-      return treeItem;
-    });
+      items.push(treeItem);
+    }
+    return items;
   }
 
   private getKubernetesRoot(): TreeItemBase | undefined {
     if (!this.k8sClient) {
+      return undefined;
+    }
+    if (this.treeFilter && !this.kubernetesRootMatches()) {
       return undefined;
     }
     const item = new TreeItemBase(
@@ -429,7 +494,11 @@ constructor() {
       msgItem.iconPath = new vscode.ThemeIcon('warning');
       return [msgItem];
     }
-    return namespaces.map(ns => {
+    const items: TreeItemBase[] = [];
+    for (const ns of namespaces) {
+      if (!this.kubernetesNamespaceMatches(ns)) {
+        continue;
+      }
       const item = new TreeItemBase(
         ns,
         this.expandAll
@@ -439,8 +508,9 @@ constructor() {
       );
       item.iconPath = this.kubernetesIcon;
       item.namespace = ns;
-      return item;
-    });
+      items.push(item);
+    }
+    return items;
   }
 
   private getKubernetesStreams(namespace: string): TreeItemBase[] {
@@ -469,19 +539,20 @@ constructor() {
       }
 
       const streams = this.cachedStreamGroups[g] || [];
-      const groupMatched = !!this.treeFilter && this.matchesFilter(g);
-      const visible = groupMatched
-        ? streams
-        : streams.filter(s => this.streamMatches(namespace, s));
-      const withData = visible.filter(s => this.streamHasData(namespace, s));
+      const visibleStreams = streams.filter(s => {
+        if (!this.streamHasData(namespace, s)) {
+          return false;
+        }
+        return !this.treeFilter || this.streamMatches(namespace, s);
+      });
 
-      if (withData.length === 0) {
+      if (visibleStreams.length === 0) {
         continue;
       }
 
       if (this.isGroupRedundant(g)) {
-        const s = streams[0];
-        if (!this.streamHasData(namespace, s)) {
+        const s = visibleStreams[0];
+        if (!s) {
           continue;
         }
         const ti = new TreeItemBase(
@@ -510,15 +581,6 @@ constructor() {
       }
     }
 
-    if (items.length === 0 && this.treeFilter) {
-      const noMatch = new TreeItemBase(
-        `No streams match "${this.treeFilter}"`,
-        vscode.TreeItemCollapsibleState.None,
-        'message'
-      );
-      noMatch.iconPath = new vscode.ThemeIcon('info');
-      return [noMatch];
-    }
     return items;
   }
 
@@ -526,30 +588,11 @@ constructor() {
   private getStreamsForGroup(namespace: string, group: string): TreeItemBase[] {
     const streams = (this.cachedStreamGroups[group] || []).slice().sort();
     const items: TreeItemBase[] = [];
-    const parentMatched = !!this.treeFilter && this.matchesFilter(group);
     for (const s of streams) {
-      if (!parentMatched && !this.streamMatches(namespace, s)) {
+      if (!this.streamHasData(namespace, s)) {
         continue;
       }
-      if (group === 'kubernetes') {
-        if (!this.streamHasData(namespace, s)) {
-          continue;
-        }
-        const ti = new TreeItemBase(
-          s,
-          this.expandAll
-            ? vscode.TreeItemCollapsibleState.Expanded
-            : vscode.TreeItemCollapsibleState.Collapsed,
-          'stream'
-        );
-        ti.iconPath = new vscode.ThemeIcon('search-expand-results');
-        ti.namespace = namespace;
-        ti.streamGroup = group;
-        items.push(ti);
-        continue;
-      }
-      const map = this.streamData.get(`${s}:${namespace}`);
-      if (!map || map.size === 0) {
+      if (this.treeFilter && !this.streamMatches(namespace, s)) {
         continue;
       }
       const ti = new TreeItemBase(
@@ -565,15 +608,6 @@ constructor() {
       items.push(ti);
     }
 
-    if (items.length === 0 && this.treeFilter) {
-      const noMatch = new TreeItemBase(
-        `No streams match "${this.treeFilter}"`,
-        vscode.TreeItemCollapsibleState.None,
-        'message'
-      );
-      noMatch.iconPath = new vscode.ThemeIcon('info');
-      return [noMatch];
-    }
     return items;
   }
 
@@ -706,11 +740,6 @@ constructor() {
         }
         out.push(ti);
       }
-      if (out.length === 0 && this.treeFilter && !parentMatched) {
-        const ni = new TreeItemBase(`No items match "${this.treeFilter}"`, vscode.TreeItemCollapsibleState.None, 'message');
-        ni.iconPath = new vscode.ThemeIcon('info');
-        return [ni];
-      }
       return out;
     }
 
@@ -764,16 +793,6 @@ constructor() {
         ti.status = { indicator, description: desc };
       }
       items.push(ti);
-    }
-
-    if (items.length === 0 && this.treeFilter && !parentMatched) {
-      const noItem = new TreeItemBase(
-        `No items match "${this.treeFilter}"`,
-        vscode.TreeItemCollapsibleState.None,
-        'message'
-      );
-      noItem.iconPath = new vscode.ThemeIcon('info');
-      return [noItem];
     }
 
     return items;
