@@ -830,17 +830,6 @@ class TopologyDashboard {
     );
   }
 
-  private buildEdgeExportLabel(edge: cytoscape.EdgeSingular): string {
-    const parts: string[] = [];
-    const src = edge.data('sourceInterface');
-    const tgt = edge.data('targetInterface');
-    const mid = edge.data('label');
-    if (src) parts.push(src);
-    if (mid) parts.push(mid);
-    if (tgt) parts.push(tgt);
-    return parts.join(' ');
-  }
-
   private performExport(): void {
     if (!this.cy) return;
     const includeLabels = this.exportIncludeLabels.checked;
@@ -853,10 +842,9 @@ class TopologyDashboard {
     const edges = this.cy.edges();
     const prevNodeLabels: string[] = [];
     const prevNodeColors: string[] = [];
-    const prevEdgeLabels: { sl: string; tl: string; l: string }[] = [];
-    const prevEdgeColors: string[] = [];
     const prevBorders: string[] = [];
     const prevEdgeWidths: string[] = [];
+    const prevEdgeColors: string[] = [];
 
     nodes.forEach(n => {
       prevNodeLabels.push(n.style('label'));
@@ -870,34 +858,9 @@ class TopologyDashboard {
     });
 
     edges.forEach(e => {
-      prevEdgeLabels.push({
-        sl: e.style('source-label'),
-        tl: e.style('target-label'),
-        l: e.style('label')
-      });
       prevEdgeWidths.push(e.style('width'));
       prevEdgeColors.push(e.style('color'));
-      if (!includeLabels) {
-        e.style('source-label', '');
-        e.style('target-label', '');
-        e.style('label', '');
-        e.style('text-opacity', 0);
-        e.style('source-text-background-opacity', 0);
-        e.style('target-text-background-opacity', 0);
-      } else {
-        e.style('text-opacity', 1);
-        e.style('source-label', e.data('sourceInterface') ?? '');
-        e.style('target-label', e.data('targetInterface') ?? '');
-        e.style('label', this.buildEdgeExportLabel(e));
-        e.style(
-          'source-text-background-opacity',
-          e.data('sourceInterface') ? 0.9 : 0
-        );
-        e.style(
-          'target-text-background-opacity',
-          e.data('targetInterface') ? 0.9 : 0
-        );
-      }
+      // Native Cytoscape labels are suppressed during export
       e.style('width', linkThickness);
       e.style('color', fontColor);
     });
@@ -907,7 +870,73 @@ class TopologyDashboard {
       svgOpts.bg = bgColor;
     }
 
-    const svg = this.cy.svg(svgOpts);
+    let svg = this.cy.svg(svgOpts);
+
+    if (includeLabels) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(svg, 'image/svg+xml');
+      const root = doc.documentElement;
+
+      const style = getComputedStyle(document.documentElement);
+      const bg = style.getPropertyValue('--edge-label-bg').trim() || '#fff';
+      const border = style.getPropertyValue('--edge-label-border').trim() || '#000';
+      const bb = this.cy.elements().boundingBox();
+      const pxRatio = (this.cy as any).renderer().getPixelRatio();
+
+      const createLabel = (x: number, y: number, text: string) => {
+        const paddingX = 6;
+        const paddingY = 2;
+        const fontSize = 10;
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d')!;
+        ctx.font = `500 ${fontSize}px sans-serif`;
+        const width = ctx.measureText(text).width + paddingX * 2;
+        const height = fontSize + paddingY * 2;
+
+        const g = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
+        const rect = doc.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', String(x - width / 2));
+        rect.setAttribute('y', String(y - height / 2));
+        rect.setAttribute('width', String(width));
+        rect.setAttribute('height', String(height));
+        rect.setAttribute('fill', bg);
+        rect.setAttribute('stroke', border);
+        rect.setAttribute('rx', '3');
+        rect.setAttribute('ry', '3');
+        g.appendChild(rect);
+
+        const textEl = doc.createElementNS('http://www.w3.org/2000/svg', 'text');
+        textEl.setAttribute('x', String(x));
+        textEl.setAttribute('y', String(y + fontSize / 2 - 1));
+        textEl.setAttribute('text-anchor', 'middle');
+        textEl.setAttribute('font-size', String(fontSize));
+        textEl.setAttribute('font-weight', '500');
+        textEl.setAttribute('fill', fontColor);
+        textEl.textContent = text;
+        g.appendChild(textEl);
+        root.appendChild(g);
+      };
+
+      edges.forEach(edge => {
+        const src = edge.data('sourceInterface');
+        const tgt = edge.data('targetInterface');
+        if (src) {
+          const pos = this.edgeLabelPosition(edge, 0.25, 1);
+          const x = (pos.x - bb.x1) * pxRatio;
+          const y = (pos.y - bb.y1) * pxRatio;
+          createLabel(x, y, src);
+        }
+        if (tgt) {
+          const pos = this.edgeLabelPosition(edge, 0.75, -1);
+          const x = (pos.x - bb.x1) * pxRatio;
+          const y = (pos.y - bb.y1) * pxRatio;
+          createLabel(x, y, tgt);
+        }
+      });
+
+      svg = new XMLSerializer().serializeToString(doc);
+    }
+
     const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -922,9 +951,6 @@ class TopologyDashboard {
       n.style('border-width', prevBorders[idx]);
     });
     edges.forEach((e, idx) => {
-      e.style('source-label', prevEdgeLabels[idx].sl);
-      e.style('target-label', prevEdgeLabels[idx].tl);
-      e.style('label', prevEdgeLabels[idx].l);
       e.style('color', prevEdgeColors[idx]);
       e.style('width', prevEdgeWidths[idx]);
     });
