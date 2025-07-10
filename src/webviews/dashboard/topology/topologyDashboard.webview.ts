@@ -73,7 +73,7 @@ const tippyFactory = (ref: any, content: HTMLElement): TippyInstance => {
     placement: 'top',
     hideOnClick: false,
     sticky: 'reference',
-    appendTo: () => document.body,
+    appendTo: () => document.getElementById('cy') ?? document.body,
     theme: 'edge-label'
   });
   return tip;
@@ -100,6 +100,7 @@ class TopologyDashboard {
   private themeObserver?: MutationObserver;
   private labelMode: 'hide' | 'show' | 'select' = 'select';
   private zoomHandlerRegistered = false;
+  private tippyUpdateRegistered = false;
   private currentNamespace?: string;
   private edgeTippies: Map<string, { source?: TippyInstance; target?: TippyInstance }> = new Map();
 
@@ -274,30 +275,6 @@ class TopologyDashboard {
             } as any
           },
           {
-            selector: 'edge[sourceInterface]',
-            style: {
-              'source-label': 'data(sourceInterface)',
-              'source-text-offset': 15,
-              'font-size': 9,
-              'source-text-background-color': 'white',
-              'source-text-background-opacity': 0.9,
-              'source-text-background-padding': '2px',
-              'source-text-background-shape': 'roundrectangle'
-            } as any
-          },
-          {
-            selector: 'edge[targetInterface]',
-            style: {
-              'target-label': 'data(targetInterface)',
-              'target-text-offset': 15,
-              'font-size': 9,
-              'target-text-background-color': 'white',
-              'target-text-background-opacity': 0.9,
-              'target-text-background-padding': '2px',
-              'target-text-background-shape': 'roundrectangle'
-            } as any
-          },
-          {
             selector: 'node.highlight',
             style: {
               'border-width': 2,
@@ -308,10 +285,7 @@ class TopologyDashboard {
             selector: 'edge.highlight',
             style: {
               'line-color': '#ffa500',
-              'width': 3,
-              'text-opacity': 1,
-              'source-text-background-opacity': 0.9,
-              'target-text-background-opacity': 0.9
+              'width': 3
             } as any
           }
         ],
@@ -326,7 +300,6 @@ class TopologyDashboard {
       this.cy.ready(() => {
         this.layoutByTier();
         this.adjustEdgeCurves();
-        this.adjustEdgeLabels();
         this.createEdgeTippies();
         this.cy!.fit(this.cy!.elements(), 50);
         this.applyThemeColors();
@@ -340,7 +313,6 @@ class TopologyDashboard {
       this.cy.add(elements);
       this.layoutByTier();
       this.adjustEdgeCurves();
-      this.adjustEdgeLabels();
       this.createEdgeTippies();
       this.cy.fit(this.cy.elements(), 50);
       this.applyThemeColors();
@@ -436,7 +408,6 @@ class TopologyDashboard {
       });
 
       this.adjustEdgeCurves();
-      this.adjustEdgeLabels();
       this.createEdgeTippies();
       this.applyThemeColors();
       this.updateEdgeLabelVisibility();
@@ -534,61 +505,6 @@ class TopologyDashboard {
     });
   }
 
-  private adjustEdgeLabels(): void {
-    if (!this.cy) return;
-
-    // Adjust labels for each edge
-    this.cy.edges().forEach(edge => {
-      const sourcePos = edge.source().position();
-      const targetPos = edge.target().position();
-
-      // Calculate angle of the edge
-      const dx = targetPos.x - sourcePos.x;
-      const dy = targetPos.y - sourcePos.y;
-      const angle = Math.atan2(dy, dx);
-      const angleDeg = Math.abs(angle * 180 / Math.PI);
-
-      // Check if edge is mostly vertical (between 60-120 degrees or 240-300 degrees)
-      const isVertical = (angleDeg > 60 && angleDeg < 120) || (angleDeg > 240 && angleDeg < 300);
-
-      if (isVertical) {
-        // For vertical edges, position labels extremely close to the edge line
-        if (edge.data('sourceInterface')) {
-          edge.style({
-            'source-text-rotation': 'none',
-            'source-text-margin-x': 2,
-            'source-text-margin-y': 0
-          } as any);
-        }
-
-        if (edge.data('targetInterface')) {
-          edge.style({
-            'target-text-rotation': 'none',
-            'target-text-margin-x': 2,
-            'target-text-margin-y': 0
-          } as any);
-        }
-      } else {
-        // For non-vertical edges, use autorotate
-        if (edge.data('sourceInterface')) {
-          edge.style({
-            'source-text-rotation': 'autorotate',
-            'source-text-margin-x': 0,
-            'source-text-margin-y': -8
-          } as any);
-        }
-
-        if (edge.data('targetInterface')) {
-          edge.style({
-            'target-text-rotation': 'autorotate',
-            'target-text-margin-x': 0,
-            'target-text-margin-y': -8
-          } as any);
-        }
-      }
-    });
-  }
-
   private createEdgeTippies(): void {
     if (!this.cy) return;
 
@@ -598,6 +514,8 @@ class TopologyDashboard {
       tips.target?.destroy();
     });
     this.edgeTippies.clear();
+
+    this.registerEdgeTippyUpdates();
 
     this.cy.edges().forEach(edge => {
       const src = edge.data('sourceInterface');
@@ -612,7 +530,8 @@ class TopologyDashboard {
         content.textContent = src;
         const tip = edge.popper({
           content: () => content,
-          renderedPosition: () => this.toRenderedPosition(edge.sourceEndpoint())
+          renderedPosition: () =>
+            this.toRenderedPosition(this.edgeLabelPosition(edge, 0.25, 1))
         }) as TippyInstance;
         tip.show();
         tips.source = tip;
@@ -624,7 +543,8 @@ class TopologyDashboard {
         content.textContent = tgt;
         const tip = edge.popper({
           content: () => content,
-          renderedPosition: () => this.toRenderedPosition(edge.targetEndpoint())
+          renderedPosition: () =>
+            this.toRenderedPosition(this.edgeLabelPosition(edge, 0.75, -1))
         }) as TippyInstance;
         tip.show();
         tips.target = tip;
@@ -634,11 +554,44 @@ class TopologyDashboard {
     });
   }
 
+  private edgeLabelPosition(
+    edge: cytoscape.EdgeSingular,
+    t: number,
+    offsetDir: number
+  ): { x: number; y: number } {
+    const src = edge.sourceEndpoint();
+    const tgt = edge.targetEndpoint();
+    let x = src.x + (tgt.x - src.x) * t;
+    let y = src.y + (tgt.y - src.y) * t;
+    const dx = tgt.x - src.x;
+    const dy = tgt.y - src.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const offset = 10 * offsetDir;
+    x += (-dy / len) * offset;
+    y += (dx / len) * offset;
+    return { x, y };
+  }
+
   private toRenderedPosition(point: { x: number; y: number }): { x: number; y: number } {
     if (!this.cy) return point;
     const pan = this.cy.pan();
     const zoom = this.cy.zoom();
     return { x: point.x * zoom + pan.x, y: point.y * zoom + pan.y };
+  }
+
+  private registerEdgeTippyUpdates(): void {
+    if (!this.cy || this.tippyUpdateRegistered) return;
+    this.tippyUpdateRegistered = true;
+    const update = () => this.updateEdgeTippyPositions();
+    this.cy.on('pan zoom resize', update);
+    this.cy.on('position', 'node', update);
+  }
+
+  private updateEdgeTippyPositions(): void {
+    this.edgeTippies.forEach(tips => {
+      tips.source?.popperInstance?.update();
+      tips.target?.popperInstance?.update();
+    });
   }
 
   private registerCyClickEvents(): void {
@@ -759,9 +712,6 @@ class TopologyDashboard {
     const textSecondary = getComputedStyle(document.documentElement)
       .getPropertyValue('--text-secondary')
       .trim();
-    const bgPrimary = getComputedStyle(document.documentElement)
-      .getPropertyValue('--bg-primary')
-      .trim();
 
     this.cy.style()
       .selector('node')
@@ -771,16 +721,6 @@ class TopologyDashboard {
       })
       .selector('edge')
       .style('line-color', textSecondary)
-      .selector('edge[sourceInterface]')
-      .style({
-        'color': textSecondary,
-        'source-text-background-color': bgPrimary
-      } as any)
-      .selector('edge[targetInterface]')
-      .style({
-        'color': textSecondary,
-        'target-text-background-color': bgPrimary
-      } as any)
       .update();
 
     this.updateEdgeColors();
