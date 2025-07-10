@@ -83,12 +83,29 @@ export class SchemaProviderService extends CoreService {
       for (const [name, schema] of Object.entries<any>(schemas)) {
         const kind =
           schema?.properties?.kind?.default ||
-          (Array.isArray(schema?.properties?.kind?.enum) ? schema.properties.kind.enum[0] : undefined) ||
+          (Array.isArray(schema?.properties?.kind?.enum)
+            ? schema.properties.kind.enum[0]
+            : undefined) ||
           name.split('.').pop();
         if (typeof kind === 'string') {
           const schemaPath = path.join(this.schemaCacheDir, `${kind.toLowerCase()}.json`);
-          await fs.promises.writeFile(schemaPath, JSON.stringify(schema, null, 2));
-          this.schemaCache.set(kind, schemaPath);
+
+          // Prefer schemas that include metadata/spec over bare definitions
+          let existingPriority = -1;
+          if (fs.existsSync(schemaPath)) {
+            try {
+              const existing = JSON.parse(await fs.promises.readFile(schemaPath, 'utf8'));
+              existingPriority =
+                existing?.properties?.metadata || existing?.properties?.spec ? 1 : 0;
+            } catch {
+              existingPriority = 0;
+            }
+          }
+          const newPriority = schema?.properties?.metadata || schema?.properties?.spec ? 1 : 0;
+          if (newPriority >= existingPriority) {
+            await fs.promises.writeFile(schemaPath, JSON.stringify(schema, null, 2));
+            this.schemaCache.set(kind, schemaPath);
+          }
         }
       }
     } catch (err) {
