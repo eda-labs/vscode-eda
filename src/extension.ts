@@ -360,9 +360,9 @@ export async function activate(context: vscode.ExtensionContext) {
     registerResourceCreateCommand(context, resourceEditProvider);
     registerResourceEditCommands(context, resourceEditProvider, resourceViewProvider);
 
-    if (k8sClient) {
-      registerResourceViewCommands(context, resourceViewProvider);
+    registerResourceViewCommands(context, resourceViewProvider);
 
+    if (k8sClient) {
       podDescribeProvider = new PodDescribeDocumentProvider();
       context.subscriptions.push(
         vscode.workspace.registerFileSystemProvider('k8s-describe', podDescribeProvider, { isCaseSensitive: true })
