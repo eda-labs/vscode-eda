@@ -13,7 +13,7 @@ export function registerDashboardCommands(context: vscode.ExtensionContext): voi
       ToponodesDashboardPanel.show(context, name);
     } else if (name === 'Topology') {
       TopologyDashboardPanel.show(context, name);
-    } else if (name === 'Ressource Browser') {
+    } else if (name === 'Resource Browser') {
       ResourceBrowserPanel.show(context, name);
     } else {
       FabricDashboardPanel.show(context, name || 'Fabric');

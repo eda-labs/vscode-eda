@@ -162,7 +162,7 @@
       },
       {
         "command": "vscode-eda.openResourceBrowser",
-        "title": "EDA: Open Ressource Browser",
+        "title": "EDA: Open Resource Browser",
         "icon": "$(list-tree)"
       },
       {

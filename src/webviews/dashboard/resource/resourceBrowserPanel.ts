@@ -52,7 +52,7 @@ export class ResourceBrowserPanel extends BasePanel {
       );
       return fs.readFileSync(filePath, 'utf8');
     } catch (err) {
-      console.error('Failed to load Ressource Browser HTML', err);
+      console.error('Failed to load Resource Browser HTML', err);
       return '';
     }
   }
@@ -70,7 +70,7 @@ export class ResourceBrowserPanel extends BasePanel {
       );
       return fs.readFileSync(filePath, 'utf8');
     } catch (err) {
-      console.error('Failed to load Ressource Browser CSS', err);
+      console.error('Failed to load Resource Browser CSS', err);
       return '';
     }
   }

@@ -5,7 +5,7 @@
 - Brand new extension with many new features
 
 ## [0.2.5] - 2025-24-03
-- Fallback to kubectl get if ressource is not available via edactl
+- Fallback to kubectl get if resource is not available via edactl
 - Added delete resource functionality
 - Restart of deployments is now possible
 

@@ -43,7 +43,7 @@ export function registerResourceBrowserCommand(
         }
       }
 
-      ResourceBrowserPanel.show(context, 'Ressource Browser', target);
+      ResourceBrowserPanel.show(context, 'Resource Browser', target);
     }
   );
   context.subscriptions.push(cmd);
