@@ -526,6 +526,11 @@ class TopologyDashboard {
 
       const tips: { source?: TippyInstance; target?: TippyInstance } = {};
 
+      const pairIdx = edge.data('pairIndex') || 0;
+      const sign = pairIdx % 2 === 0 ? 1 : -1;
+      const magnitude = Math.floor(pairIdx / 2) + 1;
+      const offset = sign * magnitude * 8;
+
       if (src) {
         const content = document.createElement('div');
         content.classList.add('cy-edge-label');
@@ -533,7 +538,7 @@ class TopologyDashboard {
         const tip = edge.popper({
           content: () => content,
           renderedPosition: () =>
-            this.toRenderedPosition(this.edgeLabelPosition(edge, 0.2, 0))
+            this.toRenderedPosition(this.edgeLabelPosition(edge, 0.2, offset))
         }) as TippyInstance;
         tip.show();
         tips.source = tip;
@@ -546,7 +551,7 @@ class TopologyDashboard {
         const tip = edge.popper({
           content: () => content,
           renderedPosition: () =>
-            this.toRenderedPosition(this.edgeLabelPosition(edge, 0.8, 0))
+            this.toRenderedPosition(this.edgeLabelPosition(edge, 0.8, offset))
         }) as TippyInstance;
         tip.show();
         tips.target = tip;
@@ -559,7 +564,7 @@ class TopologyDashboard {
   private edgeLabelPosition(
     edge: cytoscape.EdgeSingular,
     t: number,
-    _offsetDir: number
+    offset: number
   ): { x: number; y: number } {
     const src = edge.sourceEndpoint();
     const tgt = edge.targetEndpoint();
@@ -568,8 +573,6 @@ class TopologyDashboard {
     const dx = tgt.x - src.x;
     const dy = tgt.y - src.y;
     const len = Math.hypot(dx, dy) || 1;
-    // Position label directly on the line with no perpendicular offset
-    const offset = 0;
     x += (-dy / len) * offset;
     y += (dx / len) * offset;
     return { x, y };
@@ -921,14 +924,18 @@ class TopologyDashboard {
       edges.forEach(edge => {
         const src = edge.data('sourceInterface');
         const tgt = edge.data('targetInterface');
+        const pairIdx = edge.data('pairIndex') || 0;
+        const sign = pairIdx % 2 === 0 ? 1 : -1;
+        const magnitude = Math.floor(pairIdx / 2) + 1;
+        const offset = sign * magnitude * 8;
         if (src) {
-          const pos = this.edgeLabelPosition(edge, 0.2, 0);
+          const pos = this.edgeLabelPosition(edge, 0.2, offset);
           const x = (pos.x - bb.x1) * pxRatio;
           const y = (pos.y - bb.y1) * pxRatio;
           createLabel(x, y, src);
         }
         if (tgt) {
-          const pos = this.edgeLabelPosition(edge, 0.8, 0);
+          const pos = this.edgeLabelPosition(edge, 0.8, offset);
           const x = (pos.x - bb.x1) * pxRatio;
           const y = (pos.y - bb.y1) * pxRatio;
           createLabel(x, y, tgt);
