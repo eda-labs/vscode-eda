@@ -24,6 +24,7 @@ export class EdaSpecManager {
   private streamEndpoints: StreamEndpoint[] = [];
   private namespaceSet: Set<string> = new Set();
   private operationMap: Map<string, string> = new Map();
+  private cacheBaseDir = path.join(os.homedir(), '.eda', 'vscode');
   private initPromise: Promise<void> = Promise.resolve();
   private apiClient: EdaApiClient;
   private coreNamespace: string;
@@ -137,12 +138,8 @@ export class EdaSpecManager {
       const nsPath = this.findPathByOperationId(coreSpec, 'accessGetNamespaces');
       const versionPath = this.findPathByOperationId(coreSpec, 'versionGet');
       this.apiVersion = await this.fetchVersion(versionPath);
-      let endpoints = await this.loadCachedSpecs(this.apiVersion);
-      if (endpoints.length > 0) {
-        log(`Loaded cached API specs for version ${this.apiVersion}`, LogLevel.INFO);
-      } else {
-        endpoints = await this.fetchAndWriteAllSpecs(apiRoot, this.apiVersion);
-      }
+      const endpoints = await this.fetchAndWriteAllSpecs(apiRoot, this.apiVersion);
+      log(`Fetched API specs for version ${this.apiVersion}`, LogLevel.INFO);
       this.streamEndpoints = this.deduplicateEndpoints(endpoints);
       log(`Discovered ${this.streamEndpoints.length} stream endpoints`, LogLevel.DEBUG);
 
@@ -235,36 +232,9 @@ export class EdaSpecManager {
     return Array.from(result.values());
   }
 
-  private async loadCachedSpecs(version: string): Promise<StreamEndpoint[]> {
-    const versionDir = path.join(os.homedir(), '.eda', version);
-    const endpoints: StreamEndpoint[] = [];
-    try {
-      const categories = await fs.promises.readdir(versionDir, { withFileTypes: true });
-      for (const cat of categories) {
-        if (!cat.isDirectory()) continue;
-        const catDir = path.join(versionDir, cat.name);
-        const files = await fs.promises.readdir(catDir);
-        for (const file of files) {
-          if (!file.endsWith('.json')) continue;
-          const specPath = path.join(catDir, file);
-          try {
-            const raw = await fs.promises.readFile(specPath, 'utf8');
-            const spec = JSON.parse(raw);
-            this.collectOperationPaths(spec);
-            endpoints.push(...this.collectStreamEndpoints(spec));
-          } catch (err) {
-            log(`Failed to read cached spec ${specPath}: ${err}`, LogLevel.WARN);
-          }
-        }
-      }
-    } catch (err) {
-      log(`No cached specs found for version ${version}: ${err}`, LogLevel.DEBUG);
-    }
-    return endpoints;
-  }
 
   private async writeSpecAndTypes(spec: any, name: string, version: string, category: string): Promise<void> {
-    const versionDir = path.join(os.homedir(), '.eda', version, category);
+    const versionDir = path.join(this.cacheBaseDir, version, category);
     await fs.promises.mkdir(versionDir, { recursive: true });
     const jsonPath = path.join(versionDir, `${name}.json`);
     await fs.promises.writeFile(jsonPath, JSON.stringify(spec, null, 2));

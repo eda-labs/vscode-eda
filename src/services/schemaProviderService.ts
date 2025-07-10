@@ -19,7 +19,7 @@ export class SchemaProviderService extends CoreService {
 
   constructor() {
     super();
-    this.schemaCacheDir = path.join(os.homedir(), '.eda', 'schemas');
+    this.schemaCacheDir = path.join(os.homedir(), '.eda', 'vscode', 'schemas');
     if (!fs.existsSync(this.schemaCacheDir)) {
       fs.mkdirSync(this.schemaCacheDir, { recursive: true });
     }
@@ -61,7 +61,7 @@ export class SchemaProviderService extends CoreService {
   }
 
   private async findSpecDir(): Promise<string> {
-    const baseDir = path.join(os.homedir(), '.eda');
+    const baseDir = path.join(os.homedir(), '.eda', 'vscode');
     try {
       const entries = await fs.promises.readdir(baseDir, { withFileTypes: true });
       const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
