@@ -131,6 +131,11 @@ body {
   font-weight: 500;
 }
 
+.tippy-box[data-theme~='edge-label'] {
+  background: transparent;
+  padding: 0;
+}
+
 /* Export popup */
 .popup {
   position: fixed;

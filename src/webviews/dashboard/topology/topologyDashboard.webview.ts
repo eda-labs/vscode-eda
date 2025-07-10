@@ -3,6 +3,8 @@ declare function acquireVsCodeApi(): {
 };
 
 import type cytoscape from 'cytoscape';
+import cytoscapePopper from 'cytoscape-popper';
+import tippy, { Instance as TippyInstance } from 'tippy.js';
 
 declare module 'cytoscape' {
   interface Core {
@@ -61,6 +63,22 @@ interface SshTopoNodeMessage {
 
 type OutboundMessage = ReadyMessage | SetNamespaceMessage | SshTopoNodeMessage;
 
+const tippyFactory = (ref: any, content: HTMLElement): TippyInstance => {
+  const dummyDomEle = document.createElement('div');
+  const tip = tippy(dummyDomEle, {
+    getReferenceClientRect: ref.getBoundingClientRect,
+    trigger: 'manual',
+    content,
+    arrow: false,
+    placement: 'top',
+    hideOnClick: false,
+    sticky: 'reference',
+    appendTo: () => document.body,
+    theme: 'edge-label'
+  });
+  return tip;
+};
+
 class TopologyDashboard {
   private readonly vscode = acquireVsCodeApi();
   private readonly nsSelect = document.getElementById('namespaceSelect') as HTMLSelectElement;
@@ -83,6 +101,7 @@ class TopologyDashboard {
   private labelMode: 'hide' | 'show' | 'select' = 'select';
   private zoomHandlerRegistered = false;
   private currentNamespace?: string;
+  private edgeTippies: Map<string, { source?: TippyInstance; target?: TippyInstance }> = new Map();
 
   constructor() {
     const bodyEl = document.body as HTMLBodyElement;
@@ -94,6 +113,10 @@ class TopologyDashboard {
     void this.loadScript(this.cytoscapeUri)
       .then(() => this.loadScript(this.cytoscapeSvgUri))
       .then(() => {
+        const win = window as unknown as { cytoscape: any };
+        if (win.cytoscape) {
+          win.cytoscape.use(cytoscapePopper(tippyFactory));
+        }
         this.postMessage({ command: 'ready' });
       });
   }
@@ -304,6 +327,7 @@ class TopologyDashboard {
         this.layoutByTier();
         this.adjustEdgeCurves();
         this.adjustEdgeLabels();
+        this.createEdgeTippies();
         this.cy!.fit(this.cy!.elements(), 50);
         this.applyThemeColors();
         this.updateEdgeLabelVisibility();
@@ -317,6 +341,7 @@ class TopologyDashboard {
       this.layoutByTier();
       this.adjustEdgeCurves();
       this.adjustEdgeLabels();
+      this.createEdgeTippies();
       this.cy.fit(this.cy.elements(), 50);
       this.applyThemeColors();
       this.updateEdgeLabelVisibility();
@@ -412,6 +437,7 @@ class TopologyDashboard {
 
       this.adjustEdgeCurves();
       this.adjustEdgeLabels();
+      this.createEdgeTippies();
       this.applyThemeColors();
       this.updateEdgeLabelVisibility();
       this.registerCustomZoom();
@@ -561,6 +587,58 @@ class TopologyDashboard {
         }
       }
     });
+  }
+
+  private createEdgeTippies(): void {
+    if (!this.cy) return;
+
+    // Remove existing tippies
+    this.edgeTippies.forEach(tips => {
+      tips.source?.destroy();
+      tips.target?.destroy();
+    });
+    this.edgeTippies.clear();
+
+    this.cy.edges().forEach(edge => {
+      const src = edge.data('sourceInterface');
+      const tgt = edge.data('targetInterface');
+      if (!src && !tgt) return;
+
+      const tips: { source?: TippyInstance; target?: TippyInstance } = {};
+
+      if (src) {
+        const content = document.createElement('div');
+        content.classList.add('cy-edge-label');
+        content.textContent = src;
+        const tip = edge.popper({
+          content: () => content,
+          renderedPosition: () => this.toRenderedPosition(edge.sourceEndpoint())
+        }) as TippyInstance;
+        tip.show();
+        tips.source = tip;
+      }
+
+      if (tgt) {
+        const content = document.createElement('div');
+        content.classList.add('cy-edge-label');
+        content.textContent = tgt;
+        const tip = edge.popper({
+          content: () => content,
+          renderedPosition: () => this.toRenderedPosition(edge.targetEndpoint())
+        }) as TippyInstance;
+        tip.show();
+        tips.target = tip;
+      }
+
+      this.edgeTippies.set(edge.id(), tips);
+    });
+  }
+
+  private toRenderedPosition(point: { x: number; y: number }): { x: number; y: number } {
+    if (!this.cy) return point;
+    const pan = this.cy.pan();
+    const zoom = this.cy.zoom();
+    return { x: point.x * zoom + pan.x, y: point.y * zoom + pan.y };
   }
 
   private registerCyClickEvents(): void {
@@ -735,22 +813,21 @@ class TopologyDashboard {
   private updateEdgeLabelVisibility(): void {
     if (!this.cy) return;
     this.cy.edges().forEach(edge => {
-      let opacity = 0;
-      let sourceBg = 0;
-      let targetBg = 0;
+      const tips = this.edgeTippies.get(edge.id());
+      let show = false;
       if (this.labelMode === 'show') {
-        opacity = 1;
-        sourceBg = edge.data('sourceInterface') ? 0.9 : 0;
-        targetBg = edge.data('targetInterface') ? 0.9 : 0;
+        show = true;
       } else if (this.labelMode === 'select' && edge.hasClass('highlight')) {
-        opacity = 1;
-        sourceBg = edge.data('sourceInterface') ? 0.9 : 0;
-        targetBg = edge.data('targetInterface') ? 0.9 : 0;
+        show = true;
+      }
+      if (tips) {
+        tips.source && (show ? tips.source.show() : tips.source.hide());
+        tips.target && (show ? tips.target.show() : tips.target.hide());
       }
       edge.style({
-        'text-opacity': opacity,
-        'source-text-background-opacity': sourceBg,
-        'target-text-background-opacity': targetBg
+        'text-opacity': 0,
+        'source-text-background-opacity': 0,
+        'target-text-background-opacity': 0
       } as any);
     });
   }
