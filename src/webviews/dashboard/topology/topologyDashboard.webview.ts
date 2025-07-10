@@ -74,7 +74,9 @@ const tippyFactory = (ref: any, content: HTMLElement): TippyInstance => {
     hideOnClick: false,
     sticky: 'reference',
     appendTo: () => document.getElementById('cy') ?? document.body,
-    theme: 'edge-label'
+    theme: 'edge-label',
+    // Ensure edge labels don't overlap UI elements like the SVG export menu
+    zIndex: 10
   });
   return tip;
 };
