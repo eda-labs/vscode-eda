@@ -272,8 +272,8 @@ class TopologyDashboard {
               'curve-style': 'unbundled-bezier',
               'control-point-distances': 'data(dist)',
               'control-point-weights': 'data(weight)',
-              'source-endpoint': 'outside-to-node',
-              'target-endpoint': 'outside-to-node'
+              'source-endpoint': 'outside-to-line',
+              'target-endpoint': 'outside-to-line'
             } as any
           },
           {
