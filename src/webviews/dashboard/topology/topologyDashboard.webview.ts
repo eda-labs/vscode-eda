@@ -104,7 +104,9 @@ class TopologyDashboard {
   private zoomHandlerRegistered = false;
   private tippyUpdateRegistered = false;
   private currentNamespace?: string;
-  private edgeTippies: Map<string, { source?: TippyInstance; target?: TippyInstance }> = new Map();
+  private readonly baseNodeFontSize = 12;
+  private readonly baseEdgeFontSize = 10;
+  private edgeTippies: Map<string, { source?: { tip: TippyInstance; el: HTMLElement }; target?: { tip: TippyInstance; el: HTMLElement } }> = new Map();
 
   constructor() {
     const bodyEl = document.body as HTMLBodyElement;
@@ -512,8 +514,8 @@ class TopologyDashboard {
 
     // Remove existing tippies
     this.edgeTippies.forEach(tips => {
-      tips.source?.destroy();
-      tips.target?.destroy();
+      tips.source?.tip.destroy();
+      tips.target?.tip.destroy();
     });
     this.edgeTippies.clear();
 
@@ -524,9 +526,11 @@ class TopologyDashboard {
       const tgt = edge.data('targetInterface');
       if (!src && !tgt) return;
 
-      const tips: { source?: TippyInstance; target?: TippyInstance } = {};
+    const tips: { source?: { tip: TippyInstance; el: HTMLElement }; target?: { tip: TippyInstance; el: HTMLElement } } = {};
 
       const offset = 0; // Place labels directly on the curve
+      const orient = edge.target().position('y') > edge.source().position('y') ? 1 : -1;
+      const shift = orient * 0.1;
 
       if (src) {
         const content = document.createElement('div');
@@ -535,10 +539,10 @@ class TopologyDashboard {
         const tip = edge.popper({
           content: () => content,
           renderedPosition: () =>
-            this.toRenderedPosition(this.edgeLabelPosition(edge, 0.2, offset))
+            this.toRenderedPosition(this.edgeLabelPosition(edge, 0.2, offset, true, shift))
         }) as TippyInstance;
         tip.show();
-        tips.source = tip;
+        tips.source = { tip, el: content };
       }
 
       if (tgt) {
@@ -548,20 +552,24 @@ class TopologyDashboard {
         const tip = edge.popper({
           content: () => content,
           renderedPosition: () =>
-            this.toRenderedPosition(this.edgeLabelPosition(edge, 0.8, offset))
+            this.toRenderedPosition(this.edgeLabelPosition(edge, 0.2, offset, false, shift))
         }) as TippyInstance;
         tip.show();
-        tips.target = tip;
+        tips.target = { tip, el: content };
       }
 
       this.edgeTippies.set(edge.id(), tips);
     });
+
+    this.updateLabelScale();
   }
 
   private edgeLabelPosition(
     edge: cytoscape.EdgeSingular,
-    t: number,
-    offset: number
+    ratio: number,
+    offset: number,
+    fromSource = true,
+    shift = 0
   ): { x: number; y: number } {
     const src = edge.sourceEndpoint();
     const tgt = edge.targetEndpoint();
@@ -574,6 +582,14 @@ class TopologyDashboard {
     const len = Math.hypot(dx, dy) || 1;
     const cx = src.x + dx * weight - (dy / len) * dist;
     const cy = src.y + dy * weight + (dx / len) * dist;
+
+    const control = { x: cx, y: cy };
+
+    let t = fromSource
+      ? this.tAtArcRatio(src, control, tgt, ratio)
+      : 1 - this.tAtArcRatio(tgt, control, src, ratio);
+
+    t = Math.max(0, Math.min(1, t + shift));
 
     // Quadratic Bezier point at parameter t
     const ax = (1 - t) * (1 - t) * src.x + 2 * (1 - t) * t * cx + t * t * tgt.x;
@@ -590,6 +606,53 @@ class TopologyDashboard {
     return { x: ax + nx * offset, y: ay + ny * offset };
   }
 
+  private tAtArcRatio(
+    p0: { x: number; y: number },
+    p1: { x: number; y: number },
+    p2: { x: number; y: number },
+    ratio: number
+  ): number {
+    if (ratio <= 0) return 0;
+    if (ratio >= 1) return 1;
+    const total = this.approxArcLength(p0, p1, p2, 1);
+    const target = total * ratio;
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 10; i++) {
+      const mid = (lo + hi) / 2;
+      const len = this.approxArcLength(p0, p1, p2, mid);
+      if (len < target) {
+        lo = mid;
+      } else {
+        hi = mid;
+      }
+    }
+    return (lo + hi) / 2;
+  }
+
+  private approxArcLength(
+    p0: { x: number; y: number },
+    p1: { x: number; y: number },
+    p2: { x: number; y: number },
+    t: number,
+    steps = 16
+  ): number {
+    let length = 0;
+    let prevX = p0.x;
+    let prevY = p0.y;
+    for (let i = 1; i <= steps; i++) {
+      const ti = t * (i / steps);
+      const x =
+        (1 - ti) * (1 - ti) * p0.x + 2 * (1 - ti) * ti * p1.x + ti * ti * p2.x;
+      const y =
+        (1 - ti) * (1 - ti) * p0.y + 2 * (1 - ti) * ti * p1.y + ti * ti * p2.y;
+      length += Math.hypot(x - prevX, y - prevY);
+      prevX = x;
+      prevY = y;
+    }
+    return length;
+  }
+
   private toRenderedPosition(point: { x: number; y: number }): { x: number; y: number } {
     if (!this.cy) return point;
     const pan = this.cy.pan();
@@ -603,12 +666,26 @@ class TopologyDashboard {
     const update = () => this.updateEdgeTippyPositions();
     this.cy.on('pan zoom resize', update);
     this.cy.on('position', 'node', update);
+    this.cy.on('zoom', () => this.updateLabelScale());
   }
 
   private updateEdgeTippyPositions(): void {
     this.edgeTippies.forEach(tips => {
-      tips.source?.popperInstance?.update();
-      tips.target?.popperInstance?.update();
+      tips.source?.tip.popperInstance?.update();
+      tips.target?.tip.popperInstance?.update();
+    });
+  }
+
+  private updateLabelScale(): void {
+    if (!this.cy) return;
+    const zoom = this.cy.zoom();
+    const nodeSize = Math.min(24, Math.max(6, this.baseNodeFontSize * zoom));
+    this.cy.nodes().style('font-size', nodeSize);
+
+    const edgeSize = Math.min(20, Math.max(6, this.baseEdgeFontSize * zoom));
+    this.edgeTippies.forEach(tips => {
+      tips.source?.el && (tips.source.el.style.fontSize = `${edgeSize}px`);
+      tips.target?.el && (tips.target.el.style.fontSize = `${edgeSize}px`);
     });
   }
 
@@ -779,8 +856,8 @@ class TopologyDashboard {
         show = true;
       }
       if (tips) {
-        tips.source && (show ? tips.source.show() : tips.source.hide());
-        tips.target && (show ? tips.target.show() : tips.target.hide());
+        tips.source && (show ? tips.source.tip.show() : tips.source.tip.hide());
+        tips.target && (show ? tips.target.tip.show() : tips.target.tip.hide());
       }
       edge.style({
         'text-opacity': 0,
@@ -811,6 +888,7 @@ class TopologyDashboard {
       level: newZoom,
       renderedPosition: { x: event.offsetX, y: event.offsetY }
     });
+    this.updateLabelScale();
   }
 
   private showExportPopup(): void {
@@ -937,14 +1015,16 @@ class TopologyDashboard {
         const src = edge.data('sourceInterface');
         const tgt = edge.data('targetInterface');
         const offset = 0;
+        const orient = edge.target().position('y') > edge.source().position('y') ? 1 : -1;
+        const shift = orient * 0.1;
         if (src) {
-          const pos = this.edgeLabelPosition(edge, 0.2, offset);
+          const pos = this.edgeLabelPosition(edge, 0.2, offset, true, shift);
           const x = (pos.x - bb.x1) * pxRatio;
           const y = (pos.y - bb.y1) * pxRatio;
           createLabel(x, y, src);
         }
         if (tgt) {
-          const pos = this.edgeLabelPosition(edge, 0.8, offset);
+          const pos = this.edgeLabelPosition(edge, 0.2, offset, false, shift);
           const x = (pos.x - bb.x1) * pxRatio;
           const y = (pos.y - bb.y1) * pxRatio;
           createLabel(x, y, tgt);
