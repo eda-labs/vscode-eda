@@ -737,6 +737,12 @@ constructor() {
           ti.description = desc;
           ti.tooltip = this.statusService.getResourceTooltip(resource);
           ti.status = { indicator, description: desc };
+
+          // Mark derived resources with a special icon but keep status color
+          if (resource?.metadata?.labels?.['eda.nokia.com/source'] === 'derived') {
+            const color = this.statusService.getThemeStatusIcon(indicator).color;
+            ti.iconPath = new vscode.ThemeIcon('debug-breakpoint-data-unverified', color);
+          }
         }
         out.push(ti);
       }
@@ -791,6 +797,12 @@ constructor() {
         ti.description = desc;
         ti.tooltip = this.statusService.getResourceTooltip(resource);
         ti.status = { indicator, description: desc };
+
+        // Mark derived resources with a special icon but keep status color
+        if (resource?.metadata?.labels?.['eda.nokia.com/source'] === 'derived') {
+          const color = this.statusService.getThemeStatusIcon(indicator).color;
+          ti.iconPath = new vscode.ThemeIcon('debug-breakpoint-data-unverified', color);
+        }
       }
       items.push(ti);
     }
