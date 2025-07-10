@@ -1,12 +1,12 @@
 import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
-import { CrdBrowserPanel } from '../webviews/dashboard/crd/crdBrowserPanel';
+import { ResourceBrowserPanel } from '../webviews/dashboard/resource/resourceBrowserPanel';
 
-export function registerCrdBrowserCommand(
+export function registerResourceBrowserCommand(
   context: vscode.ExtensionContext
 ): void {
   const cmd = vscode.commands.registerCommand(
-    'vscode-eda.openCrdBrowser',
+    'vscode-eda.openResourceBrowser',
     async (resource?: vscode.Uri) => {
       let target: { group: string; kind: string } | undefined;
       let text: string | undefined;
@@ -43,7 +43,7 @@ export function registerCrdBrowserCommand(
         }
       }
 
-      CrdBrowserPanel.show(context, 'CRD Browser', target);
+      ResourceBrowserPanel.show(context, 'Ressource Browser', target);
     }
   );
   context.subscriptions.push(cmd);

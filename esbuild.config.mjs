@@ -24,12 +24,12 @@ async function run() {
   });
 
   await build({
-    entryPoints: ['src/webviews/dashboard/crd/crdBrowserPanel.webview.ts'],
+    entryPoints: ['src/webviews/dashboard/resource/resourceBrowserPanel.webview.ts'],
     bundle: true,
     platform: 'browser',
     format: 'iife',
     sourcemap: false,
-    outfile: 'dist/crdBrowserPanel.js'
+    outfile: 'dist/resourceBrowserPanel.js'
   });
 
   await build({

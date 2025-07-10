@@ -3,7 +3,7 @@ import { FabricDashboardPanel } from '../webviews/dashboard/fabric/fabricDashboa
 import { QueriesDashboardPanel } from '../webviews/dashboard/queries/queriesDashboardPanel';
 import { ToponodesDashboardPanel } from '../webviews/dashboard/toponodes/toponodesDashboard';
 import { TopologyDashboardPanel } from '../webviews/dashboard/topology/topologyDashboardPanel';
-import { CrdBrowserPanel } from '../webviews/dashboard/crd/crdBrowserPanel';
+import { ResourceBrowserPanel } from '../webviews/dashboard/resource/resourceBrowserPanel';
 
 export function registerDashboardCommands(context: vscode.ExtensionContext): void {
   const cmd = vscode.commands.registerCommand('vscode-eda.showDashboard', (name: string) => {
@@ -13,8 +13,8 @@ export function registerDashboardCommands(context: vscode.ExtensionContext): voi
       ToponodesDashboardPanel.show(context, name);
     } else if (name === 'Topology') {
       TopologyDashboardPanel.show(context, name);
-    } else if (name === 'CRD Browser') {
-      CrdBrowserPanel.show(context, name);
+    } else if (name === 'Ressource Browser') {
+      ResourceBrowserPanel.show(context, name);
     } else {
       FabricDashboardPanel.show(context, name || 'Fabric');
     }

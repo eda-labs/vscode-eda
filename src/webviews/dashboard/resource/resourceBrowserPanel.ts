@@ -3,12 +3,13 @@ import { BasePanel } from '../../basePanel';
 import * as fs from 'fs';
 import * as path from 'path';
 import { serviceManager } from '../../../services/serviceManager';
-import { KubernetesClient } from '../../../clients/kubernetesClient';
+import { SchemaProviderService } from '../../../services/schemaProviderService';
+import { EdaCrd } from '../../../types';
 import * as yaml from 'js-yaml';
 
-export class CrdBrowserPanel extends BasePanel {
-  private k8sClient: KubernetesClient;
-  private crds: any[] = [];
+export class ResourceBrowserPanel extends BasePanel {
+  private schemaProvider: SchemaProviderService;
+  private resources: EdaCrd[] = [];
   private target?: { group: string; kind: string };
 
   constructor(
@@ -16,22 +17,22 @@ export class CrdBrowserPanel extends BasePanel {
     title: string,
     target?: { group: string; kind: string }
   ) {
-    super(context, 'crdBrowser', title, undefined, {
+    super(context, 'resourceBrowser', title, undefined, {
       light: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-black.svg'),
       dark: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-white.svg')
     });
 
     this.target = target;
 
-    this.k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
+    this.schemaProvider = serviceManager.getService<SchemaProviderService>('schema-provider');
 
     this.panel.webview.onDidReceiveMessage(async msg => {
       if (msg.command === 'ready') {
-        await this.loadCrds();
-      } else if (msg.command === 'showCrd') {
-        await this.showCrd(msg.name as string);
+        await this.loadResources();
+      } else if (msg.command === 'showResource') {
+        await this.showResource(msg.name as string);
       } else if (msg.command === 'viewYaml') {
-        await this.openCrdYaml(msg.name as string);
+        await this.openResourceYaml(msg.name as string);
       }
     });
 
@@ -45,13 +46,13 @@ export class CrdBrowserPanel extends BasePanel {
           'src',
           'webviews',
           'dashboard',
-          'crd',
-          'crdBrowserPanel.html'
+          'resource',
+          'resourceBrowserPanel.html'
         )
       );
       return fs.readFileSync(filePath, 'utf8');
     } catch (err) {
-      console.error('Failed to load CRD Browser HTML', err);
+      console.error('Failed to load Ressource Browser HTML', err);
       return '';
     }
   }
@@ -63,13 +64,13 @@ export class CrdBrowserPanel extends BasePanel {
           'src',
           'webviews',
           'dashboard',
-          'crd',
-          'crdBrowserPanel.css'
+          'resource',
+          'resourceBrowserPanel.css'
         )
       );
       return fs.readFileSync(filePath, 'utf8');
     } catch (err) {
-      console.error('Failed to load CRD Browser CSS', err);
+      console.error('Failed to load Ressource Browser CSS', err);
       return '';
     }
   }
@@ -82,7 +83,7 @@ export class CrdBrowserPanel extends BasePanel {
     const nonce = this.getNonce();
     const csp = this.panel.webview.cspSource;
     const codiconUri = this.getResourceUri('resources', 'codicon.css');
-    const scriptUri = this.getResourceUri('dist', 'crdBrowserPanel.js');
+    const scriptUri = this.getResourceUri('dist', 'resourceBrowserPanel.js');
     const tailwind = (BasePanel as any).tailwind ?? '';
     const styles = `${tailwind}\n${this.getCustomStyles()}`;
 
@@ -102,44 +103,51 @@ export class CrdBrowserPanel extends BasePanel {
 </html>`;
   }
 
-  private async loadCrds(): Promise<void> {
+  private async loadResources(): Promise<void> {
     try {
-      this.crds = await this.k8sClient.listCrds();
-      const list = this.crds.map(c => ({
-        name: c.metadata?.name || '',
-        kind: c.spec?.names?.kind || c.metadata?.name || ''
+      this.resources = await this.schemaProvider.getCustomResourceDefinitions();
+      const list = this.resources.map(r => ({
+        name: `${r.plural}.${r.group}`,
+        kind: r.kind
       }));
       let selected: string | undefined;
       if (this.target) {
-        const match = this.crds.find(
-          c =>
-            c.spec?.group === this.target?.group &&
-            c.spec?.names?.kind === this.target?.kind
+        const match = this.resources.find(
+          r => r.group === this.target?.group && r.kind === this.target?.kind
         );
-        selected = match?.metadata?.name;
+        selected = match ? `${match.plural}.${match.group}` : undefined;
       }
-      this.panel.webview.postMessage({ command: 'crds', list, selected });
+      this.panel.webview.postMessage({ command: 'resources', list, selected });
     } catch (err: any) {
       this.panel.webview.postMessage({ command: 'error', message: String(err) });
     }
   }
 
-  private async showCrd(name: string): Promise<void> {
-    const crd = this.crds.find(c => c.metadata?.name === name);
-    if (crd) {
-      const meta = {
-        apiVersion: `${crd.spec?.group}/${crd.spec?.versions?.[0]?.name}`,
-        kind: crd.spec?.names?.kind
-      };
+  private async showResource(name: string): Promise<void> {
+    const [plural, ...groupParts] = name.split('.');
+    const group = groupParts.join('.');
+    const def = this.resources.find(r => r.group === group && r.plural === plural);
+    if (def) {
+      const schema = await this.schemaProvider.getSchemaForKind(def.kind);
+      const meta = { apiVersion: `${def.group}/${def.version}`, kind: def.kind };
       const yamlText = yaml.dump(meta, { indent: 2 });
-      this.panel.webview.postMessage({ command: 'crdData', crd, yaml: yamlText });
+      this.panel.webview.postMessage({
+        command: 'resourceData',
+        schema,
+        kind: def.kind,
+        description: def.description,
+        yaml: yamlText
+      });
     }
   }
 
-  private async openCrdYaml(name: string): Promise<void> {
-    const crd = this.crds.find(c => c.metadata?.name === name);
-    if (!crd) return;
-    const yamlText = yaml.dump(crd, { indent: 2 });
+  private async openResourceYaml(name: string): Promise<void> {
+    const [plural, ...groupParts] = name.split('.');
+    const group = groupParts.join('.');
+    const def = this.resources.find(r => r.group === group && r.plural === plural);
+    if (!def) return;
+    const schema = await this.schemaProvider.getSchemaForKind(def.kind);
+    const yamlText = yaml.dump(schema, { indent: 2 });
     const doc = await vscode.workspace.openTextDocument({ language: 'yaml', content: yamlText });
     await vscode.window.showTextDocument(doc, { preview: true });
   }
@@ -149,6 +157,6 @@ export class CrdBrowserPanel extends BasePanel {
     title: string,
     target?: { group: string; kind: string }
   ): void {
-    new CrdBrowserPanel(context, title, target);
+    new ResourceBrowserPanel(context, title, target);
   }
 }

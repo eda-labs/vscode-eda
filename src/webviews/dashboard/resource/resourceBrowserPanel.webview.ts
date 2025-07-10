@@ -3,20 +3,22 @@ declare function acquireVsCodeApi(): {
   postMessage: (msg: unknown) => void;
 };
 
-interface CrdItem {
+interface ResourceItem {
   name: string;
   kind: string;
 }
 
-interface CrdsMessage {
-  command: 'crds';
-  list: CrdItem[];
+interface ResourcesMessage {
+  command: 'resources';
+  list: ResourceItem[];
   selected?: string;
 }
 
-interface CrdDataMessage {
-  command: 'crdData';
-  crd: unknown;
+interface ResourceDataMessage {
+  command: 'resourceData';
+  schema: unknown;
+  description?: string;
+  kind: string;
   yaml: string;
 }
 
@@ -25,14 +27,14 @@ interface ErrorMessage {
   message: string;
 }
 
-type InboundMessage = CrdsMessage | CrdDataMessage | ErrorMessage;
+type InboundMessage = ResourcesMessage | ResourceDataMessage | ErrorMessage;
 
 interface ReadyMessage {
   command: 'ready';
 }
 
-interface ShowCrdMessage {
-  command: 'showCrd';
+interface ShowResourceMessage {
+  command: 'showResource';
   name: string;
 }
 
@@ -41,26 +43,25 @@ interface ViewYamlMessage {
   name: string;
 }
 
-type OutboundMessage = ReadyMessage | ShowCrdMessage | ViewYamlMessage;
-
-class CrdBrowserWebview {
+type OutboundMessage = ReadyMessage | ShowResourceMessage | ViewYamlMessage;
+class ResourceBrowserWebview {
   private vscode = acquireVsCodeApi();
-  private crdSelect = document.getElementById('crdSelect') as HTMLSelectElement;
+  private resourceSelect = document.getElementById('resourceSelect') as HTMLSelectElement;
   private filterInput = document.getElementById('filterInput') as HTMLInputElement;
-  private titleEl = document.getElementById('crdTitle') as HTMLElement;
+  private titleEl = document.getElementById('resourceTitle') as HTMLElement;
   private metadataEl = document.getElementById('metadataYaml') as HTMLElement;
-  private descEl = document.getElementById('crdDescription') as HTMLElement;
+  private descEl = document.getElementById('resourceDescription') as HTMLElement;
   private schemaEl = document.getElementById('schema') as HTMLElement;
   private expandBtn = document.getElementById('expandAll') as HTMLButtonElement;
   private collapseBtn = document.getElementById('collapseAll') as HTMLButtonElement;
   private yamlBtn = document.getElementById('yamlBtn') as HTMLButtonElement;
 
-  private allCrds: CrdItem[] = [];
+  private allResources: ResourceItem[] = [];
 
   constructor() {
     this.filterInput.addEventListener('input', () => this.updateOptions());
-    this.crdSelect.addEventListener('change', () =>
-      this.postMessage({ command: 'showCrd', name: this.crdSelect.value })
+    this.resourceSelect.addEventListener('change', () =>
+      this.postMessage({ command: 'showResource', name: this.resourceSelect.value })
     );
     this.expandBtn.addEventListener('click', () => {
       this.schemaEl.querySelectorAll('details').forEach(d => (d.open = true));
@@ -69,7 +70,7 @@ class CrdBrowserWebview {
       this.schemaEl.querySelectorAll('details').forEach(d => (d.open = false));
     });
     this.yamlBtn.addEventListener('click', () =>
-      this.postMessage({ command: 'viewYaml', name: this.crdSelect.value })
+      this.postMessage({ command: 'viewYaml', name: this.resourceSelect.value })
     );
     window.addEventListener('message', e => this.handleMessage(e.data as InboundMessage));
     this.postMessage({ command: 'ready' });
@@ -80,17 +81,17 @@ class CrdBrowserWebview {
   }
 
   private handleMessage(msg: InboundMessage): void {
-    if (msg.command === 'crds') {
-      this.allCrds = msg.list;
+    if (msg.command === 'resources') {
+      this.allResources = msg.list;
       this.updateOptions();
-      if (msg.selected && this.allCrds.some(c => c.name === msg.selected)) {
-        this.crdSelect.value = msg.selected;
-        this.postMessage({ command: 'showCrd', name: msg.selected });
-      } else if (this.allCrds.length > 0) {
-        this.postMessage({ command: 'showCrd', name: this.allCrds[0].name });
+      if (msg.selected && this.allResources.some(c => c.name === msg.selected)) {
+        this.resourceSelect.value = msg.selected;
+        this.postMessage({ command: 'showResource', name: msg.selected });
+      } else if (this.allResources.length > 0) {
+        this.postMessage({ command: 'showResource', name: this.allResources[0].name });
       }
-    } else if (msg.command === 'crdData') {
-      this.renderCrd(msg.crd, msg.yaml);
+    } else if (msg.command === 'resourceData') {
+      this.renderResource(msg.schema, msg.yaml, msg.kind, msg.description);
     } else if (msg.command === 'error') {
       this.titleEl.textContent = 'Error';
       this.metadataEl.textContent = msg.message;
@@ -101,36 +102,37 @@ class CrdBrowserWebview {
 
   private updateOptions(): void {
     const filter = this.filterInput.value.toLowerCase();
-    this.crdSelect.innerHTML = '';
-    const filtered = this.allCrds.filter(c =>
+    this.resourceSelect.innerHTML = '';
+    const filtered = this.allResources.filter(c =>
       c.kind.toLowerCase().includes(filter) || c.name.toLowerCase().includes(filter)
     );
     filtered.forEach(item => {
       const opt = document.createElement('option');
       opt.value = item.name;
       opt.textContent = `${item.kind} (${item.name})`;
-      this.crdSelect.appendChild(opt);
+      this.resourceSelect.appendChild(opt);
     });
     if (filtered.length > 0) {
-      this.crdSelect.value = filtered[0].name;
+      this.resourceSelect.value = filtered[0].name;
     }
   }
 
-  private renderCrd(crd: any, yaml: string): void {
-    this.titleEl.textContent = crd.spec?.names?.kind || crd.metadata?.name || '';
+  private renderResource(schema: any, yaml: string, kind: string, description?: string): void {
+    this.titleEl.textContent = kind || '';
     this.metadataEl.textContent = yaml;
-    this.descEl.textContent =
-      crd.spec?.versions?.[0]?.schema?.openAPIV3Schema?.description || '';
+    this.descEl.textContent = description || '';
     this.schemaEl.innerHTML = '';
-    const root = crd.spec?.versions?.[0]?.schema?.openAPIV3Schema;
-    if (!root) return;
-    const spec = root.properties?.spec;
-    const status = root.properties?.status;
-    if (spec) {
-      this.schemaEl.appendChild(this.renderSection('spec', spec));
-    }
-    if (status) {
-      this.schemaEl.appendChild(this.renderSection('status', status));
+    const spec = schema?.properties?.spec;
+    const status = schema?.properties?.status;
+    if (spec || status) {
+      if (spec) {
+        this.schemaEl.appendChild(this.renderSection('spec', spec));
+      }
+      if (status) {
+        this.schemaEl.appendChild(this.renderSection('status', status));
+      }
+    } else if (schema) {
+      this.schemaEl.appendChild(this.renderSection('schema', schema));
     }
   }
 
@@ -207,4 +209,4 @@ class CrdBrowserWebview {
   }
 }
 
-new CrdBrowserWebview();
+new ResourceBrowserWebview();

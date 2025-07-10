@@ -36,7 +36,7 @@ import { registerCredentialCommands } from './commands/credentialCommands';
 import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand';
 import { registerDashboardCommands } from './commands/dashboardCommands';
 import { registerApplyYamlFileCommand } from './commands/applyYamlFileCommand';
-import { registerCrdBrowserCommand } from './commands/crdBrowserCommand';
+import { registerResourceBrowserCommand } from './commands/resourceBrowserCommand';
 import { configureTargets } from './webviews/targetWizard/targetWizardPanel';
 // import { registerResourceViewCommands } from './commands/resourceViewCommands';
 // import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
@@ -538,7 +538,7 @@ export async function activate(context: vscode.ExtensionContext) {
   registerTransactionCommands(context);
   registerBasketCommands(context);
   registerDashboardCommands(context);
-  registerCrdBrowserCommand(context);
+  registerResourceBrowserCommand(context);
   registerCredentialCommands(context);
   registerApplyYamlFileCommand(context);
 

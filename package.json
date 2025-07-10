@@ -41,7 +41,7 @@
     "onCommand:vscode-eda.applyYamlFile",
     "onCommand:vscode-eda.applyYamlFile.dryRun",
     "onCommand:vscode-eda.addYamlToBasket",
-    "onCommand:vscode-eda.openCrdBrowser"
+    "onCommand:vscode-eda.openResourceBrowser"
   ],
   "main": "./dist/extension",
   "contributes": {
@@ -161,8 +161,8 @@
         "icon": "$(inbox)"
       },
       {
-        "command": "vscode-eda.openCrdBrowser",
-        "title": "EDA: Open CRD Browser",
+        "command": "vscode-eda.openResourceBrowser",
+        "title": "EDA: Open Ressource Browser",
         "icon": "$(list-tree)"
       },
       {
@@ -598,7 +598,7 @@
           "group": "navigation@2"
         },
         {
-          "command": "vscode-eda.openCrdBrowser",
+          "command": "vscode-eda.openResourceBrowser",
           "when": "edaYamlDocument",
           "group": "navigation@3"
         },
@@ -634,7 +634,7 @@
           "title": "Add to EDA's transaction"
         },
         {
-          "command": "vscode-eda.openCrdBrowser"
+          "command": "vscode-eda.openResourceBrowser"
         }
       ]
     },
