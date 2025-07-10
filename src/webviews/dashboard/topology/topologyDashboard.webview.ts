@@ -342,7 +342,7 @@ class TopologyDashboard {
       uniqueTiers.forEach((t, idx) => tierIndexMap.set(t, idx));
 
       const spacingX = 240;
-      const spacingY = 220;
+      const spacingY = 260; // Increase vertical spacing between tiers
 
       nodes.forEach(n => {
         const existing = cy.$id(n.id);
@@ -427,7 +427,7 @@ class TopologyDashboard {
     });
 
     const spacingX = 240; // Increased spacing for larger nodes
-    const spacingY = 220; // Increased vertical spacing for larger nodes
+    const spacingY = 260; // Increased vertical spacing between tiers
 
     Object.keys(tiers)
       .sort((a, b) => Number(a) - Number(b))
@@ -526,10 +526,7 @@ class TopologyDashboard {
 
       const tips: { source?: TippyInstance; target?: TippyInstance } = {};
 
-      const pairIdx = edge.data('pairIndex') || 0;
-      const sign = pairIdx % 2 === 0 ? 1 : -1;
-      const magnitude = Math.floor(pairIdx / 2) + 1;
-      const offset = sign * magnitude * 8;
+      const offset = 0; // Place labels directly on the curve
 
       if (src) {
         const content = document.createElement('div');
@@ -568,14 +565,29 @@ class TopologyDashboard {
   ): { x: number; y: number } {
     const src = edge.sourceEndpoint();
     const tgt = edge.targetEndpoint();
-    let x = src.x + (tgt.x - src.x) * t;
-    let y = src.y + (tgt.y - src.y) * t;
+    const dist = Number(edge.data('dist')) || 0;
+    const weight = Number(edge.data('weight')) || 0.5;
+
+    // Calculate the control point for the quadratic curve
     const dx = tgt.x - src.x;
     const dy = tgt.y - src.y;
     const len = Math.hypot(dx, dy) || 1;
-    x += (-dy / len) * offset;
-    y += (dx / len) * offset;
-    return { x, y };
+    const cx = src.x + dx * weight - (dy / len) * dist;
+    const cy = src.y + dy * weight + (dx / len) * dist;
+
+    // Quadratic Bezier point at parameter t
+    const ax = (1 - t) * (1 - t) * src.x + 2 * (1 - t) * t * cx + t * t * tgt.x;
+    const ay = (1 - t) * (1 - t) * src.y + 2 * (1 - t) * t * cy + t * t * tgt.y;
+
+    // Derivative for tangent at parameter t
+    const dxT = 2 * (1 - t) * (cx - src.x) + 2 * t * (tgt.x - cx);
+    const dyT = 2 * (1 - t) * (cy - src.y) + 2 * t * (tgt.y - cy);
+    const lenT = Math.hypot(dxT, dyT) || 1;
+
+    const nx = -dyT / lenT;
+    const ny = dxT / lenT;
+
+    return { x: ax + nx * offset, y: ay + ny * offset };
   }
 
   private toRenderedPosition(point: { x: number; y: number }): { x: number; y: number } {
@@ -924,10 +936,7 @@ class TopologyDashboard {
       edges.forEach(edge => {
         const src = edge.data('sourceInterface');
         const tgt = edge.data('targetInterface');
-        const pairIdx = edge.data('pairIndex') || 0;
-        const sign = pairIdx % 2 === 0 ? 1 : -1;
-        const magnitude = Math.floor(pairIdx / 2) + 1;
-        const offset = sign * magnitude * 8;
+        const offset = 0;
         if (src) {
           const pos = this.edgeLabelPosition(edge, 0.2, offset);
           const x = (pos.x - bb.x1) * pxRatio;
