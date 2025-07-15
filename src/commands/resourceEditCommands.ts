@@ -9,7 +9,7 @@ import { ResourceEditDocumentProvider } from '../providers/documents/resourceEdi
 import { log, LogLevel, edaOutputChannel, edaTransactionBasketProvider } from '../extension';
 import { isEdaResource } from '../utils/edaGroupUtils';
 import { KubernetesClient } from '../clients/kubernetesClient';
-import { sanitizeResource } from '../utils/yamlUtils';
+import { sanitizeResource, sanitizeResourceForEdit } from '../utils/yamlUtils';
 
 // Keep track of resource URI pairs (view and edit versions of the same resource)
 interface ResourceURIPair {
@@ -107,7 +107,8 @@ export function registerResourceEditCommands(
           delete (resourceObject as any).status;
         }
 
-        const sanitizedYaml = yaml.dump(resourceObject, { indent: 2 });
+        const sanitizedForEdit = sanitizeResourceForEdit(resourceObject);
+        const sanitizedYaml = yaml.dump(sanitizedForEdit, { indent: 2 });
 
         if (pair) {
           // Reuse existing edit URI but refresh content from current view
@@ -128,7 +129,7 @@ export function registerResourceEditCommands(
         }
 
         // Store the resource in your editable file system provider (overwrite existing)
-        resourceEditProvider.setOriginalResource(editUri, resourceObject);
+        resourceEditProvider.setOriginalResource(editUri, sanitizedForEdit);
         resourceEditProvider.setResourceContent(editUri, sanitizedYaml);
 
         // If the edit document is already open, refresh its contents
@@ -332,7 +333,10 @@ export function registerResourceEditCommands(
             }
           }
           if (originalResource) {
-            resourceEditProvider.setOriginalResource(documentUri, originalResource);
+            resourceEditProvider.setOriginalResource(
+              documentUri,
+              sanitizeResourceForEdit(originalResource)
+            );
             if (pair) {
               pair.originalResource = originalResource;
             }
@@ -375,7 +379,10 @@ export function registerResourceEditCommands(
                 const result = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
               if (result) {
                 // Update both providers with the applied resource
-                resourceEditProvider.setOriginalResource(documentUri, resource);
+                resourceEditProvider.setOriginalResource(
+                  documentUri,
+                  sanitizeResourceForEdit(resource)
+                );
 
                 // Update the view document if we have a pair
                 const pair = resourcePairs.get(resourceKey);
@@ -431,7 +438,10 @@ export function registerResourceEditCommands(
             const result = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
               if (result) {
                 // Update both providers
-                resourceEditProvider.setOriginalResource(documentUri, resource);
+                resourceEditProvider.setOriginalResource(
+                  documentUri,
+                  sanitizeResourceForEdit(resource)
+                );
 
                 // Update the view document if we have a pair
                 const pair = resourcePairs.get(resourceKey);
@@ -468,7 +478,10 @@ export function registerResourceEditCommands(
             const result = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
             if (result) {
               // Update both providers
-              resourceEditProvider.setOriginalResource(documentUri, resource);
+              resourceEditProvider.setOriginalResource(
+                documentUri,
+                sanitizeResourceForEdit(resource)
+              );
 
               // Update the view document if we have a pair
               const pair = resourcePairs.get(resourceKey);
@@ -661,7 +674,10 @@ async function validateAndPromptForApply(
       // Now apply the changes
       const applyResult = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
       if (applyResult) {
-        resourceEditProvider.setOriginalResource(documentUri, resource);
+        resourceEditProvider.setOriginalResource(
+          documentUri,
+          sanitizeResourceForEdit(resource)
+        );
 
         // Update the view document if we have a pair
         const resourceKey = getResourceKey(
@@ -884,7 +900,10 @@ async function applyResource(
       );
 
       if (!isDryRun) {
-        resourceEditProvider.setOriginalResource(documentUri, resource);
+        resourceEditProvider.setOriginalResource(
+          documentUri,
+          sanitizeResourceForEdit(resource)
+        );
         if (isNew) {
           resourceEditProvider.clearNewResource(documentUri);
         }
@@ -904,7 +923,10 @@ async function applyResource(
 
       if (!isDryRun) {
         const sanitized = sanitizeResource(updated ?? resource);
-        resourceEditProvider.setOriginalResource(documentUri, sanitized);
+        resourceEditProvider.setOriginalResource(
+          documentUri,
+          sanitizeResourceForEdit(updated ?? resource)
+        );
         if (isNew) {
           resourceEditProvider.clearNewResource(documentUri);
         }
