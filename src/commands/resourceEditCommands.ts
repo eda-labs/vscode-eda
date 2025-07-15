@@ -112,6 +112,7 @@ export function registerResourceEditCommands(
           log(`Using existing edit URI for ${resourceKey}`, LogLevel.DEBUG);
           pair.isEdaResource = edaOrigin;
           pair.originalResource = resourceObject;
+          pair.viewUri = viewDocumentUri; // update view URI to the latest
         } else {
           // Create a new edit URI and track the pair
           editUri = ResourceEditDocumentProvider.createUri(namespace, kind, name);
@@ -126,6 +127,21 @@ export function registerResourceEditCommands(
         // Store the resource in your editable file system provider (overwrite existing)
         resourceEditProvider.setOriginalResource(editUri, resourceObject);
         resourceEditProvider.setResourceContent(editUri, sanitizedYaml);
+
+        // If the edit document is already open, refresh its contents
+        const existingDoc = vscode.workspace.textDocuments.find(doc =>
+          doc.uri.toString() === editUri.toString()
+        );
+        if (existingDoc) {
+          const fullRange = new vscode.Range(
+            existingDoc.positionAt(0),
+            existingDoc.positionAt(existingDoc.getText().length)
+          );
+          const edit = new vscode.WorkspaceEdit();
+          edit.replace(editUri, fullRange, sanitizedYaml);
+          await vscode.workspace.applyEdit(edit);
+          await existingDoc.save();
+        }
 
         // 4) Open the edit document WITHOUT closing the view document
         const editDoc = await vscode.workspace.openTextDocument(editUri);
