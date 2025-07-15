@@ -19,6 +19,8 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
 
   private k8sClient?: KubernetesClient;
   private readonly kubernetesIcon: vscode.ThemeIcon;
+  private readonly collapsedStreamIcon = new vscode.ThemeIcon('expand-all');
+  private readonly expandedStreamIcon = new vscode.ThemeIcon('collapse-all');
   private edaClient: EdaClient;
   private resourceService?: ResourceService;
   private statusService?: ResourceStatusService;
@@ -207,6 +209,18 @@ constructor() {
     this.expandAll = expand;
     if (changed) {
       this.refresh();
+    }
+  }
+
+  /**
+   * Update the icon for a stream item based on expansion state
+   */
+  public updateStreamExpansion(item: TreeItemBase, collapsed: boolean): void {
+    if (item.contextValue === 'stream') {
+      item.iconPath = collapsed
+        ? this.collapsedStreamIcon
+        : this.expandedStreamIcon;
+      this._onDidChangeTreeData.fire(item);
     }
   }
 
@@ -558,14 +572,14 @@ constructor() {
         if (!s) {
           continue;
         }
-        const ti = new TreeItemBase(
-          s,
-          this.expandAll
-            ? vscode.TreeItemCollapsibleState.Expanded
-            : vscode.TreeItemCollapsibleState.Collapsed,
-          'stream'
-        );
-        ti.iconPath = new vscode.ThemeIcon('search-expand-results');
+        const collapsible = this.expandAll
+          ? vscode.TreeItemCollapsibleState.Expanded
+          : vscode.TreeItemCollapsibleState.Collapsed;
+        const ti = new TreeItemBase(s, collapsible, 'stream');
+        ti.iconPath =
+          collapsible === vscode.TreeItemCollapsibleState.Collapsed
+            ? this.collapsedStreamIcon
+            : this.expandedStreamIcon;
         ti.namespace = namespace;
         ti.streamGroup = g;
         items.push(ti);
@@ -598,14 +612,14 @@ constructor() {
       if (this.treeFilter && !this.streamMatches(namespace, s)) {
         continue;
       }
-      const ti = new TreeItemBase(
-        s,
-        this.expandAll
-          ? vscode.TreeItemCollapsibleState.Expanded
-          : vscode.TreeItemCollapsibleState.Collapsed,
-        'stream'
-      );
-      ti.iconPath = new vscode.ThemeIcon('search-expand-results');
+      const collapsible = this.expandAll
+        ? vscode.TreeItemCollapsibleState.Expanded
+        : vscode.TreeItemCollapsibleState.Collapsed;
+      const ti = new TreeItemBase(s, collapsible, 'stream');
+      ti.iconPath =
+        collapsible === vscode.TreeItemCollapsibleState.Collapsed
+          ? this.collapsedStreamIcon
+          : this.expandedStreamIcon;
       ti.namespace = namespace;
       ti.streamGroup = group;
       items.push(ti);

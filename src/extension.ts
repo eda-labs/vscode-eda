@@ -38,6 +38,7 @@ import { registerDashboardCommands } from './commands/dashboardCommands';
 import { registerApplyYamlFileCommand } from './commands/applyYamlFileCommand';
 import { registerResourceBrowserCommand } from './commands/resourceBrowserCommand';
 import { configureTargets } from './webviews/targetWizard/targetWizardPanel';
+import { TreeItemBase } from './providers/views/treeItem';
 // import { registerResourceViewCommands } from './commands/resourceViewCommands';
 // import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 
@@ -391,8 +392,12 @@ export async function activate(context: vscode.ExtensionContext) {
       treeDataProvider: namespaceProvider,
       showCollapseAll: true
     });
-    namespaceTreeView.onDidCollapseElement(() => {
+    namespaceTreeView.onDidExpandElement(e => {
+      namespaceProvider.updateStreamExpansion(e.element as TreeItemBase, false);
+    });
+    namespaceTreeView.onDidCollapseElement(e => {
       namespaceProvider.setExpandAll(false);
+      namespaceProvider.updateStreamExpansion(e.element as TreeItemBase, true);
     });
 
 
