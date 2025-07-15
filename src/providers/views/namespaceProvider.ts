@@ -201,10 +201,13 @@ constructor() {
   }
   /**
    * Set whether all tree items should be expanded
-   */
+  */
   public setExpandAll(expand: boolean): void {
+    const changed = this.expandAll !== expand;
     this.expandAll = expand;
-    this.refresh();
+    if (changed) {
+      this.refresh();
+    }
   }
 
   /**

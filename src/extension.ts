@@ -391,6 +391,9 @@ export async function activate(context: vscode.ExtensionContext) {
       treeDataProvider: namespaceProvider,
       showCollapseAll: true
     });
+    namespaceTreeView.onDidCollapseElement(() => {
+      namespaceProvider.setExpandAll(false);
+    });
 
 
     const alarmProvider = new EdaAlarmProvider();
