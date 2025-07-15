@@ -176,7 +176,10 @@ export class TopologyDashboardPanel extends BasePanel {
         }
         this.nodeMap.set(n, map);
         const links = await this.edaClient.listTopoLinks(n);
-        this.linkMap.set(n, Array.isArray(links) ? links : []);
+        const filtered = Array.isArray(links)
+          ? links.filter(l => l.metadata?.labels?.['eda.nokia.com/role'] !== 'edge')
+          : [];
+        this.linkMap.set(n, filtered);
       } catch {
         /* ignore */
       }
@@ -228,6 +231,8 @@ export class TopologyDashboardPanel extends BasePanel {
       const lm = this.linkMap.get(ns);
       if (lm) {
         for (const link of lm) {
+          const role = link.metadata?.labels?.['eda.nokia.com/role'];
+          if (role === 'edge') continue;
           const arr = Array.isArray(link.spec?.links) ? link.spec.links : [];
           const members: any[] = Array.isArray(link.status?.members)
             ? link.status.members
@@ -325,6 +330,11 @@ export class TopologyDashboardPanel extends BasePanel {
         if (idx >= 0) list.splice(idx, 1);
       } else {
         const idx = list.findIndex(l => l.metadata?.name === name);
+        const role = up.data?.metadata?.labels?.['eda.nokia.com/role'];
+        if (role === 'edge') {
+          if (idx >= 0) list.splice(idx, 1);
+          continue;
+        }
         if (idx >= 0) list[idx] = up.data;
         else list.push(up.data);
       }
