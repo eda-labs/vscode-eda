@@ -6,6 +6,7 @@ import * as os from 'os';
 import * as yaml from 'js-yaml';
 import * as vscode from 'vscode';
 import { log, LogLevel } from '../extension';
+import { sanitizeResource } from '../utils/yamlUtils';
 
 interface KubeConfigContext {
   name: string;
@@ -217,6 +218,68 @@ export class KubernetesClient {
       log(`Fetch failed for ${url}: ${err}`, LogLevel.ERROR);
       throw err;
     }
+  }
+
+  private async requestJSON(method: string, pathname: string, body?: any): Promise<any> {
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+    if (body) {
+      headers['Content-Type'] = 'application/json';
+    }
+    const url = `${this.server}${pathname}`;
+    const res = await fetch(url, {
+      method,
+      headers,
+      dispatcher: this.agent,
+      body: body ? JSON.stringify(body) : undefined
+    } as any);
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`HTTP ${res.status}: ${text}`);
+    }
+    return res.status === 204 ? undefined : res.json();
+  }
+
+  private guessPlural(kind: string): string {
+    const lower = kind.toLowerCase();
+    if (/(s|x|z|ch|sh)$/.test(lower)) {
+      return `${lower}es`;
+    }
+    if (/[^aeiou]y$/.test(lower)) {
+      return `${lower.slice(0, -1)}ies`;
+    }
+    return `${lower}s`;
+  }
+
+  public async applyResource(
+    resource: any,
+    opts: { dryRun?: boolean; isNew?: boolean } = {}
+  ): Promise<any> {
+    const dryRun = opts.dryRun ?? false;
+    const isNew = opts.isNew ?? false;
+
+    const apiVersion: string = resource.apiVersion || '';
+    const [groupPart, version] = apiVersion.includes('/') ? apiVersion.split('/') : ['', apiVersion];
+    const group = groupPart;
+    const namespace: string | undefined = resource.metadata?.namespace;
+    const name: string | undefined = resource.metadata?.name;
+    const pluralGuess = this.guessPlural(resource.kind);
+    const def = this.watchDefinitions.find(
+      d => d.plural === pluralGuess && d.group === group && d.version === version
+    );
+    const plural = def?.plural ?? pluralGuess;
+    const namespaced = def?.namespaced ?? namespace !== undefined;
+
+    const base = group ? `/apis/${group}/${version}` : `/api/${version}`;
+    const nsPart = namespaced ? `/namespaces/${namespace}` : '';
+    const basePath = `${base}${nsPart}/${plural}`;
+    const path = isNew ? basePath : `${basePath}/${name}`;
+    const url = dryRun ? `${path}?dryRun=All` : path;
+    const method = isNew ? 'POST' : 'PUT';
+    const sanitized = sanitizeResource(resource);
+    return this.requestJSON(method, url, sanitized);
   }
 
 

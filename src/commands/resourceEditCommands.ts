@@ -7,12 +7,16 @@ import type { ResourceService } from '../services/resourceService';
 import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
 import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
 import { log, LogLevel, edaOutputChannel, edaTransactionBasketProvider } from '../extension';
+import { isEdaResource } from '../utils/edaGroupUtils';
+import { KubernetesClient } from '../clients/kubernetesClient';
+import { sanitizeResource } from '../utils/yamlUtils';
 
 // Keep track of resource URI pairs (view and edit versions of the same resource)
 interface ResourceURIPair {
   viewUri: vscode.Uri;
   editUri: vscode.Uri;
   originalResource: any;
+  isEdaResource: boolean;
 }
 
 const resourcePairs = new Map<string, ResourceURIPair>();
@@ -85,42 +89,43 @@ export function registerResourceEditCommands(
         let editUri: vscode.Uri;
         let pair = resourcePairs.get(resourceKey);
 
+        let readOnlyYaml: string;
+        const readOnlyDoc = await vscode.workspace.openTextDocument(viewDocumentUri);
+        readOnlyYaml = readOnlyDoc.getText();
+        try {
+          resourceObject = yaml.load(readOnlyYaml);
+        } catch (parseErr) {
+          throw new Error(`Invalid YAML in read-only view: ${parseErr}`);
+        }
+
+        let edaOrigin = isEdaResource(arg, (resourceObject as any)?.apiVersion);
+
+        if (resourceObject && typeof resourceObject === 'object') {
+          delete (resourceObject as any).status;
+        }
+
+        const sanitizedYaml = yaml.dump(resourceObject, { indent: 2 });
+
         if (pair) {
-          // We already have both URIs, just use the existing edit URI
+          // Reuse existing edit URI but refresh content from current view
           editUri = pair.editUri;
           log(`Using existing edit URI for ${resourceKey}`, LogLevel.DEBUG);
+          pair.isEdaResource = edaOrigin;
+          pair.originalResource = resourceObject;
         } else {
           // Create a new edit URI and track the pair
           editUri = ResourceEditDocumentProvider.createUri(namespace, kind, name);
-
-          let readOnlyYaml: string;
-          if (!resourceObject) {
-            const readOnlyDoc = await vscode.workspace.openTextDocument(viewDocumentUri);
-            readOnlyYaml = readOnlyDoc.getText();
-            try {
-              resourceObject = yaml.load(readOnlyYaml);
-            } catch (parseErr) {
-              throw new Error(`Invalid YAML in read-only view: ${parseErr}`);
-            }
-          }
-
-          if (resourceObject && typeof resourceObject === 'object') {
-            delete (resourceObject as any).status;
-          }
-
-          const sanitizedYaml = yaml.dump(resourceObject, { indent: 2 });
-
-          // Store the resource in your editable file system provider
-          resourceEditProvider.setOriginalResource(editUri, resourceObject);
-          resourceEditProvider.setResourceContent(editUri, sanitizedYaml);
-
-          // Store the pair for future switches
           resourcePairs.set(resourceKey, {
             viewUri: viewDocumentUri,
             editUri: editUri,
-            originalResource: resourceObject
+            originalResource: resourceObject,
+            isEdaResource: edaOrigin
           });
         }
+
+        // Store the resource in your editable file system provider (overwrite existing)
+        resourceEditProvider.setOriginalResource(editUri, resourceObject);
+        resourceEditProvider.setResourceContent(editUri, sanitizedYaml);
 
         // 4) Open the edit document WITHOUT closing the view document
         const editDoc = await vscode.workspace.openTextDocument(editUri);
@@ -284,6 +289,12 @@ export function registerResourceEditCommands(
           return;
         }
 
+        const resourceKey = getResourceKey(
+          resource.metadata?.namespace || 'default',
+          resource.kind,
+          resource.metadata?.name
+        );
+
         // Get the original resource. If it's missing (e.g. document was reopened),
         // fall back to the cached pair or reconstruct it from the current YAML.
         let originalResource = resourceEditProvider.getOriginalResource(documentUri);
@@ -346,11 +357,6 @@ export function registerResourceEditCommands(
                 resourceEditProvider.setOriginalResource(documentUri, resource);
 
                 // Update the view document if we have a pair
-                const resourceKey = getResourceKey(
-                  resource.metadata.namespace || 'default',
-                  resource.kind,
-                  resource.metadata.name
-                );
                 const pair = resourcePairs.get(resourceKey);
                 if (pair) {
                   // Update the view URI's content
@@ -371,8 +377,11 @@ export function registerResourceEditCommands(
           }
         }
 
+        const pairForPrompt = resourcePairs.get(resourceKey);
+        const isEda = pairForPrompt?.isEdaResource ?? isEdaResource(undefined, resource.apiVersion);
+
         // Present options to the user
-        const action = await promptForApplyAction(resource);
+        const action = await promptForApplyAction(resource, isEda);
 
         if (!action) {
           return; // User cancelled
@@ -386,7 +395,7 @@ export function registerResourceEditCommands(
           }
 
           // After showing diff, ask if user wants to validate or direct apply
-          const nextAction = await promptForNextAction(resource, 'diff');
+          const nextAction = await promptForNextAction(resource, 'diff', isEda);
           if (!nextAction) {
             return; // User cancelled
           }
@@ -404,11 +413,6 @@ export function registerResourceEditCommands(
                 resourceEditProvider.setOriginalResource(documentUri, resource);
 
                 // Update the view document if we have a pair
-                const resourceKey = getResourceKey(
-                  resource.metadata.namespace || 'default',
-                  resource.kind,
-                  resource.metadata.name
-                );
                 const pair = resourcePairs.get(resourceKey);
                 if (pair) {
                   const updatedYaml = yaml.dump(resource, { indent: 2 });
@@ -446,11 +450,6 @@ export function registerResourceEditCommands(
               resourceEditProvider.setOriginalResource(documentUri, resource);
 
               // Update the view document if we have a pair
-              const resourceKey = getResourceKey(
-                resource.metadata.namespace || 'default',
-                resource.kind,
-                resource.metadata.name
-              );
               const pair = resourcePairs.get(resourceKey);
               if (pair) {
                 const updatedYaml = yaml.dump(resource, { indent: 2 });
@@ -555,16 +554,18 @@ export function registerResourceEditCommands(
 }
 
 // Prompt user for what action they want to take with the resource
-async function promptForApplyAction(resource: any): Promise<string | undefined> {
+async function promptForApplyAction(resource: any, isEda: boolean): Promise<string | undefined> {
   const kind = resource.kind;
   const name = resource.metadata?.name;
 
   const choices: ActionQuickPickItem[] = [
     { label: '👁 View Changes (Diff)', id: 'diff', description: 'Compare changes before proceeding' },
     { label: '✓ Validate (Dry Run)', id: 'validate', description: 'Check if changes are valid without applying' },
-    { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' },
-    { label: '🧺 Add to Basket', id: 'basket', description: 'Save changes to the transaction basket' }
+    { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' }
   ];
+  if (isEda) {
+    choices.push({ label: '🧺 Add to Basket', id: 'basket', description: 'Save changes to the transaction basket' });
+  }
 
   const chosen = await vscode.window.showQuickPick(choices, {
     placeHolder: `Choose an action for ${kind} "${name}"`,
@@ -575,7 +576,7 @@ async function promptForApplyAction(resource: any): Promise<string | undefined> 
 }
 
 // Prompt for next action after diff
-async function promptForNextAction(resource: any, currentStep: string): Promise<string | undefined> {
+async function promptForNextAction(resource: any, currentStep: string, isEda: boolean): Promise<string | undefined> {
   const kind = resource.kind;
   const name = resource.metadata?.name;
 
@@ -583,14 +584,18 @@ async function promptForNextAction(resource: any, currentStep: string): Promise<
   if (currentStep === 'diff') {
     choices = [
       { label: '✓ Validate (Dry Run)', id: 'validate', description: 'Check if changes are valid without applying' },
-      { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' },
-      { label: '🧺 Add to Basket', id: 'basket', description: 'Save changes to the transaction basket' }
+      { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' }
     ];
+    if (isEda) {
+      choices.push({ label: '🧺 Add to Basket', id: 'basket', description: 'Save changes to the transaction basket' });
+    }
   } else if (currentStep === 'validate') {
     choices = [
-      { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' },
-      { label: '🧺 Add to Basket', id: 'basket', description: 'Save changes to the transaction basket' }
+      { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' }
     ];
+    if (isEda) {
+      choices.push({ label: '🧺 Add to Basket', id: 'basket', description: 'Save changes to the transaction basket' });
+    }
   }
 
   const chosen = await vscode.window.showQuickPick(choices, {
@@ -831,11 +836,13 @@ async function applyResource(
     log(`${isDryRun ? 'Validating' : 'Applying'} resource ${resource.kind}/${resource.metadata.name}...`, LogLevel.INFO, true);
 
     // Determine if this is an EDA resource
-    const isEdaResource = resource.apiVersion?.includes('.eda.nokia.com');
+    const pair = resourcePairs.get(resourceKey);
+    const isEda = pair?.isEdaResource ?? isEdaResource(undefined, resource.apiVersion);
     const isNew = resourceEditProvider.isNewResource(documentUri);
     let result: string;
+    let appliedResource: any = resource;
 
-    if (isEdaResource) {
+    if (isEda) {
       const tx = {
         crs: [
           {
@@ -864,7 +871,27 @@ async function applyResource(
 
       result = '';
     } else {
-      // Validation or update logic removed
+      const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
+      if (!isNew && pair?.originalResource?.metadata?.resourceVersion) {
+        resource.metadata.resourceVersion =
+          pair.originalResource.metadata.resourceVersion;
+      }
+      const updated = await k8sClient.applyResource(resource, {
+        dryRun: isDryRun,
+        isNew
+      });
+
+      if (!isDryRun) {
+        const sanitized = sanitizeResource(updated ?? resource);
+        resourceEditProvider.setOriginalResource(documentUri, sanitized);
+        if (isNew) {
+          resourceEditProvider.clearNewResource(documentUri);
+        }
+        if (pair) {
+          pair.originalResource = sanitized;
+        }
+        appliedResource = sanitized;
+      }
       result = '';
     }
 
@@ -882,8 +909,8 @@ async function applyResource(
 
       // Update the resource pair with the newest resource
       const pair = resourcePairs.get(resourceKey);
-      if (pair) {
-        pair.originalResource = resource;
+      if (pair && appliedResource) {
+        pair.originalResource = appliedResource;
       }
     }
 
@@ -921,6 +948,14 @@ async function addResourceToBasket(
   resourceEditProvider: ResourceEditDocumentProvider,
   resource: any
 ): Promise<void> {
+  const { namespace, kind, name } = ResourceEditDocumentProvider.parseUri(documentUri);
+  const pair = resourcePairs.get(getResourceKey(namespace, kind, name));
+  const isEda = pair?.isEdaResource ?? isEdaResource(undefined, resource.apiVersion);
+  if (!isEda) {
+    vscode.window.showErrorMessage('Adding to basket is only supported for EDA resources');
+    return;
+  }
+
   const isNew = resourceEditProvider.isNewResource(documentUri);
   const tx = {
     crs: [

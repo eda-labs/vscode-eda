@@ -8,15 +8,9 @@ import { ResourceViewDocumentProvider } from '../providers/documents/resourceVie
 import { runKubectl } from '../utils/kubectlRunner';
 import * as yaml from 'js-yaml';
 import { stripManagedFieldsFromYaml, sanitizeResource } from '../utils/yamlUtils';
+import { isEdaResource } from '../utils/edaGroupUtils';
 
-/**
- * Decide if the given apiVersion is an EDA group (ends with ".eda.nokia.com")
- */
-function isEdaGroup(apiVersion: string | undefined): boolean {
-  if (!apiVersion) return false;
-  const group = apiVersion.split('/')[0];
-  return group.endsWith('.eda.nokia.com');
-}
+
 
 /**
  * Get API version based on resource kind using a pattern
@@ -135,8 +129,9 @@ export function registerResourceViewCommands(
         // 2) If we have an apiVersion and it looks EDA, use the EDA client
         let finalYaml = '';
         const edaClient = serviceManager.getClient<EdaClient>('eda');
+        const useEdaApi = isEdaResource(treeItem, possibleApiVersion);
 
-        if (possibleApiVersion && isEdaGroup(possibleApiVersion)) {
+        if (useEdaApi) {
           // If recognized as EDA, fetch via the API
           log(`Detected EDA group from apiVersion=${possibleApiVersion}. Fetching via EDA API...`, LogLevel.DEBUG);
 
