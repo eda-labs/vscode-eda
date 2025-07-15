@@ -276,7 +276,13 @@ export class KubernetesClient {
     const nsPart = namespaced ? `/namespaces/${namespace}` : '';
     const basePath = `${base}${nsPart}/${plural}`;
     const path = isNew ? basePath : `${basePath}/${name}`;
-    const url = dryRun ? `${path}?dryRun=All` : path;
+    const params: string[] = [];
+    if (dryRun) {
+      params.push('dryRun=All');
+    }
+    // Enable strict field validation to surface unknown fields
+    params.push('fieldValidation=Strict');
+    const url = params.length > 0 ? `${path}?${params.join('&')}` : path;
     const method = isNew ? 'POST' : 'PUT';
     const sanitized = sanitizeResource(resource);
     return this.requestJSON(method, url, sanitized);
