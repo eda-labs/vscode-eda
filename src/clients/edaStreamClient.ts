@@ -315,6 +315,7 @@ export class EdaStreamClient {
    * Restart the transaction summary stream with the current size
    */
   public async restartTransactionSummaryStream(): Promise<void> {
+    log('Restarting transaction summary stream', LogLevel.DEBUG);
     if (this.summaryAbortController) {
       this.summaryAbortController.abort();
     }
@@ -363,6 +364,7 @@ export class EdaStreamClient {
   }
 
   public async reconnect(clearStreams = false): Promise<void> {
+    log('Reconnecting stream client', LogLevel.DEBUG);
     this.disconnect(clearStreams);
     await this.connect();
   }
@@ -474,7 +476,14 @@ export class EdaStreamClient {
     let buffer = '';
 
     for (;;) {
-      const { value, done } = await reader.read();
+      let readResult;
+      try {
+        readResult = await reader.read();
+      } catch (err) {
+        log(`[STREAM:${streamName}] read error: ${err}`, LogLevel.ERROR);
+        break;
+      }
+      const { value, done } = readResult;
       if (done) {
         log(`[STREAM:${streamName}] ended`, LogLevel.DEBUG);
         break;
@@ -555,9 +564,15 @@ export class EdaStreamClient {
       `&eventclient=${encodeURIComponent(client)}` +
       `&stream=summary`;
     this.summaryAbortController = new AbortController();
-    this.summaryStreamPromise = this.streamSse(url, this.summaryAbortController).finally(() => {
-      this.summaryStreamPromise = undefined;
-    });
+    log('Starting transaction summary stream', LogLevel.DEBUG);
+    this.summaryStreamPromise = this.streamSse(url, this.summaryAbortController)
+      .catch(err => {
+        log(`[STREAM:summary] error: ${err}`, LogLevel.ERROR);
+      })
+      .finally(() => {
+        log('[STREAM:summary] stream closed', LogLevel.DEBUG);
+        this.summaryStreamPromise = undefined;
+      });
   }
 
   private async startUserStorageFileStream(client: string, file: string): Promise<void> {
