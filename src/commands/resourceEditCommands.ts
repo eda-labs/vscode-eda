@@ -21,6 +21,9 @@ interface ResourceURIPair {
 
 const resourcePairs = new Map<string, ResourceURIPair>();
 
+// Flag to suppress the apply prompt when saving programmatically
+let suppressSavePrompt = false;
+
 // Map resource identifier to URI pair
 function getResourceKey(namespace: string, kind: string, name: string): string {
   return `${namespace}/${kind}/${name}`;
@@ -140,7 +143,9 @@ export function registerResourceEditCommands(
           const edit = new vscode.WorkspaceEdit();
           edit.replace(editUri, fullRange, sanitizedYaml);
           await vscode.workspace.applyEdit(edit);
+          suppressSavePrompt = true;
           await existingDoc.save();
+          suppressSavePrompt = false;
         }
 
         // 4) Open the edit document WITHOUT closing the view document
@@ -511,7 +516,7 @@ export function registerResourceEditCommands(
 
   // Add a save handler to intercept standard save
   const onWillSaveTextDocument = vscode.workspace.onWillSaveTextDocument(event => {
-    if (event.document.uri.scheme === 'k8s') {
+    if (event.document.uri.scheme === 'k8s' && !suppressSavePrompt) {
       // This prevents the default save operation
       event.waitUntil(Promise.resolve([]));
 
