@@ -100,16 +100,22 @@ export class TopologyDashboardPanel extends BasePanel {
     return '';
   }
 
+  protected getScriptTags(nonce: string): string {
+    const scriptUri = this.getResourceUri('dist', 'topologyDashboard.js');
+    return `<script nonce="${nonce}" src="${scriptUri}"></script>`;
+  }
+
   protected buildHtml(): string {
     const nonce = this.getNonce();
     const csp = this.panel.webview.cspSource;
     const codiconUri = this.getResourceUri('resources', 'codicon.css');
-    const scriptUri = this.getResourceUri('dist', 'topologyDashboard.js');
     const cytoscapeUri = this.getResourceUri('resources', 'cytoscape.min.js');
     const cytoscapeSvgUri = this.getResourceUri('resources', 'cytoscape-svg.js');
     const nodeIcon = this.getResourceUri('resources', 'node.svg');
     const tailwind = (BasePanel as any).tailwind ?? '';
     const styles = `${tailwind}\n${this.getCustomStyles()}`;
+
+    const scriptTags = this.getScriptTags(nonce);
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -122,7 +128,7 @@ export class TopologyDashboardPanel extends BasePanel {
 </head>
 <body data-cytoscape-uri="${cytoscapeUri}" data-cytoscape-svg-uri="${cytoscapeSvgUri}" data-node-icon="${nodeIcon}">
   ${this.getHtml()}
-  <script nonce="${nonce}" src="${scriptUri}"></script>
+  ${scriptTags}
 </body>
 </html>`;
   }

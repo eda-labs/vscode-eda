@@ -92,28 +92,9 @@ export class NodeConfigPanel extends BasePanel {
     return '';
   }
 
-  protected buildHtml(): string {
-    const nonce = this.getNonce();
-    const csp = this.panel.webview.cspSource;
-    const codiconUri = this.getResourceUri('resources', 'codicon.css');
+  protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'nodeConfigPanel.js');
-    const tailwind = (BasePanel as any).tailwind ?? '';
-    const styles = `${tailwind}\n${this.getCustomStyles()}`;
-
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${csp} https:; style-src ${csp} 'unsafe-inline'; font-src ${csp}; script-src 'nonce-${nonce}' ${csp};">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link href="${codiconUri}" rel="stylesheet">
-  <style>${styles}</style>
-</head>
-<body>
-  ${this.getHtml()}
-  <script nonce="${nonce}" data-color-mode="${NodeConfigPanel.colorMode}" src="${scriptUri}"></script>
-</body>
-</html>`;
+    return `<script nonce="${nonce}" data-color-mode="${NodeConfigPanel.colorMode}" src="${scriptUri}"></script>`;
   }
 
   static show(

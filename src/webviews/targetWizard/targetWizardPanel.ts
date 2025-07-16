@@ -108,31 +108,11 @@ export class TargetWizardPanel extends BasePanel {
     return '';
   }
 
-  protected buildHtml(): string {
-    const nonce = this.getNonce();
-    const csp = this.panel.webview.cspSource;
-    const codiconUri = this.getResourceUri('resources', 'codicon.css');
+  protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'targetWizardPanel.js');
     const data = { targets: this.targets, selected: this.selected };
     const dataJson = JSON.stringify(data).replace(/</g, '\\u003c');
-    const tailwind = (BasePanel as any).tailwind ?? '';
-    const styles = `${tailwind}\n${this.getCustomStyles()}`;
-
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${csp} https:; style-src ${csp} 'unsafe-inline'; font-src ${csp}; script-src 'nonce-${nonce}' ${csp};">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link href="${codiconUri}" rel="stylesheet">
-  <style>${styles}</style>
-</head>
-<body>
-  ${this.getHtml()}
-  <script id="initialData" type="application/json">${dataJson}</script>
-  <script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`;
+    return `<script id="initialData" type="application/json">${dataJson}</script>\n<script nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
   private async saveConfiguration(msg: any, close: boolean): Promise<void> {

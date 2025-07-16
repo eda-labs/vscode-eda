@@ -58,11 +58,25 @@ export abstract class BasePanel {
 
   protected abstract getScripts(): string;
 
+  /**
+   * Return the script tags for this panel.
+   * Subclasses can override this to inject external scripts or
+   * additional data elements. By default the return value of
+   * {@link getScripts} is wrapped in a single script tag with the
+   * provided nonce.
+   */
+  protected getScriptTags(nonce: string): string {
+    const scripts = this.getScripts();
+    return `<script nonce="${nonce}">${scripts}</script>`;
+  }
+
   protected buildHtml(): string {
     const nonce = this.getNonce();
     const csp = this.panel.webview.cspSource;
     const codiconUri = this.getResourceUri('resources', 'codicon.css');
     const styles = `${BasePanel.tailwind ?? ''}\n${this.getCustomStyles()}`;
+
+    const scriptTags = this.getScriptTags(nonce);
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -75,7 +89,7 @@ export abstract class BasePanel {
 </head>
 <body>
   ${this.getHtml()}
-  <script nonce="${nonce}">${this.getScripts()}</script>
+  ${scriptTags}
 </body>
 </html>`;
   }
