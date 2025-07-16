@@ -1,20 +1,31 @@
-export const nodeConfigScripts = `
+/// <reference lib="dom" />
+/* eslint-env browser */
+/* eslint-disable no-undef, no-useless-escape */
+
+declare function acquireVsCodeApi(): { postMessage: (msg: unknown) => void };
+
+class NodeConfigPanelWebview {
+  constructor() {
     const vscode = acquireVsCodeApi();
-    const configView = document.getElementById('configView');
-    const toggleBtn = document.getElementById('toggleAnnotations');
-    const copyBtn = document.getElementById('copyConfig');
-    const toast = document.getElementById('toast');
-    const toastMessage = document.getElementById('toastMessage');
-    const colorModeSelect = document.getElementById('colorModeSelect');
-    let colorMode = '\${colorMode}';
-    document.body.classList.add(\`color-mode-\${colorMode}\`);
+    const configView = document.getElementById('configView') as HTMLElement;
+    const toggleBtn = document.getElementById('toggleAnnotations') as HTMLButtonElement;
+    const copyBtn = document.getElementById('copyConfig') as HTMLButtonElement;
+    const toast = document.getElementById('toast') as HTMLElement;
+    const toastMessage = document.getElementById('toastMessage') as HTMLElement;
+    const colorModeSelect = document.getElementById('colorModeSelect') as HTMLSelectElement;
+    let colorMode =
+      (document.currentScript as HTMLScriptElement | null)?.dataset.colorMode ?? 'full';
+    document.body.classList.add(`color-mode-${colorMode}`);
     colorModeSelect.value = colorMode;
-    
-    const annotationLineMap = new Map();
-    const annotationInfoMap = new Map();
+
+    const annotationLineMap = new Map<string, Set<number>>();
+    const annotationInfoMap = new Map<
+      string,
+      { name: string; group: string; version: string; kind: string }
+    >();
     let isAnnotationsVisible = true;
     let configText = '';
-    
+
     window.addEventListener('message', event => {
       const message = event.data;
       if (message.command === 'loadData') {
@@ -22,13 +33,13 @@ export const nodeConfigScripts = `
         if (message.colorMode) {
           colorMode = message.colorMode;
           document.body.classList.remove('color-mode-full', 'color-mode-less', 'color-mode-none');
-          document.body.classList.add(\`color-mode-\${colorMode}\`);
+          document.body.classList.add(`color-mode-${colorMode}`);
           colorModeSelect.value = colorMode;
         }
         render(message.config, message.annotations);
       }
     });
-    
+
     toggleBtn.addEventListener('click', () => {
       isAnnotationsVisible = !isAnnotationsVisible;
 
@@ -47,7 +58,7 @@ export const nodeConfigScripts = `
         });
       }
     });
-    
+
     copyBtn.addEventListener('click', () => {
       navigator.clipboard.writeText(configText).then(() => {
         showToast('Config copied to clipboard');
@@ -60,42 +71,41 @@ export const nodeConfigScripts = `
     });
 
     colorModeSelect.addEventListener('change', () => {
-      const mode = colorModeSelect.value;
+      const mode = colorModeSelect.value as 'full' | 'less' | 'none';
       document.body.classList.remove('color-mode-full', 'color-mode-less', 'color-mode-none');
-      document.body.classList.add(\`color-mode-\${mode}\`);
+      document.body.classList.add(`color-mode-${mode}`);
       vscode.postMessage({ command: 'saveColorMode', colorMode: mode });
     });
-    
-    function showToast(message) {
+
+    function showToast(message: string): void {
       toastMessage.textContent = message;
       toast.classList.add('show');
-      
+
       setTimeout(() => {
         toast.classList.remove('show');
       }, 3000);
     }
-    
-    function render(config, annotations) {
-      const lines = config.split('\\n');
+
+    function render(config: string, annotations: any[]): void {
+      const lines = config.split('\n');
       const annotationMap = buildAnnotationMap(lines.length, annotations);
-      
+
       configView.innerHTML = '';
       const fragment = document.createDocumentFragment();
-      
+
       // Track the current context to improve highlighting
       let currentContext = {
         section: '',
         interface: '',
         subBlock: '',
         level: 0
-      };
-      
+      } as { section: string; interface: string; subBlock: string; level: number };
+
       // Track the previous annotation for section dividers
       let lastAnnotation = '';
       let previousAnnotation = '';
 
       for (let index = 0; index < lines.length; ) {
-        const lineNum = index + 1;
         const annotationNames = annotationMap[index] || [];
         const annotationKey = annotationNames.join('|');
         const showLabel = annotationKey && annotationKey !== previousAnnotation;
@@ -120,7 +130,7 @@ export const nodeConfigScripts = `
         const annInfos = annotationNames.map(name => ({
           name,
           info: annotationInfoMap.get(name),
-          separateLine: false,
+          separateLine: false
         }));
 
         let leftoverLines = groupLength - annotationNames.length;
@@ -137,7 +147,7 @@ export const nodeConfigScripts = `
           }
         }
 
-        const pendingInfos = [];
+        const pendingInfos: any[] = [];
 
         for (let i = 0; i < groupLength; i++) {
           const currentIndex = index + i;
@@ -149,7 +159,7 @@ export const nodeConfigScripts = `
 
           const lineEl = document.createElement('div');
           lineEl.className = 'line';
-          lineEl.dataset.line = currentLineNum;
+          lineEl.dataset.line = String(currentLineNum);
 
           if (annotationKey) {
             lineEl.dataset.annotation = annotationKey;
@@ -189,7 +199,7 @@ export const nodeConfigScripts = `
               ' ' +
               info.kind +
               '</span>';
-            
+
           } else {
             annotationEl.textContent = '';
           }
@@ -197,7 +207,7 @@ export const nodeConfigScripts = `
 
           const numEl = document.createElement('div');
           numEl.className = 'line-num';
-          numEl.textContent = currentLineNum;
+          numEl.textContent = String(currentLineNum);
 
           const codeEl = document.createElement('div');
           codeEl.className = 'line-code';
@@ -263,24 +273,27 @@ export const nodeConfigScripts = `
 
         index += groupLength;
       }
-      
+
       configView.appendChild(fragment);
       setupEventListeners();
     }
-    
-    function updateContext(line, context) {
+
+    function updateContext(
+      line: string,
+      context: { section: string; interface: string; subBlock: string; level: number }
+    ): void {
       const trimmedLine = line.trim();
-      const indentLevel = line.search(/\\S|$/);
-      
+      const indentLevel = line.search(/\S|$/);
+
       // Calculate the nesting level based on indentation
       context.level = Math.floor(indentLevel / 4);
-      
+
       // Check for main section declarations
-      if (context.level === 0 && trimmedLine.match(/^\\w+.*\\{$/)) {
+      if (context.level === 0 && trimmedLine.match(/^\w+.*\{$/)) {
         context.section = trimmedLine.split(' ')[0];
         context.interface = '';
         context.subBlock = '';
-      } 
+      }
       // Check for interface declarations
       else if (context.level === 0 && trimmedLine.startsWith('interface ')) {
         context.section = 'interface';
@@ -302,132 +315,311 @@ export const nodeConfigScripts = `
         }
       }
     }
-    
-    function applySyntaxHighlighting(line, context) {
+
+    function applySyntaxHighlighting(
+      line: string,
+      context: { section: string; interface: string; subBlock: string; level: number }
+    ): string {
       // Check for empty lines
       if (line.trim() === '') {
         return '';
       }
-      
+
       // Create indentation guides based on indentation level
-      const indentLevel = line.search(/\\S|$/);
+      const indentLevel = line.search(/\S|$/);
       let indentGuides = '';
       for (let i = 0; i < indentLevel; i += 4) {
         indentGuides += '<span class="indentation-guide" style="left:' + i + 'px"></span>';
       }
-      
+
       // Escape HTML for safety
       let processedLine = escapeHtml(line);
-      
+
       // Handle comments
       if (processedLine.trim().startsWith('#')) {
         return indentGuides + '<span class="comment">' + processedLine + '</span>';
       }
-      
+
       // First identify the line type
       if (context.level === 0) {
         // Main section declarations (bfd, interface, network-instance, etc.)
-        if (processedLine.match(/^(\\s*)(\\w+)\\s+([\\w\\-\\/]+)\\s*\\{/)) {
-          processedLine = processedLine.replace(/^(\\s*)(\\w+)\\s+([\\w\\-\\/\\.]+)\\s*\\{/, function(match, space, keyword, name) {
-            if (keyword === 'interface') {
-              return space + '<span class="section-keyword">' + keyword + '</span> <span class="interface-name">' + name + '</span> <span class="bracket">{</span>';
-            } else if (keyword === 'network-instance') {
-              return space + '<span class="section-keyword">' + keyword + '</span> <span class="interface-name">' + name + '</span> <span class="bracket">{</span>';
-            } else {
-              return space + '<span class="section-keyword">' + keyword + '</span> <span class="interface-name">' + name + '</span> <span class="bracket">{</span>';
+        if (processedLine.match(/^(\s*)(\w+)\s+([\w\-\/]+)\s*\{/)) {
+          processedLine = processedLine.replace(
+            /^(\s*)(\w+)\s+([\w\-\/\.]+)\s*\{/,
+            function (_m, space, keyword, name) {
+              if (keyword === 'interface') {
+                return (
+                  space +
+                  '<span class="section-keyword">' +
+                  keyword +
+                  '</span> <span class="interface-name">' +
+                  name +
+                  '</span> <span class="bracket">{</span>'
+                );
+              } else if (keyword === 'network-instance') {
+                return (
+                  space +
+                  '<span class="section-keyword">' +
+                  keyword +
+                  '</span> <span class="interface-name">' +
+                  name +
+                  '</span> <span class="bracket">{</span>'
+                );
+              } else {
+                return (
+                  space +
+                  '<span class="section-keyword">' +
+                  keyword +
+                  '</span> <span class="interface-name">' +
+                  name +
+                  '</span> <span class="bracket">{</span>'
+                );
+              }
             }
-          });
-        } 
+          );
+        }
         // Main section with no identifier
-        else if (processedLine.match(/^(\\s*)(\\w+)\\s*\\{/)) {
-          processedLine = processedLine.replace(/^(\\s*)(\\w+)\\s*\\{/, '$1<span class="section-keyword">$2</span> <span class="bracket">{</span>');
+        else if (processedLine.match(/^(\s*)(\w+)\s*\{/)) {
+          processedLine = processedLine.replace(
+            /^(\s*)(\w+)\s*\{/,
+            '$1<span class="section-keyword">$2</span> <span class="bracket">{</span>'
+          );
         }
       } else {
         // Subsections with blocks
-        if (processedLine.match(/^(\\s*)(\\w[\\w\\-]+)\\s*\\{/)) {
+        if (processedLine.match(/^(\s*)(\w[\w\-]+)\s*\{/)) {
           // Different styling based on the context
           if (context.section === 'interface' || context.section === 'bfd') {
-            processedLine = processedLine.replace(/^(\\s*)(\\w[\\w\\-]+)\\s*\\{/, '$1<span class="property">$2</span> <span class="bracket">{</span>');
+            processedLine = processedLine.replace(
+              /^(\s*)(\w[\w\-]+)\s*\{/,
+              '$1<span class="property">$2</span> <span class="bracket">{</span>'
+            );
           } else if (context.section === 'network-instance') {
-            processedLine = processedLine.replace(/^(\\s*)(\\w[\\w\\-]+)\\s*\\{/, '$1<span class="network-keyword">$2</span> <span class="bracket">{</span>');
+            processedLine = processedLine.replace(
+              /^(\s*)(\w[\w\-]+)\s*\{/,
+              '$1<span class="network-keyword">$2</span> <span class="bracket">{</span>'
+            );
           } else {
-            processedLine = processedLine.replace(/^(\\s*)(\\w[\\w\\-]+)\\s*\\{/, '$1<span class="property">$2</span> <span class="bracket">{</span>');
+            processedLine = processedLine.replace(
+              /^(\s*)(\w[\w\-]+)\s*\{/,
+              '$1<span class="property">$2</span> <span class="bracket">{</span>'
+            );
           }
         }
         // Special handling for specific subsections
-        else if (processedLine.match(/^(\\s*)(\\w[\\w\\-\\/\\.]+)\\s+(.+)\\s*\\{/)) {
-          processedLine = processedLine.replace(/^(\\s*)(\\w[\\w\\-\\/\\.]+)\\s+(.+)\\s*\\{/, function(match, space, keyword, rest) {
-            // Special coloring for specific properties
-            if (keyword === 'subinterface') {
-              return space + '<span class="property">' + keyword + '</span> <span class="value">' + rest.replace(/\\{$/, '') + '</span> <span class="bracket">{</span>';
-            } else if (keyword === 'address') {
-              return space + '<span class="property">' + keyword + '</span> <span class="ip-address">' + rest.replace(/\\{$/, '') + '</span> <span class="bracket">{</span>';
-            } else {
-              return space + '<span class="property">' + keyword + '</span> <span class="value">' + rest.replace(/\\{$/, '') + '</span> <span class="bracket">{</span>';
+        else if (processedLine.match(/^(\s*)(\w[\w\-\/\.]+)\s+(.+)\s*\{/)) {
+          processedLine = processedLine.replace(
+            /^(\s*)(\w[\w\-\/\.]+)\s+(.+)\s*\{/,
+            function (_m, space, keyword, rest) {
+              // Special coloring for specific properties
+              if (keyword === 'subinterface') {
+                return (
+                  space +
+                  '<span class="property">' +
+                  keyword +
+                  '</span> <span class="value">' +
+                  rest.replace(/\{$/, '') +
+                  '</span> <span class="bracket">{</span>'
+                );
+              } else if (keyword === 'address') {
+                return (
+                  space +
+                  '<span class="property">' +
+                  keyword +
+                  '</span> <span class="ip-address">' +
+                  rest.replace(/\{$/, '') +
+                  '</span> <span class="bracket">{</span>'
+                );
+              } else {
+                return (
+                  space +
+                  '<span class="property">' +
+                  keyword +
+                  '</span> <span class="value">' +
+                  rest.replace(/\{$/, '') +
+                  '</span> <span class="bracket">{</span>'
+                );
+              }
             }
-          });
+          );
         }
         // Key-value pairs (no nested block)
-        else if (processedLine.match(/^(\\s*)(\\w[\\w\\-]+)\\s+(.+)$/)) {
-          processedLine = processedLine.replace(/^(\\s*)(\\w[\\w\\-]+)\\s+(.+)$/, function(match, space, property, value) {
-            // Format based on value type
-            if (value === 'true' || value === 'false') {
-              return space + '<span class="property">' + property + '</span> <span class="boolean">' + value + '</span>';
-            } else if (value === 'enable' || value === 'disable' || value === 'up' || value === 'down') {
-              return space + '<span class="property">' + property + '</span> <span class="boolean">' + value + '</span>';
-            } else if (value.match(/^\\d+$/)) {
-              return space + '<span class="property">' + property + '</span> <span class="number">' + value + '</span>';
-            } else if (value.match(/^".*"$/)) {
-              return space + '<span class="property">' + property + '</span> <span class="string">' + value + '</span>';
-            } else if (value.match(/^\\d+\\.\\d+\\.\\d+\\.\\d+\\/\\d+$/)) {
-              return space + '<span class="property">' + property + '</span> <span class="ip-address">' + value + '</span>';
-            } else if (context.section === 'bfd' || property === 'admin-state') {
-              return space + '<span class="parameter">' + property + '</span> <span class="value">' + value + '</span>';
-            } else if (property === 'description') {
-              return space + '<span class="property">' + property + '</span> <span class="string">' + value + '</span>';
-            } else if (property.includes('vlan')) {
-              return space + '<span class="vlan">' + property + '</span> <span class="value">' + value + '</span>';
-            } else if (context.section === 'network-instance' && context.subBlock === 'protocols') {
-              return space + '<span class="protocol">' + property + '</span> <span class="value">' + value + '</span>';
-            } else if (property.includes('bgp')) {
-              return space + '<span class="bgp">' + property + '</span> <span class="value">' + value + '</span>';
-            } else if (property.includes('route')) {
-              return space + '<span class="route">' + property + '</span> <span class="value">' + value + '</span>';
-            } else {
-              return space + '<span class="property">' + property + '</span> <span class="value">' + value + '</span>';
+        else if (processedLine.match(/^(\s*)(\w[\w\-]+)\s+(.+)$/)) {
+          processedLine = processedLine.replace(
+            /^(\s*)(\w[\w\-]+)\s+(.+)$/,
+            function (_m, space, property, value) {
+              // Format based on value type
+              if (value === 'true' || value === 'false') {
+                return (
+                  space +
+                  '<span class="property">' +
+                  property +
+                  '</span> <span class="boolean">' +
+                  value +
+                  '</span>'
+                );
+              } else if (
+                value === 'enable' ||
+                value === 'disable' ||
+                value === 'up' ||
+                value === 'down'
+              ) {
+                return (
+                  space +
+                  '<span class="property">' +
+                  property +
+                  '</span> <span class="boolean">' +
+                  value +
+                  '</span>'
+                );
+              } else if (value.match(/^\d+$/)) {
+                return (
+                  space +
+                  '<span class="property">' +
+                  property +
+                  '</span> <span class="number">' +
+                  value +
+                  '</span>'
+                );
+              } else if (value.match(/^".*"$/)) {
+                return (
+                  space +
+                  '<span class="property">' +
+                  property +
+                  '</span> <span class="string">' +
+                  value +
+                  '</span>'
+                );
+              } else if (value.match(/^\d+\.\d+\.\d+\.\d+\/\d+$/)) {
+                return (
+                  space +
+                  '<span class="property">' +
+                  property +
+                  '</span> <span class="ip-address">' +
+                  value +
+                  '</span>'
+                );
+              } else if (context.section === 'bfd' || property === 'admin-state') {
+                return (
+                  space +
+                  '<span class="parameter">' +
+                  property +
+                  '</span> <span class="value">' +
+                  value +
+                  '</span>'
+                );
+              } else if (property === 'description') {
+                return (
+                  space +
+                  '<span class="property">' +
+                  property +
+                  '</span> <span class="string">' +
+                  value +
+                  '</span>'
+                );
+              } else if (property.includes('vlan')) {
+                return (
+                  space +
+                  '<span class="vlan">' +
+                  property +
+                  '</span> <span class="value">' +
+                  value +
+                  '</span>'
+                );
+              } else if (context.section === 'network-instance' && context.subBlock === 'protocols') {
+                return (
+                  space +
+                  '<span class="protocol">' +
+                  property +
+                  '</span> <span class="value">' +
+                  value +
+                  '</span>'
+                );
+              } else if (property.includes('bgp')) {
+                return (
+                  space +
+                  '<span class="bgp">' +
+                  property +
+                  '</span> <span class="value">' +
+                  value +
+                  '</span>'
+                );
+              } else if (property.includes('route')) {
+                return (
+                  space +
+                  '<span class="route">' +
+                  property +
+                  '</span> <span class="value">' +
+                  value +
+                  '</span>'
+                );
+              } else {
+                return (
+                  space +
+                  '<span class="property">' +
+                  property +
+                  '</span> <span class="value">' +
+                  value +
+                  '</span>'
+                );
+              }
             }
-          });
+          );
         }
         // Arrays in the config
-        else if (processedLine.match(/^(\\s*)\\[$/)) {
-          processedLine = processedLine.replace(/^(\\s*)\\[$/, '$1<span class="bracket">[</span>');
-        }
-        else if (processedLine.match(/^(\\s*)\\]$/)) {
-          processedLine = processedLine.replace(/^(\\s*)\\]$/, '$1<span class="bracket">]</span>');
-        }
-        else if (processedLine.match(/^(\\s*)(\\w.*)$/)) {
+        else if (processedLine.match(/^(\s*)\[$/)) {
+          processedLine = processedLine.replace(
+            /^(\s*)\[$/,
+            '$1<span class="bracket">[</span>'
+          );
+        } else if (processedLine.match(/^(\s*)\]$/)) {
+          processedLine = processedLine.replace(
+            /^(\s*)\]$/,
+            '$1<span class="bracket">]</span>'
+          );
+        } else if (processedLine.match(/^(\s*)(\w.*)$/)) {
           const trimmed = processedLine.trim();
-          if (trimmed.match(/^\\d+$/)) {
-            processedLine = processedLine.replace(/^(\\s*)(\\w.*)$/, '$1<span class="number">$2</span>');
-          } else if (trimmed.match(/^\\d+\\.\\d+\\.\\d+\\.\\d+$/)) {
-            processedLine = processedLine.replace(/^(\\s*)(\\w.*)$/, '$1<span class="ip-address">$2</span>');
-          } else if (trimmed === 'enable' || trimmed === 'disable' || trimmed === 'up' || trimmed === 'down') {
-            processedLine = processedLine.replace(/^(\\s*)(\\w.*)$/, '$1<span class="boolean">$2</span>');
+          if (trimmed.match(/^\d+$/)) {
+            processedLine = processedLine.replace(
+              /^(\s*)(\w.*)$/,
+              '$1<span class="number">$2</span>'
+            );
+          } else if (trimmed.match(/^\d+\.\d+\.\d+\.\d+$/)) {
+            processedLine = processedLine.replace(
+              /^(\s*)(\w.*)$/,
+              '$1<span class="ip-address">$2</span>'
+            );
+          } else if (
+            trimmed === 'enable' ||
+            trimmed === 'disable' ||
+            trimmed === 'up' ||
+            trimmed === 'down'
+          ) {
+            processedLine = processedLine.replace(
+              /^(\s*)(\w.*)$/,
+              '$1<span class="boolean">$2</span>'
+            );
           } else {
-            processedLine = processedLine.replace(/^(\\s*)(\\w.*)$/, '$1<span class="value">$2</span>');
+            processedLine = processedLine.replace(
+              /^(\s*)(\w.*)$/,
+              '$1<span class="value">$2</span>'
+            );
           }
         }
       }
-      
+
       // Handle closing braces
       if (processedLine.trim() === '}') {
-        processedLine = processedLine.replace(/^(\\s*)\\}$/, '$1<span class="bracket">}</span>');
+        processedLine = processedLine.replace(
+          /^(\s*)\}$/,
+          '$1<span class="bracket">}</span>'
+        );
       }
-      
+
       return indentGuides + processedLine;
     }
-    
-    function escapeHtml(text) {
+
+    function escapeHtml(text: string): string {
       return text
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
@@ -435,9 +627,9 @@ export const nodeConfigScripts = `
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
     }
-    
-    function buildAnnotationMap(numLines, annotations) {
-      const annMap = Array.from({ length: numLines }, () => new Set());
+
+    function buildAnnotationMap(numLines: number, annotations: any[]): string[][] {
+      const annMap = Array.from({ length: numLines }, () => new Set<string>());
       annotationLineMap.clear();
       annotationInfoMap.clear();
 
@@ -447,11 +639,11 @@ export const nodeConfigScripts = `
           name: ann.cr?.name || 'unknown',
           group: ann.cr?.gvk?.group || '',
           version: ann.cr?.gvk?.version || '',
-          kind: ann.cr?.gvk?.kind || '',
+          kind: ann.cr?.gvk?.kind || ''
         };
 
         if (!annotationLineMap.has(label)) {
-          annotationLineMap.set(label, new Set());
+          annotationLineMap.set(label, new Set<number>());
           annotationInfoMap.set(label, info);
         }
 
@@ -484,54 +676,60 @@ export const nodeConfigScripts = `
             i++
           ) {
             annMap[i].add(label);
-            annotationLineMap.get(label).add(i + 1);
+            annotationLineMap.get(label)?.add(i + 1);
           }
         }
       }
       return annMap.map(set => Array.from(set));
     }
-    
-    function setupEventListeners() {
+
+    function setupEventListeners(): void {
       configView.addEventListener('mouseover', e => {
-        const targetLine = e.target.closest('.line');
-        const relatedLine = e.relatedTarget && e.relatedTarget.closest
-          ? e.relatedTarget.closest('.line')
-          : null;
-        const currentAnn = targetLine && targetLine.dataset.annotation;
-        const relatedAnn = relatedLine && relatedLine.dataset.annotation;
+        const targetLine = (e.target as HTMLElement).closest('.line');
+        const relatedLine =
+          e.relatedTarget && (e.relatedTarget as HTMLElement).closest
+            ? (e.relatedTarget as HTMLElement).closest('.line')
+            : null;
+        const currentAnn = targetLine && (targetLine as HTMLElement).dataset.annotation;
+        const relatedAnn = relatedLine && (relatedLine as HTMLElement).dataset.annotation;
         if (currentAnn && currentAnn !== relatedAnn) {
           highlightLines(currentAnn, true);
         }
       });
 
       configView.addEventListener('mouseout', e => {
-        const targetLine = e.target.closest('.line');
-        const relatedLine = e.relatedTarget && e.relatedTarget.closest
-          ? e.relatedTarget.closest('.line')
-          : null;
-        const currentAnn = targetLine && targetLine.dataset.annotation;
-        const relatedAnn = relatedLine && relatedLine.dataset.annotation;
+        const targetLine = (e.target as HTMLElement).closest('.line');
+        const relatedLine =
+          e.relatedTarget && (e.relatedTarget as HTMLElement).closest
+            ? (e.relatedTarget as HTMLElement).closest('.line')
+            : null;
+        const currentAnn = targetLine && (targetLine as HTMLElement).dataset.annotation;
+        const relatedAnn = relatedLine && (relatedLine as HTMLElement).dataset.annotation;
         if (currentAnn && currentAnn !== relatedAnn) {
           highlightLines(currentAnn, false);
         }
       });
     }
-    
-    function highlightLines(annotationNamesStr, shouldHighlight) {
+
+    function highlightLines(annotationNamesStr: string, shouldHighlight: boolean): void {
       if (!isAnnotationsVisible) {
         return;
       }
 
-      const names = annotationNamesStr.split("|");
+      const names = annotationNamesStr.split('|');
       for (const name of names) {
         const lineNumbers = annotationLineMap.get(name);
         if (!lineNumbers) continue;
         lineNumbers.forEach(lineNum => {
-          const lineEls = configView.querySelectorAll(\`.line[data-line="\${lineNum}"]\`);
+          const lineEls = configView.querySelectorAll(`.line[data-line="${lineNum}"]`);
           lineEls.forEach(el => {
-            el.classList.toggle("line-highlight", shouldHighlight);
+            el.classList.toggle('line-highlight', shouldHighlight);
           });
         });
       }
     }
-`;
+  }
+}
+
+new NodeConfigPanelWebview();
+

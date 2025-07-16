@@ -67,6 +67,15 @@ async function run() {
     sourcemap: false,
     outfile: 'dist/targetWizardPanel.js'
   });
+
+  await build({
+    entryPoints: ['src/webviews/nodeConfig/nodeConfigPanel.webview.ts'],
+    bundle: true,
+    platform: 'browser',
+    format: 'iife',
+    sourcemap: false,
+    outfile: 'dist/nodeConfigPanel.js'
+  });
 }
 
 run().catch(err => {

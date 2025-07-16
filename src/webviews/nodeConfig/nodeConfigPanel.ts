@@ -1,8 +1,7 @@
 import * as vscode from 'vscode';
 import { BasePanel } from '../basePanel';
-import { nodeConfigStyles } from './nodeConfigPanel.styles';
-import { nodeConfigHtml } from './nodeConfigPanel.html';
-import { nodeConfigScripts } from './nodeConfigPanel.scripts';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface LineRange {
   startLine?: number;
@@ -66,15 +65,55 @@ export class NodeConfigPanel extends BasePanel {
   }
 
   protected getHtml(): string {
-    return nodeConfigHtml;
+    try {
+      const filePath = this.context.asAbsolutePath(
+        path.join('src', 'webviews', 'nodeConfig', 'nodeConfigPanel.html')
+      );
+      return fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+      console.error('Failed to load Node Config HTML', err);
+      return '';
+    }
   }
 
   protected getCustomStyles(): string {
-    return nodeConfigStyles;
+    try {
+      const filePath = this.context.asAbsolutePath(
+        path.join('src', 'webviews', 'nodeConfig', 'nodeConfigPanel.css')
+      );
+      return fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+      console.error('Failed to load Node Config CSS', err);
+      return '';
+    }
   }
 
   protected getScripts(): string {
-    return nodeConfigScripts.replace('${colorMode}', NodeConfigPanel.colorMode);
+    return '';
+  }
+
+  protected buildHtml(): string {
+    const nonce = this.getNonce();
+    const csp = this.panel.webview.cspSource;
+    const codiconUri = this.getResourceUri('resources', 'codicon.css');
+    const scriptUri = this.getResourceUri('dist', 'nodeConfigPanel.js');
+    const tailwind = (BasePanel as any).tailwind ?? '';
+    const styles = `${tailwind}\n${this.getCustomStyles()}`;
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${csp} https:; style-src ${csp} 'unsafe-inline'; font-src ${csp}; script-src 'nonce-${nonce}' ${csp};">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="${codiconUri}" rel="stylesheet">
+  <style>${styles}</style>
+</head>
+<body>
+  ${this.getHtml()}
+  <script nonce="${nonce}" data-color-mode="${NodeConfigPanel.colorMode}" src="${scriptUri}"></script>
+</body>
+</html>`;
   }
 
   static show(

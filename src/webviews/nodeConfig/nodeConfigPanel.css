@@ -1,4 +1,3 @@
-export const nodeConfigStyles = `
     body {
       font-family: var(--vscode-editor-font-family, monospace);
       font-size: var(--vscode-editor-font-size);
@@ -321,4 +320,3 @@ export const nodeConfigStyles = `
       border-bottom: 1px solid var(--vscode-textSeparator-foreground);
       margin: 10px 0;
     }
-`;
