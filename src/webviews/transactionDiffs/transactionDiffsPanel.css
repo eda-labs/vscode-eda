@@ -308,6 +308,11 @@ body {
   font-weight: 600;
 }
 
+.diff-line.blank .line-number,
+.diff-line.blank .line-content {
+  visibility: hidden;
+}
+
 .diff-line.context .line-content {
   color: var(--text-secondary);
 }

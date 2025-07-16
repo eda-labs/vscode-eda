@@ -168,39 +168,58 @@ export class TransactionDiffsPanel extends BasePanel {
       function generateDiff(beforeContent, afterContent) {
         const beforeLines = beforeContent ? beforeContent.split('\\n') : [];
         const afterLines = afterContent ? afterContent.split('\\n') : [];
-        
+
         // Simple LCS-based diff
         const lcs = computeLCS(beforeLines, afterLines);
         const beforeDiff = [];
         const afterDiff = [];
-        
+
         let beforeIdx = 0;
         let afterIdx = 0;
         let lcsIdx = 0;
-        
+
         while (beforeIdx < beforeLines.length || afterIdx < afterLines.length) {
-          if (lcsIdx < lcs.length && beforeIdx < beforeLines.length && 
-              beforeLines[beforeIdx] === lcs[lcsIdx] && afterIdx < afterLines.length &&
-              afterLines[afterIdx] === lcs[lcsIdx]) {
+          if (
+            lcsIdx < lcs.length &&
+            beforeIdx < beforeLines.length &&
+            afterIdx < afterLines.length &&
+            beforeLines[beforeIdx] === lcs[lcsIdx] &&
+            afterLines[afterIdx] === lcs[lcsIdx]
+          ) {
             // Both lines match the LCS - unchanged
             beforeDiff.push({ line: beforeLines[beforeIdx], type: 'context', lineNum: beforeIdx + 1 });
             afterDiff.push({ line: afterLines[afterIdx], type: 'context', lineNum: afterIdx + 1 });
             beforeIdx++;
             afterIdx++;
             lcsIdx++;
-          } else if (beforeIdx < beforeLines.length && 
-                     (lcsIdx >= lcs.length || beforeLines[beforeIdx] !== lcs[lcsIdx])) {
+          } else if (
+            beforeIdx < beforeLines.length &&
+            afterIdx < afterLines.length &&
+            (lcsIdx >= lcs.length || beforeLines[beforeIdx] !== lcs[lcsIdx]) &&
+            (lcsIdx >= lcs.length || afterLines[afterIdx] !== lcs[lcsIdx])
+          ) {
+            // Line modified in-place
+            beforeDiff.push({ line: beforeLines[beforeIdx], type: 'removed', lineNum: beforeIdx + 1 });
+            afterDiff.push({ line: afterLines[afterIdx], type: 'added', lineNum: afterIdx + 1 });
+            beforeIdx++;
+            afterIdx++;
+          } else if (beforeIdx < beforeLines.length && (lcsIdx >= lcs.length || beforeLines[beforeIdx] !== lcs[lcsIdx])) {
             // Line only in before - removed
             beforeDiff.push({ line: beforeLines[beforeIdx], type: 'removed', lineNum: beforeIdx + 1 });
+            afterDiff.push({ line: '', type: 'blank', lineNum: '' });
             beforeIdx++;
-          } else if (afterIdx < afterLines.length && 
-                     (lcsIdx >= lcs.length || afterLines[afterIdx] !== lcs[lcsIdx])) {
+          } else if (afterIdx < afterLines.length && (lcsIdx >= lcs.length || afterLines[afterIdx] !== lcs[lcsIdx])) {
             // Line only in after - added
+            beforeDiff.push({ line: '', type: 'blank', lineNum: '' });
             afterDiff.push({ line: afterLines[afterIdx], type: 'added', lineNum: afterIdx + 1 });
             afterIdx++;
+          } else {
+            beforeIdx++;
+            afterIdx++;
+            lcsIdx++;
           }
         }
-        
+
         return { beforeDiff, afterDiff };
       }
 
@@ -344,10 +363,14 @@ export class TransactionDiffsPanel extends BasePanel {
         const lastBefore = findLastChange(fullBeforeDiff);
         const firstAfter = findFirstChange(fullAfterDiff);
         const lastAfter = findLastChange(fullAfterDiff);
-        beforeStart = Math.max(Math.min(firstBefore, fullBeforeDiff.length - 1) - 5, 0);
-        beforeEnd = Math.min(Math.max(lastBefore, firstBefore) + 5, fullBeforeDiff.length - 1);
-        afterStart = Math.max(Math.min(firstAfter, fullAfterDiff.length - 1) - 5, 0);
-        afterEnd = Math.min(Math.max(lastAfter, firstAfter) + 5, fullAfterDiff.length - 1);
+
+        const firstChange = Math.min(firstBefore, firstAfter);
+        const lastChange = Math.max(lastBefore, lastAfter);
+
+        beforeStart = Math.max(firstChange - 5, 0);
+        afterStart = beforeStart;
+        beforeEnd = Math.min(lastChange + 5, fullBeforeDiff.length - 1);
+        afterEnd = beforeEnd;
 
         // Compute stats
         const stats = computeDiffStats(fullBeforeDiff, fullAfterDiff);
