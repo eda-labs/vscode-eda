@@ -476,6 +476,11 @@
           "group": "inline"
         },
         {
+          "command": "vscode-eda.switchToEditResource",
+          "when": "viewItem == toponode",
+          "group": "inline"
+        },
+        {
           "command": "vscode-eda.viewNodeConfig",
           "when": "viewItem == toponode",
           "group": "navigation"
