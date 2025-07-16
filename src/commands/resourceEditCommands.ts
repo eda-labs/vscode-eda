@@ -922,6 +922,8 @@ async function applyResource(
         ],
         description: `vscode apply ${resource.kind}/${resource.metadata.name}`,
         dryRun: isDryRun,
+        retain: true,
+        resultType: 'normal'
       };
 
       const txId = await edaClient.runTransaction(tx);
