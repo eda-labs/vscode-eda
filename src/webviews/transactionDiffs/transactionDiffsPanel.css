@@ -36,7 +36,7 @@ body {
 }
 
 .sidebar {
-  width: 280px;
+  width: 320px;
   background: var(--bg-primary);
   padding: 16px;
   display: flex;
@@ -61,6 +61,7 @@ body {
   background: var(--bg-secondary);
   display: flex;
   align-items: center;
+  gap: 16px;
   height: 64px;
 }
 
@@ -71,6 +72,15 @@ body {
   color: var(--text-primary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.type-filter {
+  margin-left: auto;
+  background-color: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 4px;
+  padding: 4px 8px;
 }
 
 .resource-list {

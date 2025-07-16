@@ -91,7 +91,9 @@ export class TransactionDiffsPanel extends BasePanel {
       const diffStatsEl = document.getElementById('diffStats');
       const emptyStateEl = document.getElementById('emptyState');
       const diffContainerEl = document.getElementById('diffContainer');
-      
+      const filterSelect = document.getElementById('typeFilter');
+
+      let allResources = [];
       let resources = [];
       let currentResource = null;
       let beforeScrollListener = null;
@@ -102,18 +104,30 @@ export class TransactionDiffsPanel extends BasePanel {
       let beforeEnd = 0;
       let afterStart = 0;
       let afterEnd = 0;
+
+      filterSelect.addEventListener('change', applyFilter);
+
+      function applyFilter() {
+        const val = filterSelect.value;
+        if (val === 'all') {
+          resources = [...allResources];
+        } else {
+          resources = allResources.filter(r => r.type === val);
+        }
+        renderList();
+      }
       
       window.addEventListener('message', event => {
         const msg = event.data;
         if (msg.command === 'resources') {
-          resources = [];
+          allResources = [];
           (msg.resources || []).forEach(r => {
-            resources.push({ ...r, type: 'resource' });
+            allResources.push({ ...r, type: 'resource' });
           });
           (msg.nodes || []).forEach(n => {
-            resources.push({ ...n, type: 'node' });
+            allResources.push({ ...n, type: 'node' });
           });
-          renderList();
+          applyFilter();
         } else if (msg.command === 'diff') {
           renderDiff(msg.diff, msg.resource);
         } else if (msg.command === 'error') {
