@@ -7,3 +7,4 @@ node_modules
 patch.sh
 test.yaml
 CLAUDE.md
+screenshots/**

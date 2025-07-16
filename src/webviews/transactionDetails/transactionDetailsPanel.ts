@@ -146,7 +146,7 @@ export class TransactionDetailsPanel extends BasePanel {
       <div class="section">
         <h2><span class="section-icon">🗑️</span> Deleted Resources</h2>
         ${this.renderResourceList(d.deleteResources.map((res: string) =>
-          `<li class="resource-item">${escapeHtml(res)}</li>`
+          `<li class="resource-item"><span class="resource-path">${escapeHtml(res)}</span></li>`
         ))}
       </div>
     ` : '';
@@ -154,12 +154,20 @@ export class TransactionDetailsPanel extends BasePanel {
     const changedResourcesSection = d.changedCrs && d.changedCrs.length > 0 ? `
       <div class="section">
         <h2><span class="section-icon">✏️</span> Changed Resources</h2>
-        ${this.renderResourceList(d.changedCrs.map((cr: any) =>
-          `<li class="resource-item">
-            <span class="resource-kind">${escapeHtml(cr.gvk?.kind || 'Unknown')}</span>
-            <span class="resource-namespace">namespace: ${escapeHtml(cr.namespace || 'default')}</span>
-          </li>`
-        ))}
+        ${this.renderResourceList(d.changedCrs.map((cr: any) => {
+          const names = cr.names && cr.names.length > 0 ? cr.names : [];
+          if (names.length === 0) {
+            return `<li class="resource-item">
+              <span class="resource-path">${escapeHtml(cr.namespace || 'default')} / ${escapeHtml(cr.gvk?.kind || 'Unknown')}</span>
+            </li>`;
+          }
+          return names.map((name: string) => 
+            `<li class="resource-item">
+              <span class="resource-path">${escapeHtml(cr.namespace || 'default')} / ${escapeHtml(cr.gvk?.kind || 'Unknown')}</span>
+              <span class="resource-name">${escapeHtml(name)}</span>
+            </li>`
+          ).join('');
+        }).flat())}
       </div>
     ` : '';
 
@@ -168,9 +176,8 @@ export class TransactionDetailsPanel extends BasePanel {
         <h2><span class="section-icon">📥</span> Input Resources</h2>
         ${this.renderResourceList(d.inputCrs.map((cr: any) =>
           `<li class="resource-item">
-            <span class="resource-kind">${escapeHtml(cr.name?.gvk?.kind || 'Unknown')}</span>
+            <span class="resource-path">${escapeHtml(cr.name?.namespace || 'default')} / ${escapeHtml(cr.name?.gvk?.kind || 'Unknown')}</span>
             <span class="resource-name">${escapeHtml(cr.name?.name || '')}</span>
-            <span class="resource-namespace">namespace: ${escapeHtml(cr.name?.namespace || 'default')}</span>
             ${cr.isDelete ? '<span class="delete-badge">DELETE</span>' : ''}
           </li>`
         ))}

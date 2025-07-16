@@ -163,19 +163,20 @@ body {
   transform: translateX(4px);
 }
 
-.resource-kind {
-  color: var(--accent);
-  font-weight: 600;
-  min-width: 80px;
-}
-
-.resource-namespace {
-  color: var(--text-secondary);
+.resource-path {
+  color: var(--text-primary);
+  font-weight: 500;
 }
 
 .resource-name {
-  color: var(--text-primary);
-  font-weight: 500;
+  color: var(--text-secondary);
+  margin-left: 8px;
+}
+
+.resource-name:not(:empty)::before {
+  content: '•';
+  margin: 0 8px;
+  color: var(--text-secondary);
 }
 
 .delete-badge {
