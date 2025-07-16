@@ -149,20 +149,20 @@ body {
 .diff-container {
   flex: 1;
   display: flex;
-  overflow: hidden;
   background: var(--bg-primary);
+  overflow: hidden;
 }
 
 .diff-pane {
   flex: 1;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
   background: var(--bg-secondary);
   margin: 16px;
   border-radius: 8px;
   border: 1px solid var(--border);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
 }
 
 .pane-header {
@@ -206,7 +206,6 @@ body {
 }
 
 .diff-content {
-  flex: 1;
   overflow: auto;
   padding: 0;
   background: var(--vscode-textCodeBlock-background);
@@ -214,6 +213,8 @@ body {
   font-size: var(--vscode-editor-font-size, 13px);
   line-height: 1.5;
   white-space: pre;
+  height: fit-content;
+  max-height: calc(100vh - 200px);
 }
 
 .diff-line {

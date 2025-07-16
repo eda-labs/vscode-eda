@@ -251,6 +251,10 @@ export class TransactionDiffsPanel extends BasePanel {
         beforeContentEl.innerHTML = createDiffLines(diffData.beforeDiff);
         afterContentEl.innerHTML = createDiffLines(diffData.afterDiff);
         
+        // Reset any previous height settings
+        beforeContentEl.style.height = '';
+        afterContentEl.style.height = '';
+        
         // Remove old scroll listeners
         if (beforeScrollListener) {
           beforeContentEl.removeEventListener('scroll', beforeScrollListener);
