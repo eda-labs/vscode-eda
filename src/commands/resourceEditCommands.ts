@@ -377,16 +377,10 @@ export function registerResourceEditCommands(
           if (options.dryRun) {
             return await validateAndPromptForApply(edaClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
           } else {
-            // Direct apply - still show diff first
-            const shouldContinue = await showResourceDiff(resourceEditProvider, documentUri);
-            if (!shouldContinue) {
-              return;
-            }
-
-            // Confirm and apply
-            const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
+            // Direct apply - show diff and confirm in one step
+            const confirmed = await showResourceDiff(resourceEditProvider, documentUri, { confirmActionLabel: 'Apply' });
             if (confirmed) {
-                const result = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
+              const result = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
               if (result) {
                 // Update both providers with the applied resource
                 resourceEditProvider.setOriginalResource(
@@ -476,14 +470,8 @@ export function registerResourceEditCommands(
           // Validate and then ask for apply
           return await validateAndPromptForApply(edaClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
         } else {
-          // Direct apply - still show diff first as a safeguard
-          const shouldContinue = await showResourceDiff(resourceEditProvider, documentUri);
-          if (!shouldContinue) {
-            return;
-          }
-
-          // Confirm and apply
-          const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
+          // Direct apply - show diff and confirm in one step
+          const confirmed = await showResourceDiff(resourceEditProvider, documentUri, { confirmActionLabel: 'Apply' });
           if (confirmed) {
             const result = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
             if (result) {
@@ -776,7 +764,8 @@ function validateResource(
 // Show a unified diff view of the changes
 async function showResourceDiff(
   resourceProvider: ResourceEditDocumentProvider,
-  documentUri: vscode.Uri
+  documentUri: vscode.Uri,
+  options: { confirmActionLabel?: string } = {}
 ): Promise<boolean> {
   try {
     // Get the original resource
@@ -839,15 +828,20 @@ async function showResourceDiff(
       diffProvider.dispose();
     }, 5000);
 
+    const confirmLabel = options.confirmActionLabel ?? 'Continue';
+    const promptMessage = confirmLabel === 'Continue'
+      ? 'Continue with the operation?'
+      : 'Apply changes to the resource?';
+
     // Show a message with action buttons - no information message, just buttons
     const action = await vscode.window.showWarningMessage(
-      'Continue with the operation?',
-      'Continue',
+      promptMessage,
+      confirmLabel,
       'Cancel'
     );
 
     // Return whether the user wants to proceed
-    return action === 'Continue';
+    return action === confirmLabel;
 
   } catch (error) {
     vscode.window.showErrorMessage(`Error showing diff: ${error}`);
