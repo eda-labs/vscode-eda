@@ -112,7 +112,7 @@ export class ResourceEditDocumentProvider extends BaseDocumentProvider {
    * Parse a k8s URI to get namespace, kind, and name
    */
   static parseUri(uri: vscode.Uri): { namespace: string; kind: string; name: string } {
-    // URI format: k8s:/namespace/kind/name
+    // URI format: k8s:/namespace/kind/name?origin=eda|k8s
     const parts = uri.path.split('/').filter(p => p.length > 0);
     if (parts.length !== 3) {
       throw new Error(`Invalid k8s URI format: ${uri}`);
@@ -125,10 +125,28 @@ export class ResourceEditDocumentProvider extends BaseDocumentProvider {
   }
 
   /**
+   * Determine the origin of a k8s URI
+   */
+  static getOrigin(uri: vscode.Uri): 'eda' | 'k8s' | undefined {
+    const params = new URLSearchParams(uri.query);
+    const origin = params.get('origin');
+    if (origin === 'eda' || origin === 'k8s') {
+      return origin;
+    }
+    return undefined;
+  }
+
+  /**
    * Create a k8s URI for a resource
    */
-  static createUri(namespace: string, kind: string, name: string): vscode.Uri {
-    return vscode.Uri.parse(`k8s:/${namespace}/${kind}/${name}`);
+  static createUri(
+    namespace: string,
+    kind: string,
+    name: string,
+    origin?: 'eda' | 'k8s'
+  ): vscode.Uri {
+    const query = origin ? `?origin=${origin}` : '';
+    return vscode.Uri.parse(`k8s:/${namespace}/${kind}/${name}${query}`);
   }
 
   /**

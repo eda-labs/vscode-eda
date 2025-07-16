@@ -7,7 +7,7 @@ import { ResourceViewDocumentProvider } from '../providers/documents/resourceVie
 import * as yaml from 'js-yaml';
 import { stripManagedFieldsFromYaml, sanitizeResource } from '../utils/yamlUtils';
 import { isEdaResource } from '../utils/edaGroupUtils';
-import { setViewIsEda } from '../utils/resourceOriginStore';
+import { setViewIsEda, setResourceOrigin } from '../utils/resourceOriginStore';
 
 export function registerResourceViewCommands(
   context: vscode.ExtensionContext,
@@ -36,9 +36,19 @@ export function registerResourceViewCommands(
       }
 
       yamlText = stripManagedFieldsFromYaml(yamlText);
-      const uri = ResourceViewDocumentProvider.createUri(namespace, kind, name);
+      const uri = ResourceViewDocumentProvider.createUri(
+        namespace,
+        kind,
+        name,
+        useEda ? 'eda' : 'k8s'
+      );
       provider.setResourceContent(uri, yamlText);
       setViewIsEda(uri, useEda);
+      setResourceOrigin(namespace, kind, name, useEda);
+      log(
+        `viewResource: origin=${useEda ? 'eda' : 'k8s'} for ${namespace}/${kind}/${name}`,
+        LogLevel.DEBUG
+      );
 
       const doc = await vscode.workspace.openTextDocument(uri);
       await vscode.languages.setTextDocumentLanguage(doc, 'yaml');
@@ -60,9 +70,20 @@ export function registerResourceViewCommands(
       const kind = resource.kind || arg.resourceType || arg.kind || 'Resource';
       const name = resource.metadata?.name || arg.name || arg.label || 'unknown';
       const yamlText = yaml.dump(sanitizeResource(resource), { indent: 2 });
-      const uri = ResourceViewDocumentProvider.createUri(namespace, kind, name);
+      const eda = isEdaResource(arg, resource.apiVersion);
+      const uri = ResourceViewDocumentProvider.createUri(
+        namespace,
+        kind,
+        name,
+        eda ? 'eda' : 'k8s'
+      );
       provider.setResourceContent(uri, yamlText);
-      setViewIsEda(uri, isEdaResource(arg, resource.apiVersion));
+      setViewIsEda(uri, eda);
+      setResourceOrigin(namespace, kind, name, eda);
+      log(
+        `viewStreamItem: origin=${eda ? 'eda' : 'k8s'} for ${namespace}/${kind}/${name}`,
+        LogLevel.DEBUG
+      );
       const doc = await vscode.workspace.openTextDocument(uri);
       await vscode.languages.setTextDocumentLanguage(doc, 'yaml');
       await vscode.window.showTextDocument(doc, { preview: true });

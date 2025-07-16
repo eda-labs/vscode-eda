@@ -8,7 +8,12 @@ import { ResourceViewDocumentProvider } from '../providers/documents/resourceVie
 import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
 import { log, LogLevel, edaOutputChannel, edaTransactionBasketProvider } from '../extension';
 import { isEdaResource } from '../utils/edaGroupUtils';
-import { getViewIsEda, setViewIsEda } from '../utils/resourceOriginStore';
+import {
+  getViewIsEda,
+  setViewIsEda,
+  setResourceOrigin,
+  getResourceOrigin
+} from '../utils/resourceOriginStore';
 import { KubernetesClient } from '../clients/kubernetesClient';
 import { sanitizeResource, sanitizeResourceForEdit } from '../utils/yamlUtils';
 
@@ -68,7 +73,12 @@ export function registerResourceEditCommands(
             name = raw?.metadata?.name || arg.name || arg.label || 'unknown';
             apiVersion = raw?.apiVersion;
 
-            viewDocumentUri = ResourceViewDocumentProvider.createUri(namespace, kind, name);
+            viewDocumentUri = ResourceViewDocumentProvider.createUri(
+              namespace,
+              kind,
+              name,
+              isEdaResource(arg, raw?.apiVersion) ? 'eda' : 'k8s'
+            );
           }
         }
 
@@ -102,10 +112,32 @@ export function registerResourceEditCommands(
         let editUri: vscode.Uri;
         let pair = resourcePairs.get(resourceKey);
 
-        let edaOrigin = getViewIsEda(viewDocumentUri) ?? false;
+        let edaOrigin: boolean | undefined;
+
+        const originFromUri = ResourceViewDocumentProvider.getOrigin(viewDocumentUri);
+        log(`switchToEditResource: origin from URI=${originFromUri}`, LogLevel.DEBUG);
+        if (originFromUri) {
+          edaOrigin = originFromUri === 'eda';
+        } else {
+          const originStored = getResourceOrigin(namespace, kind, name);
+          log(`switchToEditResource: origin from store=${originStored}`, LogLevel.DEBUG);
+          edaOrigin = originStored;
+          if (edaOrigin === undefined) {
+            edaOrigin = getViewIsEda(viewDocumentUri);
+            log(`switchToEditResource: origin from view flag=${edaOrigin}`, LogLevel.DEBUG);
+          }
+        }
+
+        if (edaOrigin === undefined && apiVersion) {
+          edaOrigin = apiVersion.includes('.eda.nokia.com');
+          log(`switchToEditResource: origin guessed from apiVersion=${edaOrigin}`, LogLevel.DEBUG);
+        }
+
+        edaOrigin = edaOrigin ?? false;
         if (arg && !edaOrigin) {
           const raw = arg.raw || arg.rawResource || arg.resource?.raw;
           edaOrigin = isEdaResource(arg, raw?.apiVersion);
+          setResourceOrigin(namespace, kind, name, edaOrigin);
         }
 
         // Always fetch the latest YAML when entering edit mode
@@ -129,6 +161,8 @@ export function registerResourceEditCommands(
         }
 
         setViewIsEda(viewDocumentUri, edaOrigin);
+        setResourceOrigin(namespace, kind, name, edaOrigin);
+        log(`switchToEditResource: final origin=${edaOrigin ? 'eda' : 'k8s'}`, LogLevel.DEBUG);
 
         if (resourceObject && typeof resourceObject === 'object') {
           delete (resourceObject as any).status;
@@ -146,7 +180,12 @@ export function registerResourceEditCommands(
           pair.viewUri = viewDocumentUri; // update view URI to the latest
         } else {
           // Create a new edit URI and track the pair
-          editUri = ResourceEditDocumentProvider.createUri(namespace, kind, name);
+          editUri = ResourceEditDocumentProvider.createUri(
+            namespace,
+            kind,
+            name,
+            edaOrigin ? 'eda' : 'k8s'
+          );
           resourcePairs.set(resourceKey, {
             viewUri: viewDocumentUri,
             editUri: editUri,
@@ -431,7 +470,17 @@ export function registerResourceEditCommands(
         }
 
         const pairForPrompt = resourcePairs.get(resourceKey);
-        const isEda = pairForPrompt?.isEdaResource ?? isEdaResource(undefined, resource.apiVersion);
+        const originPrompt = ResourceEditDocumentProvider.getOrigin(documentUri);
+        let isEda = pairForPrompt?.isEdaResource;
+        if (isEda === undefined) {
+          if (originPrompt) {
+            isEda = originPrompt === 'eda';
+          } else {
+            const { namespace, kind, name } = ResourceEditDocumentProvider.parseUri(documentUri);
+            const originStored = getResourceOrigin(namespace, kind, name);
+            isEda = originStored ?? isEdaResource(undefined, resource.apiVersion);
+          }
+        }
 
         // Present options to the user
         const action = await promptForApplyAction(resource, isEda);
@@ -906,7 +955,17 @@ async function applyResource(
 
     // Determine if this is an EDA resource
     const pair = resourcePairs.get(resourceKey);
-    const isEda = pair?.isEdaResource ?? isEdaResource(undefined, resource.apiVersion);
+    const origin = ResourceEditDocumentProvider.getOrigin(documentUri);
+    let isEda = pair?.isEdaResource;
+    if (isEda === undefined) {
+      if (origin) {
+        isEda = origin === 'eda';
+      } else {
+        const { namespace, kind, name } = ResourceEditDocumentProvider.parseUri(documentUri);
+        const originStored = getResourceOrigin(namespace, kind, name);
+        isEda = originStored ?? isEdaResource(undefined, resource.apiVersion);
+      }
+    }
     const isNew = resourceEditProvider.isNewResource(documentUri);
     let result: string;
     let appliedResource: any = resource;
@@ -1027,7 +1086,16 @@ async function addResourceToBasket(
 ): Promise<void> {
   const { namespace, kind, name } = ResourceEditDocumentProvider.parseUri(documentUri);
   const pair = resourcePairs.get(getResourceKey(namespace, kind, name));
-  const isEda = pair?.isEdaResource ?? isEdaResource(undefined, resource.apiVersion);
+  const origin = ResourceEditDocumentProvider.getOrigin(documentUri);
+  let isEda = pair?.isEdaResource;
+  if (isEda === undefined) {
+    if (origin) {
+      isEda = origin === 'eda';
+    } else {
+      const originStored = getResourceOrigin(namespace, kind, name);
+      isEda = originStored ?? isEdaResource(undefined, resource.apiVersion);
+    }
+  }
   if (!isEda) {
     vscode.window.showErrorMessage('Adding to basket is only supported for EDA resources');
     return;
