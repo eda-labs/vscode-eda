@@ -20,6 +20,19 @@ export class TransactionDetailsPanel extends BasePanel {
     });
     this.data = data;
     this.panel.webview.html = this.buildHtml();
+
+    // Handle messages from the webview
+    this.panel.webview.onDidReceiveMessage(
+      async (message) => {
+        switch (message.command) {
+          case 'copy':
+            await vscode.env.clipboard.writeText(message.text);
+            break;
+        }
+      },
+      undefined,
+      context.subscriptions
+    );
   }
 
   protected getHtml(): string {
@@ -34,27 +47,35 @@ export class TransactionDetailsPanel extends BasePanel {
 
   protected getScripts(): string {
     return `
-      function copyToClipboard() {
-        const rawJson = document.getElementById('raw-json').textContent;
-        navigator.clipboard.writeText(rawJson).then(() => {
-          const button = document.querySelector('.copy-button');
-          const originalHTML = button.innerHTML;
-          button.innerHTML = '<span>✓</span> Copied!';
-          button.style.background = 'var(--success)';
-          
-          setTimeout(() => {
-            button.innerHTML = originalHTML;
-            button.style.background = '';
-          }, 2000);
-        }).catch(err => {
-          console.error('Failed to copy: ', err);
-        });
-      }
+      const vscode = acquireVsCodeApi();
+      
+      document.addEventListener('DOMContentLoaded', () => {
+        const copyButton = document.querySelector('.copy-button');
+        if (copyButton) {
+          copyButton.addEventListener('click', () => {
+            const rawJson = document.getElementById('raw-json').textContent;
+            vscode.postMessage({
+              command: 'copy',
+              text: rawJson
+            });
+            
+            const originalHTML = copyButton.innerHTML;
+            copyButton.innerHTML = '<span>✓</span> Copied!';
+            copyButton.style.background = 'var(--success)';
+            
+            setTimeout(() => {
+              copyButton.innerHTML = originalHTML;
+              copyButton.style.background = '';
+            }, 2000);
+          });
+        }
+      });
     `;
   }
 
-  protected getScriptTags(_nonce: string): string {
-    return '';
+  protected getScriptTags(nonce: string): string {
+    const scripts = this.getScripts();
+    return `<script nonce="${nonce}">${scripts}</script>`;
   }
 
   private renderResourceList(items: any[]): string {
@@ -87,7 +108,7 @@ export class TransactionDetailsPanel extends BasePanel {
       <div class="header">
         <h1>
           Transaction
-          <span class="transaction-id">#${escapeHtml(String(d.id))}</span>
+          <span class="transaction-id ${d.success === 'No' ? 'error' : ''}">#${escapeHtml(String(d.id))}</span>
         </h1>
         <div class="summary">
           <div class="summary-item">
@@ -174,7 +195,7 @@ export class TransactionDetailsPanel extends BasePanel {
       <div class="raw-json-section">
         <h2>
           <span>📋 Raw JSON</span>
-          <button class="copy-button" onclick="copyToClipboard()">
+          <button class="copy-button">
             <span>📋</span> Copy
           </button>
         </h2>
