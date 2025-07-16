@@ -73,6 +73,8 @@ export class TransactionDiffsPanel extends BasePanel {
       
       let resources = [];
       let currentResource = null;
+      let beforeScrollListener = null;
+      let afterScrollListener = null;
       
       window.addEventListener('message', event => {
         const msg = event.data;
@@ -249,18 +251,41 @@ export class TransactionDiffsPanel extends BasePanel {
         beforeContentEl.innerHTML = createDiffLines(diffData.beforeDiff);
         afterContentEl.innerHTML = createDiffLines(diffData.afterDiff);
         
+        // Remove old scroll listeners
+        if (beforeScrollListener) {
+          beforeContentEl.removeEventListener('scroll', beforeScrollListener);
+        }
+        if (afterScrollListener) {
+          afterContentEl.removeEventListener('scroll', afterScrollListener);
+        }
+        
         // Sync scroll positions
         let syncing = false;
         const syncScroll = (source, target) => {
           if (syncing) return;
           syncing = true;
-          const percentage = source.scrollTop / (source.scrollHeight - source.clientHeight);
-          target.scrollTop = percentage * (target.scrollHeight - target.clientHeight);
-          setTimeout(() => syncing = false, 10);
+          
+          // Calculate scroll percentage
+          const maxScroll = source.scrollHeight - source.clientHeight;
+          if (maxScroll <= 0) {
+            target.scrollTop = 0;
+          } else {
+            const percentage = source.scrollTop / maxScroll;
+            const targetMaxScroll = target.scrollHeight - target.clientHeight;
+            target.scrollTop = percentage * targetMaxScroll;
+          }
+          
+          requestAnimationFrame(() => {
+            syncing = false;
+          });
         };
         
-        beforeContentEl.addEventListener('scroll', () => syncScroll(beforeContentEl, afterContentEl));
-        afterContentEl.addEventListener('scroll', () => syncScroll(afterContentEl, beforeContentEl));
+        // Add new scroll listeners
+        beforeScrollListener = () => syncScroll(beforeContentEl, afterContentEl);
+        afterScrollListener = () => syncScroll(afterContentEl, beforeContentEl);
+        
+        beforeContentEl.addEventListener('scroll', beforeScrollListener);
+        afterContentEl.addEventListener('scroll', afterScrollListener);
       }
       
       function showError(message) {
