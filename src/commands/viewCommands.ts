@@ -12,11 +12,12 @@ import { AlarmDetailsDocumentProvider } from '../providers/documents/alarmDetail
 import { DeviationDetailsDocumentProvider } from '../providers/documents/deviationDetailsProvider';
 import { BasketTransactionDocumentProvider } from '../providers/documents/basketTransactionProvider';
 import { loadTemplate } from '../utils/templateLoader';
+import { TransactionDetailsPanel } from '../webviews/transactionDetails/transactionDetailsPanel';
 
 export function registerViewCommands(
   context: vscode.ExtensionContext,
   crdFsProvider: CrdDefinitionFileSystemProvider,
-  transactionDetailsProvider: TransactionDetailsDocumentProvider,
+  _transactionDetailsProvider: TransactionDetailsDocumentProvider,
   alarmDetailsProvider: AlarmDetailsDocumentProvider,
   deviationDetailsProvider: DeviationDetailsDocumentProvider,
   basketProvider: BasketTransactionDocumentProvider
@@ -75,18 +76,8 @@ export function registerViewCommands(
           rawJson: JSON.stringify(mergedObj, null, 2)
         };
 
-        const detailsText = loadTemplate('transaction', context, templateVars);
-
-        // Create a "eda-transaction:" URI for read-only
-        const docUri = vscode.Uri.parse(
-          `eda-transaction:/${transactionId}?ts=${Date.now()}`
-        );
-
-        // Store the markdown text in the read-only provider
-        transactionDetailsProvider.setTransactionContent(docUri, detailsText);
-
-        // Show markdown preview
-        await vscode.commands.executeCommand('markdown.showPreview', docUri);
+        // Generate transaction details webview
+        TransactionDetailsPanel.show(context, templateVars);
       } catch (err: any) {
         const msg = `Failed to load transaction details for ID ${transactionId}: ${err.message}`;
         vscode.window.showErrorMessage(msg);
