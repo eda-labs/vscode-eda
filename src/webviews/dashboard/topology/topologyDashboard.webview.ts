@@ -61,7 +61,17 @@ interface SshTopoNodeMessage {
   nodeDetails?: string;
 }
 
-type OutboundMessage = ReadyMessage | SetNamespaceMessage | SshTopoNodeMessage;
+interface OpenResourceMessage {
+  command: 'openResource';
+  raw: any;
+  streamGroup?: string;
+}
+
+type OutboundMessage =
+  | ReadyMessage
+  | SetNamespaceMessage
+  | SshTopoNodeMessage
+  | OpenResourceMessage;
 
 const tippyFactory = (ref: any, content: HTMLElement): TippyInstance => {
   const dummyDomEle = document.createElement('div');
@@ -763,7 +773,7 @@ class TopologyDashboard {
       const platform = data?.spec?.platform ?? data?.status?.platform ?? '';
       const version = data?.spec?.version ?? data?.status?.version ?? '';
       this.infoCard.innerHTML = `
-        <h3><span class="codicon codicon-server-environment"></span> ${name}</h3>
+        <h3><span class="codicon codicon-server-environment"></span> <a href="#" class="node-link">${name}</a></h3>
         <table class="info-table">
           ${row('Labels', labels)}
           ${row('Status', status)}
@@ -776,6 +786,17 @@ class TopologyDashboard {
           ${row('Version', version)}
         </table>
       `;
+      const link = this.infoCard.querySelector('.node-link');
+      if (link) {
+        link.addEventListener('click', evt => {
+          evt.preventDefault();
+          this.postMessage({
+            command: 'openResource',
+            raw: data,
+            streamGroup: 'core'
+          });
+        });
+      }
     } else {
       const localNode = data?.local?.node ?? '';
       const localIf = data?.local?.interface ?? '';

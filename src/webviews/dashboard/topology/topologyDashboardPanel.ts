@@ -64,6 +64,11 @@ export class TopologyDashboardPanel extends BasePanel {
           namespace: msg.namespace,
           nodeDetails: msg.nodeDetails
         });
+      } else if (msg.command === 'openResource') {
+        await vscode.commands.executeCommand('vscode-eda.viewResource', {
+          raw: msg.raw,
+          streamGroup: msg.streamGroup
+        });
       }
     });
 
