@@ -358,6 +358,26 @@ export class EdaApiClient {
   }
 
   /**
+   * Fetch the diff for a resource in a transaction
+   */
+  public async getResourceDiff(
+    transactionId: string | number,
+    group: string,
+    version: string,
+    kind: string,
+    name: string,
+    namespace: string
+  ): Promise<any> {
+    if (!this.specManager) {
+      throw new Error('Spec manager not initialized');
+    }
+    const template = await this.specManager.getPathByOperationId('transGetResourceDiff');
+    const path = template.replace('{transactionId}', String(transactionId));
+    const params = new URLSearchParams({ group, version, kind, name, namespace });
+    return this.fetchJSON<any>(`${path}?${params.toString()}`);
+  }
+
+  /**
    * Retrieve a file from the user storage API
    */
   public async getUserStorageFile(path: string): Promise<string | undefined> {

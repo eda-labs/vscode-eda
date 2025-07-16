@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { BasePanel } from '../basePanel';
+import { TransactionDiffsPanel } from '../transactionDiffs/transactionDiffsPanel';
 
 function escapeHtml(text: string): string {
   return text
@@ -28,6 +29,13 @@ export class TransactionDetailsPanel extends BasePanel {
           case 'copy':
             await vscode.env.clipboard.writeText(message.text);
             break;
+          case 'showDiffs':
+            TransactionDiffsPanel.show(
+              this.context,
+              this.data.id,
+              this.data.changedCrs || []
+            );
+            break;
         }
       },
       undefined,
@@ -51,6 +59,7 @@ export class TransactionDetailsPanel extends BasePanel {
       
       document.addEventListener('DOMContentLoaded', () => {
         const copyButton = document.querySelector('.copy-button');
+        const diffButton = document.querySelector('.diff-button');
         if (copyButton) {
           copyButton.addEventListener('click', () => {
             const rawJson = document.getElementById('raw-json').textContent;
@@ -67,6 +76,11 @@ export class TransactionDetailsPanel extends BasePanel {
               copyButton.innerHTML = originalHTML;
               copyButton.style.background = '';
             }, 2000);
+          });
+        }
+        if (diffButton) {
+          diffButton.addEventListener('click', () => {
+            vscode.postMessage({ command: 'showDiffs' });
           });
         }
       });
@@ -106,10 +120,13 @@ export class TransactionDetailsPanel extends BasePanel {
 
     const header = `
       <div class="header">
-        <h1>
-          Transaction
-          <span class="transaction-id ${d.success === 'No' ? 'error' : ''}">#${escapeHtml(String(d.id))}</span>
-        </h1>
+        <div class="header-top">
+          <h1>
+            Transaction
+            <span class="transaction-id ${d.success === 'No' ? 'error' : ''}">#${escapeHtml(String(d.id))}</span>
+          </h1>
+          <button class="diff-button">Show Diffs</button>
+        </div>
         <div class="summary">
           <div class="summary-item">
             <div class="summary-label">State</div>

@@ -38,6 +38,13 @@ body {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
+.header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
 .header h1 {
   margin: 0 0 16px 0;
   font-size: 1.5rem;
@@ -284,6 +291,21 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.diff-button {
+  background: var(--accent);
+  color: var(--vscode-button-foreground);
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-left: 16px;
+}
+.diff-button:hover {
+  background: var(--accent-hover);
 }
 
 .copy-button:hover {

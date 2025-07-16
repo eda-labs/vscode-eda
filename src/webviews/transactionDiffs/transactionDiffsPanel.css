@@ -1,0 +1,66 @@
+:root {
+  --bg-primary: var(--vscode-editor-background);
+  --bg-secondary: var(--vscode-panel-background);
+  --bg-hover: var(--vscode-list-hoverBackground);
+  --text-primary: var(--vscode-editor-foreground);
+  --border: var(--vscode-panel-border);
+  --accent: var(--vscode-button-background);
+}
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  height: 100vh;
+}
+.diff-container {
+  display: flex;
+  height: 100%;
+}
+.list-panel {
+  width: 220px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-secondary);
+  padding: 8px;
+  overflow-y: auto;
+}
+.resource-btn {
+  display: block;
+  width: 100%;
+  margin-bottom: 4px;
+  padding: 6px 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.resource-btn:hover {
+  background: var(--bg-hover);
+}
+.resource-btn.selected {
+  background: var(--accent);
+  color: var(--vscode-button-foreground);
+}
+.diff-panel {
+  flex: 1;
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  overflow: auto;
+}
+.diff-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+pre {
+  flex: 1;
+  background: var(--vscode-textCodeBlock-background);
+  padding: 8px;
+  border-radius: 4px;
+  overflow: auto;
+}
