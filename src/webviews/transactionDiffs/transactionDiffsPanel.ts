@@ -64,43 +64,159 @@ export class TransactionDiffsPanel extends BasePanel {
     return `
       const vscode = acquireVsCodeApi();
       const listEl = document.getElementById('diffList');
-      const beforeEl = document.getElementById('before');
-      const afterEl = document.getElementById('after');
+      const beforeContentEl = document.getElementById('beforeContent');
+      const afterContentEl = document.getElementById('afterContent');
+      const resourceTitleEl = document.getElementById('resourceTitle');
+      const diffStatsEl = document.getElementById('diffStats');
+      const emptyStateEl = document.getElementById('emptyState');
+      const diffContainerEl = document.getElementById('diffContainer');
+      
       let resources = [];
+      let currentResource = null;
+      
       window.addEventListener('message', event => {
         const msg = event.data;
         if (msg.command === 'resources') {
           resources = msg.resources;
           renderList();
         } else if (msg.command === 'diff') {
-          renderDiff(msg.diff);
+          renderDiff(msg.diff, msg.resource);
         } else if (msg.command === 'error') {
-          beforeEl.textContent = msg.message;
-          afterEl.textContent = '';
+          showError(msg.message);
         }
       });
+      
       function renderList() {
         listEl.innerHTML = '';
         resources.forEach((r, idx) => {
           const btn = document.createElement('button');
-          btn.className = 'resource-btn';
-          btn.textContent = r.name;
+          btn.className = 'resource-item';
+          btn.innerHTML = \`
+            <div>\${r.name}</div>
+            <div class="resource-kind">\${r.kind} • \${r.namespace}</div>
+          \`;
           btn.addEventListener('click', () => {
+            currentResource = r;
             vscode.postMessage({ command: 'loadDiff', resource: r });
-            document.querySelectorAll('.resource-btn').forEach(el => el.classList.remove('selected'));
+            document.querySelectorAll('.resource-item').forEach(el => el.classList.remove('selected'));
             btn.classList.add('selected');
           });
-          if (idx === 0) btn.classList.add('selected');
+          if (idx === 0) {
+            btn.classList.add('selected');
+            currentResource = r;
+          }
           listEl.appendChild(btn);
         });
+        
         if (resources.length > 0) {
           vscode.postMessage({ command: 'loadDiff', resource: resources[0] });
+        } else {
+          showEmptyState();
         }
       }
-      function renderDiff(diff) {
-        beforeEl.textContent = diff.before?.data || '';
-        afterEl.textContent = diff.after?.data || '';
+      
+      function createDiffLines(content, otherContent, isAfter = false) {
+        if (!content) return '<div class="diff-line context"><span class="line-number">1</span><span class="line-content"></span></div>';
+        
+        const lines = content.split('\\n');
+        const otherLines = otherContent ? otherContent.split('\\n') : [];
+        let html = '';
+        
+        // Simple diff algorithm - mark lines as added/removed/unchanged
+        lines.forEach((line, idx) => {
+          const lineNum = idx + 1;
+          const otherLine = otherLines[idx];
+          
+          let lineClass = 'context';
+          if (!otherContent) {
+            lineClass = isAfter ? 'added' : 'removed';
+          } else if (line !== otherLine) {
+            lineClass = isAfter ? 'added' : 'removed';
+          }
+          
+          const escapedLine = line
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/ /g, '&nbsp;');
+          
+          html += \`<div class="diff-line \${lineClass}">
+            <span class="line-number">\${lineNum}</span>
+            <span class="line-content">\${escapedLine || '&nbsp;'}</span>
+          </div>\`;
+        });
+        
+        return html;
       }
+      
+      function computeDiffStats(beforeContent, afterContent) {
+        const beforeLines = beforeContent ? beforeContent.split('\\n').length : 0;
+        const afterLines = afterContent ? afterContent.split('\\n').length : 0;
+        
+        const added = Math.max(0, afterLines - beforeLines);
+        const removed = Math.max(0, beforeLines - afterLines);
+        
+        return { added, removed, total: Math.max(beforeLines, afterLines) };
+      }
+      
+      function renderDiff(diff, resource) {
+        emptyStateEl.classList.remove('visible');
+        diffContainerEl.classList.remove('hidden');
+        
+        // Update title
+        resourceTitleEl.textContent = \`\${resource.kind}/\${resource.name}\`;
+        
+        // Get content
+        const beforeContent = diff.before?.data || '';
+        const afterContent = diff.after?.data || '';
+        
+        // Compute stats
+        const stats = computeDiffStats(beforeContent, afterContent);
+        diffStatsEl.innerHTML = \`
+          <span class="stat-item">
+            <span class="stat-add">+\${stats.added}</span>
+          </span>
+          <span class="stat-item">
+            <span class="stat-remove">-\${stats.removed}</span>
+          </span>
+          <span class="stat-item">
+            Total: \${stats.total} lines
+          </span>
+        \`;
+        
+        // Render diff with line numbers
+        beforeContentEl.innerHTML = createDiffLines(beforeContent, afterContent, false);
+        afterContentEl.innerHTML = createDiffLines(afterContent, beforeContent, true);
+        
+        // Sync scroll positions
+        let syncing = false;
+        const syncScroll = (source, target) => {
+          if (syncing) return;
+          syncing = true;
+          const percentage = source.scrollTop / (source.scrollHeight - source.clientHeight);
+          target.scrollTop = percentage * (target.scrollHeight - target.clientHeight);
+          setTimeout(() => syncing = false, 10);
+        };
+        
+        beforeContentEl.addEventListener('scroll', () => syncScroll(beforeContentEl, afterContentEl));
+        afterContentEl.addEventListener('scroll', () => syncScroll(afterContentEl, beforeContentEl));
+      }
+      
+      function showError(message) {
+        emptyStateEl.classList.add('visible');
+        diffContainerEl.classList.add('hidden');
+        emptyStateEl.innerHTML = \`
+          <span class="empty-icon">❌</span>
+          <p>Error loading diff:</p>
+          <p style="color: var(--error); font-size: 0.875rem; margin-top: 8px;">\${message}</p>
+        \`;
+      }
+      
+      function showEmptyState() {
+        emptyStateEl.classList.add('visible');
+        diffContainerEl.classList.add('hidden');
+      }
+      
       vscode.postMessage({ command: 'ready' });
     `;
   }

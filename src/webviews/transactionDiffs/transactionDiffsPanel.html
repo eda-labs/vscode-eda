@@ -1,13 +1,40 @@
-<div class="diff-container">
-  <div class="list-panel" id="diffList"></div>
-  <div class="diff-panel">
-    <div class="diff-section">
-      <h3>Before</h3>
-      <pre id="before"></pre>
+<div class="transaction-diffs">
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h3>Resources</h3>
     </div>
-    <div class="diff-section">
-      <h3>After</h3>
-      <pre id="after"></pre>
+    <div class="resource-list" id="diffList"></div>
+  </div>
+  
+  <div class="diff-viewer">
+    <div class="diff-header">
+      <h2 id="resourceTitle">Select a resource to view diff</h2>
+      <div class="diff-stats" id="diffStats"></div>
+    </div>
+    
+    <div class="diff-container" id="diffContainer">
+      <div class="diff-pane before-pane">
+        <div class="pane-header">
+          <span class="pane-title">Before</span>
+          <span class="pane-badge delete">Deleted</span>
+        </div>
+        <div class="diff-content" id="beforeContent"></div>
+      </div>
+      
+      <div class="diff-divider"></div>
+      
+      <div class="diff-pane after-pane">
+        <div class="pane-header">
+          <span class="pane-title">After</span>
+          <span class="pane-badge add">Added</span>
+        </div>
+        <div class="diff-content" id="afterContent"></div>
+      </div>
+    </div>
+    
+    <div class="empty-state" id="emptyState">
+      <span class="empty-icon">📄</span>
+      <p>Select a resource from the list to view its diff</p>
     </div>
   </div>
 </div>
