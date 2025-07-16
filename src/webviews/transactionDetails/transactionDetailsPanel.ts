@@ -33,7 +33,8 @@ export class TransactionDetailsPanel extends BasePanel {
             TransactionDiffsPanel.show(
               this.context,
               this.data.id,
-              this.data.changedCrs || []
+              this.data.changedCrs || [],
+              this.data.nodesWithConfigChanges || []
             );
             break;
         }

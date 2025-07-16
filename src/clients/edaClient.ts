@@ -239,6 +239,14 @@ export class EdaClient {
     return this.apiClient.getResourceDiff(transactionId, group, version, kind, name, namespace);
   }
 
+  public async getNodeConfigDiff(
+    transactionId: string | number,
+    node: string,
+    namespace: string
+  ): Promise<any> {
+    return this.apiClient.getNodeConfigDiff(transactionId, node, namespace);
+  }
+
   public async getUserStorageFile(path: string): Promise<string | undefined> {
     return this.apiClient.getUserStorageFile(path);
   }

@@ -11,15 +11,22 @@ interface ResourceRef {
   namespace: string;
 }
 
+interface NodeRef {
+  name: string;
+  namespace: string;
+}
+
 export class TransactionDiffsPanel extends BasePanel {
   private transactionId: string | number;
   private resources: ResourceRef[];
+  private nodes: NodeRef[];
   private edaClient: EdaClient;
 
   constructor(
     context: vscode.ExtensionContext,
     transactionId: string | number,
-    resources: ResourceRef[]
+    resources: ResourceRef[],
+    nodes: NodeRef[]
   ) {
     super(context, 'transactionDiffs', `Transaction ${transactionId} Diffs`, undefined, {
       light: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-black.svg'),
@@ -27,21 +34,35 @@ export class TransactionDiffsPanel extends BasePanel {
     });
     this.transactionId = transactionId;
     this.resources = resources;
+    this.nodes = nodes;
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
 
     this.panel.webview.onDidReceiveMessage(async msg => {
       if (msg.command === 'ready') {
-        this.panel.webview.postMessage({ command: 'resources', resources: this.resources });
+        this.panel.webview.postMessage({
+          command: 'resources',
+          resources: this.resources,
+          nodes: this.nodes
+        });
       } else if (msg.command === 'loadDiff') {
         try {
-          const diff = await this.edaClient.getResourceDiff(
-            this.transactionId,
-            msg.resource.group,
-            msg.resource.version,
-            msg.resource.kind,
-            msg.resource.name,
-            msg.resource.namespace
-          );
+          let diff;
+          if (msg.resource.type === 'node') {
+            diff = await this.edaClient.getNodeConfigDiff(
+              this.transactionId,
+              msg.resource.name,
+              msg.resource.namespace
+            );
+          } else {
+            diff = await this.edaClient.getResourceDiff(
+              this.transactionId,
+              msg.resource.group,
+              msg.resource.version,
+              msg.resource.kind,
+              msg.resource.name,
+              msg.resource.namespace
+            );
+          }
           this.panel.webview.postMessage({ command: 'diff', diff, resource: msg.resource });
         } catch (err: any) {
           this.panel.webview.postMessage({ command: 'error', message: String(err) });
@@ -75,11 +96,23 @@ export class TransactionDiffsPanel extends BasePanel {
       let currentResource = null;
       let beforeScrollListener = null;
       let afterScrollListener = null;
+      let fullBeforeDiff = [];
+      let fullAfterDiff = [];
+      let beforeStart = 0;
+      let beforeEnd = 0;
+      let afterStart = 0;
+      let afterEnd = 0;
       
       window.addEventListener('message', event => {
         const msg = event.data;
         if (msg.command === 'resources') {
-          resources = msg.resources;
+          resources = [];
+          (msg.resources || []).forEach(r => {
+            resources.push({ ...r, type: 'resource' });
+          });
+          (msg.nodes || []).forEach(n => {
+            resources.push({ ...n, type: 'node' });
+          });
           renderList();
         } else if (msg.command === 'diff') {
           renderDiff(msg.diff, msg.resource);
@@ -93,9 +126,10 @@ export class TransactionDiffsPanel extends BasePanel {
         resources.forEach((r, idx) => {
           const btn = document.createElement('button');
           btn.className = 'resource-item';
+          const kind = r.type === 'node' ? 'Node Config' : r.kind;
           btn.innerHTML = \`
             <div>\${r.name}</div>
-            <div class="resource-kind">\${r.kind} • \${r.namespace}</div>
+            <div class="resource-kind">\${kind} • \${r.namespace}</div>
           \`;
           btn.addEventListener('click', () => {
             currentResource = r;
@@ -154,6 +188,70 @@ export class TransactionDiffsPanel extends BasePanel {
         }
         
         return { beforeDiff, afterDiff };
+      }
+
+      function findFirstChange(arr) {
+        for (let i = 0; i < arr.length; i++) {
+          if (arr[i].type !== 'context') {
+            return i;
+          }
+        }
+        return 0;
+      }
+
+      function findLastChange(arr) {
+        for (let i = arr.length - 1; i >= 0; i--) {
+          if (arr[i].type !== 'context') {
+            return i;
+          }
+        }
+        return arr.length - 1;
+      }
+
+      function renderVisibleDiff() {
+        const beforeSlice = fullBeforeDiff.slice(beforeStart, beforeEnd + 1);
+        const afterSlice = fullAfterDiff.slice(afterStart, afterEnd + 1);
+
+        let beforeHtml = '';
+        if (beforeStart > 0) {
+          beforeHtml += \`<div class="diff-more" data-side="before" data-pos="top">Show previous lines</div>\`;
+        }
+        beforeHtml += createDiffLines(beforeSlice);
+        if (beforeEnd < fullBeforeDiff.length - 1) {
+          beforeHtml += \`<div class="diff-more" data-side="before" data-pos="bottom">Show next lines</div>\`;
+        }
+        beforeContentEl.innerHTML = beforeHtml;
+
+        let afterHtml = '';
+        if (afterStart > 0) {
+          afterHtml += \`<div class="diff-more" data-side="after" data-pos="top">Show previous lines</div>\`;
+        }
+        afterHtml += createDiffLines(afterSlice);
+        if (afterEnd < fullAfterDiff.length - 1) {
+          afterHtml += \`<div class="diff-more" data-side="after" data-pos="bottom">Show next lines</div>\`;
+        }
+        afterContentEl.innerHTML = afterHtml;
+
+        document.querySelectorAll('.diff-more').forEach(el => {
+          el.addEventListener('click', () => {
+            const side = el.getAttribute('data-side');
+            const pos = el.getAttribute('data-pos');
+            if (side === 'before') {
+              if (pos === 'top') {
+                beforeStart = 0;
+              } else {
+                beforeEnd = fullBeforeDiff.length - 1;
+              }
+            } else {
+              if (pos === 'top') {
+                afterStart = 0;
+              } else {
+                afterEnd = fullAfterDiff.length - 1;
+              }
+            }
+            renderVisibleDiff();
+          });
+        });
       }
       
       function computeLCS(arr1, arr2) {
@@ -224,7 +322,8 @@ export class TransactionDiffsPanel extends BasePanel {
         diffContainerEl.classList.remove('hidden');
         
         // Update title
-        resourceTitleEl.textContent = \`\${resource.kind}/\${resource.name}\`;
+        const titleKind = resource.type === 'node' ? 'Node Config' : resource.kind;
+        resourceTitleEl.textContent = \`\${titleKind}/\${resource.name}\`;
         
         // Get content
         const beforeContent = diff.before?.data || '';
@@ -232,9 +331,19 @@ export class TransactionDiffsPanel extends BasePanel {
         
         // Generate diff
         const diffData = generateDiff(beforeContent, afterContent);
-        
+        fullBeforeDiff = diffData.beforeDiff;
+        fullAfterDiff = diffData.afterDiff;
+        const firstBefore = findFirstChange(fullBeforeDiff);
+        const lastBefore = findLastChange(fullBeforeDiff);
+        const firstAfter = findFirstChange(fullAfterDiff);
+        const lastAfter = findLastChange(fullAfterDiff);
+        beforeStart = Math.max(Math.min(firstBefore, fullBeforeDiff.length - 1) - 5, 0);
+        beforeEnd = Math.min(Math.max(lastBefore, firstBefore) + 5, fullBeforeDiff.length - 1);
+        afterStart = Math.max(Math.min(firstAfter, fullAfterDiff.length - 1) - 5, 0);
+        afterEnd = Math.min(Math.max(lastAfter, firstAfter) + 5, fullAfterDiff.length - 1);
+
         // Compute stats
-        const stats = computeDiffStats(diffData.beforeDiff, diffData.afterDiff);
+        const stats = computeDiffStats(fullBeforeDiff, fullAfterDiff);
         diffStatsEl.innerHTML = \`
           <span class="stat-item">
             <span class="stat-add">+\${stats.added}</span>
@@ -248,8 +357,7 @@ export class TransactionDiffsPanel extends BasePanel {
         \`;
         
         // Render diff with line numbers
-        beforeContentEl.innerHTML = createDiffLines(diffData.beforeDiff);
-        afterContentEl.innerHTML = createDiffLines(diffData.afterDiff);
+        renderVisibleDiff();
         
         // Reset any previous height settings
         beforeContentEl.style.height = '';
@@ -311,7 +419,12 @@ export class TransactionDiffsPanel extends BasePanel {
     `;
   }
 
-  static show(context: vscode.ExtensionContext, transactionId: string | number, crs: any[]): void {
+  static show(
+    context: vscode.ExtensionContext,
+    transactionId: string | number,
+    crs: any[],
+    nodes: any[]
+  ): void {
     const resources: ResourceRef[] = [];
     for (const cr of crs) {
       const group = cr.gvk?.group || '';
@@ -323,6 +436,12 @@ export class TransactionDiffsPanel extends BasePanel {
         resources.push({ group, version, kind, namespace, name: n });
       }
     }
-    new TransactionDiffsPanel(context, transactionId, resources);
+    const nodeRefs: NodeRef[] = [];
+    for (const node of nodes) {
+      if (node?.name) {
+        nodeRefs.push({ name: node.name, namespace: node.namespace || 'default' });
+      }
+    }
+    new TransactionDiffsPanel(context, transactionId, resources, nodeRefs);
   }
 }

@@ -270,7 +270,7 @@ body {
 .line-content {
   flex: 1;
   padding: 0 16px 0 24px;
-  white-space: nowrap;
+  white-space: pre;
   overflow: hidden;
 }
 
@@ -315,6 +315,17 @@ body {
 
 .empty-state.visible {
   display: flex;
+}
+
+.diff-more {
+  text-align: center;
+  padding: 8px;
+  cursor: pointer;
+  background: var(--bg-hover);
+}
+
+.diff-more:hover {
+  text-decoration: underline;
 }
 
 .empty-icon {
