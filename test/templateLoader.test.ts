@@ -54,24 +54,4 @@ describe('loadTemplate utility', () => {
     expect(consoleStub.called).to.be.true;
   });
 
-  it('renders the transaction template with provided variables', () => {
-    const result = loadTemplate('transaction', testContext, {
-      id: 123,
-      state: 'complete',
-      username: 'tester',
-      description: 'demo',
-      dryRun: 'No',
-      success: 'Yes',
-      successColor: '#2ECC71',
-      changedCrs: [],
-      inputCrs: [],
-      nodesWithConfigChanges: [],
-      rawJson: '{}'
-    });
-
-    expect(result).to.contain('# Transaction Details');
-    expect(result).to.contain('123');
-    expect(result).to.contain('Success');
-    expect(result).to.contain('```json');
-  });
 });

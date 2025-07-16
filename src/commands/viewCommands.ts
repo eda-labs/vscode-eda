@@ -7,7 +7,6 @@ const Diff: any = require('diff');
 import { KubernetesClient } from '../clients/kubernetesClient';
 import { edaOutputChannel } from '../extension';
 import { CrdDefinitionFileSystemProvider } from '../providers/documents/crdDefinitionProvider';
-import { TransactionDetailsDocumentProvider } from '../providers/documents/transactionDetailsProvider';
 import { AlarmDetailsDocumentProvider } from '../providers/documents/alarmDetailsProvider';
 import { DeviationDetailsDocumentProvider } from '../providers/documents/deviationDetailsProvider';
 import { BasketTransactionDocumentProvider } from '../providers/documents/basketTransactionProvider';
@@ -17,7 +16,6 @@ import { TransactionDetailsPanel } from '../webviews/transactionDetails/transact
 export function registerViewCommands(
   context: vscode.ExtensionContext,
   crdFsProvider: CrdDefinitionFileSystemProvider,
-  _transactionDetailsProvider: TransactionDetailsDocumentProvider,
   alarmDetailsProvider: AlarmDetailsDocumentProvider,
   deviationDetailsProvider: DeviationDetailsDocumentProvider,
   basketProvider: BasketTransactionDocumentProvider

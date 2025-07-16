@@ -155,18 +155,23 @@ export class TransactionDetailsPanel extends BasePanel {
       <div class="section">
         <h2><span class="section-icon">✏️</span> Changed Resources</h2>
         ${this.renderResourceList(d.changedCrs.map((cr: any) => {
-          const names = cr.names && cr.names.length > 0 ? cr.names : [];
+          const names = Array.isArray(cr.names) && cr.names.length > 0
+            ? cr.names
+            : cr.name
+              ? [cr.name]
+              : [];
           if (names.length === 0) {
             return `<li class="resource-item">
               <span class="resource-path">${escapeHtml(cr.namespace || 'default')} / ${escapeHtml(cr.gvk?.kind || 'Unknown')}</span>
             </li>`;
           }
-          return names.map((name: string) => 
-            `<li class="resource-item">
-              <span class="resource-path">${escapeHtml(cr.namespace || 'default')} / ${escapeHtml(cr.gvk?.kind || 'Unknown')}</span>
-              <span class="resource-name">${escapeHtml(name)}</span>
-            </li>`
-          ).join('');
+          return names
+            .map((name: string) => `
+              <li class="resource-item">
+                <span class="resource-path">${escapeHtml(cr.namespace || 'default')} / ${escapeHtml(cr.gvk?.kind || 'Unknown')}</span>
+                <span class="resource-name">${escapeHtml(name)}</span>
+              </li>`)
+            .join('');
         }).flat())}
       </div>
     ` : '';
