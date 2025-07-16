@@ -8,6 +8,7 @@ import { ResourceViewDocumentProvider } from '../providers/documents/resourceVie
 import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
 import { log, LogLevel, edaOutputChannel, edaTransactionBasketProvider } from '../extension';
 import { isEdaResource } from '../utils/edaGroupUtils';
+import { getViewIsEda, setViewIsEda } from '../utils/resourceOriginStore';
 import { KubernetesClient } from '../clients/kubernetesClient';
 import { sanitizeResource, sanitizeResourceForEdit } from '../utils/yamlUtils';
 
@@ -102,6 +103,11 @@ export function registerResourceEditCommands(
         }
 
         let edaOrigin = isEdaResource(arg, (resourceObject as any)?.apiVersion);
+        const storedOrigin = getViewIsEda(viewDocumentUri);
+        if (storedOrigin !== undefined) {
+          edaOrigin = storedOrigin;
+        }
+        setViewIsEda(viewDocumentUri, edaOrigin);
 
         if (resourceObject && typeof resourceObject === 'object') {
           delete (resourceObject as any).status;

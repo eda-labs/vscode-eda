@@ -9,6 +9,7 @@ import { runKubectl } from '../utils/kubectlRunner';
 import * as yaml from 'js-yaml';
 import { stripManagedFieldsFromYaml, sanitizeResource } from '../utils/yamlUtils';
 import { isEdaResource } from '../utils/edaGroupUtils';
+import { setViewIsEda } from '../utils/resourceOriginStore';
 
 
 
@@ -198,6 +199,7 @@ export function registerResourceViewCommands(
         );
         // Store the content in the ResourceViewDocumentProvider
         resourceViewProvider.setResourceContent(viewUri, finalYaml);
+        setViewIsEda(viewUri, useEdaApi);
 
         // 6) Show the doc in an editor with YAML highlighting
         const doc = await vscode.workspace.openTextDocument(viewUri);
@@ -234,6 +236,7 @@ export function registerResourceViewCommands(
           `k8s-view:/${namespace}/${kind}/${name}?ts=${Date.now()}`
         );
         resourceViewProvider.setResourceContent(viewUri, yamlText);
+        setViewIsEda(viewUri, isEdaResource(arg, resource.apiVersion));
 
         const doc = await vscode.workspace.openTextDocument(viewUri);
         await vscode.languages.setTextDocumentLanguage(doc, 'yaml');
