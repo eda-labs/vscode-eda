@@ -33,50 +33,157 @@ export class TransactionDetailsPanel extends BasePanel {
   }
 
   protected getScripts(): string {
-    return '';
+    return `
+      function copyToClipboard() {
+        const rawJson = document.getElementById('raw-json').textContent;
+        navigator.clipboard.writeText(rawJson).then(() => {
+          const button = document.querySelector('.copy-button');
+          const originalHTML = button.innerHTML;
+          button.innerHTML = '<span>✓</span> Copied!';
+          button.style.background = 'var(--success)';
+          
+          setTimeout(() => {
+            button.innerHTML = originalHTML;
+            button.style.background = '';
+          }, 2000);
+        }).catch(err => {
+          console.error('Failed to copy: ', err);
+        });
+      }
+    `;
   }
 
   protected getScriptTags(_nonce: string): string {
     return '';
   }
 
-  private renderList(title: string, items: string[]): string {
+  private renderResourceList(items: any[]): string {
     if (!items || items.length === 0) {
-      return '';
+      return '<div class="empty-state">No resources found</div>';
     }
-    const list = items.map(it => `<li>${escapeHtml(it)}</li>`).join('');
-    return `<h2>${escapeHtml(title)}</h2><ul>${list}</ul>`;
+    return `<ul class="resource-list">${items.map(item => item).join('')}</ul>`;
+  }
+
+  private renderNodeList(nodes: any[]): string {
+    if (!nodes || nodes.length === 0) {
+      return '<div class="empty-state">No nodes with configuration changes</div>';
+    }
+
+    const nodeItems = nodes.map(node => `
+      <li class="node-item">
+        <div class="node-name">${escapeHtml(node.name)}</div>
+        <div class="node-namespace">Namespace: ${escapeHtml(node.namespace)}</div>
+        ${node.errors ? `<div class="node-errors">${escapeHtml(node.errors)}</div>` : ''}
+      </li>
+    `).join('');
+
+    return `<ul class="node-list">${nodeItems}</ul>`;
   }
 
   private buildContent(): string {
     const d = this.data;
-    const summary = `
-<h1>Transaction ${escapeHtml(String(d.id))}</h1>
-<table class="summary">
-<tr><th>ID</th><td>${escapeHtml(String(d.id))}</td></tr>
-<tr><th>State</th><td>${escapeHtml(String(d.state))}</td></tr>
-<tr><th>User</th><td>${escapeHtml(String(d.username))}</td></tr>
-<tr><th>Description</th><td>${escapeHtml(String(d.description))}</td></tr>
-<tr><th>Dry Run</th><td>${escapeHtml(String(d.dryRun))}</td></tr>
-<tr><th>Success</th><td style="color:${escapeHtml(String(d.successColor))}">${escapeHtml(String(d.success))}</td></tr>
-</table>`;
 
-    const changed = (d.changedCrs || []).map((cr: any) => `${cr.gvk?.kind} in namespace ${cr.namespace}`).join('\n');
-    const input = (d.inputCrs || []).map((cr: any) => `${cr.name.gvk.kind} in namespace ${cr.name.namespace} name: ${cr.name.name}${cr.isDelete ? ' (delete)' : ''}`);
-    const nodes = (d.nodesWithConfigChanges || []).map((n: any) => `${n.name} (namespace: ${n.namespace})${n.errors ? ' Errors: ' + n.errors : ''}`);
+    const header = `
+      <div class="header">
+        <h1>
+          Transaction
+          <span class="transaction-id">#${escapeHtml(String(d.id))}</span>
+        </h1>
+        <div class="summary">
+          <div class="summary-item">
+            <div class="summary-label">State</div>
+            <div class="summary-value">
+              <div class="status-badge">
+                <span class="status-indicator ${d.success === 'Yes' ? 'success' : 'error'}"></span>
+                ${escapeHtml(String(d.state))}
+              </div>
+            </div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">User</div>
+            <div class="summary-value">${escapeHtml(String(d.username))}</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">Success</div>
+            <div class="summary-value" style="color: ${d.success === 'Yes' ? 'var(--success)' : 'var(--error)'}">
+              ${escapeHtml(String(d.success))}
+            </div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">Dry Run</div>
+            <div class="summary-value">${escapeHtml(String(d.dryRun))}</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">Description</div>
+            <div class="summary-value">${escapeHtml(String(d.description))}</div>
+          </div>
+        </div>
+      </div>
+    `;
 
-    const sections = [
-      this.renderList('Deleted Resources', d.deleteResources || []),
-      this.renderList('Changed Resources', changed ? changed.split('\n') : []),
-      this.renderList('Input Resources', input),
-      this.renderList('Nodes With Config Changes', nodes)
-    ].join('');
+    const deletedResourcesSection = d.deleteResources && d.deleteResources.length > 0 ? `
+      <div class="section">
+        <h2><span class="section-icon">🗑️</span> Deleted Resources</h2>
+        ${this.renderResourceList(d.deleteResources.map((res: string) =>
+          `<li class="resource-item">${escapeHtml(res)}</li>`
+        ))}
+      </div>
+    ` : '';
 
-    const errors = d.generalErrors ? `<h2>General Errors</h2><pre>${escapeHtml(String(d.generalErrors))}</pre>` : '';
+    const changedResourcesSection = d.changedCrs && d.changedCrs.length > 0 ? `
+      <div class="section">
+        <h2><span class="section-icon">✏️</span> Changed Resources</h2>
+        ${this.renderResourceList(d.changedCrs.map((cr: any) =>
+          `<li class="resource-item">
+            <span class="resource-kind">${escapeHtml(cr.gvk?.kind || 'Unknown')}</span>
+            <span class="resource-namespace">namespace: ${escapeHtml(cr.namespace || 'default')}</span>
+          </li>`
+        ))}
+      </div>
+    ` : '';
 
-    const raw = `<h2>Raw JSON</h2><pre>${escapeHtml(String(d.rawJson))}</pre>`;
+    const inputResourcesSection = d.inputCrs && d.inputCrs.length > 0 ? `
+      <div class="section">
+        <h2><span class="section-icon">📥</span> Input Resources</h2>
+        ${this.renderResourceList(d.inputCrs.map((cr: any) =>
+          `<li class="resource-item">
+            <span class="resource-kind">${escapeHtml(cr.name?.gvk?.kind || 'Unknown')}</span>
+            <span class="resource-name">${escapeHtml(cr.name?.name || '')}</span>
+            <span class="resource-namespace">namespace: ${escapeHtml(cr.name?.namespace || 'default')}</span>
+            ${cr.isDelete ? '<span class="delete-badge">DELETE</span>' : ''}
+          </li>`
+        ))}
+      </div>
+    ` : '';
 
-    return summary + sections + errors + raw;
+    const nodesSection = d.nodesWithConfigChanges && d.nodesWithConfigChanges.length > 0 ? `
+      <div class="section">
+        <h2><span class="section-icon">🖥️</span> Nodes with Configuration Changes</h2>
+        ${this.renderNodeList(d.nodesWithConfigChanges)}
+      </div>
+    ` : '';
+
+    const errorSection = d.generalErrors ? `
+      <div class="error-section">
+        <h2>⚠️ General Errors</h2>
+        <div class="error-content">${escapeHtml(String(d.generalErrors))}</div>
+      </div>
+    ` : '';
+
+    const rawJsonSection = `
+      <div class="raw-json-section">
+        <h2>
+          <span>📋 Raw JSON</span>
+          <button class="copy-button" onclick="copyToClipboard()">
+            <span>📋</span> Copy
+          </button>
+        </h2>
+        <pre id="raw-json">${escapeHtml(String(d.rawJson))}</pre>
+      </div>
+    `;
+
+    return header + deletedResourcesSection + changedResourcesSection +
+           inputResourcesSection + nodesSection + errorSection + rawJsonSection;
   }
 
   static show(context: vscode.ExtensionContext, data: Record<string, any>): void {
