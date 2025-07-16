@@ -115,33 +115,94 @@ export class TransactionDiffsPanel extends BasePanel {
         }
       }
       
-      function createDiffLines(content, otherContent, isAfter = false) {
-        if (!content) return '<div class="diff-line context"><span class="line-number">1</span><span class="line-content"></span></div>';
+      function generateDiff(beforeContent, afterContent) {
+        const beforeLines = beforeContent ? beforeContent.split('\\n') : [];
+        const afterLines = afterContent ? afterContent.split('\\n') : [];
         
-        const lines = content.split('\\n');
-        const otherLines = otherContent ? otherContent.split('\\n') : [];
+        // Simple LCS-based diff
+        const lcs = computeLCS(beforeLines, afterLines);
+        const beforeDiff = [];
+        const afterDiff = [];
+        
+        let beforeIdx = 0;
+        let afterIdx = 0;
+        let lcsIdx = 0;
+        
+        while (beforeIdx < beforeLines.length || afterIdx < afterLines.length) {
+          if (lcsIdx < lcs.length && beforeIdx < beforeLines.length && 
+              beforeLines[beforeIdx] === lcs[lcsIdx] && afterIdx < afterLines.length &&
+              afterLines[afterIdx] === lcs[lcsIdx]) {
+            // Both lines match the LCS - unchanged
+            beforeDiff.push({ line: beforeLines[beforeIdx], type: 'context', lineNum: beforeIdx + 1 });
+            afterDiff.push({ line: afterLines[afterIdx], type: 'context', lineNum: afterIdx + 1 });
+            beforeIdx++;
+            afterIdx++;
+            lcsIdx++;
+          } else if (beforeIdx < beforeLines.length && 
+                     (lcsIdx >= lcs.length || beforeLines[beforeIdx] !== lcs[lcsIdx])) {
+            // Line only in before - removed
+            beforeDiff.push({ line: beforeLines[beforeIdx], type: 'removed', lineNum: beforeIdx + 1 });
+            beforeIdx++;
+          } else if (afterIdx < afterLines.length && 
+                     (lcsIdx >= lcs.length || afterLines[afterIdx] !== lcs[lcsIdx])) {
+            // Line only in after - added
+            afterDiff.push({ line: afterLines[afterIdx], type: 'added', lineNum: afterIdx + 1 });
+            afterIdx++;
+          }
+        }
+        
+        return { beforeDiff, afterDiff };
+      }
+      
+      function computeLCS(arr1, arr2) {
+        const m = arr1.length;
+        const n = arr2.length;
+        const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+        
+        for (let i = 1; i <= m; i++) {
+          for (let j = 1; j <= n; j++) {
+            if (arr1[i - 1] === arr2[j - 1]) {
+              dp[i][j] = dp[i - 1][j - 1] + 1;
+            } else {
+              dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+            }
+          }
+        }
+        
+        // Reconstruct LCS
+        const lcs = [];
+        let i = m, j = n;
+        while (i > 0 && j > 0) {
+          if (arr1[i - 1] === arr2[j - 1]) {
+            lcs.unshift(arr1[i - 1]);
+            i--;
+            j--;
+          } else if (dp[i - 1][j] > dp[i][j - 1]) {
+            i--;
+          } else {
+            j--;
+          }
+        }
+        
+        return lcs;
+      }
+      
+      function createDiffLines(diffData) {
+        if (!diffData || diffData.length === 0) {
+          return '<div class="diff-line context"><span class="line-number">1</span><span class="line-content"></span></div>';
+        }
+        
         let html = '';
         
-        // Simple diff algorithm - mark lines as added/removed/unchanged
-        lines.forEach((line, idx) => {
-          const lineNum = idx + 1;
-          const otherLine = otherLines[idx];
-          
-          let lineClass = 'context';
-          if (!otherContent) {
-            lineClass = isAfter ? 'added' : 'removed';
-          } else if (line !== otherLine) {
-            lineClass = isAfter ? 'added' : 'removed';
-          }
-          
-          const escapedLine = line
+        diffData.forEach((item, idx) => {
+          const escapedLine = item.line
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
             .replace(/ /g, '&nbsp;');
           
-          html += \`<div class="diff-line \${lineClass}">
-            <span class="line-number">\${lineNum}</span>
+          html += \`<div class="diff-line \${item.type}">
+            <span class="line-number">\${idx + 1}</span>
             <span class="line-content">\${escapedLine || '&nbsp;'}</span>
           </div>\`;
         });
@@ -149,14 +210,12 @@ export class TransactionDiffsPanel extends BasePanel {
         return html;
       }
       
-      function computeDiffStats(beforeContent, afterContent) {
-        const beforeLines = beforeContent ? beforeContent.split('\\n').length : 0;
-        const afterLines = afterContent ? afterContent.split('\\n').length : 0;
+      function computeDiffStats(beforeDiff, afterDiff) {
+        const added = afterDiff.filter(item => item.type === 'added').length;
+        const removed = beforeDiff.filter(item => item.type === 'removed').length;
+        const total = Math.max(beforeDiff.length, afterDiff.length);
         
-        const added = Math.max(0, afterLines - beforeLines);
-        const removed = Math.max(0, beforeLines - afterLines);
-        
-        return { added, removed, total: Math.max(beforeLines, afterLines) };
+        return { added, removed, total };
       }
       
       function renderDiff(diff, resource) {
@@ -170,8 +229,11 @@ export class TransactionDiffsPanel extends BasePanel {
         const beforeContent = diff.before?.data || '';
         const afterContent = diff.after?.data || '';
         
+        // Generate diff
+        const diffData = generateDiff(beforeContent, afterContent);
+        
         // Compute stats
-        const stats = computeDiffStats(beforeContent, afterContent);
+        const stats = computeDiffStats(diffData.beforeDiff, diffData.afterDiff);
         diffStatsEl.innerHTML = \`
           <span class="stat-item">
             <span class="stat-add">+\${stats.added}</span>
@@ -185,8 +247,8 @@ export class TransactionDiffsPanel extends BasePanel {
         \`;
         
         // Render diff with line numbers
-        beforeContentEl.innerHTML = createDiffLines(beforeContent, afterContent, false);
-        afterContentEl.innerHTML = createDiffLines(afterContent, beforeContent, true);
+        beforeContentEl.innerHTML = createDiffLines(diffData.beforeDiff);
+        afterContentEl.innerHTML = createDiffLines(diffData.afterDiff);
         
         // Sync scroll positions
         let syncing = false;
