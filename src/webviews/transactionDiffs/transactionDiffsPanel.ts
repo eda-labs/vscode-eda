@@ -198,12 +198,11 @@ export class TransactionDiffsPanel extends BasePanel {
           const escapedLine = item.line
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/ /g, '&nbsp;');
+            .replace(/>/g, '&gt;');
           
           html += \`<div class="diff-line \${item.type}">
             <span class="line-number">\${idx + 1}</span>
-            <span class="line-content">\${escapedLine || '&nbsp;'}</span>
+            <span class="line-content">\${escapedLine || ' '}</span>
           </div>\`;
         });
         

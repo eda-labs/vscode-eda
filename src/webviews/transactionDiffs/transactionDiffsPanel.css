@@ -213,12 +213,12 @@ body {
   font-family: var(--vscode-editor-font-family, 'Courier New', monospace);
   font-size: var(--vscode-editor-font-size, 13px);
   line-height: 1.5;
+  white-space: pre;
 }
 
 .diff-line {
   display: flex;
   min-height: 20px;
-  white-space: pre;
   position: relative;
 }
 
@@ -239,8 +239,9 @@ body {
 
 .line-content {
   flex: 1;
-  padding: 0 16px;
-  overflow-x: auto;
+  padding: 0 16px 0 24px;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .diff-line.added {
@@ -250,7 +251,7 @@ body {
 .diff-line.added .line-content::before {
   content: '+';
   position: absolute;
-  left: 58px;
+  left: 62px;
   color: var(--diff-add);
   font-weight: 600;
 }
@@ -262,7 +263,7 @@ body {
 .diff-line.removed .line-content::before {
   content: '-';
   position: absolute;
-  left: 58px;
+  left: 62px;
   color: var(--diff-remove);
   font-weight: 600;
 }
