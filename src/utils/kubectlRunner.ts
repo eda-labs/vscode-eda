@@ -29,7 +29,7 @@ export function getKubectlContext(): string | undefined {
   } catch {
     /* ignore */
   }
-  return process.env.KUBECTL_CONTEXT;
+  return undefined;
 }
 
 /**

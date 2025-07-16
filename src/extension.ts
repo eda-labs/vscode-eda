@@ -294,7 +294,7 @@ export async function activate(context: vscode.ExtensionContext) {
     log('Initializing service architecture...', LogLevel.INFO, true);
 
     // 1) Create the clients
-    const k8sClient = edaContext ? new KubernetesClient() : undefined;
+    const k8sClient = edaContext ? new KubernetesClient(edaContext) : undefined;
     const edaClient = new EdaClient(edaUrl, {
       edaUsername,
       edaPassword,

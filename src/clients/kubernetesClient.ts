@@ -124,12 +124,12 @@ export class KubernetesClient {
   private _onNamespacesChanged = new vscode.EventEmitter<void>();
   readonly onNamespacesChanged = this._onNamespacesChanged.event;
 
-  constructor() {
+  constructor(contextName?: string) {
     const envInterval = Number(process.env.EDA_POLL_INTERVAL_MS);
     if (!Number.isNaN(envInterval) && envInterval > 0) {
       this.pollInterval = envInterval;
     }
-    this.loadKubeConfig();
+    this.loadKubeConfig(contextName);
   }
 
 
