@@ -1,7 +1,5 @@
 import * as vscode from 'vscode';
 import { BasePanel } from '../../basePanel';
-import * as fs from 'fs';
-import * as path from 'path';
 import { serviceManager } from '../../../services/serviceManager';
 import { EdaClient } from '../../../clients/edaClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
@@ -73,27 +71,11 @@ export class TopologyDashboardPanel extends BasePanel {
   }
 
   protected getHtml(): string {
-    try {
-      const filePath = this.context.asAbsolutePath(
-        path.join('src', 'webviews', 'dashboard', 'topology', 'topologyDashboard.html')
-      );
-      return fs.readFileSync(filePath, 'utf8');
-    } catch (err) {
-      console.error('Failed to load Topology dashboard HTML', err);
-      return '';
-    }
+    return this.readWebviewFile('dashboard', 'topology', 'topologyDashboard.html');
   }
 
   protected getCustomStyles(): string {
-    try {
-      const filePath = this.context.asAbsolutePath(
-        path.join('src', 'webviews', 'dashboard', 'topology', 'topologyDashboard.css')
-      );
-      return fs.readFileSync(filePath, 'utf8');
-    } catch (err) {
-      console.error('Failed to load Topology dashboard CSS', err);
-      return '';
-    }
+    return this.readWebviewFile('dashboard', 'topology', 'topologyDashboard.css');
   }
 
   protected getScripts(): string {

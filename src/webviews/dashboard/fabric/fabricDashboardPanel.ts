@@ -1,7 +1,5 @@
 import * as vscode from 'vscode';
 import { BasePanel } from '../../basePanel';
-import * as fs from 'fs';
-import * as path from 'path';
 import { serviceManager } from '../../../services/serviceManager';
 import { EdaClient } from '../../../clients/edaClient';
 import { EdaStreamClient, StreamEndpoint } from '../../../clients/edaStreamClient';
@@ -117,39 +115,11 @@ export class FabricDashboardPanel extends BasePanel {
   }
 
   protected getHtml(): string {
-    try {
-      const filePath = this.context.asAbsolutePath(
-        path.join(
-          'src',
-          'webviews',
-          'dashboard',
-          'fabric',
-          'fabricDashboardPanel.html'
-        )
-      );
-      return fs.readFileSync(filePath, 'utf8');
-    } catch (err) {
-      console.error('Failed to load Fabric dashboard HTML', err);
-      return '';
-    }
+    return this.readWebviewFile('dashboard', 'fabric', 'fabricDashboardPanel.html');
   }
 
   protected getCustomStyles(): string {
-    try {
-      const filePath = this.context.asAbsolutePath(
-        path.join(
-          'src',
-          'webviews',
-          'dashboard',
-          'fabric',
-          'fabricDashboardPanel.css'
-        )
-      );
-      return fs.readFileSync(filePath, 'utf8');
-    } catch (err) {
-      console.error('Failed to load Fabric dashboard CSS', err);
-      return '';
-    }
+    return this.readWebviewFile('dashboard', 'fabric', 'fabricDashboardPanel.css');
   }
 
   protected getScripts(): string {

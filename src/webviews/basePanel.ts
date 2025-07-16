@@ -52,6 +52,18 @@ export abstract class BasePanel {
     );
   }
 
+  protected readWebviewFile(...segments: string[]): string {
+    try {
+      const filePath = this.context.asAbsolutePath(
+        path.join('src', 'webviews', ...segments)
+      );
+      return fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+      console.error(`Failed to load ${segments.join('/')}`, err);
+      return '';
+    }
+  }
+
   protected abstract getHtml(): string;
 
   protected abstract getCustomStyles(): string;

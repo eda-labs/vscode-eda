@@ -1,7 +1,5 @@
 import * as vscode from 'vscode';
 import { BasePanel } from '../basePanel';
-import * as fs from 'fs';
-import * as path from 'path';
 import { KubernetesClient } from '../../clients/kubernetesClient';
 
 export interface TargetWizardResult {
@@ -78,30 +76,17 @@ export class TargetWizardPanel extends BasePanel {
   }
 
   protected getHtml(): string {
-    try {
-      const filePath = this.context.asAbsolutePath(
-        path.join('src', 'webviews', 'targetWizard', 'targetWizardPanel.html')
-      );
-      const html = fs.readFileSync(filePath, 'utf8');
-      const logoUri = this.getResourceUri('resources', 'eda.png');
-      const options = this.contexts.map(c => `<option value="${c}">${c}</option>`).join('');
-      return html.replace('${logo}', logoUri.toString()).replace('${options}', options);
-    } catch (err) {
-      console.error('Failed to load Target wizard HTML', err);
+    const html = this.readWebviewFile('targetWizard', 'targetWizardPanel.html');
+    if (!html) {
       return '';
     }
+    const logoUri = this.getResourceUri('resources', 'eda.png');
+    const options = this.contexts.map(c => `<option value="${c}">${c}</option>`).join('');
+    return html.replace('${logo}', logoUri.toString()).replace('${options}', options);
   }
 
   protected getCustomStyles(): string {
-    try {
-      const filePath = this.context.asAbsolutePath(
-        path.join('src', 'webviews', 'targetWizard', 'targetWizardPanel.css')
-      );
-      return fs.readFileSync(filePath, 'utf8');
-    } catch (err) {
-      console.error('Failed to load Target wizard CSS', err);
-      return '';
-    }
+    return this.readWebviewFile('targetWizard', 'targetWizardPanel.css');
   }
 
   protected getScripts(): string {

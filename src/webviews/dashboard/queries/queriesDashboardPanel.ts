@@ -1,7 +1,5 @@
 import * as vscode from 'vscode';
 import { BasePanel } from '../../basePanel';
-import * as fs from 'fs';
-import * as path from 'path';
 import { serviceManager } from '../../../services/serviceManager';
 import { EdaClient } from '../../../clients/edaClient';
 
@@ -47,39 +45,11 @@ export class QueriesDashboardPanel extends BasePanel {
   }
 
   protected getHtml(): string {
-    try {
-      const filePath = this.context.asAbsolutePath(
-        path.join(
-          'src',
-          'webviews',
-          'dashboard',
-          'queries',
-          'queriesDashboard.html'
-        )
-      );
-      return fs.readFileSync(filePath, 'utf8');
-    } catch (err) {
-      console.error('Failed to load Queries dashboard HTML', err);
-      return '';
-    }
+    return this.readWebviewFile('dashboard', 'queries', 'queriesDashboard.html');
   }
 
   protected getCustomStyles(): string {
-    try {
-      const filePath = this.context.asAbsolutePath(
-        path.join(
-          'src',
-          'webviews',
-          'dashboard',
-          'queries',
-          'queriesDashboard.css'
-        )
-      );
-      return fs.readFileSync(filePath, 'utf8');
-    } catch (err) {
-      console.error('Failed to load Queries dashboard CSS', err);
-      return '';
-    }
+    return this.readWebviewFile('dashboard', 'queries', 'queriesDashboard.css');
   }
 
   protected getScripts(): string {

@@ -1,7 +1,5 @@
 import * as vscode from 'vscode';
 import { BasePanel } from '../../basePanel';
-import * as fs from 'fs';
-import * as path from 'path';
 import { serviceManager } from '../../../services/serviceManager';
 import { SchemaProviderService } from '../../../services/schemaProviderService';
 import { EdaCrd } from '../../../types';
@@ -40,39 +38,11 @@ export class ResourceBrowserPanel extends BasePanel {
   }
 
   protected getHtml(): string {
-    try {
-      const filePath = this.context.asAbsolutePath(
-        path.join(
-          'src',
-          'webviews',
-          'dashboard',
-          'resource',
-          'resourceBrowserPanel.html'
-        )
-      );
-      return fs.readFileSync(filePath, 'utf8');
-    } catch (err) {
-      console.error('Failed to load Resource Browser HTML', err);
-      return '';
-    }
+    return this.readWebviewFile('dashboard', 'resource', 'resourceBrowserPanel.html');
   }
 
   protected getCustomStyles(): string {
-    try {
-      const filePath = this.context.asAbsolutePath(
-        path.join(
-          'src',
-          'webviews',
-          'dashboard',
-          'resource',
-          'resourceBrowserPanel.css'
-        )
-      );
-      return fs.readFileSync(filePath, 'utf8');
-    } catch (err) {
-      console.error('Failed to load Resource Browser CSS', err);
-      return '';
-    }
+    return this.readWebviewFile('dashboard', 'resource', 'resourceBrowserPanel.css');
   }
 
   protected getScripts(): string {

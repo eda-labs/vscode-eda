@@ -1,7 +1,5 @@
 import * as vscode from 'vscode';
 import { BasePanel } from '../basePanel';
-import * as fs from 'fs';
-import * as path from 'path';
 
 export interface LineRange {
   startLine?: number;
@@ -65,27 +63,11 @@ export class NodeConfigPanel extends BasePanel {
   }
 
   protected getHtml(): string {
-    try {
-      const filePath = this.context.asAbsolutePath(
-        path.join('src', 'webviews', 'nodeConfig', 'nodeConfigPanel.html')
-      );
-      return fs.readFileSync(filePath, 'utf8');
-    } catch (err) {
-      console.error('Failed to load Node Config HTML', err);
-      return '';
-    }
+    return this.readWebviewFile('nodeConfig', 'nodeConfigPanel.html');
   }
 
   protected getCustomStyles(): string {
-    try {
-      const filePath = this.context.asAbsolutePath(
-        path.join('src', 'webviews', 'nodeConfig', 'nodeConfigPanel.css')
-      );
-      return fs.readFileSync(filePath, 'utf8');
-    } catch (err) {
-      console.error('Failed to load Node Config CSS', err);
-      return '';
-    }
+    return this.readWebviewFile('nodeConfig', 'nodeConfigPanel.css');
   }
 
   protected getScripts(): string {

@@ -1,7 +1,5 @@
 import * as vscode from 'vscode';
 import { BasePanel } from '../../basePanel';
-import * as fs from 'fs';
-import * as path from 'path';
 import { serviceManager } from '../../../services/serviceManager';
 import { EdaClient } from '../../../clients/edaClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
@@ -62,39 +60,11 @@ export class ToponodesDashboardPanel extends BasePanel {
   }
 
   protected getHtml(): string {
-    try {
-      const filePath = this.context.asAbsolutePath(
-        path.join(
-          'src',
-          'webviews',
-          'dashboard',
-          'toponodes',
-          'toponodesDashboard.html'
-        )
-      );
-      return fs.readFileSync(filePath, 'utf8');
-    } catch (err) {
-      console.error('Failed to load Toponodes dashboard HTML', err);
-      return '';
-    }
+    return this.readWebviewFile('dashboard', 'toponodes', 'toponodesDashboard.html');
   }
 
   protected getCustomStyles(): string {
-    try {
-      const filePath = this.context.asAbsolutePath(
-        path.join(
-          'src',
-          'webviews',
-          'dashboard',
-          'toponodes',
-          'toponodesDashboard.css'
-        )
-      );
-      return fs.readFileSync(filePath, 'utf8');
-    } catch (err) {
-      console.error('Failed to load Toponodes dashboard CSS', err);
-      return '';
-    }
+    return this.readWebviewFile('dashboard', 'toponodes', 'toponodesDashboard.css');
   }
 
   protected getScripts(): string {
