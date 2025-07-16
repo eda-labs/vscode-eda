@@ -234,20 +234,13 @@ export class TransactionDiffsPanel extends BasePanel {
 
         document.querySelectorAll('.diff-more').forEach(el => {
           el.addEventListener('click', () => {
-            const side = el.getAttribute('data-side');
             const pos = el.getAttribute('data-pos');
-            if (side === 'before') {
-              if (pos === 'top') {
-                beforeStart = 0;
-              } else {
-                beforeEnd = fullBeforeDiff.length - 1;
-              }
+            if (pos === 'top') {
+              beforeStart = 0;
+              afterStart = 0;
             } else {
-              if (pos === 'top') {
-                afterStart = 0;
-              } else {
-                afterEnd = fullAfterDiff.length - 1;
-              }
+              beforeEnd = fullBeforeDiff.length - 1;
+              afterEnd = fullAfterDiff.length - 1;
             }
             renderVisibleDiff();
           });
@@ -294,14 +287,14 @@ export class TransactionDiffsPanel extends BasePanel {
         
         let html = '';
         
-        diffData.forEach((item, idx) => {
+        diffData.forEach((item) => {
           const escapedLine = item.line
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
-          
+
           html += \`<div class="diff-line \${item.type}">
-            <span class="line-number">\${idx + 1}</span>
+            <span class="line-number">\${item.lineNum}</span>
             <span class="line-content">\${escapedLine || ' '}</span>
           </div>\`;
         });
