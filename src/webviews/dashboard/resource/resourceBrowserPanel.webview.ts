@@ -156,6 +156,14 @@ class ResourceBrowserWebview {
     summary.appendChild(badge);
 
     details.appendChild(summary);
+
+    if (node.description) {
+      const p = document.createElement('p');
+      p.className = 'section-desc';
+      p.textContent = node.description;
+      details.appendChild(p);
+    }
+
     details.appendChild(this.buildSchema(node, node.required || []));
     return details;
   }

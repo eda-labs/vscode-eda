@@ -143,6 +143,10 @@
     margin: 4px 8px;
   }
 
+  .section-desc {
+    margin: 4px 8px;
+  }
+
   .type-badge,
   .prop-type {
     font-family: monospace;
