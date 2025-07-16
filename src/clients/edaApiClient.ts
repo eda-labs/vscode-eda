@@ -131,11 +131,49 @@ export class EdaApiClient {
   /**
    * Get EDA resource YAML
    */
-  public async getEdaResourceYaml(kind: string, name: string, namespace: string): Promise<string> {
+  public async getEdaResourceYaml(
+    kind: string,
+    name: string,
+    namespace: string,
+    apiVersion?: string
+  ): Promise<string> {
     const plural = kind.toLowerCase() + 's';
-    const data = await this.fetchJSON<any>(
-      `/apps/core.eda.nokia.com/v1/namespaces/${namespace}/${plural}/${name}`,
-    );
+    let group = 'core.eda.nokia.com';
+    let version = 'v1';
+    if (apiVersion && apiVersion.includes('/')) {
+      const parts = apiVersion.split('/');
+      group = parts[0];
+      version = parts[1];
+    }
+
+    const groupPascal = group
+      .split(/\.|-/)
+      .map(p => p.charAt(0).toUpperCase() + p.slice(1))
+      .join('');
+    const versionPascal = version.charAt(0).toUpperCase() + version.slice(1);
+    const pluralPascal = plural
+      .split(/\.|-/)
+      .map(p => p.charAt(0).toUpperCase() + p.slice(1))
+      .join('');
+
+    let path = '';
+    if (this.specManager) {
+      try {
+        const opId = `read${groupPascal}${versionPascal}Namespace${pluralPascal}`;
+        const template = await this.specManager.getPathByOperationId(opId);
+        path = template
+          .replace('{namespace}', namespace)
+          .replace('{name}', name);
+      } catch {
+        // fall back to manual path below
+      }
+    }
+
+    if (!path) {
+      path = `/apps/${group}/${version}/namespaces/${namespace}/${plural}/${name}`;
+    }
+
+    const data = await this.fetchJSON<any>(path);
     const sanitized = sanitizeResource(data);
     return yaml.dump(sanitized, { indent: 2 });
   }
@@ -405,7 +443,20 @@ export class EdaApiClient {
    * List Interfaces in a namespace
    */
   public async listInterfaces(namespace: string): Promise<any[]> {
-    const path = `/apps/interfaces.eda.nokia.com/v1alpha1/namespaces/${namespace}/interfaces`;
+    let path = '';
+    if (this.specManager) {
+      try {
+        const template = await this.specManager.getPathByOperationId(
+          'listInterfacesEdaNokiaComV1alpha1NamespaceInterfaces'
+        );
+        path = template.replace('{namespace}', namespace);
+      } catch {
+        // fallback to manual path below
+      }
+    }
+    if (!path) {
+      path = `/apps/interfaces.eda.nokia.com/v1alpha1/namespaces/${namespace}/interfaces`;
+    }
     const data = await this.fetchJSON<any>(path);
     return Array.isArray(data?.items) ? data.items : [];
   }

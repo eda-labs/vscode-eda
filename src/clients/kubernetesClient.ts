@@ -569,6 +569,23 @@ export class KubernetesClient {
     );
   }
 
+  /**
+   * Fetch any Kubernetes resource as YAML using the API
+   */
+  public async getResourceYaml(kind: string, name: string, namespace: string): Promise<string> {
+    const pluralGuess = this.guessPlural(kind);
+    const def = this.watchDefinitions.find(d => d.plural === pluralGuess || d.name === pluralGuess);
+    const group = def?.group ?? '';
+    const version = def?.version ?? 'v1';
+    const plural = def?.plural ?? pluralGuess;
+    const namespaced = def?.namespaced ?? true;
+    const base = group ? `/apis/${group}/${version}` : `/api/${version}`;
+    const nsPart = namespaced ? `/namespaces/${namespace}` : '';
+    const data = await this.fetchJSON(`${base}${nsPart}/${plural}/${name}`);
+    const sanitized = sanitizeResource(data);
+    return yaml.dump(sanitized, { indent: 2 });
+  }
+
   public getCachedResource(type: string, ns?: string): any[] {
     const def = this.watchDefinitions.find(d => d.name === type);
     if (!def) return [];

@@ -47,7 +47,7 @@ function removeEditMetadata(obj: any): void {
   if (obj.metadata && typeof obj.metadata === 'object') {
     delete obj.metadata.annotations;
     delete obj.metadata.creationTimestamp;
-    delete obj.metadata.resourceVersion;
+    // resourceVersion is required for updates, so keep it
     delete obj.metadata.generation;
     delete obj.metadata.uid;
   }

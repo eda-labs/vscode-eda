@@ -52,25 +52,23 @@ export function registerResourceEditCommands(
         let namespace: string;
         let kind: string;
         let name: string;
+        let apiVersion: string | undefined;
         let resourceObject: any | undefined;
 
         if (arg) {
           // Case 1: Invoked with a URI (from active editor or command palette)
           if (arg instanceof vscode.Uri || (arg.scheme && typeof arg.scheme === 'string')) {
             viewDocumentUri = arg as vscode.Uri;
+            ({ namespace, kind, name } = ResourceViewDocumentProvider.parseUri(viewDocumentUri));
           } else {
-            // Case 2: Invoked from a tree item/resource data
-            resourceObject = arg.raw || arg.rawResource || arg.resource?.raw;
-            if (!resourceObject) {
-              throw new Error('No resource data found');
-            }
-            namespace = resourceObject.metadata?.namespace || arg.namespace || 'default';
-            kind = resourceObject.kind || arg.kind || arg.resourceType || 'Resource';
-            name = resourceObject.metadata?.name || arg.name || arg.label || 'unknown';
+            // Case 2: Invoked from a tree item or resource data
+            const raw = arg.raw || arg.rawResource || arg.resource?.raw;
+            namespace = raw?.metadata?.namespace || arg.namespace || 'default';
+            kind = raw?.kind || arg.kind || arg.resourceType || 'Resource';
+            name = raw?.metadata?.name || arg.name || arg.label || 'unknown';
+            apiVersion = raw?.apiVersion;
 
             viewDocumentUri = ResourceViewDocumentProvider.createUri(namespace, kind, name);
-            const yamlText = yaml.dump(resourceObject, { indent: 2 });
-            resourceViewProvider.setResourceContent(viewDocumentUri, yamlText);
           }
         }
 
@@ -87,26 +85,49 @@ export function registerResourceEditCommands(
         }
 
         ({ namespace, kind, name } = ResourceViewDocumentProvider.parseUri(viewDocumentUri));
+        if (!apiVersion) {
+          try {
+            const doc = await vscode.workspace.openTextDocument(viewDocumentUri);
+            const obj = yaml.load(doc.getText()) as any;
+            if (obj && typeof obj === 'object' && typeof obj.apiVersion === 'string') {
+              apiVersion = obj.apiVersion;
+            }
+          } catch {
+            // ignore parse errors
+          }
+        }
         const resourceKey = getResourceKey(namespace, kind, name);
 
         // 3) Check if we already have an edit URI for this resource
         let editUri: vscode.Uri;
         let pair = resourcePairs.get(resourceKey);
 
-        let readOnlyYaml: string;
-        const readOnlyDoc = await vscode.workspace.openTextDocument(viewDocumentUri);
-        readOnlyYaml = readOnlyDoc.getText();
-        try {
-          resourceObject = yaml.load(readOnlyYaml);
-        } catch (parseErr) {
-          throw new Error(`Invalid YAML in read-only view: ${parseErr}`);
+        let edaOrigin = getViewIsEda(viewDocumentUri) ?? false;
+        if (arg && !edaOrigin) {
+          const raw = arg.raw || arg.rawResource || arg.resource?.raw;
+          edaOrigin = isEdaResource(arg, raw?.apiVersion);
         }
 
-        let edaOrigin = isEdaResource(arg, (resourceObject as any)?.apiVersion);
-        const storedOrigin = getViewIsEda(viewDocumentUri);
-        if (storedOrigin !== undefined) {
-          edaOrigin = storedOrigin;
+        // Always fetch the latest YAML when entering edit mode
+        let yamlText: string;
+        if (edaOrigin) {
+          yamlText = await edaClient.getEdaResourceYaml(
+            kind,
+            name,
+            namespace,
+            apiVersion
+          );
+        } else {
+          const k8s = serviceManager.getClient<KubernetesClient>('kubernetes');
+          yamlText = await k8s.getResourceYaml(kind, name, namespace);
         }
+
+        try {
+          resourceObject = yaml.load(yamlText);
+        } catch (parseErr) {
+          throw new Error(`Invalid YAML fetched from cluster: ${parseErr}`);
+        }
+
         setViewIsEda(viewDocumentUri, edaOrigin);
 
         if (resourceObject && typeof resourceObject === 'object') {

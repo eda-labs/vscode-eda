@@ -146,8 +146,13 @@ export class EdaClient {
   }
 
   // API methods (delegated)
-  public async getEdaResourceYaml(kind: string, name: string, namespace: string): Promise<string> {
-    return this.apiClient.getEdaResourceYaml(kind, name, namespace);
+  public async getEdaResourceYaml(
+    kind: string,
+    name: string,
+    namespace: string,
+    apiVersion?: string
+  ): Promise<string> {
+    return this.apiClient.getEdaResourceYaml(kind, name, namespace, apiVersion);
   }
 
   public async createDeviationAction(namespace: string, action: any): Promise<any> {

@@ -24,7 +24,8 @@ describe('sanitizeResourceForEdit', () => {
       kind: 'Pod',
       metadata: {
         name: 'demo',
-        namespace: 'default'
+        namespace: 'default',
+        resourceVersion: '5'
       },
       spec: {}
     });
