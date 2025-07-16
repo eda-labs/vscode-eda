@@ -353,7 +353,11 @@ export function registerResourceEditCommands(
         }
 
         // Validate the resource
-        const validationResult = validateResource(resource, originalResource);
+        const validationResult = validateResource(
+          resource,
+          originalResource,
+          resourceEditProvider.isNewResource(documentUri)
+        );
         if (!validationResult.valid) {
           vscode.window.showErrorMessage(`Validation error: ${validationResult.message}`);
           return;
@@ -717,7 +721,11 @@ interface ValidationResult {
   message?: string;
 }
 
-function validateResource(resource: any, originalResource: any): ValidationResult {
+function validateResource(
+  resource: any,
+  originalResource: any,
+  isNew: boolean = false
+): ValidationResult {
   // Check for required fields
   if (!resource) {
     return { valid: false, message: 'Resource is empty or invalid' };
@@ -743,7 +751,7 @@ function validateResource(resource: any, originalResource: any): ValidationResul
     };
   }
 
-  if (resource.metadata.name !== originalResource.metadata.name) {
+  if (!isNew && resource.metadata.name !== originalResource.metadata.name) {
     return {
       valid: false,
       message: `Cannot change resource name from "${originalResource.metadata.name}" to "${resource.metadata.name}"`
@@ -751,8 +759,11 @@ function validateResource(resource: any, originalResource: any): ValidationResul
   }
 
   // Check that the namespace matches (if present)
-  if (originalResource.metadata.namespace &&
-      resource.metadata.namespace !== originalResource.metadata.namespace) {
+  if (
+    !isNew &&
+    originalResource.metadata.namespace &&
+    resource.metadata.namespace !== originalResource.metadata.namespace
+  ) {
     return {
       valid: false,
       message: `Cannot change resource namespace from "${originalResource.metadata.namespace}" to "${resource.metadata.namespace}"`
