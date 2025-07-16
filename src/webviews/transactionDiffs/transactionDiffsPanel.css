@@ -7,14 +7,14 @@
   --border: var(--vscode-panel-border);
   --accent: var(--vscode-button-background);
   --accent-hover: var(--vscode-button-hoverBackground);
-  --success: #4ade80;
-  --warning: #fbbf24;
-  --error: #f87171;
-  --info: #60a5fa;
-  --diff-add: #3fb950;
-  --diff-add-bg: rgba(63, 185, 80, 0.1);
-  --diff-remove: #f85149;
-  --diff-remove-bg: rgba(248, 81, 73, 0.1);
+  --success: var(--vscode-charts-green);
+  --warning: var(--vscode-charts-yellow);
+  --error: var(--vscode-charts-red);
+  --info: var(--vscode-charts-blue);
+  --diff-add: var(--vscode-charts-green);
+  --diff-add-bg: var(--vscode-diffEditor-insertedTextBackground);
+  --diff-remove: var(--vscode-charts-red);
+  --diff-remove-bg: var(--vscode-diffEditor-removedTextBackground);
   --diff-line-number: var(--vscode-editorLineNumber-foreground);
 }
 
@@ -37,22 +37,36 @@ body {
 
 .sidebar {
   width: 280px;
+  background: var(--bg-primary);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-inner {
+  flex: 1;
   background: var(--bg-secondary);
-  border-right: 1px solid var(--border);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 
 .sidebar-header {
-  padding: 16px 20px;
+  padding: 20px 24px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-secondary);
+  display: flex;
+  align-items: center;
+  height: 64px;
 }
 
 .sidebar-header h3 {
   margin: 0;
-  font-size: 1rem;
+  font-size: 1.125rem;
   font-weight: 600;
   color: var(--text-primary);
   text-transform: uppercase;
@@ -105,6 +119,20 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: var(--bg-primary);
+  padding: 16px;
+  padding-left: 0;
+}
+
+.diff-viewer-inner {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
 .diff-header {
@@ -114,11 +142,12 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  height: 64px;
 }
 
 .diff-header h2 {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.125rem;
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -149,7 +178,7 @@ body {
 .diff-container {
   flex: 1;
   display: flex;
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
   overflow: hidden;
 }
 
@@ -157,11 +186,11 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: var(--bg-secondary);
+  background: var(--bg-primary);
   margin: 16px;
+  margin-top: 0;
   border-radius: 8px;
   border: 1px solid var(--border);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
   overflow: hidden;
 }
 
