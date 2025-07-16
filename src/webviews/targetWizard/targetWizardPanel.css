@@ -1,0 +1,24 @@
+body {
+  font-family: var(--vscode-font-family);
+  color: var(--vscode-foreground);
+  background-color: var(--vscode-editor-background);
+  padding: 20px;
+  padding-bottom: 40px;
+  margin: 0;
+}
+
+.logo {
+  width: 144px;
+  height: auto;
+  display: block;
+}
+
+.target-item.selected::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background-color: var(--vscode-focusBorder);
+}

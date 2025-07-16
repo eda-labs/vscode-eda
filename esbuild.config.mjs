@@ -58,6 +58,15 @@ async function run() {
     sourcemap: false,
     outfile: 'dist/topologyDashboard.js'
   });
+
+  await build({
+    entryPoints: ['src/webviews/targetWizard/targetWizardPanel.webview.ts'],
+    bundle: true,
+    platform: 'browser',
+    format: 'iife',
+    sourcemap: false,
+    outfile: 'dist/targetWizardPanel.js'
+  });
 }
 
 run().catch(err => {

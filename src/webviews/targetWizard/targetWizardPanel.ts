@@ -1,8 +1,7 @@
 import * as vscode from 'vscode';
 import { BasePanel } from '../basePanel';
-import { targetWizardStyles } from './targetWizardPanel.styles';
-import { targetWizardHtml } from './targetWizardPanel.html';
-import { targetWizardScripts } from './targetWizardPanel.scripts';
+import * as fs from 'fs';
+import * as path from 'path';
 import { KubernetesClient } from '../../clients/kubernetesClient';
 
 export interface TargetWizardResult {
@@ -79,22 +78,61 @@ export class TargetWizardPanel extends BasePanel {
   }
 
   protected getHtml(): string {
-    const logoUri = this.getResourceUri('resources', 'eda.png');
-    const options = this.contexts.map(c => `<option value="${c}">${c}</option>`).join('');
-    return targetWizardHtml
-      .replace('${logo}', logoUri.toString())
-      .replace('${options}', options);
+    try {
+      const filePath = this.context.asAbsolutePath(
+        path.join('src', 'webviews', 'targetWizard', 'targetWizardPanel.html')
+      );
+      const html = fs.readFileSync(filePath, 'utf8');
+      const logoUri = this.getResourceUri('resources', 'eda.png');
+      const options = this.contexts.map(c => `<option value="${c}">${c}</option>`).join('');
+      return html.replace('${logo}', logoUri.toString()).replace('${options}', options);
+    } catch (err) {
+      console.error('Failed to load Target wizard HTML', err);
+      return '';
+    }
   }
 
   protected getCustomStyles(): string {
-    return targetWizardStyles;
+    try {
+      const filePath = this.context.asAbsolutePath(
+        path.join('src', 'webviews', 'targetWizard', 'targetWizardPanel.css')
+      );
+      return fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+      console.error('Failed to load Target wizard CSS', err);
+      return '';
+    }
   }
 
   protected getScripts(): string {
-    const data = JSON.stringify(this.targets);
-    return targetWizardScripts
-      .replace('${targets}', data)
-      .replace('${selected}', this.selected.toString());
+    return '';
+  }
+
+  protected buildHtml(): string {
+    const nonce = this.getNonce();
+    const csp = this.panel.webview.cspSource;
+    const codiconUri = this.getResourceUri('resources', 'codicon.css');
+    const scriptUri = this.getResourceUri('dist', 'targetWizardPanel.js');
+    const data = { targets: this.targets, selected: this.selected };
+    const dataJson = JSON.stringify(data).replace(/</g, '\\u003c');
+    const tailwind = (BasePanel as any).tailwind ?? '';
+    const styles = `${tailwind}\n${this.getCustomStyles()}`;
+
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${csp} https:; style-src ${csp} 'unsafe-inline'; font-src ${csp}; script-src 'nonce-${nonce}' ${csp};">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="${codiconUri}" rel="stylesheet">
+  <style>${styles}</style>
+</head>
+<body>
+  ${this.getHtml()}
+  <script id="initialData" type="application/json">${dataJson}</script>
+  <script nonce="${nonce}" src="${scriptUri}"></script>
+</body>
+</html>`;
   }
 
   private async saveConfiguration(msg: any, close: boolean): Promise<void> {
