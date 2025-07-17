@@ -19,7 +19,7 @@ body {
   background: var(--bg-primary);
   color: var(--text-primary);
   font-family: var(--vscode-font-family);
-  font-size: var(--vscode-font-size);
+  font-size: var(--vscode-editor-font-size, var(--vscode-font-size));
   overflow-x: hidden;
 }
 
@@ -91,6 +91,10 @@ body {
 .summary-value {
   font-size: 1rem;
   font-weight: 500;
+}
+
+.summary-item.jspath {
+  grid-column: 1 / -1;
 }
 
 .jspath-value {
