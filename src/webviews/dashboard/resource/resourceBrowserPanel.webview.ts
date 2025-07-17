@@ -114,9 +114,7 @@ class ResourceBrowserWebview {
     });
     if (filtered.length > 0) {
       this.resourceSelect.value = filtered[0].name;
-      if (filtered.length === 1) {
-        this.postMessage({ command: 'showResource', name: filtered[0].name });
-      }
+      this.postMessage({ command: 'showResource', name: filtered[0].name });
     }
   }
 
