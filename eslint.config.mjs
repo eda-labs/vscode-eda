@@ -12,7 +12,8 @@ export default [
       'esbuild.config.mjs',
       'node_modules/**',
       '.vscode-test.mjs',
-      'spec_example/**'
+      'spec_example/**',
+      'topoViewerEditor/**'
     ]
   },
 
@@ -42,7 +43,8 @@ export default [
         document: 'readonly',
         fetch: 'readonly',
         URLSearchParams: 'readonly',
-        URL: 'readonly'
+        URL: 'readonly',
+        getComputedStyle: 'readonly'
       }
     },
     plugins: { '@typescript-eslint': tseslint.plugin },

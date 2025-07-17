@@ -11,9 +11,7 @@ import { TransactionBasketProvider } from './providers/views/transactionBasketPr
 import { EdaTransactionProvider } from './providers/views/transactionProvider';
 import { DashboardProvider } from './providers/views/dashboardProvider';
 import { HelpProvider } from './providers/views/helpProvider';
-import { AlarmDetailsDocumentProvider } from './providers/documents/alarmDetailsProvider';
 import { DeviationDetailsDocumentProvider } from './providers/documents/deviationDetailsProvider';
-import { TransactionDetailsDocumentProvider } from './providers/documents/transactionDetailsProvider';
 import { BasketTransactionDocumentProvider } from './providers/documents/basketTransactionProvider';
 import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 import { ResourceEditDocumentProvider } from './providers/documents/resourceEditProvider';
@@ -36,8 +34,9 @@ import { registerCredentialCommands } from './commands/credentialCommands';
 import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand';
 import { registerDashboardCommands } from './commands/dashboardCommands';
 import { registerApplyYamlFileCommand } from './commands/applyYamlFileCommand';
-import { registerCrdBrowserCommand } from './commands/crdBrowserCommand';
-import { configureTargets } from './panels/targetWizard/targetWizardPanel';
+import { registerResourceBrowserCommand } from './commands/resourceBrowserCommand';
+import { configureTargets } from './webviews/targetWizard/targetWizardPanel';
+import { TreeItemBase } from './providers/views/treeItem';
 // import { registerResourceViewCommands } from './commands/resourceViewCommands';
 // import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 
@@ -82,9 +81,7 @@ export function parseLogLevel(value: unknown): LogLevel {
 export let edaDeviationProvider: EdaDeviationProvider;
 export let edaTransactionBasketProvider: TransactionBasketProvider;
 export let edaTransactionProvider: EdaTransactionProvider;
-export let alarmDetailsProvider: AlarmDetailsDocumentProvider;
 export let deviationDetailsProvider: DeviationDetailsDocumentProvider;
-export let transactionDetailsProvider: TransactionDetailsDocumentProvider;
 export let basketTransactionProvider: BasketTransactionDocumentProvider;
 export let resourceViewProvider: ResourceViewDocumentProvider;
 export let resourceEditProvider: ResourceEditDocumentProvider;
@@ -295,7 +292,7 @@ export async function activate(context: vscode.ExtensionContext) {
     log('Initializing service architecture...', LogLevel.INFO, true);
 
     // 1) Create the clients
-    const k8sClient = edaContext ? new KubernetesClient() : undefined;
+    const k8sClient = edaContext ? new KubernetesClient(edaContext) : undefined;
     const edaClient = new EdaClient(edaUrl, {
       edaUsername,
       edaPassword,
@@ -360,9 +357,9 @@ export async function activate(context: vscode.ExtensionContext) {
     registerResourceCreateCommand(context, resourceEditProvider);
     registerResourceEditCommands(context, resourceEditProvider, resourceViewProvider);
 
-    if (k8sClient) {
-      registerResourceViewCommands(context, resourceViewProvider);
+    registerResourceViewCommands(context, resourceViewProvider);
 
+    if (k8sClient) {
       podDescribeProvider = new PodDescribeDocumentProvider();
       context.subscriptions.push(
         vscode.workspace.registerFileSystemProvider('k8s-describe', podDescribeProvider, { isCaseSensitive: true })
@@ -390,6 +387,13 @@ export async function activate(context: vscode.ExtensionContext) {
     const namespaceTreeView = vscode.window.createTreeView('edaNamespaces', {
       treeDataProvider: namespaceProvider,
       showCollapseAll: true
+    });
+    namespaceTreeView.onDidExpandElement(e => {
+      namespaceProvider.updateStreamExpansion(e.element as TreeItemBase, false);
+    });
+    namespaceTreeView.onDidCollapseElement(e => {
+      namespaceProvider.setExpandAll(false);
+      namespaceProvider.updateStreamExpansion(e.element as TreeItemBase, true);
     });
 
 
@@ -508,29 +512,21 @@ export async function activate(context: vscode.ExtensionContext) {
 
 
   const crdFsProvider = new CrdDefinitionFileSystemProvider();
-  const transactionDetailsProviderLocal = new TransactionDetailsDocumentProvider();
   const basketProviderLocal = new BasketTransactionDocumentProvider();
-  const alarmDetailsProviderLocal = new AlarmDetailsDocumentProvider();
   const deviationDetailsProviderLocal = new DeviationDetailsDocumentProvider();
 
-  alarmDetailsProvider = alarmDetailsProviderLocal;
   deviationDetailsProvider = deviationDetailsProviderLocal;
-  transactionDetailsProvider = transactionDetailsProviderLocal;
   basketTransactionProvider = basketProviderLocal;
 
   context.subscriptions.push(
     vscode.workspace.registerFileSystemProvider('crd', crdFsProvider, { isCaseSensitive: true }),
-    vscode.workspace.registerFileSystemProvider('eda-transaction', transactionDetailsProviderLocal, { isCaseSensitive: true }),
     vscode.workspace.registerFileSystemProvider('basket-tx', basketProviderLocal, { isCaseSensitive: true }),
-    vscode.workspace.registerFileSystemProvider('eda-alarm', alarmDetailsProviderLocal, { isCaseSensitive: true }),
     vscode.workspace.registerFileSystemProvider('eda-deviation', deviationDetailsProviderLocal, { isCaseSensitive: true })
   );
 
   registerViewCommands(
     context,
     crdFsProvider,
-    transactionDetailsProviderLocal,
-    alarmDetailsProviderLocal,
     deviationDetailsProviderLocal,
     basketProviderLocal
   );
@@ -538,7 +534,7 @@ export async function activate(context: vscode.ExtensionContext) {
   registerTransactionCommands(context);
   registerBasketCommands(context);
   registerDashboardCommands(context);
-  registerCrdBrowserCommand(context);
+  registerResourceBrowserCommand(context);
   registerCredentialCommands(context);
   registerApplyYamlFileCommand(context);
 

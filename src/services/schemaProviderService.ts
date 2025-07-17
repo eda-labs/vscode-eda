@@ -8,6 +8,8 @@ import { log, LogLevel } from '../extension';
 import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
 import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
 import { EdaCrd } from '../types';
+import { serviceManager } from './serviceManager';
+import { KubernetesClient } from '../clients/kubernetesClient';
 
 export class SchemaProviderService extends CoreService {
   private schemaCacheDir: string;
@@ -17,9 +19,27 @@ export class SchemaProviderService extends CoreService {
 
   constructor() {
     super();
-    this.schemaCacheDir = path.join(os.homedir(), '.eda', 'schemas');
+    this.schemaCacheDir = path.join(os.homedir(), '.eda', 'vscode', 'schemas');
     if (!fs.existsSync(this.schemaCacheDir)) {
       fs.mkdirSync(this.schemaCacheDir, { recursive: true });
+    }
+  }
+
+  private async cacheSchema(kind: string, schema: any): Promise<void> {
+    const schemaPath = path.join(this.schemaCacheDir, `${kind.toLowerCase()}.json`);
+    let existingPriority = -1;
+    if (fs.existsSync(schemaPath)) {
+      try {
+        const existing = JSON.parse(await fs.promises.readFile(schemaPath, 'utf8'));
+        existingPriority = existing?.properties?.metadata || existing?.properties?.spec ? 1 : 0;
+      } catch {
+        existingPriority = 0;
+      }
+    }
+    const newPriority = schema?.properties?.metadata || schema?.properties?.spec ? 1 : 0;
+    if (newPriority >= existingPriority) {
+      await fs.promises.writeFile(schemaPath, JSON.stringify(schema, null, 2));
+      this.schemaCache.set(kind, schemaPath);
     }
   }
 
@@ -41,7 +61,7 @@ export class SchemaProviderService extends CoreService {
   }
 
   private async findSpecDir(): Promise<string> {
-    const baseDir = path.join(os.homedir(), '.eda');
+    const baseDir = path.join(os.homedir(), '.eda', 'vscode');
     try {
       const entries = await fs.promises.readdir(baseDir, { withFileTypes: true });
       const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
@@ -83,12 +103,12 @@ export class SchemaProviderService extends CoreService {
       for (const [name, schema] of Object.entries<any>(schemas)) {
         const kind =
           schema?.properties?.kind?.default ||
-          (Array.isArray(schema?.properties?.kind?.enum) ? schema.properties.kind.enum[0] : undefined) ||
+          (Array.isArray(schema?.properties?.kind?.enum)
+            ? schema.properties.kind.enum[0]
+            : undefined) ||
           name.split('.').pop();
         if (typeof kind === 'string') {
-          const schemaPath = path.join(this.schemaCacheDir, `${kind.toLowerCase()}.json`);
-          await fs.promises.writeFile(schemaPath, JSON.stringify(schema, null, 2));
-          this.schemaCache.set(kind, schemaPath);
+          await this.cacheSchema(kind, schema);
         }
       }
     } catch (err) {
@@ -234,6 +254,39 @@ export class SchemaProviderService extends CoreService {
     } catch (err) {
       log(`Failed to load CRD definitions: ${err}`, LogLevel.WARN);
     }
+    // If a Kubernetes client is available, include CRDs from the cluster
+    try {
+      const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
+      const crds = await k8sClient.listCrds();
+      const existing = new Set(results.map(r => `${r.group}/${r.kind}`));
+      for (const crd of crds) {
+        const kind = crd?.spec?.names?.kind as string | undefined;
+        const group = crd?.spec?.group as string | undefined;
+        const versionObj =
+          (crd?.spec?.versions && crd.spec.versions.find((v: any) => v.storage)) ||
+          (crd?.spec?.versions && crd.spec.versions[0]);
+        const version = (versionObj && versionObj.name) || (crd?.spec?.version as string | undefined);
+        const plural = crd?.spec?.names?.plural as string | undefined;
+        const namespaced = crd?.spec?.scope === 'Namespaced';
+        const schema = versionObj?.schema?.openAPIV3Schema;
+        const description = schema?.description as string | undefined;
+        if (!kind || !group || !version || !plural) {
+          continue;
+        }
+        const key = `${group}/${kind}`;
+        if (existing.has(key)) {
+          continue;
+        }
+        existing.add(key);
+        if (schema) {
+          await this.cacheSchema(kind, schema);
+        }
+        results.push({ kind, group, version, plural, namespaced, description });
+      }
+    } catch (err) {
+      log(`Failed to load Kubernetes CRDs: ${err}`, LogLevel.DEBUG);
+    }
+
     results.sort((a, b) => a.kind.localeCompare(b.kind));
     return results;
   }

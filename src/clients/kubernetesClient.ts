@@ -6,6 +6,7 @@ import * as os from 'os';
 import * as yaml from 'js-yaml';
 import * as vscode from 'vscode';
 import { log, LogLevel } from '../extension';
+import { sanitizeResource } from '../utils/yamlUtils';
 
 interface KubeConfigContext {
   name: string;
@@ -72,12 +73,8 @@ export class KubernetesClient {
     { name: 'configmaps', group: '', version: 'v1', plural: 'configmaps', namespaced: true },
     { name: 'endpoints', group: '', version: 'v1', plural: 'endpoints', namespaced: true },
     { name: 'events', group: '', version: 'v1', plural: 'events', namespaced: true },
-    { name: 'limitranges', group: '', version: 'v1', plural: 'limitranges', namespaced: true },
     { name: 'persistentvolumeclaims', group: '', version: 'v1', plural: 'persistentvolumeclaims', namespaced: true },
     { name: 'pods', group: '', version: 'v1', plural: 'pods', namespaced: true },
-    { name: 'podtemplates', group: '', version: 'v1', plural: 'podtemplates', namespaced: true },
-    { name: 'replicationcontrollers', group: '', version: 'v1', plural: 'replicationcontrollers', namespaced: true },
-    { name: 'resourcequotas', group: '', version: 'v1', plural: 'resourcequotas', namespaced: true },
     { name: 'secrets', group: '', version: 'v1', plural: 'secrets', namespaced: true },
     { name: 'serviceaccounts', group: '', version: 'v1', plural: 'serviceaccounts', namespaced: true },
     { name: 'services', group: '', version: 'v1', plural: 'services', namespaced: true },
@@ -90,7 +87,6 @@ export class KubernetesClient {
 
     // apps/v1
     { name: 'deployments', group: 'apps', version: 'v1', plural: 'deployments', namespaced: true },
-    { name: 'replicasets', group: 'apps', version: 'v1', plural: 'replicasets', namespaced: true },
     { name: 'statefulsets', group: 'apps', version: 'v1', plural: 'statefulsets', namespaced: true },
     { name: 'daemonsets', group: 'apps', version: 'v1', plural: 'daemonsets', namespaced: true },
 
@@ -101,7 +97,6 @@ export class KubernetesClient {
 
     // networking.k8s.io/v1
     { name: 'ingresses', group: 'networking.k8s.io', version: 'v1', plural: 'ingresses', namespaced: true },
-    { name: 'networkpolicies', group: 'networking.k8s.io', version: 'v1', plural: 'networkpolicies', namespaced: true },
 
     // Cluster scoped resources
     { name: 'nodes', group: '', version: 'v1', plural: 'nodes', namespaced: false },
@@ -123,12 +118,12 @@ export class KubernetesClient {
   private _onNamespacesChanged = new vscode.EventEmitter<void>();
   readonly onNamespacesChanged = this._onNamespacesChanged.event;
 
-  constructor() {
+  constructor(contextName?: string) {
     const envInterval = Number(process.env.EDA_POLL_INTERVAL_MS);
     if (!Number.isNaN(envInterval) && envInterval > 0) {
       this.pollInterval = envInterval;
     }
-    this.loadKubeConfig();
+    this.loadKubeConfig(contextName);
   }
 
 
@@ -217,6 +212,74 @@ export class KubernetesClient {
       log(`Fetch failed for ${url}: ${err}`, LogLevel.ERROR);
       throw err;
     }
+  }
+
+  private async requestJSON(method: string, pathname: string, body?: any): Promise<any> {
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+    if (body) {
+      headers['Content-Type'] = 'application/json';
+    }
+    const url = `${this.server}${pathname}`;
+    const res = await fetch(url, {
+      method,
+      headers,
+      dispatcher: this.agent,
+      body: body ? JSON.stringify(body) : undefined
+    } as any);
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`HTTP ${res.status}: ${text}`);
+    }
+    return res.status === 204 ? undefined : res.json();
+  }
+
+  private guessPlural(kind: string): string {
+    const lower = kind.toLowerCase();
+    if (/(s|x|z|ch|sh)$/.test(lower)) {
+      return `${lower}es`;
+    }
+    if (/[^aeiou]y$/.test(lower)) {
+      return `${lower.slice(0, -1)}ies`;
+    }
+    return `${lower}s`;
+  }
+
+  public async applyResource(
+    resource: any,
+    opts: { dryRun?: boolean; isNew?: boolean } = {}
+  ): Promise<any> {
+    const dryRun = opts.dryRun ?? false;
+    const isNew = opts.isNew ?? false;
+
+    const apiVersion: string = resource.apiVersion || '';
+    const [groupPart, version] = apiVersion.includes('/') ? apiVersion.split('/') : ['', apiVersion];
+    const group = groupPart;
+    const namespace: string | undefined = resource.metadata?.namespace;
+    const name: string | undefined = resource.metadata?.name;
+    const pluralGuess = this.guessPlural(resource.kind);
+    const def = this.watchDefinitions.find(
+      d => d.plural === pluralGuess && d.group === group && d.version === version
+    );
+    const plural = def?.plural ?? pluralGuess;
+    const namespaced = def?.namespaced ?? namespace !== undefined;
+
+    const base = group ? `/apis/${group}/${version}` : `/api/${version}`;
+    const nsPart = namespaced ? `/namespaces/${namespace}` : '';
+    const basePath = `${base}${nsPart}/${plural}`;
+    const path = isNew ? basePath : `${basePath}/${name}`;
+    const params: string[] = [];
+    if (dryRun) {
+      params.push('dryRun=All');
+    }
+    // Enable strict field validation to surface unknown fields
+    params.push('fieldValidation=Strict');
+    const url = params.length > 0 ? `${path}?${params.join('&')}` : path;
+    const method = isNew ? 'POST' : 'PUT';
+    const sanitized = sanitizeResource(resource);
+    return this.requestJSON(method, url, sanitized);
   }
 
 
@@ -498,6 +561,23 @@ export class KubernetesClient {
       name,
       namespace
     );
+  }
+
+  /**
+   * Fetch any Kubernetes resource as YAML using the API
+   */
+  public async getResourceYaml(kind: string, name: string, namespace: string): Promise<string> {
+    const pluralGuess = this.guessPlural(kind);
+    const def = this.watchDefinitions.find(d => d.plural === pluralGuess || d.name === pluralGuess);
+    const group = def?.group ?? '';
+    const version = def?.version ?? 'v1';
+    const plural = def?.plural ?? pluralGuess;
+    const namespaced = def?.namespaced ?? true;
+    const base = group ? `/apis/${group}/${version}` : `/api/${version}`;
+    const nsPart = namespaced ? `/namespaces/${namespace}` : '';
+    const data = await this.fetchJSON(`${base}${nsPart}/${plural}/${name}`);
+    const sanitized = sanitizeResource(data);
+    return yaml.dump(sanitized, { indent: 2 });
   }
 
   public getCachedResource(type: string, ns?: string): any[] {

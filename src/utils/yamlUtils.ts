@@ -32,6 +32,42 @@ export function sanitizeResource<T>(resource: T): T {
 }
 
 /**
+ * Recursively remove common metadata fields that should not be edited
+ */
+function removeEditMetadata(obj: any): void {
+  if (!obj || typeof obj !== 'object') {
+    return;
+  }
+
+  if (Array.isArray(obj)) {
+    obj.forEach(item => removeEditMetadata(item));
+    return;
+  }
+
+  if (obj.metadata && typeof obj.metadata === 'object') {
+    delete obj.metadata.annotations;
+    delete obj.metadata.creationTimestamp;
+    // resourceVersion is required for updates, so keep it
+    delete obj.metadata.generation;
+    delete obj.metadata.uid;
+  }
+
+  for (const key of Object.keys(obj)) {
+    removeEditMetadata(obj[key]);
+  }
+}
+
+/**
+ * Clone the object and remove managedFields as well as edit-only metadata
+ */
+export function sanitizeResourceForEdit<T>(resource: T): T {
+  const clone: any = JSON.parse(JSON.stringify(resource));
+  removeManagedFields(clone);
+  removeEditMetadata(clone);
+  return clone as T;
+}
+
+/**
  * Remove 'managedFields' from YAML string(s).
  */
 export function stripManagedFieldsFromYaml(yamlText: string): string {

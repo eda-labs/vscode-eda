@@ -81,6 +81,12 @@ export class EdaClient {
     await this.streamClient.connect();
   }
 
+  public async streamTopoLinks(): Promise<void> {
+    await this.initPromise;
+    this.streamClient.subscribeToStream('topolinks');
+    await this.streamClient.connect();
+  }
+
   public async streamInterfaces(): Promise<void> {
     await this.initPromise;
     this.streamClient.subscribeToStream('interfaces');
@@ -127,6 +133,10 @@ export class EdaClient {
     this.streamClient.unsubscribeFromStream('toponodes');
   }
 
+  public closeTopoLinkStream(): void {
+    this.streamClient.unsubscribeFromStream('topolinks');
+  }
+
   public closeInterfaceStream(): void {
     this.streamClient.unsubscribeFromStream('interfaces');
   }
@@ -136,8 +146,13 @@ export class EdaClient {
   }
 
   // API methods (delegated)
-  public async getEdaResourceYaml(kind: string, name: string, namespace: string): Promise<string> {
-    return this.apiClient.getEdaResourceYaml(kind, name, namespace);
+  public async getEdaResourceYaml(
+    kind: string,
+    name: string,
+    namespace: string,
+    apiVersion?: string
+  ): Promise<string> {
+    return this.apiClient.getEdaResourceYaml(kind, name, namespace, apiVersion);
   }
 
   public async createDeviationAction(namespace: string, action: any): Promise<any> {
@@ -213,6 +228,25 @@ export class EdaClient {
     return this.apiClient.getTransactionDetails(transactionId, waitForComplete, failOnErrors);
   }
 
+  public async getResourceDiff(
+    transactionId: string | number,
+    group: string,
+    version: string,
+    kind: string,
+    name: string,
+    namespace: string
+  ): Promise<any> {
+    return this.apiClient.getResourceDiff(transactionId, group, version, kind, name, namespace);
+  }
+
+  public async getNodeConfigDiff(
+    transactionId: string | number,
+    node: string,
+    namespace: string
+  ): Promise<any> {
+    return this.apiClient.getNodeConfigDiff(transactionId, node, namespace);
+  }
+
   public async getUserStorageFile(path: string): Promise<string | undefined> {
     return this.apiClient.getUserStorageFile(path);
   }
@@ -248,6 +282,16 @@ export class EdaClient {
   public async listInterfaces(namespace: string): Promise<any[]> {
     await this.initPromise;
     return this.apiClient.listInterfaces(namespace);
+  }
+
+  public async listTopoLinks(namespace: string): Promise<any[]> {
+    await this.initPromise;
+    return this.apiClient.listTopoLinks(namespace);
+  }
+
+  public async listTopologyGroupings(): Promise<any[]> {
+    await this.initPromise;
+    return this.apiClient.listTopologyGroupings();
   }
 
   public async queryEql(query: string, namespaces?: string): Promise<any> {

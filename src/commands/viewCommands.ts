@@ -7,17 +7,15 @@ const Diff: any = require('diff');
 import { KubernetesClient } from '../clients/kubernetesClient';
 import { edaOutputChannel } from '../extension';
 import { CrdDefinitionFileSystemProvider } from '../providers/documents/crdDefinitionProvider';
-import { TransactionDetailsDocumentProvider } from '../providers/documents/transactionDetailsProvider';
-import { AlarmDetailsDocumentProvider } from '../providers/documents/alarmDetailsProvider';
 import { DeviationDetailsDocumentProvider } from '../providers/documents/deviationDetailsProvider';
 import { BasketTransactionDocumentProvider } from '../providers/documents/basketTransactionProvider';
 import { loadTemplate } from '../utils/templateLoader';
+import { TransactionDetailsPanel } from '../webviews/transactionDetails/transactionDetailsPanel';
+import { AlarmDetailsPanel } from '../webviews/alarmDetails/alarmDetailsPanel';
 
 export function registerViewCommands(
   context: vscode.ExtensionContext,
   crdFsProvider: CrdDefinitionFileSystemProvider,
-  transactionDetailsProvider: TransactionDetailsDocumentProvider,
-  alarmDetailsProvider: AlarmDetailsDocumentProvider,
   deviationDetailsProvider: DeviationDetailsDocumentProvider,
   basketProvider: BasketTransactionDocumentProvider
 ) {
@@ -75,18 +73,8 @@ export function registerViewCommands(
           rawJson: JSON.stringify(mergedObj, null, 2)
         };
 
-        const detailsText = loadTemplate('transaction', context, templateVars);
-
-        // Create a "eda-transaction:" URI for read-only
-        const docUri = vscode.Uri.parse(
-          `eda-transaction:/${transactionId}?ts=${Date.now()}`
-        );
-
-        // Store the markdown text in the read-only provider
-        transactionDetailsProvider.setTransactionContent(docUri, detailsText);
-
-        // Show markdown preview
-        await vscode.commands.executeCommand('markdown.showPreview', docUri);
+        // Generate transaction details webview
+        TransactionDetailsPanel.show(context, templateVars);
       } catch (err: any) {
         const msg = `Failed to load transaction details for ID ${transactionId}: ${err.message}`;
         vscode.window.showErrorMessage(msg);
@@ -138,7 +126,7 @@ export function registerViewCommands(
     }
   );
 
-  // Show alarm details using Handlebars template
+  // Show alarm details using a webview
   vscode.commands.registerCommand('vscode-eda.showAlarmDetails', async (arg: any) => {
     const alarm = arg && arg.alarm ? arg.alarm : arg;
     if (!alarm) {
@@ -146,58 +134,30 @@ export function registerViewCommands(
       return;
     }
 
-    try {
-      // Determine severity color
-      const severity = alarm.severity ? alarm.severity.toLowerCase() : 'info';
-      let severityColor = '#3498DB'; // blue (default)
-      switch (severity) {
-        case 'critical':
-          severityColor = '#E74C3C'; // red
-          break;
-        case 'major':
-          severityColor = '#E67E22'; // orange
-          break;
-        case 'minor':
-          severityColor = '#F1C40F'; // yellow
-          break;
-      }
+    const data = {
+      name: alarm.name,
+      kind: alarm.kind,
+      type: alarm.type,
+      severity: alarm.severity,
+      namespace:
+        alarm[".namespace.name"] ||
+        alarm["namespace.name"] ||
+        alarm.namespace,
+      group: alarm.group,
+      sourceGroup: alarm.sourceGroup,
+      sourceKind: alarm.sourceKind,
+      sourceResource: alarm.sourceResource,
+      jspath: alarm.jspath,
+      parentAlarm: alarm.parentAlarm || 'N/A',
+      probableCause: alarm.probableCause,
+      remedialAction: alarm.remedialAction,
+      description: alarm.description,
+      resource: alarm.resource,
+      clusterSpecific: alarm.clusterSpecific || 'N/A',
+      rawJson: JSON.stringify(alarm, null, 2)
+    };
 
-      // Prepare variables for the template
-      const templateVars = {
-        name: alarm.name,
-        kind: alarm.kind,
-        type: alarm.type,
-        severity: alarm.severity,
-        severityColor,
-        namespace:
-          alarm[".namespace.name"] ||
-          alarm["namespace.name"] ||
-          alarm.namespace,
-        group: alarm.group,
-        sourceGroup: alarm.sourceGroup,
-        sourceKind: alarm.sourceKind,
-        sourceResource: alarm.sourceResource,
-        jspath: alarm.jspath,
-        parentAlarm: alarm.parentAlarm || 'N/A',
-        probableCause: alarm.probableCause,
-        remedialAction: alarm.remedialAction,
-        description: alarm.description,
-        resource: alarm.resource,
-        clusterSpecific: alarm.clusterSpecific || 'N/A'
-      };
-
-      // Render the template
-      const detailsText = loadTemplate('alarm', context, templateVars);
-
-      // Create a unique URI for this alarm document
-      const docUri = vscode.Uri.parse(`eda-alarm:/${alarm.name}?ts=${Date.now()}`);
-      alarmDetailsProvider.setAlarmContent(docUri, detailsText);
-
-      // Open the markdown preview
-      await vscode.commands.executeCommand("markdown.showPreview", docUri);
-    } catch (error: any) {
-      vscode.window.showErrorMessage(`Failed to load alarm details: ${error.message || error}`);
-    }
+    AlarmDetailsPanel.show(context, data);
   });
 
   // Show deviation details using markdown template

@@ -19,6 +19,8 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
 
   private k8sClient?: KubernetesClient;
   private readonly kubernetesIcon: vscode.ThemeIcon;
+  private readonly collapsedStreamIcon = new vscode.ThemeIcon('expand-all');
+  private readonly expandedStreamIcon = new vscode.ThemeIcon('collapse-all');
   private edaClient: EdaClient;
   private resourceService?: ResourceService;
   private statusService?: ResourceStatusService;
@@ -30,6 +32,8 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
   private streamData: Map<string, Map<string, any>> = new Map();
   private k8sStreams: string[] = [];
   private disposables: vscode.Disposable[] = [];
+  /** Track expanded streams so icons persist across refreshes */
+  private expandedStreams: Set<string> = new Set();
   /** Throttled refresh timer */
   private refreshHandle?: ReturnType<typeof setTimeout>;
   private pendingSummary?: string;
@@ -63,7 +67,10 @@ constructor() {
       this.k8sClient = undefined;
     }
     if (this.k8sClient) {
-      this.k8sStreams = this.k8sClient.getWatchedResourceTypes();
+      this.k8sStreams = this.k8sClient
+        .getWatchedResourceTypes()
+        .slice()
+        .sort();
     }
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
     try {
@@ -198,10 +205,30 @@ constructor() {
   }
   /**
    * Set whether all tree items should be expanded
-   */
+  */
   public setExpandAll(expand: boolean): void {
+    const changed = this.expandAll !== expand;
     this.expandAll = expand;
-    this.refresh();
+    if (changed) {
+      this.refresh();
+    }
+  }
+
+  /**
+   * Update the icon for a stream item based on expansion state
+   */
+  public updateStreamExpansion(item: TreeItemBase, collapsed: boolean): void {
+    if (item.contextValue === 'stream') {
+      const key = `${item.namespace}/${item.streamGroup}/${item.label}`;
+      if (collapsed) {
+        this.expandedStreams.delete(key);
+        item.iconPath = this.collapsedStreamIcon;
+      } else {
+        this.expandedStreams.add(key);
+        item.iconPath = this.expandedStreamIcon;
+      }
+      this._onDidChangeTreeData.fire(item);
+    }
   }
 
   /**
@@ -248,6 +275,63 @@ constructor() {
     return false;
   }
 
+  /** Determine if an EDA namespace should be shown based on the current filter */
+  private namespaceMatches(namespace: string): boolean {
+    if (!this.treeFilter) {
+      return true;
+    }
+    if (this.matchesFilter(namespace)) {
+      return true;
+    }
+    const groups = Object.keys(this.cachedStreamGroups).filter(g => g !== 'kubernetes');
+    for (const group of groups) {
+      const streams = this.cachedStreamGroups[group] || [];
+      for (const s of streams) {
+        if (!this.streamHasData(namespace, s)) {
+          continue;
+        }
+        if (this.streamMatches(namespace, s)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /** Determine if a Kubernetes namespace should be shown based on the current filter */
+  private kubernetesNamespaceMatches(namespace: string): boolean {
+    if (!this.k8sClient) {
+      return false;
+    }
+    if (!this.treeFilter) {
+      return true;
+    }
+    if (this.matchesFilter(namespace)) {
+      return true;
+    }
+    for (const stream of this.k8sStreams) {
+      if (!this.streamHasData(namespace, stream)) {
+        continue;
+      }
+      if (this.streamMatches(namespace, stream)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private kubernetesRootMatches(): boolean {
+    if (!this.k8sClient) {
+      return false;
+    }
+    for (const ns of this.k8sClient.getCachedNamespaces()) {
+      if (this.kubernetesNamespaceMatches(ns)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /**
    * Determine if a stream group should be shown based on the current filter.
    * Matches on the group name or any streams/items within it.
@@ -267,7 +351,7 @@ constructor() {
       }
       return false;
     }
-    const streams = this.cachedStreamGroups[group] || [];
+    const streams = (this.cachedStreamGroups[group] || []).slice().sort();
     for (const stream of streams) {
       if (this.streamMatches(namespace, stream)) {
         return true;
@@ -288,7 +372,7 @@ constructor() {
 
   /** Determine if a group should be flattened because it only repeats a stream */
   private isGroupRedundant(group: string): boolean {
-    const streams = this.cachedStreamGroups[group] || [];
+    const streams = (this.cachedStreamGroups[group] || []).slice().sort();
     return streams.length === 1 && streams[0] === group;
   }
 
@@ -384,7 +468,12 @@ constructor() {
       return [msgItem];
     }
 
-    return this.cachedNamespaces.map(ns => {
+    const sorted = this.cachedNamespaces.slice().sort();
+    const items: TreeItemBase[] = [];
+    for (const ns of sorted) {
+      if (!this.namespaceMatches(ns)) {
+        continue;
+      }
       const treeItem = new TreeItemBase(
         ns,
         this.expandAll ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
@@ -392,12 +481,16 @@ constructor() {
       );
       treeItem.iconPath = new vscode.ThemeIcon('package');
       treeItem.namespace = ns;
-      return treeItem;
-    });
+      items.push(treeItem);
+    }
+    return items;
   }
 
   private getKubernetesRoot(): TreeItemBase | undefined {
     if (!this.k8sClient) {
+      return undefined;
+    }
+    if (this.treeFilter && !this.kubernetesRootMatches()) {
       return undefined;
     }
     const item = new TreeItemBase(
@@ -415,7 +508,7 @@ constructor() {
     if (!this.k8sClient) {
       return [];
     }
-    const namespaces = this.k8sClient.getCachedNamespaces();
+    const namespaces = this.k8sClient.getCachedNamespaces().slice().sort();
     if (namespaces.length === 0) {
       const msgItem = new TreeItemBase(
         'No Kubernetes namespaces found',
@@ -425,7 +518,11 @@ constructor() {
       msgItem.iconPath = new vscode.ThemeIcon('warning');
       return [msgItem];
     }
-    return namespaces.map(ns => {
+    const items: TreeItemBase[] = [];
+    for (const ns of namespaces) {
+      if (!this.kubernetesNamespaceMatches(ns)) {
+        continue;
+      }
       const item = new TreeItemBase(
         ns,
         this.expandAll
@@ -435,8 +532,9 @@ constructor() {
       );
       item.iconPath = this.kubernetesIcon;
       item.namespace = ns;
-      return item;
-    });
+      items.push(item);
+    }
+    return items;
   }
 
   private getKubernetesStreams(namespace: string): TreeItemBase[] {
@@ -445,7 +543,9 @@ constructor() {
 
   /** Get stream group items under a namespace */
   private getStreamGroups(namespace: string): TreeItemBase[] {
-    const groups = Object.keys(this.cachedStreamGroups).filter(g => g !== 'kubernetes');
+    const groups = Object.keys(this.cachedStreamGroups)
+      .filter(g => g !== 'kubernetes')
+      .sort();
     if (groups.length === 0) {
       const item = new TreeItemBase(
         'No streams found',
@@ -463,29 +563,30 @@ constructor() {
       }
 
       const streams = this.cachedStreamGroups[g] || [];
-      const groupMatched = !!this.treeFilter && this.matchesFilter(g);
-      const visible = groupMatched
-        ? streams
-        : streams.filter(s => this.streamMatches(namespace, s));
-      const withData = visible.filter(s => this.streamHasData(namespace, s));
+      const visibleStreams = streams.filter(s => {
+        if (!this.streamHasData(namespace, s)) {
+          return false;
+        }
+        return !this.treeFilter || this.streamMatches(namespace, s);
+      });
 
-      if (withData.length === 0) {
+      if (visibleStreams.length === 0) {
         continue;
       }
 
       if (this.isGroupRedundant(g)) {
-        const s = streams[0];
-        if (!this.streamHasData(namespace, s)) {
+        const s = visibleStreams[0];
+        if (!s) {
           continue;
         }
-        const ti = new TreeItemBase(
-          s,
-          this.expandAll
-            ? vscode.TreeItemCollapsibleState.Expanded
-            : vscode.TreeItemCollapsibleState.Collapsed,
-          'stream'
-        );
-        ti.iconPath = new vscode.ThemeIcon('search-expand-results');
+        const key = `${namespace}/${g}/${s}`;
+        const isExpanded = this.expandAll || this.expandedStreams.has(key);
+        const collapsible = isExpanded
+          ? vscode.TreeItemCollapsibleState.Expanded
+          : vscode.TreeItemCollapsibleState.Collapsed;
+        const ti = new TreeItemBase(s, collapsible, 'stream');
+        ti.id = key;
+        ti.iconPath = isExpanded ? this.expandedStreamIcon : this.collapsedStreamIcon;
         ti.namespace = namespace;
         ti.streamGroup = g;
         items.push(ti);
@@ -504,70 +605,33 @@ constructor() {
       }
     }
 
-    if (items.length === 0 && this.treeFilter) {
-      const noMatch = new TreeItemBase(
-        `No streams match "${this.treeFilter}"`,
-        vscode.TreeItemCollapsibleState.None,
-        'message'
-      );
-      noMatch.iconPath = new vscode.ThemeIcon('info');
-      return [noMatch];
-    }
     return items;
   }
 
   /** Get stream items under a group */
   private getStreamsForGroup(namespace: string, group: string): TreeItemBase[] {
-    const streams = this.cachedStreamGroups[group] || [];
+    const streams = (this.cachedStreamGroups[group] || []).slice().sort();
     const items: TreeItemBase[] = [];
-    const parentMatched = !!this.treeFilter && this.matchesFilter(group);
     for (const s of streams) {
-      if (!parentMatched && !this.streamMatches(namespace, s)) {
+      if (!this.streamHasData(namespace, s)) {
         continue;
       }
-      if (group === 'kubernetes') {
-        if (!this.streamHasData(namespace, s)) {
-          continue;
-        }
-        const ti = new TreeItemBase(
-          s,
-          this.expandAll
-            ? vscode.TreeItemCollapsibleState.Expanded
-            : vscode.TreeItemCollapsibleState.Collapsed,
-          'stream'
-        );
-        ti.iconPath = new vscode.ThemeIcon('search-expand-results');
-        ti.namespace = namespace;
-        ti.streamGroup = group;
-        items.push(ti);
+      if (this.treeFilter && !this.streamMatches(namespace, s)) {
         continue;
       }
-      const map = this.streamData.get(`${s}:${namespace}`);
-      if (!map || map.size === 0) {
-        continue;
-      }
-      const ti = new TreeItemBase(
-        s,
-        this.expandAll
-          ? vscode.TreeItemCollapsibleState.Expanded
-          : vscode.TreeItemCollapsibleState.Collapsed,
-        'stream'
-      );
-      ti.iconPath = new vscode.ThemeIcon('search-expand-results');
+      const key = `${namespace}/${group}/${s}`;
+      const isExpanded = this.expandAll || this.expandedStreams.has(key);
+      const collapsible = isExpanded
+        ? vscode.TreeItemCollapsibleState.Expanded
+        : vscode.TreeItemCollapsibleState.Collapsed;
+      const ti = new TreeItemBase(s, collapsible, 'stream');
+      ti.id = key;
+      ti.iconPath = isExpanded ? this.expandedStreamIcon : this.collapsedStreamIcon;
       ti.namespace = namespace;
       ti.streamGroup = group;
       items.push(ti);
     }
 
-    if (items.length === 0 && this.treeFilter) {
-      const noMatch = new TreeItemBase(
-        `No streams match "${this.treeFilter}"`,
-        vscode.TreeItemCollapsibleState.None,
-        'message'
-      );
-      noMatch.iconPath = new vscode.ThemeIcon('info');
-      return [noMatch];
-    }
     return items;
   }
 
@@ -697,13 +761,14 @@ constructor() {
           ti.description = desc;
           ti.tooltip = this.statusService.getResourceTooltip(resource);
           ti.status = { indicator, description: desc };
+
+          // Mark derived resources with a special icon but keep status color
+          if (resource?.metadata?.labels?.['eda.nokia.com/source'] === 'derived') {
+            const color = this.statusService.getThemeStatusIcon(indicator).color;
+            ti.iconPath = new vscode.ThemeIcon('debug-breakpoint-data-unverified', color);
+          }
         }
         out.push(ti);
-      }
-      if (out.length === 0 && this.treeFilter && !parentMatched) {
-        const ni = new TreeItemBase(`No items match "${this.treeFilter}"`, vscode.TreeItemCollapsibleState.None, 'message');
-        ni.iconPath = new vscode.ThemeIcon('info');
-        return [ni];
       }
       return out;
     }
@@ -756,18 +821,14 @@ constructor() {
         ti.description = desc;
         ti.tooltip = this.statusService.getResourceTooltip(resource);
         ti.status = { indicator, description: desc };
+
+        // Mark derived resources with a special icon but keep status color
+        if (resource?.metadata?.labels?.['eda.nokia.com/source'] === 'derived') {
+          const color = this.statusService.getThemeStatusIcon(indicator).color;
+          ti.iconPath = new vscode.ThemeIcon('debug-breakpoint-data-unverified', color);
+        }
       }
       items.push(ti);
-    }
-
-    if (items.length === 0 && this.treeFilter && !parentMatched) {
-      const noItem = new TreeItemBase(
-        `No items match "${this.treeFilter}"`,
-        vscode.TreeItemCollapsibleState.None,
-        'message'
-      );
-      noItem.iconPath = new vscode.ThemeIcon('info');
-      return [noItem];
     }
 
     return items;

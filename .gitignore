@@ -6,3 +6,5 @@ node_modules
 .vscode/**
 patch.sh
 test.yaml
+CLAUDE.md
+screenshots/**

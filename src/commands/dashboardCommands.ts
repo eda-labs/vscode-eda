@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
-import { FabricDashboardPanel } from '../panels/dashboard/fabric/fabricDashboardPanel';
-import { QueriesDashboardPanel } from '../panels/dashboard/queries/queriesDashboardPanel';
-import { ToponodesDashboardPanel } from '../panels/dashboard/toponodes/toponodesDashboardPanel';
-import { CrdBrowserPanel } from '../panels/dashboard/crd/crdBrowserPanel';
+import { FabricDashboardPanel } from '../webviews/dashboard/fabric/fabricDashboardPanel';
+import { QueriesDashboardPanel } from '../webviews/dashboard/queries/queriesDashboardPanel';
+import { ToponodesDashboardPanel } from '../webviews/dashboard/toponodes/toponodesDashboard';
+import { TopologyDashboardPanel } from '../webviews/dashboard/topology/topologyDashboardPanel';
+import { ResourceBrowserPanel } from '../webviews/dashboard/resource/resourceBrowserPanel';
 
 export function registerDashboardCommands(context: vscode.ExtensionContext): void {
   const cmd = vscode.commands.registerCommand('vscode-eda.showDashboard', (name: string) => {
@@ -10,8 +11,10 @@ export function registerDashboardCommands(context: vscode.ExtensionContext): voi
       QueriesDashboardPanel.show(context, name);
     } else if (name === 'Nodes') {
       ToponodesDashboardPanel.show(context, name);
-    } else if (name === 'CRD Browser') {
-      CrdBrowserPanel.show(context, name);
+    } else if (name === 'Topology') {
+      TopologyDashboardPanel.show(context, name);
+    } else if (name === 'Resource Browser') {
+      ResourceBrowserPanel.show(context, name);
     } else {
       FabricDashboardPanel.show(context, name || 'Fabric');
     }

@@ -7,15 +7,28 @@ import type { ResourceService } from '../services/resourceService';
 import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
 import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
 import { log, LogLevel, edaOutputChannel, edaTransactionBasketProvider } from '../extension';
+import { isEdaResource } from '../utils/edaGroupUtils';
+import {
+  getViewIsEda,
+  setViewIsEda,
+  setResourceOrigin,
+  getResourceOrigin
+} from '../utils/resourceOriginStore';
+import { KubernetesClient } from '../clients/kubernetesClient';
+import { sanitizeResource, sanitizeResourceForEdit } from '../utils/yamlUtils';
 
 // Keep track of resource URI pairs (view and edit versions of the same resource)
 interface ResourceURIPair {
   viewUri: vscode.Uri;
   editUri: vscode.Uri;
   originalResource: any;
+  isEdaResource: boolean;
 }
 
 const resourcePairs = new Map<string, ResourceURIPair>();
+
+// Flag to suppress the apply prompt when saving programmatically
+let suppressSavePrompt = false;
 
 // Map resource identifier to URI pair
 function getResourceKey(namespace: string, kind: string, name: string): string {
@@ -44,25 +57,28 @@ export function registerResourceEditCommands(
         let namespace: string;
         let kind: string;
         let name: string;
+        let apiVersion: string | undefined;
         let resourceObject: any | undefined;
 
         if (arg) {
           // Case 1: Invoked with a URI (from active editor or command palette)
           if (arg instanceof vscode.Uri || (arg.scheme && typeof arg.scheme === 'string')) {
             viewDocumentUri = arg as vscode.Uri;
+            ({ namespace, kind, name } = ResourceViewDocumentProvider.parseUri(viewDocumentUri));
           } else {
-            // Case 2: Invoked from a tree item/resource data
-            resourceObject = arg.raw || arg.rawResource || arg.resource?.raw;
-            if (!resourceObject) {
-              throw new Error('No resource data found');
-            }
-            namespace = resourceObject.metadata?.namespace || arg.namespace || 'default';
-            kind = resourceObject.kind || arg.kind || arg.resourceType || 'Resource';
-            name = resourceObject.metadata?.name || arg.name || arg.label || 'unknown';
+            // Case 2: Invoked from a tree item or resource data
+            const raw = arg.raw || arg.rawResource || arg.resource?.raw;
+            namespace = raw?.metadata?.namespace || arg.namespace || 'default';
+            kind = raw?.kind || arg.kind || arg.resourceType || 'Resource';
+            name = raw?.metadata?.name || arg.name || arg.label || 'unknown';
+            apiVersion = raw?.apiVersion;
 
-            viewDocumentUri = ResourceViewDocumentProvider.createUri(namespace, kind, name);
-            const yamlText = yaml.dump(resourceObject, { indent: 2 });
-            resourceViewProvider.setResourceContent(viewDocumentUri, yamlText);
+            viewDocumentUri = ResourceViewDocumentProvider.createUri(
+              namespace,
+              kind,
+              name,
+              isEdaResource(arg, raw?.apiVersion) ? 'eda' : 'k8s'
+            );
           }
         }
 
@@ -79,47 +95,124 @@ export function registerResourceEditCommands(
         }
 
         ({ namespace, kind, name } = ResourceViewDocumentProvider.parseUri(viewDocumentUri));
+        if (!apiVersion) {
+          try {
+            const doc = await vscode.workspace.openTextDocument(viewDocumentUri);
+            const obj = yaml.load(doc.getText()) as any;
+            if (obj && typeof obj === 'object' && typeof obj.apiVersion === 'string') {
+              apiVersion = obj.apiVersion;
+            }
+          } catch {
+            // ignore parse errors
+          }
+        }
         const resourceKey = getResourceKey(namespace, kind, name);
 
         // 3) Check if we already have an edit URI for this resource
         let editUri: vscode.Uri;
         let pair = resourcePairs.get(resourceKey);
 
+        let edaOrigin: boolean | undefined;
+
+        const originFromUri = ResourceViewDocumentProvider.getOrigin(viewDocumentUri);
+        log(`switchToEditResource: origin from URI=${originFromUri}`, LogLevel.DEBUG);
+        if (originFromUri) {
+          edaOrigin = originFromUri === 'eda';
+        } else {
+          const originStored = getResourceOrigin(namespace, kind, name);
+          log(`switchToEditResource: origin from store=${originStored}`, LogLevel.DEBUG);
+          edaOrigin = originStored;
+          if (edaOrigin === undefined) {
+            edaOrigin = getViewIsEda(viewDocumentUri);
+            log(`switchToEditResource: origin from view flag=${edaOrigin}`, LogLevel.DEBUG);
+          }
+        }
+
+        if (edaOrigin === undefined && apiVersion) {
+          edaOrigin = apiVersion.includes('.eda.nokia.com');
+          log(`switchToEditResource: origin guessed from apiVersion=${edaOrigin}`, LogLevel.DEBUG);
+        }
+
+        edaOrigin = edaOrigin ?? false;
+        if (arg && !edaOrigin) {
+          const raw = arg.raw || arg.rawResource || arg.resource?.raw;
+          edaOrigin = isEdaResource(arg, raw?.apiVersion);
+          setResourceOrigin(namespace, kind, name, edaOrigin);
+        }
+
+        // Always fetch the latest YAML when entering edit mode
+        let yamlText: string;
+        if (edaOrigin) {
+          yamlText = await edaClient.getEdaResourceYaml(
+            kind,
+            name,
+            namespace,
+            apiVersion
+          );
+        } else {
+          const k8s = serviceManager.getClient<KubernetesClient>('kubernetes');
+          yamlText = await k8s.getResourceYaml(kind, name, namespace);
+        }
+
+        try {
+          resourceObject = yaml.load(yamlText);
+        } catch (parseErr) {
+          throw new Error(`Invalid YAML fetched from cluster: ${parseErr}`);
+        }
+
+        setViewIsEda(viewDocumentUri, edaOrigin);
+        setResourceOrigin(namespace, kind, name, edaOrigin);
+        log(`switchToEditResource: final origin=${edaOrigin ? 'eda' : 'k8s'}`, LogLevel.DEBUG);
+
+        if (resourceObject && typeof resourceObject === 'object') {
+          delete (resourceObject as any).status;
+        }
+
+        const sanitizedForEdit = sanitizeResourceForEdit(resourceObject);
+        const sanitizedYaml = yaml.dump(sanitizedForEdit, { indent: 2 });
+
         if (pair) {
-          // We already have both URIs, just use the existing edit URI
+          // Reuse existing edit URI but refresh content from current view
           editUri = pair.editUri;
           log(`Using existing edit URI for ${resourceKey}`, LogLevel.DEBUG);
+          pair.isEdaResource = edaOrigin;
+          pair.originalResource = resourceObject;
+          pair.viewUri = viewDocumentUri; // update view URI to the latest
         } else {
           // Create a new edit URI and track the pair
-          editUri = ResourceEditDocumentProvider.createUri(namespace, kind, name);
-
-          let readOnlyYaml: string;
-          if (!resourceObject) {
-            const readOnlyDoc = await vscode.workspace.openTextDocument(viewDocumentUri);
-            readOnlyYaml = readOnlyDoc.getText();
-            try {
-              resourceObject = yaml.load(readOnlyYaml);
-            } catch (parseErr) {
-              throw new Error(`Invalid YAML in read-only view: ${parseErr}`);
-            }
-          }
-
-          if (resourceObject && typeof resourceObject === 'object') {
-            delete (resourceObject as any).status;
-          }
-
-          const sanitizedYaml = yaml.dump(resourceObject, { indent: 2 });
-
-          // Store the resource in your editable file system provider
-          resourceEditProvider.setOriginalResource(editUri, resourceObject);
-          resourceEditProvider.setResourceContent(editUri, sanitizedYaml);
-
-          // Store the pair for future switches
+          editUri = ResourceEditDocumentProvider.createUri(
+            namespace,
+            kind,
+            name,
+            edaOrigin ? 'eda' : 'k8s'
+          );
           resourcePairs.set(resourceKey, {
             viewUri: viewDocumentUri,
             editUri: editUri,
-            originalResource: resourceObject
+            originalResource: resourceObject,
+            isEdaResource: edaOrigin
           });
+        }
+
+        // Store the resource in your editable file system provider (overwrite existing)
+        resourceEditProvider.setOriginalResource(editUri, sanitizedForEdit);
+        resourceEditProvider.setResourceContent(editUri, sanitizedYaml);
+
+        // If the edit document is already open, refresh its contents
+        const existingDoc = vscode.workspace.textDocuments.find(doc =>
+          doc.uri.toString() === editUri.toString()
+        );
+        if (existingDoc) {
+          const fullRange = new vscode.Range(
+            existingDoc.positionAt(0),
+            existingDoc.positionAt(existingDoc.getText().length)
+          );
+          const edit = new vscode.WorkspaceEdit();
+          edit.replace(editUri, fullRange, sanitizedYaml);
+          await vscode.workspace.applyEdit(edit);
+          suppressSavePrompt = true;
+          await existingDoc.save();
+          suppressSavePrompt = false;
         }
 
         // 4) Open the edit document WITHOUT closing the view document
@@ -284,6 +377,12 @@ export function registerResourceEditCommands(
           return;
         }
 
+        const resourceKey = getResourceKey(
+          resource.metadata?.namespace || 'default',
+          resource.kind,
+          resource.metadata?.name
+        );
+
         // Get the original resource. If it's missing (e.g. document was reopened),
         // fall back to the cached pair or reconstruct it from the current YAML.
         let originalResource = resourceEditProvider.getOriginalResource(documentUri);
@@ -300,7 +399,10 @@ export function registerResourceEditCommands(
             }
           }
           if (originalResource) {
-            resourceEditProvider.setOriginalResource(documentUri, originalResource);
+            resourceEditProvider.setOriginalResource(
+              documentUri,
+              sanitizeResourceForEdit(originalResource)
+            );
             if (pair) {
               pair.originalResource = originalResource;
             }
@@ -311,7 +413,11 @@ export function registerResourceEditCommands(
         }
 
         // Validate the resource
-        const validationResult = validateResource(resource, originalResource);
+        const validationResult = validateResource(
+          resource,
+          originalResource,
+          resourceEditProvider.isNewResource(documentUri)
+        );
         if (!validationResult.valid) {
           vscode.window.showErrorMessage(`Validation error: ${validationResult.message}`);
           return;
@@ -331,26 +437,18 @@ export function registerResourceEditCommands(
           if (options.dryRun) {
             return await validateAndPromptForApply(edaClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
           } else {
-            // Direct apply - still show diff first
-            const shouldContinue = await showResourceDiff(resourceEditProvider, documentUri);
-            if (!shouldContinue) {
-              return;
-            }
-
-            // Confirm and apply
-            const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
+            // Direct apply - show diff and confirm in one step
+            const confirmed = await showResourceDiff(resourceEditProvider, documentUri, { confirmActionLabel: 'Apply' });
             if (confirmed) {
-                const result = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
+              const result = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
               if (result) {
                 // Update both providers with the applied resource
-                resourceEditProvider.setOriginalResource(documentUri, resource);
+                resourceEditProvider.setOriginalResource(
+                  documentUri,
+                  sanitizeResourceForEdit(resource)
+                );
 
                 // Update the view document if we have a pair
-                const resourceKey = getResourceKey(
-                  resource.metadata.namespace || 'default',
-                  resource.kind,
-                  resource.metadata.name
-                );
                 const pair = resourcePairs.get(resourceKey);
                 if (pair) {
                   // Update the view URI's content
@@ -371,8 +469,21 @@ export function registerResourceEditCommands(
           }
         }
 
+        const pairForPrompt = resourcePairs.get(resourceKey);
+        const originPrompt = ResourceEditDocumentProvider.getOrigin(documentUri);
+        let isEda = pairForPrompt?.isEdaResource;
+        if (isEda === undefined) {
+          if (originPrompt) {
+            isEda = originPrompt === 'eda';
+          } else {
+            const { namespace, kind, name } = ResourceEditDocumentProvider.parseUri(documentUri);
+            const originStored = getResourceOrigin(namespace, kind, name);
+            isEda = originStored ?? isEdaResource(undefined, resource.apiVersion);
+          }
+        }
+
         // Present options to the user
-        const action = await promptForApplyAction(resource);
+        const action = await promptForApplyAction(resource, isEda);
 
         if (!action) {
           return; // User cancelled
@@ -386,7 +497,7 @@ export function registerResourceEditCommands(
           }
 
           // After showing diff, ask if user wants to validate or direct apply
-          const nextAction = await promptForNextAction(resource, 'diff');
+          const nextAction = await promptForNextAction(resource, 'diff', isEda);
           if (!nextAction) {
             return; // User cancelled
           }
@@ -401,14 +512,12 @@ export function registerResourceEditCommands(
             const result = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
               if (result) {
                 // Update both providers
-                resourceEditProvider.setOriginalResource(documentUri, resource);
+                resourceEditProvider.setOriginalResource(
+                  documentUri,
+                  sanitizeResourceForEdit(resource)
+                );
 
                 // Update the view document if we have a pair
-                const resourceKey = getResourceKey(
-                  resource.metadata.namespace || 'default',
-                  resource.kind,
-                  resource.metadata.name
-                );
                 const pair = resourcePairs.get(resourceKey);
                 if (pair) {
                   const updatedYaml = yaml.dump(resource, { indent: 2 });
@@ -431,26 +540,18 @@ export function registerResourceEditCommands(
           // Validate and then ask for apply
           return await validateAndPromptForApply(edaClient, resourceEditProvider, resourceViewProvider, documentUri, resource);
         } else {
-          // Direct apply - still show diff first as a safeguard
-          const shouldContinue = await showResourceDiff(resourceEditProvider, documentUri);
-          if (!shouldContinue) {
-            return;
-          }
-
-          // Confirm and apply
-          const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
+          // Direct apply - show diff and confirm in one step
+          const confirmed = await showResourceDiff(resourceEditProvider, documentUri, { confirmActionLabel: 'Apply' });
           if (confirmed) {
             const result = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
             if (result) {
               // Update both providers
-              resourceEditProvider.setOriginalResource(documentUri, resource);
+              resourceEditProvider.setOriginalResource(
+                documentUri,
+                sanitizeResourceForEdit(resource)
+              );
 
               // Update the view document if we have a pair
-              const resourceKey = getResourceKey(
-                resource.metadata.namespace || 'default',
-                resource.kind,
-                resource.metadata.name
-              );
               const pair = resourcePairs.get(resourceKey);
               if (pair) {
                 const updatedYaml = yaml.dump(resource, { indent: 2 });
@@ -496,7 +597,7 @@ export function registerResourceEditCommands(
 
   // Add a save handler to intercept standard save
   const onWillSaveTextDocument = vscode.workspace.onWillSaveTextDocument(event => {
-    if (event.document.uri.scheme === 'k8s') {
+    if (event.document.uri.scheme === 'k8s' && !suppressSavePrompt) {
       // This prevents the default save operation
       event.waitUntil(Promise.resolve([]));
 
@@ -555,16 +656,18 @@ export function registerResourceEditCommands(
 }
 
 // Prompt user for what action they want to take with the resource
-async function promptForApplyAction(resource: any): Promise<string | undefined> {
+async function promptForApplyAction(resource: any, isEda: boolean): Promise<string | undefined> {
   const kind = resource.kind;
   const name = resource.metadata?.name;
 
   const choices: ActionQuickPickItem[] = [
     { label: '👁 View Changes (Diff)', id: 'diff', description: 'Compare changes before proceeding' },
     { label: '✓ Validate (Dry Run)', id: 'validate', description: 'Check if changes are valid without applying' },
-    { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' },
-    { label: '🧺 Add to Basket', id: 'basket', description: 'Save changes to the transaction basket' }
+    { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' }
   ];
+  if (isEda) {
+    choices.push({ label: '🧺 Add to Basket', id: 'basket', description: 'Save changes to the transaction basket' });
+  }
 
   const chosen = await vscode.window.showQuickPick(choices, {
     placeHolder: `Choose an action for ${kind} "${name}"`,
@@ -575,7 +678,7 @@ async function promptForApplyAction(resource: any): Promise<string | undefined> 
 }
 
 // Prompt for next action after diff
-async function promptForNextAction(resource: any, currentStep: string): Promise<string | undefined> {
+async function promptForNextAction(resource: any, currentStep: string, isEda: boolean): Promise<string | undefined> {
   const kind = resource.kind;
   const name = resource.metadata?.name;
 
@@ -583,14 +686,18 @@ async function promptForNextAction(resource: any, currentStep: string): Promise<
   if (currentStep === 'diff') {
     choices = [
       { label: '✓ Validate (Dry Run)', id: 'validate', description: 'Check if changes are valid without applying' },
-      { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' },
-      { label: '🧺 Add to Basket', id: 'basket', description: 'Save changes to the transaction basket' }
+      { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' }
     ];
+    if (isEda) {
+      choices.push({ label: '🧺 Add to Basket', id: 'basket', description: 'Save changes to the transaction basket' });
+    }
   } else if (currentStep === 'validate') {
     choices = [
-      { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' },
-      { label: '🧺 Add to Basket', id: 'basket', description: 'Save changes to the transaction basket' }
+      { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' }
     ];
+    if (isEda) {
+      choices.push({ label: '🧺 Add to Basket', id: 'basket', description: 'Save changes to the transaction basket' });
+    }
   }
 
   const chosen = await vscode.window.showQuickPick(choices, {
@@ -635,7 +742,10 @@ async function validateAndPromptForApply(
       // Now apply the changes
       const applyResult = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
       if (applyResult) {
-        resourceEditProvider.setOriginalResource(documentUri, resource);
+        resourceEditProvider.setOriginalResource(
+          documentUri,
+          sanitizeResourceForEdit(resource)
+        );
 
         // Update the view document if we have a pair
         const resourceKey = getResourceKey(
@@ -669,7 +779,11 @@ interface ValidationResult {
   message?: string;
 }
 
-function validateResource(resource: any, originalResource: any): ValidationResult {
+function validateResource(
+  resource: any,
+  originalResource: any,
+  isNew: boolean = false
+): ValidationResult {
   // Check for required fields
   if (!resource) {
     return { valid: false, message: 'Resource is empty or invalid' };
@@ -695,7 +809,7 @@ function validateResource(resource: any, originalResource: any): ValidationResul
     };
   }
 
-  if (resource.metadata.name !== originalResource.metadata.name) {
+  if (!isNew && resource.metadata.name !== originalResource.metadata.name) {
     return {
       valid: false,
       message: `Cannot change resource name from "${originalResource.metadata.name}" to "${resource.metadata.name}"`
@@ -703,8 +817,11 @@ function validateResource(resource: any, originalResource: any): ValidationResul
   }
 
   // Check that the namespace matches (if present)
-  if (originalResource.metadata.namespace &&
-      resource.metadata.namespace !== originalResource.metadata.namespace) {
+  if (
+    !isNew &&
+    originalResource.metadata.namespace &&
+    resource.metadata.namespace !== originalResource.metadata.namespace
+  ) {
     return {
       valid: false,
       message: `Cannot change resource namespace from "${originalResource.metadata.namespace}" to "${resource.metadata.namespace}"`
@@ -717,7 +834,8 @@ function validateResource(resource: any, originalResource: any): ValidationResul
 // Show a unified diff view of the changes
 async function showResourceDiff(
   resourceProvider: ResourceEditDocumentProvider,
-  documentUri: vscode.Uri
+  documentUri: vscode.Uri,
+  options: { confirmActionLabel?: string } = {}
 ): Promise<boolean> {
   try {
     // Get the original resource
@@ -780,15 +898,20 @@ async function showResourceDiff(
       diffProvider.dispose();
     }, 5000);
 
+    const confirmLabel = options.confirmActionLabel ?? 'Continue';
+    const promptMessage = confirmLabel === 'Continue'
+      ? 'Continue with the operation?'
+      : 'Apply changes to the resource?';
+
     // Show a message with action buttons - no information message, just buttons
     const action = await vscode.window.showWarningMessage(
-      'Continue with the operation?',
-      'Continue',
+      promptMessage,
+      confirmLabel,
       'Cancel'
     );
 
     // Return whether the user wants to proceed
-    return action === 'Continue';
+    return action === confirmLabel;
 
   } catch (error) {
     vscode.window.showErrorMessage(`Error showing diff: ${error}`);
@@ -831,11 +954,23 @@ async function applyResource(
     log(`${isDryRun ? 'Validating' : 'Applying'} resource ${resource.kind}/${resource.metadata.name}...`, LogLevel.INFO, true);
 
     // Determine if this is an EDA resource
-    const isEdaResource = resource.apiVersion?.includes('.eda.nokia.com');
+    const pair = resourcePairs.get(resourceKey);
+    const origin = ResourceEditDocumentProvider.getOrigin(documentUri);
+    let isEda = pair?.isEdaResource;
+    if (isEda === undefined) {
+      if (origin) {
+        isEda = origin === 'eda';
+      } else {
+        const { namespace, kind, name } = ResourceEditDocumentProvider.parseUri(documentUri);
+        const originStored = getResourceOrigin(namespace, kind, name);
+        isEda = originStored ?? isEdaResource(undefined, resource.apiVersion);
+      }
+    }
     const isNew = resourceEditProvider.isNewResource(documentUri);
     let result: string;
+    let appliedResource: any = resource;
 
-    if (isEdaResource) {
+    if (isEda) {
       const tx = {
         crs: [
           {
@@ -846,6 +981,8 @@ async function applyResource(
         ],
         description: `vscode apply ${resource.kind}/${resource.metadata.name}`,
         dryRun: isDryRun,
+        retain: true,
+        resultType: 'normal'
       };
 
       const txId = await edaClient.runTransaction(tx);
@@ -856,7 +993,10 @@ async function applyResource(
       );
 
       if (!isDryRun) {
-        resourceEditProvider.setOriginalResource(documentUri, resource);
+        resourceEditProvider.setOriginalResource(
+          documentUri,
+          sanitizeResourceForEdit(resource)
+        );
         if (isNew) {
           resourceEditProvider.clearNewResource(documentUri);
         }
@@ -864,7 +1004,30 @@ async function applyResource(
 
       result = '';
     } else {
-      // Validation or update logic removed
+      const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
+      if (!isNew && pair?.originalResource?.metadata?.resourceVersion) {
+        resource.metadata.resourceVersion =
+          pair.originalResource.metadata.resourceVersion;
+      }
+      const updated = await k8sClient.applyResource(resource, {
+        dryRun: isDryRun,
+        isNew
+      });
+
+      if (!isDryRun) {
+        const sanitized = sanitizeResource(updated ?? resource);
+        resourceEditProvider.setOriginalResource(
+          documentUri,
+          sanitizeResourceForEdit(updated ?? resource)
+        );
+        if (isNew) {
+          resourceEditProvider.clearNewResource(documentUri);
+        }
+        if (pair) {
+          pair.originalResource = sanitized;
+        }
+        appliedResource = sanitized;
+      }
       result = '';
     }
 
@@ -882,8 +1045,8 @@ async function applyResource(
 
       // Update the resource pair with the newest resource
       const pair = resourcePairs.get(resourceKey);
-      if (pair) {
-        pair.originalResource = resource;
+      if (pair && appliedResource) {
+        pair.originalResource = appliedResource;
       }
     }
 
@@ -921,6 +1084,23 @@ async function addResourceToBasket(
   resourceEditProvider: ResourceEditDocumentProvider,
   resource: any
 ): Promise<void> {
+  const { namespace, kind, name } = ResourceEditDocumentProvider.parseUri(documentUri);
+  const pair = resourcePairs.get(getResourceKey(namespace, kind, name));
+  const origin = ResourceEditDocumentProvider.getOrigin(documentUri);
+  let isEda = pair?.isEdaResource;
+  if (isEda === undefined) {
+    if (origin) {
+      isEda = origin === 'eda';
+    } else {
+      const originStored = getResourceOrigin(namespace, kind, name);
+      isEda = originStored ?? isEdaResource(undefined, resource.apiVersion);
+    }
+  }
+  if (!isEda) {
+    vscode.window.showErrorMessage('Adding to basket is only supported for EDA resources');
+    return;
+  }
+
   const isNew = resourceEditProvider.isNewResource(documentUri);
   const tx = {
     crs: [

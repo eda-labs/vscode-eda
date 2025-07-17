@@ -76,7 +76,9 @@ async function handleYaml(uri: vscode.Uri | undefined, dryRun = false, addToBask
         { type: { replace: { value: resource } } }
       ],
       description: `vscode apply ${resource.kind}/${resource.metadata?.name}${dryRun ? ' (dry run)' : ''}`,
-      dryRun
+      dryRun,
+      retain: true,
+      resultType: 'normal'
     };
 
     const id = await edaClient.runTransaction(tx);

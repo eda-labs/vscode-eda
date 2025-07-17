@@ -6,7 +6,7 @@
   "description": "Manage and monitor Nokia EDA (Event Driven Automation) resources via the EDA API",
   "author": "EDA Labs",
   "homepage": "https://docs.eda.dev/",
-  "version": "0.4.0",
+  "version": "0.4.2",
   "engines": {
     "vscode": "^1.100.0"
   },
@@ -41,7 +41,7 @@
     "onCommand:vscode-eda.applyYamlFile",
     "onCommand:vscode-eda.applyYamlFile.dryRun",
     "onCommand:vscode-eda.addYamlToBasket",
-    "onCommand:vscode-eda.openCrdBrowser"
+    "onCommand:vscode-eda.openResourceBrowser"
   ],
   "main": "./dist/extension",
   "contributes": {
@@ -161,8 +161,8 @@
         "icon": "$(inbox)"
       },
       {
-        "command": "vscode-eda.openCrdBrowser",
-        "title": "EDA: Open CRD Browser",
+        "command": "vscode-eda.openResourceBrowser",
+        "title": "EDA: Open Resource Browser",
         "icon": "$(list-tree)"
       },
       {
@@ -327,8 +327,7 @@
         {
           "command": "vscode-eda.applyYamlFile",
           "when": "editorLangId == yaml"
-        }
-        ,
+        },
         {
           "command": "vscode-eda.applyYamlFile.dryRun",
           "when": "editorLangId == yaml"
@@ -477,6 +476,11 @@
           "group": "inline"
         },
         {
+          "command": "vscode-eda.switchToEditResource",
+          "when": "viewItem == toponode",
+          "group": "inline"
+        },
+        {
           "command": "vscode-eda.viewNodeConfig",
           "when": "viewItem == toponode",
           "group": "navigation"
@@ -599,7 +603,7 @@
           "group": "navigation@2"
         },
         {
-          "command": "vscode-eda.openCrdBrowser",
+          "command": "vscode-eda.openResourceBrowser",
           "when": "edaYamlDocument",
           "group": "navigation@3"
         },
@@ -635,7 +639,7 @@
           "title": "Add to EDA's transaction"
         },
         {
-          "command": "vscode-eda.openCrdBrowser"
+          "command": "vscode-eda.openResourceBrowser"
         }
       ]
     },
@@ -735,7 +739,7 @@
     "test": "mocha -r ts-node/register -r ./test/setup.ts test/**/*.test.ts",
     "stream:namespaces": "ts-node namespace-stream.ts",
     "compile-webpack": "npm run check-types && webpack --mode production",
-    "build:tailwind": "tailwindcss --content './src/panels/**/*.{ts,html}' --content './src/styles/**/*.{css,ts}' -o ./resources/tailwind.css"
+    "build:tailwind": "tailwindcss --content './src/webviews/**/*.{ts,html}' --content './src/styles/**/*.{css,ts}' -o ./resources/tailwind.css"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.1.11",
@@ -779,6 +783,10 @@
     "ws": "^8.18.2"
   },
   "dependencies": {
-    "echarts": "^5.6.0"
+    "cytoscape": "^3.32.0",
+    "cytoscape-popper": "^4.0.1",
+    "cytoscape-svg": "^0.4.0",
+    "echarts": "^5.6.0",
+    "tippy.js": "^6.3.7"
   }
 }

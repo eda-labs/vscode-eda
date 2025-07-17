@@ -4,7 +4,7 @@
     "target": "es6",
     "outDir": "out",
     "moduleResolution": "node",
-    "lib": ["es6"],
+    "lib": ["es6", "dom"],
     "sourceMap": true,
     "rootDir": ".",
     "alwaysStrict": true,
@@ -19,5 +19,5 @@
     "esModuleInterop": true,
     "skipLibCheck": true
   },
-  "exclude": ["node_modules", ".vscode-test", "docs", "vscode-kubernetes-tools", "javascript" ,"spec_example"]
+  "exclude": ["node_modules", ".vscode-test", "docs", "vscode-kubernetes-tools", "javascript" ,"spec_example", "topoViewerEditor"]
 }

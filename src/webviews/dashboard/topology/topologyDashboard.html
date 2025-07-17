@@ -1,0 +1,41 @@
+<div class="dashboard">
+  <header class="header">
+    <button id="exportSvgBtn" class="toggle-btn">Export SVG</button>
+    <select id="labelModeSelect" class="select label-select">
+      <option value="hide">Hide Labels</option>
+      <option value="show">Show Labels</option>
+      <option value="select" selected>Show Link Labels on Select</option>
+    </select>
+    <select id="namespaceSelect" class="select"></select>
+  </header>
+  <div class="body">
+    <div id="cy" class="cy"></div>
+    <div id="infoCard" class="info-card">Select a node or link</div>
+  </div>
+  <div id="exportPopup" class="popup hidden">
+    <div class="popup-content">
+      <label>
+        Background Color
+        <input id="exportBgColor" type="color" value="#ffffff" />
+      </label>
+      <label>
+        <input id="exportBgTransparent" type="checkbox" /> Transparent
+      </label>
+      <label>
+        Font Color
+        <input id="exportFontColor" type="color" />
+      </label>
+      <label>
+        Link Thickness
+        <input id="exportLinkThickness" type="number" min="0" value="1" />
+      </label>
+      <label>
+        <input id="exportIncludeLabels" type="checkbox" checked /> Include Labels
+      </label>
+      <div class="popup-buttons">
+        <button id="exportConfirmBtn" class="toggle-btn">Export</button>
+        <button id="exportCancelBtn" class="toggle-btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>

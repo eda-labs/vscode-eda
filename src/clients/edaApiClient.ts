@@ -4,6 +4,7 @@ import { LogLevel, log } from '../extension';
 import type { EdaAuthClient } from './edaAuthClient';
 import type { EdaSpecManager } from './edaSpecManager';
 import { sanitizeResource } from '../utils/yamlUtils';
+import { kindToPlural } from '../utils/pluralUtils';
 
 /**
  * Client for EDA REST API operations
@@ -131,11 +132,59 @@ export class EdaApiClient {
   /**
    * Get EDA resource YAML
    */
-  public async getEdaResourceYaml(kind: string, name: string, namespace: string): Promise<string> {
-    const plural = kind.toLowerCase() + 's';
-    const data = await this.fetchJSON<any>(
-      `/apps/core.eda.nokia.com/v1/namespaces/${namespace}/${plural}/${name}`,
-    );
+  public async getEdaResourceYaml(
+    kind: string,
+    name: string,
+    namespace: string,
+    apiVersion?: string
+  ): Promise<string> {
+    const plural = kindToPlural(kind);
+    let group = 'core.eda.nokia.com';
+    let version = 'v1';
+    if (apiVersion && apiVersion.includes('/')) {
+      const parts = apiVersion.split('/');
+      group = parts[0];
+      version = parts[1];
+    }
+
+    const groupPascal = group
+      .split(/\.|-/)
+      .map(p => p.charAt(0).toUpperCase() + p.slice(1))
+      .join('');
+    const versionPascal = version.charAt(0).toUpperCase() + version.slice(1);
+    const pluralPascal = plural
+      .split(/\.|-/)
+      .map(p => p.charAt(0).toUpperCase() + p.slice(1))
+      .join('');
+
+    let path = '';
+    if (this.specManager) {
+      // First try namespaced operationId
+      const namespacedOpId = `read${groupPascal}${versionPascal}Namespace${pluralPascal}`;
+      try {
+        const template = await this.specManager.getPathByOperationId(namespacedOpId);
+        path = template
+          .replace('{namespace}', namespace)
+          .replace('{name}', name);
+      } catch {
+        // If not found, try cluster scoped operation
+        const clusterOpId = `read${groupPascal}${versionPascal}${pluralPascal}`;
+        try {
+          const template = await this.specManager.getPathByOperationId(clusterOpId);
+          path = template.replace('{name}', name);
+        } catch {
+          // fall back to manual path below
+        }
+      }
+    }
+
+    if (!path) {
+      // Default to namespaced path, but allow for cluster scoped resources
+      const nsPart = namespace ? `/namespaces/${namespace}` : '';
+      path = `/apps/${group}/${version}${nsPart}/${plural}/${name}`;
+    }
+
+    const data = await this.fetchJSON<any>(path);
     const sanitized = sanitizeResource(data);
     return yaml.dump(sanitized, { indent: 2 });
   }
@@ -320,6 +369,43 @@ export class EdaApiClient {
   }
 
   /**
+   * Fetch the diff for a resource in a transaction
+   */
+  public async getResourceDiff(
+    transactionId: string | number,
+    group: string,
+    version: string,
+    kind: string,
+    name: string,
+    namespace: string
+  ): Promise<any> {
+    if (!this.specManager) {
+      throw new Error('Spec manager not initialized');
+    }
+    const template = await this.specManager.getPathByOperationId('transGetResourceDiff');
+    const path = template.replace('{transactionId}', String(transactionId));
+    const params = new URLSearchParams({ group, version, kind, name, namespace });
+    return this.fetchJSON<any>(`${path}?${params.toString()}`);
+  }
+
+  /**
+   * Fetch the diff for a node configuration in a transaction
+   */
+  public async getNodeConfigDiff(
+    transactionId: string | number,
+    node: string,
+    namespace: string
+  ): Promise<any> {
+    if (!this.specManager) {
+      throw new Error('Spec manager not initialized');
+    }
+    const template = await this.specManager.getPathByOperationId('transGetNodeConfigDiff');
+    const path = template.replace('{transactionId}', String(transactionId));
+    const params = new URLSearchParams({ node, namespace });
+    return this.fetchJSON<any>(`${path}?${params.toString()}`);
+  }
+
+  /**
    * Retrieve a file from the user storage API
    */
   public async getUserStorageFile(path: string): Promise<string | undefined> {
@@ -405,8 +491,50 @@ export class EdaApiClient {
    * List Interfaces in a namespace
    */
   public async listInterfaces(namespace: string): Promise<any[]> {
-    const path = `/apps/interfaces.eda.nokia.com/v1alpha1/namespaces/${namespace}/interfaces`;
+    let path = '';
+    if (this.specManager) {
+      try {
+        const template = await this.specManager.getPathByOperationId(
+          'listInterfacesEdaNokiaComV1alpha1NamespaceInterfaces'
+        );
+        path = template.replace('{namespace}', namespace);
+      } catch {
+        // fallback to manual path below
+      }
+    }
+    if (!path) {
+      path = `/apps/interfaces.eda.nokia.com/v1alpha1/namespaces/${namespace}/interfaces`;
+    }
     const data = await this.fetchJSON<any>(path);
+    return Array.isArray(data?.items) ? data.items : [];
+  }
+
+  /**
+   * List TopoLinks in a namespace
+   */
+  public async listTopoLinks(namespace: string): Promise<any[]> {
+    if (!this.specManager) {
+      throw new Error('Spec manager not initialized');
+    }
+    const template = await this.specManager.getPathByOperationId(
+      'listCoreEdaNokiaComV1NamespaceTopolinks'
+    );
+    const path = template.replace('{namespace}', namespace);
+    const data = await this.fetchJSON<any>(path);
+    return Array.isArray(data?.items) ? data.items : [];
+  }
+
+  /**
+   * List TopologyGroupings
+   */
+  public async listTopologyGroupings(): Promise<any[]> {
+    if (!this.specManager) {
+      throw new Error('Spec manager not initialized');
+    }
+    const template = await this.specManager.getPathByOperationId(
+      'listTopologiesEdaNokiaComV1alpha1Topologygroupings'
+    );
+    const data = await this.fetchJSON<any>(template);
     return Array.isArray(data?.items) ? data.items : [];
   }
 

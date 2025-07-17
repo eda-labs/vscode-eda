@@ -1,0 +1,190 @@
+:root {
+  --bg-primary: var(--vscode-editor-background);
+  --bg-secondary: var(--vscode-panel-background);
+  --border: var(--vscode-panel-border);
+  --text-primary: var(--vscode-editor-foreground);
+  --text-secondary: var(--vscode-descriptionForeground);
+  --accent: var(--vscode-button-background);
+  --accent-hover: var(--vscode-button-hoverBackground);
+  --edge-label-bg: var(--vscode-editor-background);
+  --edge-label-border: var(--vscode-panel-border);
+  --success: #4ade80;
+  --error: #f87171;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+.dashboard {
+  padding: 24px;
+  max-width: 1400px;
+  margin: 0 auto;
+  height: 100vh;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-bottom: 16px;
+}
+
+.select {
+  background-color: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+
+.label-select {
+  margin-right: 8px;
+}
+
+.toggle-btn {
+  margin-right: 8px;
+  padding: 4px 12px;
+  border: none;
+  background-color: var(--accent);
+  color: var(--vscode-button-foreground);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.toggle-btn:hover {
+  background-color: var(--accent-hover);
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  gap: 16px;
+}
+
+.cy {
+  flex: 4;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background-color: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.info-card {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background-color: var(--bg-secondary);
+  padding: 8px;
+  overflow: auto;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+.info-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 8px 0;
+  font-size: 14px;
+}
+
+.info-card table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.info-card td {
+  padding: 2px 4px;
+}
+
+.info-card td:first-child {
+  color: var(--text-secondary);
+}
+
+.info-card tr.section td {
+  font-weight: bold;
+  padding-top: 6px;
+}
+
+.info-card .node-link {
+  color: var(--vscode-textLink-foreground);
+  text-decoration: none;
+}
+
+.info-card .node-link:hover {
+  text-decoration: underline;
+}
+
+.node-icon,                  /* the <img> tag */
+.react-flow__node svg {      /* or inline fallback */
+  overflow: visible;
+}
+
+/* Cytoscape edge labels styling helpers */
+.cy-edge-label {
+  font-size: 10px;
+  background-color: var(--edge-label-bg);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--edge-label-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  font-weight: 500;
+}
+
+.tippy-box[data-theme~='edge-label'] {
+  background: transparent;
+  padding: 0;
+}
+
+/* Export popup */
+.popup {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.popup.hidden {
+  display: none;
+}
+
+.popup-content {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 260px;
+}
+
+.popup-content label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.popup-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}

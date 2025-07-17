@@ -9,6 +9,7 @@ export interface ResourceData {
   apiGroup?: string;
   apiVersion?: string;
   plural?: string;
+  streamGroup?: string;
   raw?: any; // Add raw resource data
 }
 
@@ -104,6 +105,8 @@ export class TreeItemBase extends vscode.TreeItem {
       resourceType: this.resourceType,
       kind: this._resourceData?.kind || this.resourceType,
       uid: this._resourceData?.uid,
+      apiVersion: this._resourceData?.raw?.apiVersion,
+      streamGroup: this.streamGroup,
       raw: this._resourceData?.raw
     };
   }

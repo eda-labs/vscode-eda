@@ -1,6 +1,8 @@
 # Exclude development directories and config
 src/**
 !src/templates/**
+!src/webviews/**/*.html
+!src/webviews/**/*.css
 test/**
 javascript/**
 vscode-kubernetes-tools/**

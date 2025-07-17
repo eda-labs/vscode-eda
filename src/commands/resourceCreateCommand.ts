@@ -1,7 +1,6 @@
 // src/commands/resourceCreateCommand.ts
 import * as vscode from 'vscode';
 import { serviceManager } from '../services/serviceManager';
-import { EdaClient } from '../clients/edaClient';
 import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
 import { SchemaProviderService } from '../services/schemaProviderService';
 import * as yaml from 'js-yaml';
@@ -47,7 +46,6 @@ export function registerResourceCreateCommand(
 ): void {
   const cmd = vscode.commands.registerCommand('vscode-eda.createResource', async () => {
     try {
-      const edaClient = serviceManager.getClient<EdaClient>('eda');
       const schemaService = serviceManager.getService<SchemaProviderService>('schema-provider');
 
       const crds = await schemaService.getCustomResourceDefinitions();
@@ -71,24 +69,7 @@ export function registerResourceCreateCommand(
         return;
       }
 
-      let namespace: string | undefined;
-      if (selected.crd.namespaced) {
-        const namespaces = edaClient.getCachedNamespaces();
-        if (namespaces.length === 0) {
-          vscode.window.showErrorMessage('No EDA namespaces available.');
-          return;
-        }
-        namespace = await vscode.window.showQuickPick(namespaces, { placeHolder: 'Select namespace' });
-        if (!namespace) {
-          return;
-        }
-      }
-
-      const name = await vscode.window.showInputBox({ placeHolder: 'Enter resource name' });
-      if (!name) {
-        return;
-      }
-
+      // No pre-filled name or namespace so the user can freely edit the manifest
       const { group, version, namespaced } = selected.crd;
 
       const schema = await schemaService.getSchemaForKind(selected.crd.kind);
@@ -99,17 +80,20 @@ export function registerResourceCreateCommand(
       const resource: any = {
         apiVersion: `${group}/${version}`,
         kind: selected.crd.kind,
-        metadata: { name },
+        metadata: {},
         spec: specSkeleton,
       };
 
+      // Provide empty placeholders for required fields
+      resource.metadata.name = '';
       if (namespaced) {
-        resource.metadata.namespace = namespace;
+        resource.metadata.namespace = '';
       }
 
       const yamlContent = yaml.dump(resource, { indent: 2 });
-      const nsSegment = namespace ?? 'cluster';
-      const uri = ResourceEditDocumentProvider.createUri(nsSegment, selected.crd.kind, name);
+      const tempId = `new-${Date.now()}`;
+      const nsSegment = namespaced ? 'new' : 'cluster';
+      const uri = ResourceEditDocumentProvider.createUri(nsSegment, selected.crd.kind, tempId);
       resourceEditProvider.setOriginalResource(uri, resource);
       resourceEditProvider.setResourceContent(uri, yamlContent);
       resourceEditProvider.setCrdInfo(uri, selected.crd);
