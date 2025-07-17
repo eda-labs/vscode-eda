@@ -169,6 +169,13 @@ export class TransactionDiffsPanel extends BasePanel {
         const beforeLines = beforeContent ? beforeContent.split('\\n') : [];
         const afterLines = afterContent ? afterContent.split('\\n') : [];
 
+        if (
+          beforeLines.length === afterLines.length &&
+          beforeLines.every((line, idx) => line === afterLines[idx])
+        ) {
+          return { beforeDiff: [], afterDiff: [] };
+        }
+
         // Simple LCS-based diff
         const lcs = computeLCS(beforeLines, afterLines);
         const beforeDiff = [];
@@ -359,6 +366,12 @@ export class TransactionDiffsPanel extends BasePanel {
         const diffData = generateDiff(beforeContent, afterContent);
         fullBeforeDiff = diffData.beforeDiff;
         fullAfterDiff = diffData.afterDiff;
+
+        const stats = computeDiffStats(fullBeforeDiff, fullAfterDiff);
+        if (stats.added === 0 && stats.removed === 0) {
+          showNoDiff();
+          return;
+        }
         const firstBefore = findFirstChange(fullBeforeDiff);
         const lastBefore = findLastChange(fullBeforeDiff);
         const firstAfter = findFirstChange(fullAfterDiff);
@@ -373,7 +386,6 @@ export class TransactionDiffsPanel extends BasePanel {
         afterEnd = beforeEnd;
 
         // Compute stats
-        const stats = computeDiffStats(fullBeforeDiff, fullAfterDiff);
         diffStatsEl.innerHTML = \`
           <span class="stat-item">
             <span class="stat-add">+\${stats.added}</span>
@@ -443,6 +455,15 @@ export class TransactionDiffsPanel extends BasePanel {
       function showEmptyState() {
         emptyStateEl.classList.add('visible');
         diffContainerEl.classList.add('hidden');
+      }
+
+      function showNoDiff() {
+        emptyStateEl.classList.add('visible');
+        diffContainerEl.classList.add('hidden');
+        emptyStateEl.innerHTML = \`
+          <span class="empty-icon">📄</span>
+          <p>No differences found</p>
+        \`;
       }
       
       vscode.postMessage({ command: 'ready' });
