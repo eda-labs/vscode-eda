@@ -19,6 +19,7 @@ interface EdgeData {
   state?: string;
   label?: string;
   raw?: any;
+  rawResource?: any;
 }
 
 export class TopologyDashboardPanel extends BasePanel {
@@ -238,6 +239,7 @@ export class TopologyDashboardPanel extends BasePanel {
                 source: `${ns}/${src}`,
                 target: `${ns}/${dst}`,
                 raw: l,
+                rawResource: link,
                 state:
                   link.status?.operationalState ??
                   link.status?.operationalstate ??
