@@ -32,6 +32,8 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
   private streamData: Map<string, Map<string, any>> = new Map();
   private k8sStreams: string[] = [];
   private disposables: vscode.Disposable[] = [];
+  /** Track expanded streams so icons persist across refreshes */
+  private expandedStreams: Set<string> = new Set();
   /** Throttled refresh timer */
   private refreshHandle?: ReturnType<typeof setTimeout>;
   private pendingSummary?: string;
@@ -217,9 +219,14 @@ constructor() {
    */
   public updateStreamExpansion(item: TreeItemBase, collapsed: boolean): void {
     if (item.contextValue === 'stream') {
-      item.iconPath = collapsed
-        ? this.collapsedStreamIcon
-        : this.expandedStreamIcon;
+      const key = `${item.namespace}/${item.streamGroup}/${item.label}`;
+      if (collapsed) {
+        this.expandedStreams.delete(key);
+        item.iconPath = this.collapsedStreamIcon;
+      } else {
+        this.expandedStreams.add(key);
+        item.iconPath = this.expandedStreamIcon;
+      }
       this._onDidChangeTreeData.fire(item);
     }
   }
@@ -572,14 +579,14 @@ constructor() {
         if (!s) {
           continue;
         }
-        const collapsible = this.expandAll
+        const key = `${namespace}/${g}/${s}`;
+        const isExpanded = this.expandAll || this.expandedStreams.has(key);
+        const collapsible = isExpanded
           ? vscode.TreeItemCollapsibleState.Expanded
           : vscode.TreeItemCollapsibleState.Collapsed;
         const ti = new TreeItemBase(s, collapsible, 'stream');
-        ti.iconPath =
-          collapsible === vscode.TreeItemCollapsibleState.Collapsed
-            ? this.collapsedStreamIcon
-            : this.expandedStreamIcon;
+        ti.id = key;
+        ti.iconPath = isExpanded ? this.expandedStreamIcon : this.collapsedStreamIcon;
         ti.namespace = namespace;
         ti.streamGroup = g;
         items.push(ti);
@@ -612,14 +619,14 @@ constructor() {
       if (this.treeFilter && !this.streamMatches(namespace, s)) {
         continue;
       }
-      const collapsible = this.expandAll
+      const key = `${namespace}/${group}/${s}`;
+      const isExpanded = this.expandAll || this.expandedStreams.has(key);
+      const collapsible = isExpanded
         ? vscode.TreeItemCollapsibleState.Expanded
         : vscode.TreeItemCollapsibleState.Collapsed;
       const ti = new TreeItemBase(s, collapsible, 'stream');
-      ti.iconPath =
-        collapsible === vscode.TreeItemCollapsibleState.Collapsed
-          ? this.collapsedStreamIcon
-          : this.expandedStreamIcon;
+      ti.id = key;
+      ti.iconPath = isExpanded ? this.expandedStreamIcon : this.collapsedStreamIcon;
       ti.namespace = namespace;
       ti.streamGroup = group;
       items.push(ti);
