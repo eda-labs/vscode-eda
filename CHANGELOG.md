@@ -1,5 +1,11 @@
 # Change Log
 
+## [0.4.2] - 2025-06-17
+- Topology View
+- TransactionView
+- New AlarmDetails
+- fixes
+
 ## [0.4.0] - 2025-06-04
 - Switched to EDA API
 - Brand new extension with many new features

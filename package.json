@@ -6,7 +6,7 @@
   "description": "Manage and monitor Nokia EDA (Event Driven Automation) resources via the EDA API",
   "author": "EDA Labs",
   "homepage": "https://docs.eda.dev/",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "engines": {
     "vscode": "^1.100.0"
   },
