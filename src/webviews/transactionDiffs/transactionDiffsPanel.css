@@ -11,10 +11,12 @@
   --warning: var(--vscode-charts-yellow);
   --error: var(--vscode-charts-red);
   --info: var(--vscode-charts-blue);
-  --diff-add: var(--vscode-charts-green);
+  --diff-add: var(--vscode-diffEditor-insertedTextBorder, var(--vscode-charts-green));
   --diff-add-bg: var(--vscode-diffEditor-insertedTextBackground);
-  --diff-remove: var(--vscode-charts-red);
+  --diff-add-line-bg: var(--vscode-diffEditor-insertedLineBackground, var(--vscode-diffEditor-insertedTextBackground));
+  --diff-remove: var(--vscode-diffEditor-removedTextBorder, var(--vscode-charts-red));
   --diff-remove-bg: var(--vscode-diffEditor-removedTextBackground);
+  --diff-remove-line-bg: var(--vscode-diffEditor-removedLineBackground, var(--vscode-diffEditor-removedTextBackground));
   --diff-line-number: var(--vscode-editorLineNumber-foreground);
 }
 
@@ -229,12 +231,12 @@ body {
 }
 
 .pane-badge.add {
-  background: var(--diff-add-bg);
+  background: var(--diff-add-line-bg);
   color: var(--diff-add);
 }
 
 .pane-badge.delete {
-  background: var(--diff-remove-bg);
+  background: var(--diff-remove-line-bg);
   color: var(--diff-remove);
 }
 
@@ -285,7 +287,8 @@ body {
 }
 
 .diff-line.added {
-  background: var(--diff-add-bg);
+  background: var(--diff-add-line-bg);
+  border-left: 2px solid var(--diff-add);
 }
 
 .diff-line.added .line-content::before {
@@ -297,7 +300,8 @@ body {
 }
 
 .diff-line.removed {
-  background: var(--diff-remove-bg);
+  background: var(--diff-remove-line-bg);
+  border-left: 2px solid var(--diff-remove);
 }
 
 .diff-line.removed .line-content::before {
