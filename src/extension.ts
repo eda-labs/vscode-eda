@@ -11,7 +11,6 @@ import { TransactionBasketProvider } from './providers/views/transactionBasketPr
 import { EdaTransactionProvider } from './providers/views/transactionProvider';
 import { DashboardProvider } from './providers/views/dashboardProvider';
 import { HelpProvider } from './providers/views/helpProvider';
-import { AlarmDetailsDocumentProvider } from './providers/documents/alarmDetailsProvider';
 import { DeviationDetailsDocumentProvider } from './providers/documents/deviationDetailsProvider';
 import { BasketTransactionDocumentProvider } from './providers/documents/basketTransactionProvider';
 import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
@@ -82,7 +81,6 @@ export function parseLogLevel(value: unknown): LogLevel {
 export let edaDeviationProvider: EdaDeviationProvider;
 export let edaTransactionBasketProvider: TransactionBasketProvider;
 export let edaTransactionProvider: EdaTransactionProvider;
-export let alarmDetailsProvider: AlarmDetailsDocumentProvider;
 export let deviationDetailsProvider: DeviationDetailsDocumentProvider;
 export let basketTransactionProvider: BasketTransactionDocumentProvider;
 export let resourceViewProvider: ResourceViewDocumentProvider;
@@ -515,24 +513,20 @@ export async function activate(context: vscode.ExtensionContext) {
 
   const crdFsProvider = new CrdDefinitionFileSystemProvider();
   const basketProviderLocal = new BasketTransactionDocumentProvider();
-  const alarmDetailsProviderLocal = new AlarmDetailsDocumentProvider();
   const deviationDetailsProviderLocal = new DeviationDetailsDocumentProvider();
 
-  alarmDetailsProvider = alarmDetailsProviderLocal;
   deviationDetailsProvider = deviationDetailsProviderLocal;
   basketTransactionProvider = basketProviderLocal;
 
   context.subscriptions.push(
     vscode.workspace.registerFileSystemProvider('crd', crdFsProvider, { isCaseSensitive: true }),
     vscode.workspace.registerFileSystemProvider('basket-tx', basketProviderLocal, { isCaseSensitive: true }),
-    vscode.workspace.registerFileSystemProvider('eda-alarm', alarmDetailsProviderLocal, { isCaseSensitive: true }),
     vscode.workspace.registerFileSystemProvider('eda-deviation', deviationDetailsProviderLocal, { isCaseSensitive: true })
   );
 
   registerViewCommands(
     context,
     crdFsProvider,
-    alarmDetailsProviderLocal,
     deviationDetailsProviderLocal,
     basketProviderLocal
   );
