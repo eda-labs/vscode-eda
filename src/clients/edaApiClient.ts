@@ -4,6 +4,7 @@ import { LogLevel, log } from '../extension';
 import type { EdaAuthClient } from './edaAuthClient';
 import type { EdaSpecManager } from './edaSpecManager';
 import { sanitizeResource } from '../utils/yamlUtils';
+import { kindToPlural } from '../utils/pluralUtils';
 
 /**
  * Client for EDA REST API operations
@@ -137,7 +138,7 @@ export class EdaApiClient {
     namespace: string,
     apiVersion?: string
   ): Promise<string> {
-    const plural = kind.toLowerCase() + 's';
+    const plural = kindToPlural(kind);
     let group = 'core.eda.nokia.com';
     let version = 'v1';
     if (apiVersion && apiVersion.includes('/')) {
@@ -158,19 +159,29 @@ export class EdaApiClient {
 
     let path = '';
     if (this.specManager) {
+      // First try namespaced operationId
+      const namespacedOpId = `read${groupPascal}${versionPascal}Namespace${pluralPascal}`;
       try {
-        const opId = `read${groupPascal}${versionPascal}Namespace${pluralPascal}`;
-        const template = await this.specManager.getPathByOperationId(opId);
+        const template = await this.specManager.getPathByOperationId(namespacedOpId);
         path = template
           .replace('{namespace}', namespace)
           .replace('{name}', name);
       } catch {
-        // fall back to manual path below
+        // If not found, try cluster scoped operation
+        const clusterOpId = `read${groupPascal}${versionPascal}${pluralPascal}`;
+        try {
+          const template = await this.specManager.getPathByOperationId(clusterOpId);
+          path = template.replace('{name}', name);
+        } catch {
+          // fall back to manual path below
+        }
       }
     }
 
     if (!path) {
-      path = `/apps/${group}/${version}/namespaces/${namespace}/${plural}/${name}`;
+      // Default to namespaced path, but allow for cluster scoped resources
+      const nsPart = namespace ? `/namespaces/${namespace}` : '';
+      path = `/apps/${group}/${version}${nsPart}/${plural}/${name}`;
     }
 
     const data = await this.fetchJSON<any>(path);
