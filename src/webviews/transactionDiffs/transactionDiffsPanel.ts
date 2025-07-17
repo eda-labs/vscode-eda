@@ -18,14 +18,14 @@ interface NodeRef {
 
 export class TransactionDiffsPanel extends BasePanel {
   private transactionId: string | number;
-  private resources: ResourceRef[];
+  private diffs: ResourceRef[];
   private nodes: NodeRef[];
   private edaClient: EdaClient;
 
   constructor(
     context: vscode.ExtensionContext,
     transactionId: string | number,
-    resources: ResourceRef[],
+    diffs: ResourceRef[],
     nodes: NodeRef[]
   ) {
     super(context, 'transactionDiffs', `Transaction ${transactionId} Diffs`, undefined, {
@@ -33,15 +33,15 @@ export class TransactionDiffsPanel extends BasePanel {
       dark: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-white.svg')
     });
     this.transactionId = transactionId;
-    this.resources = resources;
+    this.diffs = diffs;
     this.nodes = nodes;
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
 
     this.panel.webview.onDidReceiveMessage(async msg => {
       if (msg.command === 'ready') {
         this.panel.webview.postMessage({
-          command: 'resources',
-          resources: this.resources,
+          command: 'diffs',
+          diffs: this.diffs,
           nodes: this.nodes
         });
       } else if (msg.command === 'loadDiff') {
@@ -93,8 +93,8 @@ export class TransactionDiffsPanel extends BasePanel {
       const diffContainerEl = document.getElementById('diffContainer');
       const filterSelect = document.getElementById('typeFilter');
 
-      let allResources = [];
-      let resources = [];
+      let allDiffs = [];
+      let diffs = [];
       let currentResource = null;
       let beforeScrollListener = null;
       let afterScrollListener = null;
@@ -110,22 +110,22 @@ export class TransactionDiffsPanel extends BasePanel {
       function applyFilter() {
         const val = filterSelect.value;
         if (val === 'all') {
-          resources = [...allResources];
+          diffs = [...allDiffs];
         } else {
-          resources = allResources.filter(r => r.type === val);
+          diffs = allDiffs.filter(r => r.type === val);
         }
         renderList();
       }
       
       window.addEventListener('message', event => {
         const msg = event.data;
-        if (msg.command === 'resources') {
-          allResources = [];
-          (msg.resources || []).forEach(r => {
-            allResources.push({ ...r, type: 'resource' });
+        if (msg.command === 'diffs') {
+          allDiffs = [];
+          (msg.diffs || []).forEach(r => {
+            allDiffs.push({ ...r, type: 'resource' });
           });
           (msg.nodes || []).forEach(n => {
-            allResources.push({ ...n, type: 'node' });
+            allDiffs.push({ ...n, type: 'node' });
           });
           applyFilter();
         } else if (msg.command === 'diff') {
@@ -137,7 +137,7 @@ export class TransactionDiffsPanel extends BasePanel {
       
       function renderList() {
         listEl.innerHTML = '';
-        resources.forEach((r, idx) => {
+        diffs.forEach((r, idx) => {
           const btn = document.createElement('button');
           btn.className = 'resource-item';
           const kind = r.type === 'node' ? 'Node Config' : r.kind;
@@ -158,8 +158,8 @@ export class TransactionDiffsPanel extends BasePanel {
           listEl.appendChild(btn);
         });
         
-        if (resources.length > 0) {
-          vscode.postMessage({ command: 'loadDiff', resource: resources[0] });
+        if (diffs.length > 0) {
+          vscode.postMessage({ command: 'loadDiff', resource: diffs[0] });
         } else {
           showEmptyState();
         }
@@ -455,7 +455,7 @@ export class TransactionDiffsPanel extends BasePanel {
     crs: any[],
     nodes: any[]
   ): void {
-    const resources: ResourceRef[] = [];
+    const diffs: ResourceRef[] = [];
     for (const cr of crs) {
       const group = cr.gvk?.group || '';
       const version = cr.gvk?.version || '';
@@ -463,7 +463,7 @@ export class TransactionDiffsPanel extends BasePanel {
       const namespace = cr.namespace || 'default';
       const names = Array.isArray(cr.names) ? cr.names : cr.name ? [cr.name] : [];
       for (const n of names) {
-        resources.push({ group, version, kind, namespace, name: n });
+        diffs.push({ group, version, kind, namespace, name: n });
       }
     }
     const nodeRefs: NodeRef[] = [];
@@ -472,6 +472,6 @@ export class TransactionDiffsPanel extends BasePanel {
         nodeRefs.push({ name: node.name, namespace: node.namespace || 'default' });
       }
     }
-    new TransactionDiffsPanel(context, transactionId, resources, nodeRefs);
+    new TransactionDiffsPanel(context, transactionId, diffs, nodeRefs);
   }
 }
