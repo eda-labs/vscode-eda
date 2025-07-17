@@ -104,6 +104,7 @@ export class TransactionDiffsPanel extends BasePanel {
       let beforeEnd = 0;
       let afterStart = 0;
       let afterEnd = 0;
+      let visibleRanges = [];
 
       filterSelect.addEventListener('change', applyFilter);
 
@@ -248,15 +249,57 @@ export class TransactionDiffsPanel extends BasePanel {
         return arr.length - 1;
       }
 
+      function computeVisibleRanges(arr) {
+        const ranges = [];
+        let current = null;
+        arr.forEach((item, idx) => {
+          if (item.type !== 'context') {
+            const start = Math.max(idx - 5, 0);
+            const end = Math.min(idx + 5, arr.length - 1);
+            if (!current) {
+              current = [start, end];
+            } else if (start <= current[1] + 1) {
+              current[1] = Math.max(current[1], end);
+            } else {
+              ranges.push(current);
+              current = [start, end];
+            }
+          }
+        });
+        if (current) {
+          ranges.push(current);
+        }
+        return ranges;
+      }
+
+      function renderDiffLinesWithGaps(diffArr, side, start, end, ranges) {
+        let html = '';
+        let idx = start;
+        for (const r of ranges) {
+          const rStart = Math.max(r[0], start);
+          const rEnd = Math.min(r[1], end);
+          if (rEnd < start || rStart > end) continue;
+          if (idx < rStart) {
+            html += \`<div class="diff-more collapsed" data-side="\${side}" data-start="\${idx}" data-end="\${rStart - 1}">Show more</div>\`;
+          }
+          html += createDiffLines(diffArr.slice(rStart, rEnd + 1));
+          idx = rEnd + 1;
+        }
+        if (idx <= end) {
+          html += \`<div class="diff-more collapsed" data-side="\${side}" data-start="\${idx}" data-end="\${end}">Show more</div>\`;
+        }
+        return html;
+      }
+
       function renderVisibleDiff() {
-        const beforeSlice = fullBeforeDiff.slice(beforeStart, beforeEnd + 1);
-        const afterSlice = fullAfterDiff.slice(afterStart, afterEnd + 1);
+        const beforeSliceHtml = renderDiffLinesWithGaps(fullBeforeDiff, 'before', beforeStart, beforeEnd, visibleRanges);
+        const afterSliceHtml = renderDiffLinesWithGaps(fullAfterDiff, 'after', afterStart, afterEnd, visibleRanges);
 
         let beforeHtml = '';
         if (beforeStart > 0) {
           beforeHtml += \`<div class="diff-more" data-side="before" data-pos="top">Show previous lines</div>\`;
         }
-        beforeHtml += createDiffLines(beforeSlice);
+        beforeHtml += beforeSliceHtml;
         if (beforeEnd < fullBeforeDiff.length - 1) {
           beforeHtml += \`<div class="diff-more" data-side="before" data-pos="bottom">Show next lines</div>\`;
         }
@@ -266,7 +309,7 @@ export class TransactionDiffsPanel extends BasePanel {
         if (afterStart > 0) {
           afterHtml += \`<div class="diff-more" data-side="after" data-pos="top">Show previous lines</div>\`;
         }
-        afterHtml += createDiffLines(afterSlice);
+        afterHtml += afterSliceHtml;
         if (afterEnd < fullAfterDiff.length - 1) {
           afterHtml += \`<div class="diff-more" data-side="after" data-pos="bottom">Show next lines</div>\`;
         }
@@ -275,14 +318,24 @@ export class TransactionDiffsPanel extends BasePanel {
         document.querySelectorAll('.diff-more').forEach(el => {
           el.addEventListener('click', () => {
             const pos = el.getAttribute('data-pos');
-            if (pos === 'top') {
-              beforeStart = 0;
-              afterStart = 0;
-            } else {
-              beforeEnd = fullBeforeDiff.length - 1;
-              afterEnd = fullAfterDiff.length - 1;
+            if (pos) {
+              if (pos === 'top') {
+                beforeStart = 0;
+                afterStart = 0;
+              } else {
+                beforeEnd = fullBeforeDiff.length - 1;
+                afterEnd = fullAfterDiff.length - 1;
+              }
+              renderVisibleDiff();
+              return;
             }
-            renderVisibleDiff();
+
+            const side = el.getAttribute('data-side');
+            const s = parseInt(el.getAttribute('data-start'), 10);
+            const e = parseInt(el.getAttribute('data-end'), 10);
+            const diffArr = side === 'before' ? fullBeforeDiff : fullAfterDiff;
+            el.insertAdjacentHTML('beforebegin', createDiffLines(diffArr.slice(s, e + 1)));
+            el.remove();
           });
         });
       }
@@ -384,6 +437,7 @@ export class TransactionDiffsPanel extends BasePanel {
         afterStart = beforeStart;
         beforeEnd = Math.min(lastChange + 5, fullBeforeDiff.length - 1);
         afterEnd = beforeEnd;
+        visibleRanges = computeVisibleRanges(fullBeforeDiff);
 
         // Compute stats
         diffStatsEl.innerHTML = \`
