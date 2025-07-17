@@ -29,6 +29,7 @@ interface TopologyEdge {
   state?: string;
   label?: string;
   raw?: unknown;
+  rawResource?: unknown;
 }
 
 interface InitMessage {
@@ -220,6 +221,7 @@ class TopologyDashboard {
         source: e.source,
         target: e.target,
         raw: e.raw,
+        rawResource: e.rawResource,
         dist: distance,
         weight: 0.5,
         pairIndex: idx  // Store the pair index for use in adjustEdgeCurves
@@ -395,6 +397,7 @@ class TopologyDashboard {
           source: e.source,
           target: e.target,
           raw: e.raw,
+          rawResource: e.rawResource,
           dist: distance,
           weight: 0.5,
           pairIndex: idx
@@ -735,10 +738,11 @@ class TopologyDashboard {
       edge.addClass('highlight');
       edge.connectedNodes().addClass('highlight');
       const raw = edge.data('raw');
+      const rawResource = edge.data('rawResource');
       const state = edge.data('state');
       const sourceState = edge.data('sourceState');
       const targetState = edge.data('targetState');
-      this.displayInfo('Link', { ...raw, state, sourceState, targetState });
+      this.displayInfo('Link', { ...raw, rawResource, state, sourceState, targetState });
       this.updateEdgeLabelVisibility();
     });
 
@@ -808,7 +812,7 @@ class TopologyDashboard {
       const targetState = data?.targetState ?? '';
       const section = (title: string) => `<tr class="section"><td colspan="2">${title}</td></tr>`;
       this.infoCard.innerHTML = `
-        <h3><span class="codicon codicon-plug"></span> ${localNode} → ${remoteNode}</h3>
+        <h3><span class="codicon codicon-plug"></span> <a href="#" class="link-resource">${localNode} → ${remoteNode}</a></h3>
         <table class="info-table">
           ${row('Type', type)}
           ${row('State', state)}
@@ -820,6 +824,17 @@ class TopologyDashboard {
           ${row('Interface', remoteIf)}
         </table>
       `;
+      const lnk = this.infoCard.querySelector('.link-resource');
+      if (lnk) {
+        lnk.addEventListener('click', evt => {
+          evt.preventDefault();
+          this.postMessage({
+            command: 'openResource',
+            raw: data.rawResource,
+            streamGroup: 'core'
+          });
+        });
+      }
     }
   }
 
