@@ -32,6 +32,9 @@ type EmbeddingDB struct {
 	invertedIndex map[string][]string // word -> list of keys containing that word
 }
 
+// Global flag to control output
+var quietMode bool = false
+
 // Global cache for loaded databases to avoid reloading
 var (
 	dbCache = make(map[string]*EmbeddingDB)
@@ -190,7 +193,9 @@ func loadDB(path string) (*EmbeddingDB, error) {
 	cacheMutex.RLock()
 	if cached, exists := dbCache[path]; exists {
 		cacheMutex.RUnlock()
-		fmt.Printf("Using in-memory cached embeddings\n")
+		if !quietMode {
+			fmt.Printf("Using in-memory cached embeddings\n")
+		}
 		return cached, nil
 	}
 	cacheMutex.RUnlock()
@@ -202,12 +207,16 @@ func loadDB(path string) (*EmbeddingDB, error) {
 	
 	// Use binary cache if it exists and is newer than JSON
 	if cacheErr == nil && jsonInfo != nil && cacheInfo.ModTime().After(jsonInfo.ModTime()) {
-		fmt.Printf("Loading from binary cache...\n")
+		if !quietMode {
+			fmt.Printf("Loading from binary cache...\n")
+		}
 		start := time.Now()
 		
 		db, err := loadBinaryCache(cachePath)
 		if err == nil {
-			fmt.Printf("Loaded binary cache in %.2f seconds\n", time.Since(start).Seconds())
+			if !quietMode {
+				fmt.Printf("Loaded binary cache in %.2f seconds\n", time.Since(start).Seconds())
+			}
 			
 			// Cache in memory
 			cacheMutex.Lock()
@@ -216,11 +225,15 @@ func loadDB(path string) (*EmbeddingDB, error) {
 			
 			return db, nil
 		}
-		fmt.Printf("Binary cache failed, falling back to JSON: %v\n", err)
+		if !quietMode {
+			fmt.Printf("Binary cache failed, falling back to JSON: %v\n", err)
+		}
 	}
 	
 	// Load from JSON file
-	fmt.Printf("Loading embeddings from %s...\n", filepath.Base(path))
+	if !quietMode {
+		fmt.Printf("Loading embeddings from %s...\n", filepath.Base(path))
+	}
 	start := time.Now()
 	
 	file, err := os.Open(path)
@@ -236,21 +249,33 @@ func loadDB(path string) (*EmbeddingDB, error) {
 	}
 	
 	jsonLoadTime := time.Since(start).Seconds()
-	fmt.Printf("JSON loaded in %.2f seconds\n", jsonLoadTime)
+	if !quietMode {
+		fmt.Printf("JSON loaded in %.2f seconds\n", jsonLoadTime)
+	}
 	
 	// Build inverted index
-	fmt.Println("Building search index...")
+	if !quietMode {
+		fmt.Println("Building search index...")
+	}
 	indexStart := time.Now()
 	db.buildInvertedIndex()
-	fmt.Printf("Index built in %.2f seconds\n", time.Since(indexStart).Seconds())
+	if !quietMode {
+		fmt.Printf("Index built in %.2f seconds\n", time.Since(indexStart).Seconds())
+	}
 	
 	// Save binary cache for next time
-	fmt.Println("Saving binary cache for faster future loads...")
+	if !quietMode {
+		fmt.Println("Saving binary cache for faster future loads...")
+	}
 	cacheStart := time.Now()
 	if err := saveBinaryCache(&db, cachePath); err != nil {
-		fmt.Printf("Warning: Failed to save binary cache: %v\n", err)
+		if !quietMode {
+			fmt.Printf("Warning: Failed to save binary cache: %v\n", err)
+		}
 	} else {
-		fmt.Printf("Binary cache saved in %.2f seconds\n", time.Since(cacheStart).Seconds())
+		if !quietMode {
+			fmt.Printf("Binary cache saved in %.2f seconds\n", time.Since(cacheStart).Seconds())
+		}
 	}
 	
 	// Cache in memory
@@ -258,8 +283,10 @@ func loadDB(path string) (*EmbeddingDB, error) {
 	dbCache[path] = &db
 	cacheMutex.Unlock()
 	
-	fmt.Printf("Total load time: %.2f seconds\n", time.Since(start).Seconds())
-	fmt.Printf("Loaded %d embeddings with %d indexed terms\n", len(db.Table), len(db.invertedIndex))
+	if !quietMode {
+		fmt.Printf("Total load time: %.2f seconds\n", time.Since(start).Seconds())
+		fmt.Printf("Loaded %d embeddings with %d indexed terms\n", len(db.Table), len(db.invertedIndex))
+	}
 	return &db, nil
 }
 
@@ -1410,11 +1437,15 @@ func downloadEmbeddings(embType EmbeddingType, embeddingsDir string) error {
 	case SRL:
 		url = "https://github.com/nokia-eda/llm-embeddings/releases/download/nokia-srl-25.3.3/llm-embeddings-srl-25-3-3.tar.gz"
 		expectedFile = "ce-llm-embed-db-srl-25.3.3.json"
-		fmt.Println("Downloading SRL embeddings from GitHub...")
+		if !quietMode {
+			fmt.Println("Downloading SRL embeddings from GitHub...")
+		}
 	case SROS:
 		url = "https://github.com/nokia-eda/llm-embeddings/releases/download/nokia-sros-v25.3.r2/llm-embeddings-sros-25-3-r2.tar.gz"
 		expectedFile = "ce-llm-embed-db-sros-25.3.r1.json"
-		fmt.Println("Downloading SROS embeddings from GitHub...")
+		if !quietMode {
+			fmt.Println("Downloading SROS embeddings from GitHub...")
+		}
 	}
 	
 	// Download the tar.gz file
@@ -1428,7 +1459,9 @@ func downloadEmbeddings(embType EmbeddingType, embeddingsDir string) error {
 		return fmt.Errorf("failed to download embeddings: HTTP %d", resp.StatusCode)
 	}
 	
-	fmt.Println("Extracting embeddings...")
+	if !quietMode {
+		fmt.Println("Extracting embeddings...")
+	}
 	
 	// Create gzip reader
 	gzipReader, err := gzip.NewReader(resp.Body)
@@ -1477,7 +1510,9 @@ func downloadEmbeddings(embType EmbeddingType, embeddingsDir string) error {
 		file.Close()
 	}
 	
-	fmt.Println("Embeddings extracted successfully!")
+	if !quietMode {
+		fmt.Println("Embeddings extracted successfully!")
+	}
 	
 	// Verify the expected file exists
 	expectedPath := filepath.Join(embeddingsDir, expectedFile)
@@ -1527,19 +1562,24 @@ func downloadAndExtractEmbeddings(query string) (string, error) {
 func main() {
 	dbPath := flag.String("db", "", "path to embedding db (auto-downloads if not specified)")
 	verbose := flag.Bool("v", false, "verbose output showing all query components")
+	jsonOutput := flag.Bool("json", false, "output results as JSON")
 	flag.Parse()
 	
 	if flag.NArg() == 0 {
-		fmt.Println("usage: embeddingsearch [-v] <query>")
+		fmt.Println("usage: embeddingsearch [-v] [-json] <query>")
 		fmt.Println("\nExamples:")
 		fmt.Println("  embeddingsearch 'show interface statistics for leaf1'")
 		fmt.Println("  embeddingsearch 'get top 5 processes by memory usage'")
 		fmt.Println("  embeddingsearch 'critical alarms from the last hour'")
 		fmt.Println("  embeddingsearch 'interface traffic on spine1 every 5 seconds'")
+		fmt.Println("  embeddingsearch -json 'show interfaces'  # Output as JSON")
 		return
 	}
 	
 	query := strings.Join(flag.Args(), " ")
+	
+	// Set quiet mode for JSON output
+	quietMode = *jsonOutput
 	
 	// Determine the database path
 	var finalDBPath string
@@ -1563,7 +1603,125 @@ func main() {
 	// Use vector search for better performance
 	results := db.vectorSearch(query)
 	if len(results) == 0 {
-		fmt.Println("No matches found")
+		if *jsonOutput {
+			fmt.Println(`{"error": "No matches found", "results": []}`)
+		} else {
+			fmt.Println("No matches found")
+		}
+		return
+	}
+	
+	if *jsonOutput {
+		// Output as JSON
+		type JSONResult struct {
+			Score    float64  `json:"score"`
+			Query    string   `json:"query"`
+			Table    string   `json:"table"`
+			Fields   []string `json:"fields,omitempty"`
+			Where    string   `json:"where,omitempty"`
+			OrderBy  []struct {
+				Field     string `json:"field"`
+				Direction string `json:"direction"`
+				Algorithm string `json:"algorithm,omitempty"`
+			} `json:"orderBy,omitempty"`
+			Limit int `json:"limit,omitempty"`
+			Delta *struct {
+				Unit  string `json:"unit"`
+				Value int    `json:"value"`
+			} `json:"delta,omitempty"`
+		}
+		
+		type JSONOutput struct {
+			TopMatch JSONResult   `json:"topMatch"`
+			Others   []JSONResult `json:"others,omitempty"`
+		}
+		
+		// Convert top match
+		top := results[0]
+		topMatch := JSONResult{
+			Score:  top.Score,
+			Query:  top.EQLQuery.String(),
+			Table:  top.EQLQuery.Table,
+			Fields: top.EQLQuery.Fields,
+			Where:  top.EQLQuery.WhereClause,
+			Limit:  top.EQLQuery.Limit,
+		}
+		
+		if len(top.EQLQuery.OrderBy) > 0 {
+			for _, ob := range top.EQLQuery.OrderBy {
+				topMatch.OrderBy = append(topMatch.OrderBy, struct {
+					Field     string `json:"field"`
+					Direction string `json:"direction"`
+					Algorithm string `json:"algorithm,omitempty"`
+				}{
+					Field:     ob.Field,
+					Direction: ob.Direction,
+					Algorithm: ob.Algorithm,
+				})
+			}
+		}
+		
+		if top.EQLQuery.Delta != nil {
+			topMatch.Delta = &struct {
+				Unit  string `json:"unit"`
+				Value int    `json:"value"`
+			}{
+				Unit:  top.EQLQuery.Delta.Unit,
+				Value: top.EQLQuery.Delta.Value,
+			}
+		}
+		
+		output := JSONOutput{TopMatch: topMatch}
+		
+		// Add other matches
+		maxOthers := 9
+		if len(results)-1 < maxOthers {
+			maxOthers = len(results) - 1
+		}
+		for i := 1; i <= maxOthers; i++ {
+			r := results[i]
+			other := JSONResult{
+				Score:  r.Score,
+				Query:  r.EQLQuery.String(),
+				Table:  r.EQLQuery.Table,
+				Fields: r.EQLQuery.Fields,
+				Where:  r.EQLQuery.WhereClause,
+				Limit:  r.EQLQuery.Limit,
+			}
+			
+			if len(r.EQLQuery.OrderBy) > 0 {
+				for _, ob := range r.EQLQuery.OrderBy {
+					other.OrderBy = append(other.OrderBy, struct {
+						Field     string `json:"field"`
+						Direction string `json:"direction"`
+						Algorithm string `json:"algorithm,omitempty"`
+					}{
+						Field:     ob.Field,
+						Direction: ob.Direction,
+						Algorithm: ob.Algorithm,
+					})
+				}
+			}
+			
+			if r.EQLQuery.Delta != nil {
+				other.Delta = &struct {
+					Unit  string `json:"unit"`
+					Value int    `json:"value"`
+				}{
+					Unit:  r.EQLQuery.Delta.Unit,
+					Value: r.EQLQuery.Delta.Value,
+				}
+			}
+			
+			output.Others = append(output.Others, other)
+		}
+		
+		jsonData, err := json.MarshalIndent(output, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to marshal JSON: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(jsonData))
 		return
 	}
 	

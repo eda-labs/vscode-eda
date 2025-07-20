@@ -2,9 +2,11 @@ import * as vscode from 'vscode';
 import { BasePanel } from '../../basePanel';
 import { serviceManager } from '../../../services/serviceManager';
 import { EdaClient } from '../../../clients/edaClient';
+import { EmbeddingSearchService } from '../../../services/embeddingSearchService';
 
 export class QueriesDashboardPanel extends BasePanel {
   private edaClient: EdaClient;
+  private embeddingSearch: EmbeddingSearchService;
   private queryStreamName?: string;
   private columns: string[] = [];
   private rows: any[][] = [];
@@ -17,6 +19,7 @@ export class QueriesDashboardPanel extends BasePanel {
     });
 
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
+    this.embeddingSearch = new EmbeddingSearchService(context);
 
     this.edaClient.onStreamMessage((stream, msg) => {
       if (stream === this.queryStreamName) {
@@ -34,10 +37,19 @@ export class QueriesDashboardPanel extends BasePanel {
       if (msg.command === 'ready') {
         await this.sendNamespaces();
       } else if (msg.command === 'runQuery') {
-        await this.startQueryStream(msg.query as string, msg.namespace as string);
+        await this.handleQuery(msg.query as string, msg.namespace as string);
       } else if (msg.command === 'autocomplete') {
-        const list = await this.edaClient.autocompleteEql(msg.query as string, 20);
-        this.panel.webview.postMessage({ command: 'autocomplete', list });
+        const query = msg.query as string;
+        // Only provide autocomplete for EQL queries (starting with .)
+        if (query.trim().startsWith('.')) {
+          const list = await this.edaClient.autocompleteEql(query, 20);
+          this.panel.webview.postMessage({ command: 'autocomplete', list });
+        } else {
+          // No autocomplete for natural language queries
+          this.panel.webview.postMessage({ command: 'autocomplete', list: [] });
+        }
+      } else if (msg.command === 'searchNaturalLanguage') {
+        await this.handleNaturalLanguageSearch(msg.query as string);
       }
     });
 
@@ -72,6 +84,55 @@ export class QueriesDashboardPanel extends BasePanel {
       namespaces,
       selected: 'All Namespaces'
     });
+  }
+
+  private async handleQuery(query: string, namespace: string): Promise<void> {
+    // Check if this is a natural language query
+    if (this.embeddingSearch.isNaturalLanguageQuery(query)) {
+      try {
+        // Convert natural language to EQL
+        const result = await this.embeddingSearch.searchNaturalLanguage(query);
+        if (result && result.topMatch) {
+          // Use the converted EQL query
+          await this.startQueryStream(result.topMatch.query, namespace);
+          // Send the converted query back to the UI
+          this.panel.webview.postMessage({
+            command: 'convertedQuery',
+            originalQuery: query,
+            eqlQuery: result.topMatch.query,
+            alternatives: result.others
+          });
+        } else {
+          this.panel.webview.postMessage({
+            command: 'error',
+            error: 'No matching queries found for your natural language input'
+          });
+        }
+      } catch (error) {
+        this.panel.webview.postMessage({
+          command: 'error',
+          error: `Failed to process natural language query: ${error}`
+        });
+      }
+    } else {
+      // Regular EQL query
+      await this.startQueryStream(query, namespace);
+    }
+  }
+
+  private async handleNaturalLanguageSearch(query: string): Promise<void> {
+    try {
+      const result = await this.embeddingSearch.searchNaturalLanguage(query);
+      this.panel.webview.postMessage({
+        command: 'naturalLanguageResults',
+        results: result
+      });
+    } catch (error) {
+      this.panel.webview.postMessage({
+        command: 'error',
+        error: `Natural language search failed: ${error}`
+      });
+    }
   }
 
   private async startQueryStream(query: string, namespace: string): Promise<void> {

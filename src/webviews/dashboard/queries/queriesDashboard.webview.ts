@@ -18,6 +18,12 @@ declare function acquireVsCodeApi(): {
   const resultsBody = document.getElementById('resultsBody') as HTMLTableSectionElement;
   const filterRow = document.getElementById('filterRow') as HTMLTableRowElement;
   const statusEl = document.getElementById('status') as HTMLElement;
+  const convertedQueryInfo = document.getElementById('convertedQueryInfo') as HTMLElement;
+  const convertedEQL = document.getElementById('convertedEQL') as HTMLElement;
+  const dismissInfo = document.getElementById('dismissInfo') as HTMLButtonElement;
+  const showAlternatives = document.getElementById('showAlternatives') as HTMLButtonElement;
+  const alternativeQueries = document.getElementById('alternativeQueries') as HTMLElement;
+  const alternativesList = document.getElementById('alternativesList') as HTMLUListElement;
 
   let allRows: any[] = [];
   let columns: string[] = [];
@@ -25,6 +31,23 @@ declare function acquireVsCodeApi(): {
   let sortIndex = -1;
   let sortAsc = true;
   let copyFormat: 'ascii' | 'markdown' | 'json' | 'yaml' = 'ascii';
+
+  dismissInfo.addEventListener('click', () => {
+    convertedQueryInfo.style.display = 'none';
+    alternativeQueries.style.display = 'none';
+    showAlternatives.classList.remove('expanded');
+  });
+
+  showAlternatives.addEventListener('click', () => {
+    const isExpanded = showAlternatives.classList.contains('expanded');
+    if (isExpanded) {
+      alternativeQueries.style.display = 'none';
+      showAlternatives.classList.remove('expanded');
+    } else {
+      alternativeQueries.style.display = 'block';
+      showAlternatives.classList.add('expanded');
+    }
+  });
 
   function insertAutocomplete(text: string): void {
     const start = queryInput.selectionStart ?? queryInput.value.length;
@@ -234,6 +257,41 @@ declare function acquireVsCodeApi(): {
       autocompleteList.style.display =
         msg.list && msg.list.length ? 'block' : 'none';
       highlightAutocomplete();
+    } else if (msg.command === 'convertedQuery') {
+      // Show the converted query info
+      convertedEQL.textContent = msg.eqlQuery;
+      convertedQueryInfo.style.display = 'block';
+      // Update the input to show the converted EQL query
+      queryInput.value = msg.eqlQuery;
+
+      // Clear and populate alternatives list
+      alternativesList.innerHTML = '';
+      if (msg.alternatives && msg.alternatives.length > 0) {
+        showAlternatives.style.display = 'flex';
+        msg.alternatives.forEach((alt: any) => {
+          const li = document.createElement('li');
+          const code = document.createElement('code');
+          code.textContent = alt.query;
+          li.appendChild(code);
+
+          const score = document.createElement('span');
+          score.className = 'score';
+          score.textContent = `Score: ${alt.score.toFixed(1)}`;
+          li.appendChild(score);
+
+          li.addEventListener('click', () => {
+            queryInput.value = alt.query;
+            convertedEQL.textContent = alt.query;
+            alternativeQueries.style.display = 'none';
+            showAlternatives.classList.remove('expanded');
+            runButton.click();
+          });
+
+          alternativesList.appendChild(li);
+        });
+      } else {
+        showAlternatives.style.display = 'none';
+      }
     }
   });
 
