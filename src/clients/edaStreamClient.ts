@@ -431,43 +431,58 @@ export class EdaStreamClient {
     };
 
     let res: any;
-    try {
-      res = await doRequest();
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') {
-        log(`[STREAM:${streamName}] request aborted`, LogLevel.DEBUG);
-      } else {
-        log(`[STREAM:${streamName}] request failed for ${url}: ${err}`, LogLevel.ERROR);
-      }
-      return;
-    }
-
-    if (!res.ok || !res.body) {
-      let text = '';
+    let attempt = 0;
+    let delay = 1000;
+    const maxRetries = 5;
+    for (;;) {
       try {
-        text = await res.text();
-      } catch {
-        /* ignore */
-      }
-      if (this.authClient.isTokenExpiredResponse(res.status, text)) {
-        log('Access token expired, refreshing...', LogLevel.INFO);
-        await this.authClient.refreshAuth();
-        try {
-          res = await doRequest();
-        } catch (err) {
-          if ((err as Error).name === 'AbortError') {
-            log(`[STREAM:${streamName}] request aborted`, LogLevel.DEBUG);
-          } else {
-            log(`[STREAM:${streamName}] request failed for ${url}: ${err}`, LogLevel.ERROR);
-          }
+        res = await doRequest();
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') {
+          log(`[STREAM:${streamName}] request aborted`, LogLevel.DEBUG);
           return;
         }
+        log(`[STREAM:${streamName}] request failed for ${url}: ${err}`, LogLevel.ERROR);
+        if (++attempt > maxRetries) return;
+        await new Promise(r => setTimeout(r, delay));
+        delay = Math.min(delay * 2, 30000);
+        continue;
       }
 
       if (!res.ok || !res.body) {
-        log(`[STREAM:${streamName}] failed ${url}: HTTP ${res.status}`, LogLevel.ERROR);
-        return;
+        let text = '';
+        try {
+          text = await res.text();
+        } catch {
+          /* ignore */
+        }
+        if (this.authClient.isTokenExpiredResponse(res.status, text)) {
+          log('Access token expired, refreshing...', LogLevel.INFO);
+          await this.authClient.refreshAuth();
+          try {
+            res = await doRequest();
+          } catch (err) {
+            if ((err as Error).name === 'AbortError') {
+              log(`[STREAM:${streamName}] request aborted`, LogLevel.DEBUG);
+              return;
+            } else {
+              log(`[STREAM:${streamName}] request failed for ${url}: ${err}`, LogLevel.ERROR);
+              if (++attempt > maxRetries) return;
+              await new Promise(r => setTimeout(r, delay));
+              delay = Math.min(delay * 2, 30000);
+              continue;
+            }
+          }
+        }
+        if (!res.ok || !res.body) {
+          log(`[STREAM:${streamName}] failed ${url}: HTTP ${res.status}`, LogLevel.ERROR);
+          if (++attempt > maxRetries) return;
+          await new Promise(r => setTimeout(r, delay));
+          delay = Math.min(delay * 2, 30000);
+          continue;
+        }
       }
+      break;
     }
     log(`[STREAM:${streamName}] connected → ${url}`, LogLevel.DEBUG);
 
