@@ -24,6 +24,7 @@ declare function acquireVsCodeApi(): {
   const showAlternatives = document.getElementById('showAlternatives') as HTMLButtonElement;
   const alternativeQueries = document.getElementById('alternativeQueries') as HTMLElement;
   const alternativesList = document.getElementById('alternativesList') as HTMLUListElement;
+  const convertedDescription = document.getElementById('convertedDescription') as HTMLElement;
 
   let allRows: any[] = [];
   let columns: string[] = [];
@@ -264,15 +265,41 @@ declare function acquireVsCodeApi(): {
       // Update the input to show the converted EQL query
       queryInput.value = msg.eqlQuery;
 
+      // Show description if available
+      if (msg.description) {
+        convertedDescription.textContent = msg.description;
+        convertedDescription.style.display = 'block';
+      } else {
+        convertedDescription.style.display = 'none';
+      }
+
       // Clear and populate alternatives list
       alternativesList.innerHTML = '';
       if (msg.alternatives && msg.alternatives.length > 0) {
         showAlternatives.style.display = 'flex';
         msg.alternatives.forEach((alt: any) => {
           const li = document.createElement('li');
+
+          // Create container for query info
+          const queryInfo = document.createElement('div');
+          queryInfo.style.flex = '1';
+
           const code = document.createElement('code');
           code.textContent = alt.query;
-          li.appendChild(code);
+          queryInfo.appendChild(code);
+
+          // Add description if available
+          if (alt.description) {
+            const desc = document.createElement('div');
+            desc.style.fontSize = '11px';
+            desc.style.color = 'var(--vscode-descriptionForeground)';
+            desc.style.marginTop = '2px';
+            desc.textContent = alt.description;
+            queryInfo.appendChild(desc);
+          }
+
+
+          li.appendChild(queryInfo);
 
           const score = document.createElement('span');
           score.className = 'score';

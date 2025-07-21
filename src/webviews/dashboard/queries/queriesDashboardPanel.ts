@@ -100,6 +100,7 @@ export class QueriesDashboardPanel extends BasePanel {
             command: 'convertedQuery',
             originalQuery: query,
             eqlQuery: result.topMatch.query,
+            description: result.topMatch.description,
             alternatives: result.others
           });
         } else {

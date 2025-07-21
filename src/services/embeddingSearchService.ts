@@ -8,6 +8,8 @@ export interface EmbeddingSearchResult {
     score: number;
     query: string;
     table: string;
+    description?: string;
+    availableFields?: string[];
     fields?: string[];
     where?: string;
     orderBy?: Array<{
@@ -25,6 +27,8 @@ export interface EmbeddingSearchResult {
     score: number;
     query: string;
     table: string;
+    description?: string;
+    availableFields?: string[];
   }>;
 }
 

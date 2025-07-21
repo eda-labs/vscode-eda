@@ -767,6 +767,8 @@ type SearchResult struct {
 	Key      string
 	Score    float64
 	EQLQuery EQLQuery
+	Description string
+	AvailableFields []string
 }
 
 // dotProduct calculates the dot product of two vectors
@@ -1009,7 +1011,7 @@ func (db *EmbeddingDB) search(query string) []SearchResult {
 		alarmPath := ".namespace.alarms.v1.alarm"
 		// Create a dummy embedding entry for alarms (not in actual embeddings)
 		alarmEntry := &EmbeddingEntry{
-			Text: `{"Fields":["severity","text","time-created","acknowledged"]}`,
+			Text: `{"Description":"Active alarms in the system","Fields":["severity","text","time-created","acknowledged"]}`,
 		}
 		eql := EQLQuery{
 			Table:       alarmPath,
@@ -1023,6 +1025,8 @@ func (db *EmbeddingDB) search(query string) []SearchResult {
 			Key:      alarmPath,
 			Score:    alarmScore,
 			EQLQuery: eql,
+			Description: "Active alarms in the system",
+			AvailableFields: []string{"severity", "text", "time-created", "acknowledged"},
 		})
 	}
 	
@@ -1109,6 +1113,19 @@ func (db *EmbeddingDB) search(query string) []SearchResult {
 		}
 		
 		entry := db.Table[cand.key]
+		
+		// Parse description and fields from entry
+		var embeddingInfo struct {
+			Description string   `json:"Description"`
+			Fields      []string `json:"Fields"`
+		}
+		description := ""
+		availableFields := []string{}
+		if err := json.Unmarshal([]byte(entry.Text), &embeddingInfo); err == nil {
+			description = embeddingInfo.Description
+			availableFields = embeddingInfo.Fields
+		}
+		
 		eql := EQLQuery{
 			Table:       cand.key,
 			Fields:      extractFields(query, cand.key, &entry),
@@ -1121,6 +1138,8 @@ func (db *EmbeddingDB) search(query string) []SearchResult {
 			Key:      cand.key,
 			Score:    cand.score,
 			EQLQuery: eql,
+			Description: description,
+			AvailableFields: availableFields,
 		})
 	}
 	
@@ -1617,6 +1636,8 @@ func main() {
 			Score    float64  `json:"score"`
 			Query    string   `json:"query"`
 			Table    string   `json:"table"`
+			Description string `json:"description,omitempty"`
+			AvailableFields []string `json:"availableFields,omitempty"`
 			Fields   []string `json:"fields,omitempty"`
 			Where    string   `json:"where,omitempty"`
 			OrderBy  []struct {
@@ -1642,6 +1663,8 @@ func main() {
 			Score:  top.Score,
 			Query:  top.EQLQuery.String(),
 			Table:  top.EQLQuery.Table,
+			Description: top.Description,
+			AvailableFields: top.AvailableFields,
 			Fields: top.EQLQuery.Fields,
 			Where:  top.EQLQuery.WhereClause,
 			Limit:  top.EQLQuery.Limit,
@@ -1684,6 +1707,8 @@ func main() {
 				Score:  r.Score,
 				Query:  r.EQLQuery.String(),
 				Table:  r.EQLQuery.Table,
+				Description: r.Description,
+				AvailableFields: r.AvailableFields,
 				Fields: r.EQLQuery.Fields,
 				Where:  r.EQLQuery.WhereClause,
 				Limit:  r.EQLQuery.Limit,
