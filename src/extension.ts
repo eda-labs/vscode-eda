@@ -37,6 +37,7 @@ import { registerApplyYamlFileCommand } from './commands/applyYamlFileCommand';
 import { registerResourceBrowserCommand } from './commands/resourceBrowserCommand';
 import { configureTargets } from './webviews/targetWizard/targetWizardPanel';
 import { TreeItemBase } from './providers/views/treeItem';
+import { EmbeddingSearchService } from './services/embeddingSearchService';
 // import { registerResourceViewCommands } from './commands/resourceViewCommands';
 // import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 
@@ -166,6 +167,12 @@ export async function activate(context: vscode.ExtensionContext) {
   currentLogLevel = parseLogLevel(config.get('logLevel'));
 
   log('EDA extension activating...', LogLevel.INFO, true);
+
+  // Initialize embeddingsearch service in background
+  const embeddingSearchService = EmbeddingSearchService.getInstance();
+  embeddingSearchService.initialize().catch(error => {
+    log(`Failed to initialize embeddingsearch: ${error}`, LogLevel.ERROR);
+  });
   let edaUrl = 'https://eda-api';
   let edaContext: string | undefined;
   let edaUsername = config.get<string>('edaUsername', 'admin');

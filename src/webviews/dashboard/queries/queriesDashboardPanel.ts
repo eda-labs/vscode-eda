@@ -19,7 +19,7 @@ export class QueriesDashboardPanel extends BasePanel {
     });
 
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
-    this.embeddingSearch = new EmbeddingSearchService(context);
+    this.embeddingSearch = EmbeddingSearchService.getInstance();
 
     this.edaClient.onStreamMessage((stream, msg) => {
       if (stream === this.queryStreamName) {
@@ -90,6 +90,22 @@ export class QueriesDashboardPanel extends BasePanel {
     // Check if this is a natural language query
     if (this.embeddingSearch.isNaturalLanguageQuery(query)) {
       try {
+        // Check if embeddingsearch is ready
+        if (!this.embeddingSearch.isReady()) {
+          this.panel.webview.postMessage({
+            command: 'error',
+            error: 'Natural language queries are still initializing. Please try again in a moment or use EQL queries (starting with .)'
+          });
+          // Try to wait for setup to complete
+          this.embeddingSearch.waitForSetup().then(() => {
+            this.panel.webview.postMessage({
+              command: 'info',
+              message: 'Natural language queries are now ready!'
+            });
+          }).catch(() => {});
+          return;
+        }
+
         // Convert natural language to EQL
         const result = await this.embeddingSearch.searchNaturalLanguage(query);
         if (result && result.topMatch) {
@@ -123,6 +139,15 @@ export class QueriesDashboardPanel extends BasePanel {
 
   private async handleNaturalLanguageSearch(query: string): Promise<void> {
     try {
+      // Check if embeddingsearch is ready
+      if (!this.embeddingSearch.isReady()) {
+        this.panel.webview.postMessage({
+          command: 'error',
+          error: 'Natural language queries are still initializing. Please try again in a moment.'
+        });
+        return;
+      }
+
       const result = await this.embeddingSearch.searchNaturalLanguage(query);
       this.panel.webview.postMessage({
         command: 'naturalLanguageResults',
