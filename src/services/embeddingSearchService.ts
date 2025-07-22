@@ -4,7 +4,7 @@ import * as os from 'os';
 import { spawn } from 'child_process';
 import { createWriteStream } from 'fs';
 import { pipeline } from 'stream/promises';
-import { fetch } from 'undici';
+import { fetch, EnvHttpProxyAgent } from 'undici';
 import { log, LogLevel } from '../extension';
 
 export interface EmbeddingSearchResult {
@@ -109,7 +109,9 @@ export class EmbeddingSearchService {
 
         log(`Downloading embeddingsearch from ${downloadUrl}`, LogLevel.INFO);
 
-        const response = await fetch(downloadUrl);
+        const proxyEnv = process.env.http_proxy || process.env.HTTP_PROXY || process.env.https_proxy || process.env.HTTPS_PROXY;
+        const dispatcher = proxyEnv ? new EnvHttpProxyAgent() : undefined;
+        const response = await fetch(downloadUrl, { dispatcher });
         if (!response.ok) {
             throw new Error(`Failed to download: ${response.statusText}`);
         }
