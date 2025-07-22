@@ -1,5 +1,8 @@
 # Change Log
 
+## [0.4.3] - 2025-06-21
+- fixes
+
 ## [0.4.2] - 2025-06-17
 - Topology View
 - TransactionView
