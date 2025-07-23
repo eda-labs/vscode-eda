@@ -255,12 +255,12 @@ declare function acquireVsCodeApi(): {
         sortIndex = -1;
         sortAsc = true;
         renderTable(allRows);
+      } else {
+        if (sortIndex >= 0) sortRows();
+        applyFilters();
       }
       if (msg.status) {
         statusEl.textContent = msg.status;
-      } else {
-        if (!colsChanged && sortIndex >= 0) sortRows();
-        applyFilters();
       }
       autocompleteList.style.display = 'none';
     } else if (msg.command === 'error') {

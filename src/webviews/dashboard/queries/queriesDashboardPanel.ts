@@ -207,10 +207,10 @@ export class QueriesDashboardPanel extends BasePanel {
       await this.edaClient.closeNqlStream(this.queryStreamName);
     }
     this.queryStreamName = `nql-${Date.now()}`;
-    
+
     // For NQL, if "All Namespaces" is selected, pass undefined (no namespace parameter)
     const ns = namespace === 'All Namespaces' ? undefined : namespace;
-    
+
     log(`Starting NQL stream with namespace: ${ns}`, LogLevel.DEBUG);
     await this.edaClient.streamNql(query, ns, this.queryStreamName);
     this.panel.webview.postMessage({ command: 'clear' });
@@ -219,26 +219,26 @@ export class QueriesDashboardPanel extends BasePanel {
   private handleQueryStream(msg: any): void {
     // Debug logging to understand all message structures
     log(`Received stream message: ${JSON.stringify(msg, null, 2)}`, LogLevel.DEBUG);
-    
+
     // Check if this is an NQL stream with conversion details
     // The details could be at msg.details or msg.message.details based on the SSE processing
     const details = msg.details || msg.message?.details;
     const streamName = msg.stream || msg.message?.stream;
-    
+
     log(`Stream name: ${streamName}`, LogLevel.DEBUG);
     log(`Details: ${details}`, LogLevel.DEBUG);
-    
+
     // For NQL streams, try to extract conversion details from the schema annotations
     // The converted EQL query might be embedded in the field annotations
     if (streamName?.startsWith('nql') && !this.nqlConversionShown) {
       let convertedEql = details;
-      
+
       // Check if we can reconstruct the EQL query from the schema field annotations
       if (!convertedEql && msg.msg?.schema?.fields) {
         const fields = msg.msg.schema.fields;
         const namespaceFields = fields.filter((f: any) => f.name.startsWith('.namespace'));
         const valueFields = fields.filter((f: any) => !f.name.startsWith('.namespace'));
-        
+
         if (namespaceFields.length > 0 && valueFields.length > 0) {
           // Try to reconstruct a basic EQL query from the schema
           const basePath = namespaceFields[0].name.replace(/\.name$/, '');
@@ -247,7 +247,7 @@ export class QueriesDashboardPanel extends BasePanel {
           log(`Reconstructed EQL from schema: ${convertedEql}`, LogLevel.DEBUG);
         }
       }
-      
+
       if (convertedEql) {
         log(`Sending convertedQuery message with details: ${convertedEql}`, LogLevel.DEBUG);
         this.panel.webview.postMessage({
@@ -261,9 +261,24 @@ export class QueriesDashboardPanel extends BasePanel {
       }
     }
 
-    const ops: any[] = Array.isArray(msg.msg?.op) ? msg.msg.op : [];
+    // Try to extract operations from various possible locations in the message structure
+    let ops: any[] = [];
+
+    // Check multiple possible locations for the operations array
+    if (Array.isArray(msg.msg?.op)) {
+      ops = msg.msg.op;
+    } else if (Array.isArray(msg.op)) {
+      ops = msg.op;
+    } else if (msg.msg && typeof msg.msg === 'object') {
+      // For NQL streams, the structure might be different
+      // Check if msg itself contains the operation data
+      if (msg.msg.insert_or_modify || msg.msg.delete) {
+        ops = [msg.msg];
+      }
+    }
+
     log(`Operations array length: ${ops.length}`, LogLevel.DEBUG);
-    
+
     if (ops.length === 0) {
       // Check if we have schema but no data yet
       if (msg.msg?.schema?.fields && msg.state === 'synced') {
@@ -291,15 +306,31 @@ export class QueriesDashboardPanel extends BasePanel {
 
       for (const r of rows) {
         const data = r.data || r;
-        
+
         // Update columns if we encounter new fields
         const dataKeys = Object.keys(data);
+        let columnsChanged = false;
         for (const key of dataKeys) {
           if (!this.columns.includes(key)) {
             this.columns.push(key);
+            columnsChanged = true;
           }
         }
-        
+
+        // If columns changed, we need to update all existing rows to have placeholders for new columns
+        if (columnsChanged) {
+          const currentRows = Array.from(this.rowMap.entries());
+          this.rowMap.clear();
+          for (const [key, oldRow] of currentRows) {
+            // Create a new row with the updated column structure
+            const newRow = this.columns.map((_, idx) => {
+              // Keep existing data if the column index is within the old row
+              return idx < oldRow.length ? oldRow[idx] : undefined;
+            });
+            this.rowMap.set(key, newRow);
+          }
+        }
+
         const row = this.columns.map(c => data[c]);
         const key = r.id !== undefined ? String(r.id) : `${Date.now()}${Math.random()}`;
         this.rowMap.set(key, row);
