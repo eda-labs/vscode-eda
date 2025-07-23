@@ -303,8 +303,8 @@ declare function acquireVsCodeApi(): {
         // Keep the original NQL query in the input, just show the conversion info
       } else {
         conversionLabel.textContent = 'Natural language converted to EQL:';
-        // For EMB, update the input to show the converted EQL query
-        queryInput.value = msg.eqlQuery;
+        // For EMB, also keep the original natural language query in the input
+        // The converted EQL is already shown in the convertedEQL element
       }
 
       // Show description if available
