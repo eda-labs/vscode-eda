@@ -148,8 +148,10 @@ export class QueriesDashboardPanel extends BasePanel {
 
   private async handleNqlQuery(query: string, namespace: string): Promise<void> {
     try {
+      // Remove question marks from NQL queries as they cause issues
+      const cleanedQuery = query.replace(/\?/g, '');
       // Use the NQL streaming endpoint directly
-      await this.startNqlQueryStream(query, namespace);
+      await this.startNqlQueryStream(cleanedQuery, namespace);
     } catch (error) {
       this.panel.webview.postMessage({
         command: 'error',
@@ -289,9 +291,15 @@ export class QueriesDashboardPanel extends BasePanel {
 
       for (const r of rows) {
         const data = r.data || r;
-        if (this.columns.length === 0) {
-          this.columns = Object.keys(data);
+        
+        // Update columns if we encounter new fields
+        const dataKeys = Object.keys(data);
+        for (const key of dataKeys) {
+          if (!this.columns.includes(key)) {
+            this.columns.push(key);
+          }
         }
+        
         const row = this.columns.map(c => data[c]);
         const key = r.id !== undefined ? String(r.id) : `${Date.now()}${Math.random()}`;
         this.rowMap.set(key, row);
