@@ -73,7 +73,7 @@ async function streamSse(url: string, auth: EdaAuthClient): Promise<void> {
 async function main(): Promise<void> {
   const arg = process.argv[2];
   if (!arg) {
-    console.error("Usage: ts-node stream.ts <endpoint-path|eql-query>");
+    console.error("Usage: ts-node stream.ts <endpoint-path|eql-query|nql:query>");
     process.exit(1);
   }
 
@@ -122,13 +122,30 @@ async function main(): Promise<void> {
         let sseUrl: string;
 
         if (arg.startsWith(".")) {
+          // EQL query
           streamName = "eql";
           sseUrl =
             `${auth.getBaseUrl()}/core/query/v1/eql` +
             `?eventclient=${encodeURIComponent(client)}` +
             `&stream=${streamName}` +
             `&query=${encodeURIComponent(arg)}`;
+        } else if (arg.startsWith("nql:")) {
+          // NQL query
+          streamName = "nql";
+          const nqlQuery = arg.substring(4); // Remove "nql:" prefix
+          sseUrl =
+            `${auth.getBaseUrl()}/core/query/v1/nql` +
+            `?eventclient=${encodeURIComponent(client)}` +
+            `&stream=${streamName}` +
+            `&query=${encodeURIComponent(nqlQuery)}`;
+
+          // Add namespaces parameter if provided via environment variable
+          const namespaces = process.env.NQL_NAMESPACES;
+          if (namespaces) {
+            sseUrl += `&namespaces=${encodeURIComponent(namespaces)}`;
+          }
         } else {
+          // Direct endpoint path
           streamName = arg.substring(arg.lastIndexOf("/") + 1);
           sseUrl =
             `${auth.getBaseUrl()}${arg}` +

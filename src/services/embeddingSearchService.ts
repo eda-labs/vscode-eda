@@ -143,7 +143,8 @@ export class EmbeddingSearchService {
 
     private async extractTarGz(archivePath: string, destPath: string): Promise<void> {
         return new Promise((resolve, reject) => {
-            const tar = spawn('tar', ['-xzf', archivePath, '-C', destPath]);
+            // Extract and rename in one command using --transform
+            const tar = spawn('tar', ['-xzf', archivePath, '-C', destPath, '--transform', 's/embeddingsearch-.*/embeddingsearch/']);
 
             tar.on('error', reject);
             tar.on('exit', (code) => {
@@ -157,11 +158,11 @@ export class EmbeddingSearchService {
     }
 
     private async extractZip(archivePath: string, destPath: string): Promise<void> {
-        // For Windows, we'll use PowerShell to extract
+        // For Windows, we'll use PowerShell to extract and rename
         return new Promise((resolve, reject) => {
             const ps = spawn('powershell', [
                 '-Command',
-                `Expand-Archive -Path "${archivePath}" -DestinationPath "${destPath}" -Force`
+                `Expand-Archive -Path "${archivePath}" -DestinationPath "${destPath}" -Force; Get-ChildItem "${destPath}" -Filter "embeddingsearch-*" | Rename-Item -NewName "embeddingsearch.exe" -Force`
             ]);
 
             ps.on('error', reject);

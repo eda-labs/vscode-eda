@@ -32,6 +32,9 @@ export class EdaStreamClient {
   private eqlStreams: Map<string, { query: string; namespaces?: string }> = new Map();
   private eqlAbortControllers: Map<string, AbortController> = new Map();
   private eqlStreamPromises: Map<string, Promise<void>> = new Map();
+  private nqlStreams: Map<string, { query: string; namespaces?: string }> = new Map();
+  private nqlAbortControllers: Map<string, AbortController> = new Map();
+  private nqlStreamPromises: Map<string, Promise<void>> = new Map();
   private disposed = false;
 
   private _onStreamMessage = new vscode.EventEmitter<StreamMessage>();
@@ -105,6 +108,10 @@ export class EdaStreamClient {
 
   public setEqlQuery(query: string, namespaces?: string, streamName = 'eql'): void {
     this.eqlStreams.set(streamName, { query, namespaces });
+  }
+
+  public setNqlQuery(query: string, namespaces?: string, streamName = 'nql'): void {
+    this.nqlStreams.set(streamName, { query, namespaces });
   }
 
   /**
@@ -201,6 +208,11 @@ export class EdaStreamClient {
                 void this.startEqlStream(this.eventClient, streamName);
               }
             }
+            for (const streamName of this.nqlStreams.keys()) {
+              if (this.activeStreams.has(streamName)) {
+                void this.startNqlStream(this.eventClient, streamName);
+              }
+            }
             // If we have user storage files, make sure we're subscribed to 'file' stream
             if (this.userStorageFiles.size > 0 && !this.activeStreams.has('file')) {
               this.activeStreams.add('file');
@@ -266,6 +278,9 @@ export class EdaStreamClient {
       if (this.eqlStreams.has(streamName)) {
         void this.startEqlStream(this.eventClient as string, streamName);
       }
+      if (this.nqlStreams.has(streamName)) {
+        void this.startNqlStream(this.eventClient as string, streamName);
+      }
     }
   }
 
@@ -288,11 +303,32 @@ export class EdaStreamClient {
       this.eqlStreamPromises.delete(streamName);
     }
     this.eqlStreams.delete(streamName);
+    const nqlCtl = this.nqlAbortControllers.get(streamName);
+    if (nqlCtl) {
+      nqlCtl.abort();
+      this.nqlAbortControllers.delete(streamName);
+    }
+    if (this.nqlStreamPromises.has(streamName)) {
+      this.nqlStreamPromises.delete(streamName);
+    }
+    this.nqlStreams.delete(streamName);
     log(`Unsubscribed from stream: ${streamName}`, LogLevel.DEBUG);
   }
 
   public async closeEqlStream(streamName: string): Promise<void> {
     const promise = this.eqlStreamPromises.get(streamName);
+    this.unsubscribeFromStream(streamName);
+    if (promise) {
+      try {
+        await promise;
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  public async closeNqlStream(streamName: string): Promise<void> {
+    const promise = this.nqlStreamPromises.get(streamName);
     this.unsubscribeFromStream(streamName);
     if (promise) {
       try {
@@ -357,6 +393,11 @@ export class EdaStreamClient {
     }
     this.eqlAbortControllers.clear();
     this.eqlStreamPromises.clear();
+    for (const ctl of this.nqlAbortControllers.values()) {
+      ctl.abort();
+    }
+    this.nqlAbortControllers.clear();
+    this.nqlStreamPromises.clear();
     this.eventClient = undefined;
     if (clearStreams) {
       this.activeStreams.clear();
@@ -566,6 +607,28 @@ export class EdaStreamClient {
       this.eqlStreamPromises.delete(streamName);
     });
     this.eqlStreamPromises.set(streamName, promise);
+  }
+
+  private startNqlStream(client: string, streamName: string): void {
+    if (!this.authClient) return;
+    const info = this.nqlStreams.get(streamName);
+    if (!info) return;
+    let url =
+      `${this.authClient.getBaseUrl()}/core/query/v1/nql` +
+      `?eventclient=${encodeURIComponent(client)}` +
+      `&stream=${encodeURIComponent(streamName)}` +
+      `&query=${encodeURIComponent(info.query)}`;
+    if (info.namespaces) {
+      url += `&namespaces=${encodeURIComponent(info.namespaces)}`;
+    }
+
+    const controller = new AbortController();
+    this.nqlAbortControllers.set(streamName, controller);
+    const promise = this.streamSse(url, controller).finally(() => {
+      this.nqlAbortControllers.delete(streamName);
+      this.nqlStreamPromises.delete(streamName);
+    });
+    this.nqlStreamPromises.set(streamName, promise);
   }
 
   private startTransactionSummaryStream(client: string): void {
