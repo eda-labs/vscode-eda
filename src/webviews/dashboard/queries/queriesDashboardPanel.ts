@@ -3,6 +3,7 @@ import { BasePanel } from '../../basePanel';
 import { serviceManager } from '../../../services/serviceManager';
 import { EdaClient } from '../../../clients/edaClient';
 import { EmbeddingSearchService } from '../../../services/embeddingSearchService';
+import { LogLevel, log } from '../../../extension';
 
 export class QueriesDashboardPanel extends BasePanel {
   private edaClient: EdaClient;
@@ -11,6 +12,7 @@ export class QueriesDashboardPanel extends BasePanel {
   private columns: string[] = [];
   private rows: any[][] = [];
   private rowMap: Map<string, any[]> = new Map();
+  private nqlConversionShown: boolean = false;
 
   constructor(context: vscode.ExtensionContext, title: string) {
     super(context, 'queriesDashboard', title, undefined, {
@@ -22,8 +24,12 @@ export class QueriesDashboardPanel extends BasePanel {
     this.embeddingSearch = EmbeddingSearchService.getInstance();
 
     this.edaClient.onStreamMessage((stream, msg) => {
+      log(`EdaClient callback received stream: ${stream}, queryStreamName: ${this.queryStreamName}`, LogLevel.DEBUG);
       if (stream === this.queryStreamName) {
+        log('Stream name matches, calling handleQueryStream', LogLevel.DEBUG);
         this.handleQueryStream(msg);
+      } else {
+        log('Stream name does not match', LogLevel.DEBUG);
       }
     });
 
@@ -37,7 +43,7 @@ export class QueriesDashboardPanel extends BasePanel {
       if (msg.command === 'ready') {
         await this.sendNamespaces();
       } else if (msg.command === 'runQuery') {
-        await this.handleQuery(msg.query as string, msg.namespace as string);
+        await this.handleQuery(msg.query as string, msg.namespace as string, msg.queryType as string);
       } else if (msg.command === 'autocomplete') {
         const query = msg.query as string;
         // Only provide autocomplete for EQL queries (starting with .)
@@ -86,9 +92,11 @@ export class QueriesDashboardPanel extends BasePanel {
     });
   }
 
-  private async handleQuery(query: string, namespace: string): Promise<void> {
-    // Check if this is a natural language query
-    if (this.embeddingSearch.isNaturalLanguageQuery(query)) {
+  private async handleQuery(query: string, namespace: string, queryType: string = 'eql'): Promise<void> {
+    if (queryType === 'nql') {
+      // Handle NQL (Natural Query Language) queries
+      await this.handleNqlQuery(query, namespace);
+    } else if (queryType === 'emb' && this.embeddingSearch.isNaturalLanguageQuery(query)) {
       try {
         // Check if embeddingsearch is ready
         if (!this.embeddingSearch.isReady()) {
@@ -116,6 +124,7 @@ export class QueriesDashboardPanel extends BasePanel {
             command: 'convertedQuery',
             originalQuery: query,
             eqlQuery: result.topMatch.query,
+            queryType: 'emb',
             description: result.topMatch.description,
             alternatives: result.others
           });
@@ -134,6 +143,18 @@ export class QueriesDashboardPanel extends BasePanel {
     } else {
       // Regular EQL query
       await this.startQueryStream(query, namespace);
+    }
+  }
+
+  private async handleNqlQuery(query: string, namespace: string): Promise<void> {
+    try {
+      // Use the NQL streaming endpoint directly
+      await this.startNqlQueryStream(query, namespace);
+    } catch (error) {
+      this.panel.webview.postMessage({
+        command: 'error',
+        error: `Failed to process NQL query: ${error}`
+      });
     }
   }
 
@@ -165,6 +186,7 @@ export class QueriesDashboardPanel extends BasePanel {
     this.columns = [];
     this.rows = [];
     this.rowMap.clear();
+    this.nqlConversionShown = false;
     if (this.queryStreamName) {
       await this.edaClient.closeEqlStream(this.queryStreamName);
     }
@@ -174,16 +196,84 @@ export class QueriesDashboardPanel extends BasePanel {
     this.panel.webview.postMessage({ command: 'clear' });
   }
 
+  private async startNqlQueryStream(query: string, namespace: string): Promise<void> {
+    this.columns = [];
+    this.rows = [];
+    this.rowMap.clear();
+    this.nqlConversionShown = false;
+    if (this.queryStreamName) {
+      await this.edaClient.closeNqlStream(this.queryStreamName);
+    }
+    this.queryStreamName = `nql-${Date.now()}`;
+    
+    // For NQL, if "All Namespaces" is selected, pass undefined (no namespace parameter)
+    const ns = namespace === 'All Namespaces' ? undefined : namespace;
+    
+    log(`Starting NQL stream with namespace: ${ns}`, LogLevel.DEBUG);
+    await this.edaClient.streamNql(query, ns, this.queryStreamName);
+    this.panel.webview.postMessage({ command: 'clear' });
+  }
+
   private handleQueryStream(msg: any): void {
-    const ops: any[] = Array.isArray(msg.msg?.op) ? msg.msg.op : [];
-    if (ops.length === 0) {
-      if (this.rows.length === 0) {
+    // Debug logging to understand all message structures
+    log(`Received stream message: ${JSON.stringify(msg, null, 2)}`, LogLevel.DEBUG);
+    
+    // Check if this is an NQL stream with conversion details
+    // The details could be at msg.details or msg.message.details based on the SSE processing
+    const details = msg.details || msg.message?.details;
+    const streamName = msg.stream || msg.message?.stream;
+    
+    log(`Stream name: ${streamName}`, LogLevel.DEBUG);
+    log(`Details: ${details}`, LogLevel.DEBUG);
+    
+    // For NQL streams, try to extract conversion details from the schema annotations
+    // The converted EQL query might be embedded in the field annotations
+    if (streamName?.startsWith('nql') && !this.nqlConversionShown) {
+      let convertedEql = details;
+      
+      // Check if we can reconstruct the EQL query from the schema field annotations
+      if (!convertedEql && msg.msg?.schema?.fields) {
+        const fields = msg.msg.schema.fields;
+        const namespaceFields = fields.filter((f: any) => f.name.startsWith('.namespace'));
+        const valueFields = fields.filter((f: any) => !f.name.startsWith('.namespace'));
+        
+        if (namespaceFields.length > 0 && valueFields.length > 0) {
+          // Try to reconstruct a basic EQL query from the schema
+          const basePath = namespaceFields[0].name.replace(/\.name$/, '');
+          const conditions = valueFields.map((f: any) => `(${f.name} > 0)`).join(' OR ');
+          convertedEql = `${basePath} where ${conditions}`;
+          log(`Reconstructed EQL from schema: ${convertedEql}`, LogLevel.DEBUG);
+        }
+      }
+      
+      if (convertedEql) {
+        log(`Sending convertedQuery message with details: ${convertedEql}`, LogLevel.DEBUG);
         this.panel.webview.postMessage({
-          command: 'results',
-          columns: [],
-          rows: [],
-          status: 'No results to display'
+          command: 'convertedQuery',
+          originalQuery: '', // We don't have the original query here
+          eqlQuery: convertedEql,
+          queryType: 'nql',
+          description: 'Natural Query Language converted to EQL query'
         });
+        this.nqlConversionShown = true;
+      }
+    }
+
+    const ops: any[] = Array.isArray(msg.msg?.op) ? msg.msg.op : [];
+    log(`Operations array length: ${ops.length}`, LogLevel.DEBUG);
+    
+    if (ops.length === 0) {
+      // Check if we have schema but no data yet
+      if (msg.msg?.schema?.fields && msg.state === 'synced') {
+        log('Stream synced with schema but no data operations', LogLevel.DEBUG);
+        if (this.rows.length === 0) {
+          this.panel.webview.postMessage({
+            command: 'results',
+            columns: [],
+            rows: [],
+            status: 'Query completed - no matching results found'
+          });
+        }
       }
       return;
     }

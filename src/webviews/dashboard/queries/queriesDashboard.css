@@ -45,6 +45,16 @@
     gap: 2px;
   }
 
+  .query-type-select {
+    background-color: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 4px;
+    padding: 4px 8px;
+    margin-right: 8px;
+    min-width: 60px;
+  }
+
   .query-input-wrapper {
     flex: 1;
     position: relative;
@@ -212,6 +222,31 @@
     padding: 4px 0;
     border-top: 1px solid var(--border);
     margin-top: 8px;
+  }
+
+  .query-type-note {
+    background: var(--vscode-editorHoverWidget-background, var(--vscode-notifications-background));
+    border: 1px solid var(--vscode-editorHoverWidget-border, var(--vscode-notifications-border));
+    border-radius: 4px;
+    margin-bottom: 12px;
+    font-size: 12px;
+  }
+
+  .note-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .note-icon {
+    color: var(--vscode-notificationsInfoIcon-foreground, var(--vscode-notifications-foreground));
+    font-size: 14px;
+  }
+
+  .note-text {
+    color: var(--vscode-notifications-foreground);
+    font-style: italic;
   }
 
   .converted-query-info {

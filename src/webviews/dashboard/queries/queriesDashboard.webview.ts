@@ -7,6 +7,9 @@ declare function acquireVsCodeApi(): {
 (function () {
   const vscode = acquireVsCodeApi();
   const queryInput = document.getElementById('queryInput') as HTMLInputElement;
+  const queryTypeSelect = document.getElementById('queryTypeSelect') as HTMLSelectElement;
+  const queryTypeNote = document.getElementById('queryTypeNote') as HTMLElement;
+  const noteText = document.getElementById('noteText') as HTMLElement;
   const autocompleteList = document.getElementById('autocompleteList') as HTMLUListElement;
   const runButton = document.getElementById('runButton') as HTMLButtonElement;
   const nsSelect = document.getElementById('namespaceSelect') as HTMLSelectElement;
@@ -20,6 +23,7 @@ declare function acquireVsCodeApi(): {
   const statusEl = document.getElementById('status') as HTMLElement;
   const convertedQueryInfo = document.getElementById('convertedQueryInfo') as HTMLElement;
   const convertedEQL = document.getElementById('convertedEQL') as HTMLElement;
+  const conversionLabel = document.getElementById('conversionLabel') as HTMLElement;
   const dismissInfo = document.getElementById('dismissInfo') as HTMLButtonElement;
   const showAlternatives = document.getElementById('showAlternatives') as HTMLButtonElement;
   const alternativeQueries = document.getElementById('alternativeQueries') as HTMLElement;
@@ -32,6 +36,29 @@ declare function acquireVsCodeApi(): {
   let sortIndex = -1;
   let sortAsc = true;
   let copyFormat: 'ascii' | 'markdown' | 'json' | 'yaml' = 'ascii';
+
+  function updateQueryInputPlaceholder(): void {
+    const queryType = queryTypeSelect.value;
+    switch (queryType) {
+      case 'eql':
+        queryInput.placeholder = 'Enter EQL expression (e.g., .namespace.node.name)';
+        queryTypeNote.style.display = 'none';
+        break;
+      case 'nql':
+        queryInput.placeholder = 'Enter natural language query (e.g., Which ports are down?)';
+        noteText.textContent = 'Natural Query Language (NQL) converts your natural language questions into EQL queries using an LLM.';
+        queryTypeNote.style.display = 'block';
+        break;
+      case 'emb':
+        queryInput.placeholder = 'Enter natural language query for embedding search';
+        noteText.textContent = 'Embeddings-based natural language support is an experimental way to use natural language with EQL without having to use an LLM.';
+        queryTypeNote.style.display = 'block';
+        break;
+    }
+  }
+
+  queryTypeSelect.addEventListener('change', updateQueryInputPlaceholder);
+  updateQueryInputPlaceholder(); // Set initial state
 
   dismissInfo.addEventListener('click', () => {
     convertedQueryInfo.style.display = 'none';
@@ -72,6 +99,7 @@ declare function acquireVsCodeApi(): {
     vscode.postMessage({
       command: 'runQuery',
       query: queryInput.value,
+      queryType: queryTypeSelect.value,
       namespace: nsSelect.value
     });
     autocompleteList.innerHTML = '';
@@ -132,7 +160,7 @@ declare function acquireVsCodeApi(): {
       autocompleteList.style.display = 'none';
       autocompleteIndex = -1;
       formatMenu.style.display = 'none';
-    } else if (e.key === 'Tab' && autocompleteList.children.length > 0) {
+    } else if (e.key === 'Tab' && autocompleteList.children.length > 0 && queryTypeSelect.value === 'eql') {
       e.preventDefault();
       const target =
         autocompleteIndex >= 0
@@ -166,7 +194,7 @@ declare function acquireVsCodeApi(): {
       highlightAutocomplete();
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (autocompleteIndex >= 0 && !e.metaKey && !e.ctrlKey) {
+      if (autocompleteIndex >= 0 && !e.metaKey && !e.ctrlKey && queryTypeSelect.value === 'eql') {
         const item = autocompleteList.children[autocompleteIndex] as HTMLElement;
         if (item) {
           insertAutocomplete(item.textContent || '');
@@ -192,7 +220,13 @@ declare function acquireVsCodeApi(): {
   });
 
   queryInput.addEventListener('input', () => {
-    vscode.postMessage({ command: 'autocomplete', query: queryInput.value });
+    // Only provide autocomplete for EQL queries
+    if (queryTypeSelect.value === 'eql') {
+      vscode.postMessage({ command: 'autocomplete', query: queryInput.value });
+    } else {
+      autocompleteList.innerHTML = '';
+      autocompleteList.style.display = 'none';
+    }
   });
 
   window.addEventListener('message', event => {
@@ -262,8 +296,16 @@ declare function acquireVsCodeApi(): {
       // Show the converted query info
       convertedEQL.textContent = msg.eqlQuery;
       convertedQueryInfo.style.display = 'block';
-      // Update the input to show the converted EQL query
-      queryInput.value = msg.eqlQuery;
+
+      // Update label based on query type
+      if (msg.queryType === 'nql') {
+        conversionLabel.textContent = 'NQL converted to EQL:';
+        // Keep the original NQL query in the input, just show the conversion info
+      } else {
+        conversionLabel.textContent = 'Natural language converted to EQL:';
+        // For EMB, update the input to show the converted EQL query
+        queryInput.value = msg.eqlQuery;
+      }
 
       // Show description if available
       if (msg.description) {
