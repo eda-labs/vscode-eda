@@ -100,7 +100,11 @@ export class EmbeddingSearchService {
                 downloadUrl = 'https://github.com/FloSch62/eda-embeddingsearch/releases/latest/download/embeddingsearch-darwin-amd64.tar.gz';
             }
         } else if (platform === 'linux') {
-            downloadUrl = 'https://github.com/FloSch62/eda-embeddingsearch/releases/latest/download/embeddingsearch-linux-amd64.tar.gz';
+            if (arch === 'arm64') {
+                downloadUrl = 'https://github.com/FloSch62/eda-embeddingsearch/releases/latest/download/embeddingsearch-linux-arm64.tar.gz';
+            } else {
+                downloadUrl = 'https://github.com/FloSch62/eda-embeddingsearch/releases/latest/download/embeddingsearch-linux-amd64.tar.gz';
+            }
         } else if (platform === 'win32') {
             downloadUrl = 'https://github.com/FloSch62/eda-embeddingsearch/releases/latest/download/embeddingsearch-windows-amd64.zip';
         } else {
