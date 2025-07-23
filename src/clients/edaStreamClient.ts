@@ -527,6 +527,16 @@ export class EdaStreamClient {
     }
     log(`[STREAM:${streamName}] connected → ${url}`, LogLevel.DEBUG);
 
+    // Check if this is a non-streaming response (e.g., NQL with content-length)
+    if (res.headers.get('content-length')) {
+      const text = await res.text();
+      log(`[STREAM:${streamName}] Complete response received: ${text}`, LogLevel.DEBUG);
+
+      // Handle the complete response as a single message
+      this.handleEventMessage(text);
+      return;
+    }
+
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';

@@ -228,37 +228,18 @@ export class QueriesDashboardPanel extends BasePanel {
     log(`Stream name: ${streamName}`, LogLevel.DEBUG);
     log(`Details: ${details}`, LogLevel.DEBUG);
 
-    // For NQL streams, try to extract conversion details from the schema annotations
-    // The converted EQL query might be embedded in the field annotations
-    if (streamName?.startsWith('nql') && !this.nqlConversionShown) {
-      let convertedEql = details;
-
-      // Check if we can reconstruct the EQL query from the schema field annotations
-      if (!convertedEql && msg.msg?.schema?.fields) {
-        const fields = msg.msg.schema.fields;
-        const namespaceFields = fields.filter((f: any) => f.name.startsWith('.namespace'));
-        const valueFields = fields.filter((f: any) => !f.name.startsWith('.namespace'));
-
-        if (namespaceFields.length > 0 && valueFields.length > 0) {
-          // Try to reconstruct a basic EQL query from the schema
-          const basePath = namespaceFields[0].name.replace(/\.name$/, '');
-          const conditions = valueFields.map((f: any) => `(${f.name} > 0)`).join(' OR ');
-          convertedEql = `${basePath} where ${conditions}`;
-          log(`Reconstructed EQL from schema: ${convertedEql}`, LogLevel.DEBUG);
-        }
-      }
-
-      if (convertedEql) {
-        log(`Sending convertedQuery message with details: ${convertedEql}`, LogLevel.DEBUG);
-        this.panel.webview.postMessage({
-          command: 'convertedQuery',
-          originalQuery: '', // We don't have the original query here
-          eqlQuery: convertedEql,
-          queryType: 'nql',
-          description: 'Natural Query Language converted to EQL query'
-        });
-        this.nqlConversionShown = true;
-      }
+    // For NQL streams, only show the converted query from the SSE response details
+    // Do NOT reconstruct from schema fields as that creates incorrect queries
+    if (streamName?.startsWith('nql') && !this.nqlConversionShown && details) {
+      log(`Sending convertedQuery message with details: ${details}`, LogLevel.DEBUG);
+      this.panel.webview.postMessage({
+        command: 'convertedQuery',
+        originalQuery: '', // We don't have the original query here
+        eqlQuery: details,
+        queryType: 'nql',
+        description: 'Natural Query Language converted to EQL query'
+      });
+      this.nqlConversionShown = true;
     }
 
     // Try to extract operations from various possible locations in the message structure
