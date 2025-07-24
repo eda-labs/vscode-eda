@@ -1,14 +1,14 @@
 import * as vscode from 'vscode';
 import { BasePanel } from '../basePanel';
 import { KubernetesClient } from '../../clients/kubernetesClient';
+import { fetch, Agent } from 'undici';
 
 export interface TargetWizardResult {
   url: string;
   context?: string;
   edaUsername: string;
-  kcUsername: string;
   edaPassword: string;
-  kcPassword: string;
+  clientSecret: string;
   coreNamespace?: string;
 }
 
@@ -18,11 +18,10 @@ export class TargetWizardPanel extends BasePanel {
     url: string;
     context?: string;
     edaUsername?: string;
-    kcUsername?: string;
+    edaPassword?: string;
+    clientSecret?: string;
     skipTlsVerify?: boolean;
     coreNamespace?: string;
-    edaPassword?: string;
-    kcPassword?: string;
   }[];
   private selected: number;
   private resolve: (value: void | PromiseLike<void>) => void;
@@ -34,11 +33,10 @@ export class TargetWizardPanel extends BasePanel {
       url: string;
       context?: string;
       edaUsername?: string;
-      kcUsername?: string;
+      edaPassword?: string;
+      clientSecret?: string;
       skipTlsVerify?: boolean;
       coreNamespace?: string;
-      edaPassword?: string;
-      kcPassword?: string;
     }[],
     selected: number
   ) {
@@ -70,6 +68,9 @@ export class TargetWizardPanel extends BasePanel {
           break;
         case 'close':
           this.showReload();
+          break;
+        case 'retrieveClientSecret':
+          await this.retrieveClientSecret(msg.url);
           break;
       }
     });
@@ -113,7 +114,7 @@ export class TargetWizardPanel extends BasePanel {
     current[msg.url] = {
       context: msg.context || undefined,
       edaUsername: msg.edaUsername || undefined,
-      kcUsername: msg.kcUsername || undefined,
+      clientSecret: msg.clientSecret || undefined,
       skipTlsVerify: msg.skipTlsVerify || undefined,
       coreNamespace: msg.coreNamespace || undefined
     };
@@ -133,8 +134,8 @@ export class TargetWizardPanel extends BasePanel {
     if (msg.edaPassword) {
       await this.context.secrets.store(`edaPassword:${host}`, msg.edaPassword);
     }
-    if (msg.kcPassword) {
-      await this.context.secrets.store(`kcPassword:${host}`, msg.kcPassword);
+    if (msg.clientSecret) {
+      await this.context.secrets.store(`clientSecret:${host}`, msg.clientSecret);
     }
 
     // Clean up old passwords if URL changed
@@ -142,7 +143,7 @@ export class TargetWizardPanel extends BasePanel {
       try {
         const oldHost = new URL(msg.originalUrl).host;
         await this.context.secrets.delete(`edaPassword:${oldHost}`);
-        await this.context.secrets.delete(`kcPassword:${oldHost}`);
+        await this.context.secrets.delete(`clientSecret:${oldHost}`);
       } catch {
         // ignore invalid url
       }
@@ -163,7 +164,7 @@ export class TargetWizardPanel extends BasePanel {
     try {
       const host = new URL(url).host;
       await this.context.secrets.delete(`edaPassword:${host}`);
-      await this.context.secrets.delete(`kcPassword:${host}`);
+      await this.context.secrets.delete(`clientSecret:${host}`);
     } catch {
       // ignore invalid url
     }
@@ -190,7 +191,7 @@ export class TargetWizardPanel extends BasePanel {
       updated[target.url] = {
         context: target.context || undefined,
         edaUsername: target.edaUsername || undefined,
-        kcUsername: target.kcUsername || undefined,
+        clientSecret: target.clientSecret || undefined,
         skipTlsVerify: target.skipTlsVerify || undefined,
         coreNamespace: target.coreNamespace || undefined
       };
@@ -204,7 +205,7 @@ export class TargetWizardPanel extends BasePanel {
         try {
           const host = new URL(url).host;
           await this.context.secrets.delete(`edaPassword:${host}`);
-          await this.context.secrets.delete(`kcPassword:${host}`);
+      await this.context.secrets.delete(`clientSecret:${host}`);
         } catch {
           // ignore invalid url
         }
@@ -234,6 +235,143 @@ export class TargetWizardPanel extends BasePanel {
     });
   }
 
+  private async retrieveClientSecret(url: string): Promise<void> {
+    try {
+      // Validate URL format
+      if (!url) {
+        vscode.window.showErrorMessage('Please enter the EDA API URL first');
+        return;
+      }
+
+      // Ensure we have the base URL without /eda or other paths
+      try {
+        const urlObj = new URL(url);
+        // If the URL has a path like /eda, we need just the origin
+        if (urlObj.pathname && urlObj.pathname !== '/') {
+          const useOrigin = await vscode.window.showQuickPick(['Yes', 'No'], {
+            placeHolder: `URL contains path "${urlObj.pathname}". Use base URL "${urlObj.origin}" instead?`
+          });
+          if (useOrigin === 'Yes') {
+            url = urlObj.origin;
+          }
+        }
+      } catch {
+        vscode.window.showErrorMessage(`Invalid URL format: ${url}`);
+        return;
+      }
+
+      // Prompt for KC username
+      const kcUsername = await vscode.window.showInputBox({
+        prompt: 'Enter Keycloak admin username',
+        placeHolder: 'admin',
+        value: 'admin',
+        ignoreFocusOut: true
+      });
+
+      if (!kcUsername) {
+        vscode.window.showWarningMessage('Client secret retrieval cancelled');
+        return;
+      }
+
+      // Prompt for KC password
+      const kcPassword = await vscode.window.showInputBox({
+        prompt: 'Enter Keycloak admin password',
+        placeHolder: 'Password',
+        password: true,
+        ignoreFocusOut: true
+      });
+
+      if (!kcPassword) {
+        vscode.window.showWarningMessage('Client secret retrieval cancelled');
+        return;
+      }
+
+      // Fetch client secret using KC admin credentials
+      const clientSecret = await this.fetchClientSecretDirectly(url, kcUsername, kcPassword);
+
+      // Send the secret back to the webview
+      this.panel.webview.postMessage({
+        command: 'clientSecretRetrieved',
+        clientSecret
+      });
+
+      vscode.window.showInformationMessage('Client secret retrieved successfully');
+    } catch (error: any) {
+      console.error('Full error:', error);
+      vscode.window.showErrorMessage(`Failed to retrieve client secret: ${error.message}`);
+    }
+  }
+
+  private async fetchClientSecretDirectly(baseUrl: string, kcUsername: string, kcPassword: string): Promise<string> {
+    // Ensure baseUrl doesn't have trailing slash
+    baseUrl = baseUrl.replace(/\/$/, '');
+
+    const kcUrl = `${baseUrl}/core/httpproxy/v1/keycloak`;
+    const agent = new Agent({ connect: { rejectUnauthorized: false } });
+
+    // Step 1: Get admin token
+    const adminTokenUrl = `${kcUrl}/realms/master/protocol/openid-connect/token`;
+    console.log(`Attempting to authenticate with Keycloak at: ${adminTokenUrl}`);
+    const adminTokenRes = await fetch(adminTokenUrl, {
+      method: 'POST',
+      body: new URLSearchParams({
+        grant_type: 'password',
+        client_id: 'admin-cli',
+        username: kcUsername,
+        password: kcPassword
+      }),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      dispatcher: agent
+    });
+
+    if (!adminTokenRes.ok) {
+      const errorText = await adminTokenRes.text();
+      console.error(`Keycloak admin auth failed: ${adminTokenRes.status} - ${errorText}`);
+      throw new Error(`Failed to authenticate with Keycloak admin: ${adminTokenRes.status} ${adminTokenRes.statusText}. URL: ${adminTokenUrl}`);
+    }
+
+    const adminTokenData = await adminTokenRes.json() as any;
+    const adminToken = adminTokenData.access_token;
+
+    // Step 2: List clients to find EDA client
+    const clientsUrl = `${kcUrl}/admin/realms/eda/clients`;
+    const clientsRes = await fetch(clientsUrl, {
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      dispatcher: agent
+    });
+
+    if (!clientsRes.ok) {
+      throw new Error(`Failed to list clients: ${clientsRes.status}`);
+    }
+
+    const clients = await clientsRes.json() as any[];
+    const edaClient = clients.find(c => c.clientId === 'eda');
+
+    if (!edaClient) {
+      throw new Error('EDA client not found in Keycloak');
+    }
+
+    // Step 3: Get client secret
+    const secretUrl = `${clientsUrl}/${edaClient.id}/client-secret`;
+    const secretRes = await fetch(secretUrl, {
+      headers: {
+        Authorization: `Bearer ${adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      dispatcher: agent
+    });
+
+    if (!secretRes.ok) {
+      throw new Error(`Failed to fetch client secret: ${secretRes.status}`);
+    }
+
+    const secretData = await secretRes.json() as any;
+    return secretData.value || '';
+  }
+
   static async show(context: vscode.ExtensionContext): Promise<void> {
     const k8sClient = new KubernetesClient();
     const contexts = k8sClient.getAvailableContexts();
@@ -252,7 +390,7 @@ export class TargetWizardPanel extends BasePanel {
         })();
 
         const edaPassword = await context.secrets.get(`edaPassword:${host}`);
-        const kcPassword = await context.secrets.get(`kcPassword:${host}`);
+        const clientSecret = await context.secrets.get(`clientSecret:${host}`);
 
         // Handle legacy string format and new object format
         if (typeof val === 'string' || val === null) {
@@ -260,7 +398,7 @@ export class TargetWizardPanel extends BasePanel {
             url,
             context: val || undefined,
             edaPassword: edaPassword || undefined,
-            kcPassword: kcPassword || undefined
+            clientSecret: clientSecret || undefined
           };
         }
 
@@ -268,11 +406,10 @@ export class TargetWizardPanel extends BasePanel {
           url,
           context: val.context || undefined,
           edaUsername: val.edaUsername || undefined,
-          kcUsername: val.kcUsername || undefined,
-          skipTlsVerify: val.skipTlsVerify || undefined,
-          coreNamespace: val.coreNamespace || undefined,
           edaPassword: edaPassword || undefined,
-          kcPassword: kcPassword || undefined
+          clientSecret: clientSecret || val.clientSecret || undefined,
+          skipTlsVerify: val.skipTlsVerify || undefined,
+          coreNamespace: val.coreNamespace || undefined
         };
       })
     );

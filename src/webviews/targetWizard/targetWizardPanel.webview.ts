@@ -52,14 +52,19 @@ class TargetWizardWebview {
     });
 
     this.setupToggle('edaPass', 'toggleEdaPass');
-    this.setupToggle('kcPass', 'toggleKcPass');
+    this.setupToggle('clientSecret', 'toggleClientSecret');
+
+    document.getElementById('retrieveSecret')?.addEventListener('click', () => this.retrieveClientSecret());
 
     window.addEventListener('message', e => this.handleMessage(e.data as DeleteConfirmedMessage));
   }
 
-  private handleMessage(msg: DeleteConfirmedMessage): void {
+  private handleMessage(msg: any): void {
     if (msg.command === 'deleteConfirmed') {
       this.performDelete(msg.index);
+    } else if (msg.command === 'clientSecretRetrieved') {
+      (document.getElementById('clientSecret') as HTMLInputElement).value = msg.clientSecret;
+      (document.getElementById('clientSecretHint') as HTMLElement).textContent = 'Client secret retrieved successfully';
     }
   }
 
@@ -194,8 +199,7 @@ class TargetWizardWebview {
     addRow('EDA Core Namespace', target.coreNamespace || 'eda-system');
     addRow('EDA Username', target.edaUsername || 'admin');
     addRow('EDA Password', target.edaPassword ? '••••••••' : '', 'Not configured');
-    addRow('Keycloak Admin Username', target.kcUsername || 'admin');
-    addRow('Keycloak Admin Password', target.kcPassword ? '••••••••' : '', 'Not configured');
+    addRow('Client Secret', target.clientSecret ? '••••••••' : '', 'Not configured');
     addRow('Skip TLS Verification', target.skipTlsVerify ? 'Yes' : 'No');
 
     const actions = document.createElement('div');
@@ -272,11 +276,10 @@ class TargetWizardWebview {
     (document.getElementById('context') as HTMLSelectElement).value = target.context || '';
     (document.getElementById('coreNs') as HTMLInputElement).value = target.coreNamespace || 'eda-system';
     (document.getElementById('edaUser') as HTMLInputElement).value = target.edaUsername || 'admin';
-    (document.getElementById('kcUser') as HTMLInputElement).value = target.kcUsername || 'admin';
     (document.getElementById('edaPass') as HTMLInputElement).value = target.edaPassword || '';
-    (document.getElementById('kcPass') as HTMLInputElement).value = target.kcPassword || '';
+    (document.getElementById('clientSecret') as HTMLInputElement).value = target.clientSecret || '';
     (document.getElementById('edaPassHint') as HTMLElement).textContent = target.edaPassword ? 'Loaded from secret. Change to update.' : '';
-    (document.getElementById('kcPassHint') as HTMLElement).textContent = target.kcPassword ? 'Loaded from secret. Change to update.' : '';
+    (document.getElementById('clientSecretHint') as HTMLElement).textContent = target.clientSecret ? 'Loaded from secret. Change to update.' : 'Click Retrieve to fetch from Keycloak';
     (document.getElementById('skipTls') as HTMLInputElement).checked = !!target.skipTlsVerify;
   }
 
@@ -285,11 +288,10 @@ class TargetWizardWebview {
     (document.getElementById('context') as HTMLSelectElement).value = '';
     (document.getElementById('coreNs') as HTMLInputElement).value = 'eda-system';
     (document.getElementById('edaUser') as HTMLInputElement).value = 'admin';
-    (document.getElementById('kcUser') as HTMLInputElement).value = 'admin';
     (document.getElementById('edaPass') as HTMLInputElement).value = '';
-    (document.getElementById('kcPass') as HTMLInputElement).value = '';
+    (document.getElementById('clientSecret') as HTMLInputElement).value = '';
     (document.getElementById('edaPassHint') as HTMLElement).textContent = '';
-    (document.getElementById('kcPassHint') as HTMLElement).textContent = '';
+    (document.getElementById('clientSecretHint') as HTMLElement).textContent = 'Click Retrieve to fetch from Keycloak';
     (document.getElementById('skipTls') as HTMLInputElement).checked = false;
   }
 
@@ -340,8 +342,7 @@ class TargetWizardWebview {
     const context = (document.getElementById('context') as HTMLSelectElement).value;
     const edaUsername = (document.getElementById('edaUser') as HTMLInputElement).value;
     const edaPassword = (document.getElementById('edaPass') as HTMLInputElement).value;
-    const kcUsername = (document.getElementById('kcUser') as HTMLInputElement).value;
-    const kcPassword = (document.getElementById('kcPass') as HTMLInputElement).value;
+    const clientSecret = (document.getElementById('clientSecret') as HTMLInputElement).value;
     const skipTlsVerify = (document.getElementById('skipTls') as HTMLInputElement).checked;
     const coreNamespace = (document.getElementById('coreNs') as HTMLInputElement).value;
     const originalUrl = this.editIndex !== null ? this.targets[this.editIndex].url : null;
@@ -352,8 +353,7 @@ class TargetWizardWebview {
       context,
       edaUsername,
       edaPassword,
-      kcUsername,
-      kcPassword,
+      clientSecret,
       skipTlsVerify,
       coreNamespace,
       originalUrl,
@@ -368,7 +368,7 @@ class TargetWizardWebview {
       context: (document.getElementById('context') as HTMLSelectElement).value || undefined,
       coreNamespace: (document.getElementById('coreNs') as HTMLInputElement).value || undefined,
       edaUsername: (document.getElementById('edaUser') as HTMLInputElement).value || undefined,
-      kcUsername: (document.getElementById('kcUser') as HTMLInputElement).value || undefined,
+      clientSecret: (document.getElementById('clientSecret') as HTMLInputElement).value || undefined,
       skipTlsVerify: (document.getElementById('skipTls') as HTMLInputElement).checked || undefined
     } as any;
 
@@ -393,7 +393,20 @@ class TargetWizardWebview {
     this.showTargetDetails(this.targets[this.selectedIdx]);
 
     (document.getElementById('edaPassHint') as HTMLElement).textContent = '';
-    (document.getElementById('kcPassHint') as HTMLElement).textContent = '';
+    (document.getElementById('clientSecretHint') as HTMLElement).textContent = '';
+  }
+
+  private retrieveClientSecret(): void {
+    const url = (document.getElementById('url') as HTMLInputElement).value.trim();
+    if (!url) {
+      window.alert('Please enter EDA API URL first');
+      return;
+    }
+
+    this.vscode.postMessage({
+      command: 'retrieveClientSecret',
+      url
+    });
   }
 
   private setupToggle(id: string, toggleId: string): void {

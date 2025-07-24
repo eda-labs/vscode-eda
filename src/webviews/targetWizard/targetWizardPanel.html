@@ -65,17 +65,15 @@
           </div>
 
           <div>
-            <label class="block text-sm font-medium">Keycloak Admin Username</label>
-            <input id="kcUser" type="text" value="admin" class="w-full px-3 py-2 text-[var(--vscode-input-foreground)] bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded text-sm box-border focus:outline-none focus:border-[var(--vscode-focusBorder)]" />
-          </div>
-
-          <div>
-            <label class="block text-sm font-medium">Keycloak Admin Password</label>
-            <div class="relative">
-              <input id="kcPass" type="password" value="admin" class="w-full px-3 py-2 pr-8 text-[var(--vscode-input-foreground)] bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded text-sm box-border focus:outline-none focus:border-[var(--vscode-focusBorder)]" />
-              <button id="toggleKcPass" type="button" class="absolute top-1/2 right-2 -translate-y-1/2 bg-transparent border-none text-[var(--vscode-input-foreground)] cursor-pointer p-1" aria-label="Show password">👁</button>
+            <label class="block text-sm font-medium">Client Secret</label>
+            <div class="flex gap-2">
+              <div class="relative flex-1">
+                <input id="clientSecret" type="password" placeholder="Client secret for OAuth2 authentication" class="w-full px-3 py-2 pr-8 text-[var(--vscode-input-foreground)] bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded text-sm box-border focus:outline-none focus:border-[var(--vscode-focusBorder)]" />
+                <button id="toggleClientSecret" type="button" class="absolute top-1/2 right-2 -translate-y-1/2 bg-transparent border-none text-[var(--vscode-input-foreground)] cursor-pointer p-1" aria-label="Show secret">👁</button>
+              </div>
+              <button id="retrieveSecret" type="button" class="px-4 py-2 rounded font-medium text-sm cursor-pointer transition-colors bg-[var(--vscode-button-secondaryBackground)] text-[var(--vscode-button-secondaryForeground)] border border-[var(--vscode-button-border)] hover:bg-[var(--vscode-button-secondaryHoverBackground)]">Retrieve</button>
             </div>
-            <span id="kcPassHint" class="hint"></span>
+            <span id="clientSecretHint" class="hint text-xs text-[var(--vscode-descriptionForeground)] mt-1">Leave empty to auto-retrieve from Keycloak</span>
           </div>
 
           <div>

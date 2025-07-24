@@ -44,7 +44,7 @@ import { EmbeddingSearchService } from './services/embeddingSearchService';
 export interface EdaTargetConfig {
   context?: string;
   edaUsername?: string;
-  kcUsername?: string;
+  clientSecret?: string;
   skipTlsVerify?: boolean;
   coreNamespace?: string;
 }
@@ -175,10 +175,10 @@ export async function activate(context: vscode.ExtensionContext) {
   });
   let edaUrl = 'https://eda-api';
   let edaContext: string | undefined;
-  let edaUsername = config.get<string>('edaUsername', 'admin');
-  let kcUsername = config.get<string>('kcUsername', 'admin');
   let skipTlsVerifyCfg = process.env.EDA_SKIP_TLS_VERIFY === 'true';
   let coreNamespace = process.env.EDA_CORE_NAMESPACE || 'eda-system';
+  let edaUsername = config.get<string>('edaUsername', 'admin');
+  let edaPassword = '';
   const edaTargetsCfg = config.get<Record<string, string | EdaTargetConfig | undefined>>('edaTargets');
   const targetEntries = edaTargetsCfg ? Object.entries(edaTargetsCfg) : [];
   if (targetEntries.length === 0) {
@@ -196,9 +196,6 @@ export async function activate(context: vscode.ExtensionContext) {
       if (val.edaUsername) {
         edaUsername = val.edaUsername;
       }
-      if (val.kcUsername) {
-        kcUsername = val.kcUsername;
-      }
       if (val.skipTlsVerify !== undefined) {
         skipTlsVerifyCfg = val.skipTlsVerify;
       }
@@ -207,31 +204,6 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     }
   }
-  const edaPasswordCfg = config.get<string>('edaPassword');
-  const kcPasswordCfg = config.get<string>('kcPassword');
-  const secrets = context.secrets;
-
-  async function getOrPromptSecret(
-    key: string,
-    prompt: string,
-    cfgVal?: string
-  ): Promise<string> {
-    if (cfgVal) {
-      await secrets.store(key, cfgVal);
-      return cfgVal;
-    }
-    let val = await secrets.get(key);
-    if (!val) {
-      val = await vscode.window.showInputBox({ prompt, password: true, ignoreFocusOut: true });
-      if (val) {
-        await secrets.store(key, val);
-      } else {
-        val = '';
-      }
-    }
-    return val;
-  }
-
   const hostKey = (() => {
     try {
       return new URL(edaUrl).host;
@@ -239,48 +211,29 @@ export async function activate(context: vscode.ExtensionContext) {
       return edaUrl;
     }
   })();
-
-  const edaPasswordPrompt = `Enter EDA password for ${edaUsername} at ${edaUrl}`;
-  const edaPassword = await getOrPromptSecret(
-    `edaPassword:${hostKey}`,
-    edaPasswordPrompt,
-    edaPasswordCfg
-  );
-  const kcPasswordPrompt = `Enter Keycloak admin password for ${kcUsername} at ${edaUrl}`;
-  const kcPassword = await getOrPromptSecret(
-    `kcPassword:${hostKey}`,
-    kcPasswordPrompt,
-    kcPasswordCfg
-  );
-
-  // Remove plaintext passwords from configuration after storing them in secrets
-  if (edaPasswordCfg) {
-    const inspect = config.inspect<string>('edaPassword');
-    if (inspect?.globalValue !== undefined) {
-      await config.update('edaPassword', undefined, vscode.ConfigurationTarget.Global);
-    }
-    if (inspect?.workspaceValue !== undefined) {
-      await config.update('edaPassword', undefined, vscode.ConfigurationTarget.Workspace);
-    }
-    if (inspect?.workspaceFolderValue !== undefined) {
-      await config.update('edaPassword', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
-    }
-  }
-
-  if (kcPasswordCfg) {
-    const inspect = config.inspect<string>('kcPassword');
-    if (inspect?.globalValue !== undefined) {
-      await config.update('kcPassword', undefined, vscode.ConfigurationTarget.Global);
-    }
-    if (inspect?.workspaceValue !== undefined) {
-      await config.update('kcPassword', undefined, vscode.ConfigurationTarget.Workspace);
-    }
-    if (inspect?.workspaceFolderValue !== undefined) {
-      await config.update('kcPassword', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
-    }
-  }
   const clientId = config.get<string>('clientId', 'eda');
-  const clientSecret = config.get<string>('clientSecret', '');
+
+  // Load passwords from secrets storage
+  edaPassword = await context.secrets.get(`edaPassword:${hostKey}`) || '';
+  const clientSecret = await context.secrets.get(`clientSecret:${hostKey}`) || '';
+
+  log(`Loading credentials for ${edaUrl} (host: ${hostKey})`, LogLevel.INFO, true);
+  log(`EDA Username: ${edaUsername}`, LogLevel.INFO, true);
+  log(`EDA Password: ${edaPassword ? '[SET]' : '[NOT SET]'}`, LogLevel.INFO, true);
+  log(`Client Secret: ${clientSecret ? '[SET]' : '[NOT SET]'}`, LogLevel.INFO, true);
+
+  if (!clientSecret) {
+    vscode.window.showErrorMessage('Client secret is required. Please configure EDA targets.');
+    await configureTargets(context);
+    return;
+  }
+
+  if (!edaPassword) {
+    vscode.window.showErrorMessage('EDA password is required. Please configure EDA targets.');
+    await configureTargets(context);
+    return;
+  }
+
   const skipTlsVerify = skipTlsVerifyCfg;
 
   // Create a status bar item for showing current EDA target
@@ -301,12 +254,10 @@ export async function activate(context: vscode.ExtensionContext) {
     // 1) Create the clients
     const k8sClient = edaContext ? new KubernetesClient(edaContext) : undefined;
     const edaClient = new EdaClient(edaUrl, {
+      clientId,
+      clientSecret,
       edaUsername,
       edaPassword,
-      kcUsername,
-      kcPassword,
-      clientId,
-      clientSecret: clientSecret || undefined,
       skipTlsVerify,
       coreNamespace
     });
