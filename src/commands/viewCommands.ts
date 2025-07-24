@@ -69,6 +69,9 @@ export function registerViewCommands(
           nodesWithConfigChanges: Array.isArray(mergedObj.nodesWithConfigChanges)
             ? mergedObj.nodesWithConfigChanges
             : [],
+          intentsRun: Array.isArray(mergedObj.intentsRun)
+            ? mergedObj.intentsRun
+            : [],
           generalErrors: mergedObj.generalErrors,
           rawJson: JSON.stringify(mergedObj, null, 2)
         };
