@@ -240,13 +240,17 @@ declare function acquireVsCodeApi(): {
         nsSelect.appendChild(opt);
       });
       nsSelect.value = msg.selected || msg.namespaces[0] || '';
-      autocompleteList.style.display = 'none';
+      if (document.activeElement !== queryInput) {
+        autocompleteList.style.display = 'none';
+      }
     } else if (msg.command === 'clear') {
       columns = [];
       allRows = [];
       renderTable([]);
       statusEl.textContent = 'Running...';
-      autocompleteList.style.display = 'none';
+      if (document.activeElement !== queryInput) {
+        autocompleteList.style.display = 'none';
+      }
     } else if (msg.command === 'results') {
       const colsChanged = !arraysEqual(columns, msg.columns);
       columns = msg.columns;
@@ -262,13 +266,17 @@ declare function acquireVsCodeApi(): {
       if (msg.status) {
         statusEl.textContent = msg.status;
       }
-      autocompleteList.style.display = 'none';
+      if (document.activeElement !== queryInput) {
+        autocompleteList.style.display = 'none';
+      }
     } else if (msg.command === 'error') {
       statusEl.textContent = msg.error;
       columns = [];
       allRows = [];
       renderTable([]);
-      autocompleteList.style.display = 'none';
+      if (document.activeElement !== queryInput) {
+        autocompleteList.style.display = 'none';
+      }
     } else if (msg.command === 'autocomplete') {
       autocompleteList.innerHTML = '';
       autocompleteIndex = -1;
