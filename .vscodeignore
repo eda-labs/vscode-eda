@@ -15,3 +15,5 @@ patch.sh
 package-lock.json
 **/*.map
 spec_example/**
+tools/**
+!bin/**

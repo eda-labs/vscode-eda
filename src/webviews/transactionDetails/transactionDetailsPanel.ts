@@ -100,24 +100,114 @@ export class TransactionDetailsPanel extends BasePanel {
     return `<ul class="resource-list">${items.map(item => item).join('')}</ul>`;
   }
 
+  private formatNodeError(error: string): string {
+    // Parse validation errors for better formatting
+    const validationMatch = error.match(/failed\s+validate:\s*(.+?)\s*error_str:"(.+?)"\s*cr_name:"(.+?)"/);
+    if (validationMatch) {
+      const [, jspath, errorStr, crName] = validationMatch;
+      return `
+        <div class="error-item validation-error">
+          <div class="error-type">Validation Error</div>
+          <div class="error-details">
+            <div class="error-field">
+              <span class="field-label">JsPath:</span>
+              <code>${escapeHtml(jspath)}</code>
+            </div>
+            <div class="error-field">
+              <span class="field-label">Error:</span>
+              <span class="error-message">${escapeHtml(errorStr)}</span>
+            </div>
+            <div class="error-field">
+              <span class="field-label">CR Name:</span>
+              <code>${escapeHtml(crName)}</code>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // Parse commit errors
+    const commitMatch = error.match(/failed\s+commit\s+apply:\s*(.+)/);
+    if (commitMatch) {
+      const [, errorDetail] = commitMatch;
+      return `
+        <div class="error-item commit-error">
+          <div class="error-type">Commit Error</div>
+          <div class="error-message">${escapeHtml(errorDetail)}</div>
+        </div>
+      `;
+    }
+
+    // Default error format
+    return `<div class="error-item"><div class="error-message">${escapeHtml(error)}</div></div>`;
+  }
+
   private renderNodeList(nodes: any[]): string {
     if (!nodes || nodes.length === 0) {
       return '<div class="empty-state">No nodes with configuration changes</div>';
     }
 
-    const nodeItems = nodes.map(node => `
-      <li class="node-item">
-        <div class="node-name">${escapeHtml(node.name)}</div>
-        <div class="node-namespace">Namespace: ${escapeHtml(node.namespace)}</div>
-        ${node.errors ? `<div class="node-errors">${escapeHtml(node.errors)}</div>` : ''}
-      </li>
-    `).join('');
+    const nodeItems = nodes.map(node => {
+      const hasErrors = node.errors && (Array.isArray(node.errors) ? node.errors.length > 0 : true);
+      return `
+        <li class="node-item ${hasErrors ? 'has-errors' : ''}">
+          <div class="node-header">
+            <div class="node-name">${escapeHtml(node.name)}</div>
+            <div class="node-namespace">Namespace: ${escapeHtml(node.namespace)}</div>
+          </div>
+          ${hasErrors ? `<div class="node-errors">
+            ${Array.isArray(node.errors)
+              ? node.errors.map((err: any) => this.formatNodeError(String(err))).join('')
+              : this.formatNodeError(String(node.errors))}
+          </div>` : ''}
+        </li>
+      `;
+    }).join('');
 
     return `<ul class="node-list">${nodeItems}</ul>`;
   }
 
   private buildContent(): string {
     const d = this.data;
+
+    // Collect all errors
+    const allErrors: Array<{type: string, source: string, message: string}> = [];
+
+    // Collect intent errors
+    if (d.intentsRun && Array.isArray(d.intentsRun)) {
+      d.intentsRun.forEach((intent: any) => {
+        if (intent.errors && Array.isArray(intent.errors) && intent.errors.length > 0) {
+          intent.errors.forEach((err: any) => {
+            const errorMessage = err.rawError || err.message || String(err);
+            const shortError = errorMessage.split('\n').pop()?.trim() || errorMessage;
+            allErrors.push({
+              type: 'Intent Error',
+              source: intent.intentName?.name || 'Unknown Intent',
+              message: shortError
+            });
+          });
+        }
+      });
+    }
+
+    // Collect node validation errors
+    if (d.nodesWithConfigChanges && Array.isArray(d.nodesWithConfigChanges)) {
+      d.nodesWithConfigChanges.forEach((node: any) => {
+        if (node.errors && Array.isArray(node.errors)) {
+          node.errors.forEach((err: string) => {
+            const validationMatch = err.match(/failed\s+validate:\s*(.+?)\s*error_str:"(.+?)"\s*cr_name:"(.+?)"/);
+            if (validationMatch) {
+              const [, , errorStr, ] = validationMatch;
+              allErrors.push({
+                type: 'Validation Error',
+                source: node.name,
+                message: errorStr
+              });
+            }
+          });
+        }
+      });
+    }
 
     const header = `
       <div class="header">
@@ -128,6 +218,25 @@ export class TransactionDetailsPanel extends BasePanel {
           </h1>
           <button class="diff-button">Show Diffs</button>
         </div>
+        ${allErrors.length > 0 ? `
+          <div class="errors-summary">
+            <div class="errors-header">
+              <span class="error-icon">⚠️</span>
+              <span class="error-title">Errors (${allErrors.length})</span>
+            </div>
+            <div class="errors-list">
+              ${allErrors.map(({type, source, message}) => `
+                <div class="error-summary-item">
+                  <div class="error-summary-header">
+                    <span class="error-type-badge ${type === 'Intent Error' ? 'intent' : 'validation'}">${escapeHtml(type)}</span>
+                    <span class="error-source">${escapeHtml(source)}</span>
+                  </div>
+                  <div class="error-summary-message">${escapeHtml(message)}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
         <div class="summary">
           <div class="summary-item">
             <div class="summary-label">State</div>

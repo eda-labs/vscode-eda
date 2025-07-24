@@ -7,6 +7,9 @@ declare function acquireVsCodeApi(): {
 (function () {
   const vscode = acquireVsCodeApi();
   const queryInput = document.getElementById('queryInput') as HTMLInputElement;
+  const queryTypeSelect = document.getElementById('queryTypeSelect') as HTMLSelectElement;
+  const queryTypeNote = document.getElementById('queryTypeNote') as HTMLElement;
+  const noteText = document.getElementById('noteText') as HTMLElement;
   const autocompleteList = document.getElementById('autocompleteList') as HTMLUListElement;
   const runButton = document.getElementById('runButton') as HTMLButtonElement;
   const nsSelect = document.getElementById('namespaceSelect') as HTMLSelectElement;
@@ -18,6 +21,14 @@ declare function acquireVsCodeApi(): {
   const resultsBody = document.getElementById('resultsBody') as HTMLTableSectionElement;
   const filterRow = document.getElementById('filterRow') as HTMLTableRowElement;
   const statusEl = document.getElementById('status') as HTMLElement;
+  const convertedQueryInfo = document.getElementById('convertedQueryInfo') as HTMLElement;
+  const convertedEQL = document.getElementById('convertedEQL') as HTMLElement;
+  const conversionLabel = document.getElementById('conversionLabel') as HTMLElement;
+  const dismissInfo = document.getElementById('dismissInfo') as HTMLButtonElement;
+  const showAlternatives = document.getElementById('showAlternatives') as HTMLButtonElement;
+  const alternativeQueries = document.getElementById('alternativeQueries') as HTMLElement;
+  const alternativesList = document.getElementById('alternativesList') as HTMLUListElement;
+  const convertedDescription = document.getElementById('convertedDescription') as HTMLElement;
 
   let allRows: any[] = [];
   let columns: string[] = [];
@@ -25,6 +36,46 @@ declare function acquireVsCodeApi(): {
   let sortIndex = -1;
   let sortAsc = true;
   let copyFormat: 'ascii' | 'markdown' | 'json' | 'yaml' = 'ascii';
+
+  function updateQueryInputPlaceholder(): void {
+    const queryType = queryTypeSelect.value;
+    switch (queryType) {
+      case 'eql':
+        queryInput.placeholder = 'Enter EQL expression (e.g., .namespace.node.name)';
+        queryTypeNote.style.display = 'none';
+        break;
+      case 'nql':
+        queryInput.placeholder = 'Enter natural language query (e.g., Which ports are down?)';
+        noteText.textContent = 'Natural Query Language (NQL) converts your natural language questions into EQL queries using an LLM.';
+        queryTypeNote.style.display = 'block';
+        break;
+      case 'emb':
+        queryInput.placeholder = 'Enter natural language query for embedding search';
+        noteText.textContent = 'Embeddings-based natural language support is an experimental way to use natural language with EQL without having to use an LLM.';
+        queryTypeNote.style.display = 'block';
+        break;
+    }
+  }
+
+  queryTypeSelect.addEventListener('change', updateQueryInputPlaceholder);
+  updateQueryInputPlaceholder(); // Set initial state
+
+  dismissInfo.addEventListener('click', () => {
+    convertedQueryInfo.style.display = 'none';
+    alternativeQueries.style.display = 'none';
+    showAlternatives.classList.remove('expanded');
+  });
+
+  showAlternatives.addEventListener('click', () => {
+    const isExpanded = showAlternatives.classList.contains('expanded');
+    if (isExpanded) {
+      alternativeQueries.style.display = 'none';
+      showAlternatives.classList.remove('expanded');
+    } else {
+      alternativeQueries.style.display = 'block';
+      showAlternatives.classList.add('expanded');
+    }
+  });
 
   function insertAutocomplete(text: string): void {
     const start = queryInput.selectionStart ?? queryInput.value.length;
@@ -48,6 +99,7 @@ declare function acquireVsCodeApi(): {
     vscode.postMessage({
       command: 'runQuery',
       query: queryInput.value,
+      queryType: queryTypeSelect.value,
       namespace: nsSelect.value
     });
     autocompleteList.innerHTML = '';
@@ -108,7 +160,7 @@ declare function acquireVsCodeApi(): {
       autocompleteList.style.display = 'none';
       autocompleteIndex = -1;
       formatMenu.style.display = 'none';
-    } else if (e.key === 'Tab' && autocompleteList.children.length > 0) {
+    } else if (e.key === 'Tab' && autocompleteList.children.length > 0 && queryTypeSelect.value === 'eql') {
       e.preventDefault();
       const target =
         autocompleteIndex >= 0
@@ -142,7 +194,7 @@ declare function acquireVsCodeApi(): {
       highlightAutocomplete();
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (autocompleteIndex >= 0 && !e.metaKey && !e.ctrlKey) {
+      if (autocompleteIndex >= 0 && !e.metaKey && !e.ctrlKey && queryTypeSelect.value === 'eql') {
         const item = autocompleteList.children[autocompleteIndex] as HTMLElement;
         if (item) {
           insertAutocomplete(item.textContent || '');
@@ -168,7 +220,13 @@ declare function acquireVsCodeApi(): {
   });
 
   queryInput.addEventListener('input', () => {
-    vscode.postMessage({ command: 'autocomplete', query: queryInput.value });
+    // Only provide autocomplete for EQL queries
+    if (queryTypeSelect.value === 'eql') {
+      vscode.postMessage({ command: 'autocomplete', query: queryInput.value });
+    } else {
+      autocompleteList.innerHTML = '';
+      autocompleteList.style.display = 'none';
+    }
   });
 
   window.addEventListener('message', event => {
@@ -197,12 +255,12 @@ declare function acquireVsCodeApi(): {
         sortIndex = -1;
         sortAsc = true;
         renderTable(allRows);
+      } else {
+        if (sortIndex >= 0) sortRows();
+        applyFilters();
       }
       if (msg.status) {
         statusEl.textContent = msg.status;
-      } else {
-        if (!colsChanged && sortIndex >= 0) sortRows();
-        applyFilters();
       }
       autocompleteList.style.display = 'none';
     } else if (msg.command === 'error') {
@@ -234,6 +292,75 @@ declare function acquireVsCodeApi(): {
       autocompleteList.style.display =
         msg.list && msg.list.length ? 'block' : 'none';
       highlightAutocomplete();
+    } else if (msg.command === 'convertedQuery') {
+      // Show the converted query info
+      convertedEQL.textContent = msg.eqlQuery;
+      convertedQueryInfo.style.display = 'block';
+
+      // Update label based on query type
+      if (msg.queryType === 'nql') {
+        conversionLabel.textContent = 'NQL converted to EQL:';
+        // Keep the original NQL query in the input, just show the conversion info
+      } else {
+        conversionLabel.textContent = 'Natural language converted to EQL:';
+        // For EMB, also keep the original natural language query in the input
+        // The converted EQL is already shown in the convertedEQL element
+      }
+
+      // Show description if available
+      if (msg.description) {
+        convertedDescription.textContent = msg.description;
+        convertedDescription.style.display = 'block';
+      } else {
+        convertedDescription.style.display = 'none';
+      }
+
+      // Clear and populate alternatives list
+      alternativesList.innerHTML = '';
+      if (msg.alternatives && msg.alternatives.length > 0) {
+        showAlternatives.style.display = 'flex';
+        msg.alternatives.forEach((alt: any) => {
+          const li = document.createElement('li');
+
+          // Create container for query info
+          const queryInfo = document.createElement('div');
+          queryInfo.style.flex = '1';
+
+          const code = document.createElement('code');
+          code.textContent = alt.query;
+          queryInfo.appendChild(code);
+
+          // Add description if available
+          if (alt.description) {
+            const desc = document.createElement('div');
+            desc.style.fontSize = '11px';
+            desc.style.color = 'var(--vscode-descriptionForeground)';
+            desc.style.marginTop = '2px';
+            desc.textContent = alt.description;
+            queryInfo.appendChild(desc);
+          }
+
+
+          li.appendChild(queryInfo);
+
+          const score = document.createElement('span');
+          score.className = 'score';
+          score.textContent = `Score: ${alt.score.toFixed(1)}`;
+          li.appendChild(score);
+
+          li.addEventListener('click', () => {
+            queryInput.value = alt.query;
+            convertedEQL.textContent = alt.query;
+            alternativeQueries.style.display = 'none';
+            showAlternatives.classList.remove('expanded');
+            runButton.click();
+          });
+
+          alternativesList.appendChild(li);
+        });
+      } else {
+        showAlternatives.style.display = 'none';
+      }
     }
   });
 

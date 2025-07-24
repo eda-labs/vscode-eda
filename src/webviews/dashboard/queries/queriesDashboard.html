@@ -1,9 +1,14 @@
 <div class="dashboard">
   <header class="header">
     <div class="query-bar">
-      <label class="query-label" for="queryInput"><span class="codicon codicon-search"></span> EQL Query</label>
+      <label class="query-label" for="queryInput"><span class="codicon codicon-search"></span> Query</label>
+      <select id="queryTypeSelect" class="query-type-select">
+        <option value="eql">EQL</option>
+        <option value="nql">NQL</option>
+        <option value="emb">EMB</option>
+      </select>
       <div class="query-input-wrapper">
-        <input id="queryInput" type="text" class="query-input" placeholder="Enter EQL expression" />
+        <input id="queryInput" type="text" class="query-input" placeholder="Enter EQL expression or natural language query" />
         <ul id="autocompleteList" class="autocomplete-list"></ul>
       </div>
       <button id="runButton" class="run-btn">Run</button>
@@ -26,6 +31,31 @@
     </div>
     <select id="namespaceSelect" class="select"></select>
   </header>
+  
+  <div id="queryTypeNote" class="query-type-note" style="display: none;">
+    <div class="note-content">
+      <span class="note-icon">ℹ️</span>
+      <span id="noteText" class="note-text"></span>
+    </div>
+  </div>
+  
+  <div id="convertedQueryInfo" class="converted-query-info" style="display: none;">
+    <div class="converted-query-main">
+      <span class="info-icon">ℹ️</span>
+      <div class="info-text">
+        <div><span id="conversionLabel">Query converted to EQL:</span> <code id="convertedEQL"></code></div>
+        <div id="convertedDescription" class="converted-description"></div>
+      </div>
+      <button id="showAlternatives" class="show-alternatives-btn" title="Show alternative queries">
+        <span class="codicon codicon-chevron-down"></span>
+      </button>
+      <button id="dismissInfo" class="dismiss-btn">×</button>
+    </div>
+    <div id="alternativeQueries" class="alternative-queries" style="display: none;">
+      <div class="alternatives-header">Alternative queries:</div>
+      <ul id="alternativesList" class="alternatives-list"></ul>
+    </div>
+  </div>
 
   <div class="results-container">
     <table class="results-table">

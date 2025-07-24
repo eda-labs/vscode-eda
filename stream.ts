@@ -45,6 +45,26 @@ async function streamSse(url: string, auth: EdaAuthClient): Promise<void> {
   }
 
   console.log("\n[SSE] Starting stream...");
+
+  // For non-streaming responses, read the entire body
+  if (res.headers.get('content-length')) {
+    const text = await res.text();
+    console.log(`[SSE] Complete response received: ${text}`);
+
+    // Try to parse the complete response for stream and details
+    try {
+      const jsonData = JSON.parse(text);
+      if (jsonData.stream && jsonData.details) {
+        console.log(`[SSE Stream] ${jsonData.stream}`);
+        console.log(`[SSE Details] ${jsonData.details}`);
+      }
+    } catch {
+      // Not JSON or doesn't have expected fields
+    }
+    return;
+  }
+
+  // For streaming responses
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -62,7 +82,20 @@ async function streamSse(url: string, auth: EdaAuthClient): Promise<void> {
         const line = buffer.slice(0, nl).trim();
         buffer = buffer.slice(nl + 1);
         if (!line) continue;
-        console.log(`[SSE Data] ${line}`);
+
+        // Try to parse JSON to extract stream and details
+        try {
+          const jsonData = JSON.parse(line);
+          if (jsonData.stream && jsonData.details) {
+            console.log(`[SSE Stream] ${jsonData.stream}`);
+            console.log(`[SSE Details] ${jsonData.details}`);
+          } else {
+            console.log(`[SSE Data] ${line}`);
+          }
+        } catch {
+          // Not JSON, log as raw data
+          console.log(`[SSE Data] ${line}`);
+        }
       }
     }
   } catch (error) {
@@ -73,7 +106,7 @@ async function streamSse(url: string, auth: EdaAuthClient): Promise<void> {
 async function main(): Promise<void> {
   const arg = process.argv[2];
   if (!arg) {
-    console.error("Usage: ts-node stream.ts <endpoint-path|eql-query>");
+    console.error("Usage: ts-node stream.ts <endpoint-path|eql-query|nql:query>");
     process.exit(1);
   }
 
@@ -116,19 +149,42 @@ async function main(): Promise<void> {
     try {
       const msg = JSON.parse(txt);
 
+      // Check for stream and details in WebSocket messages
+      if (msg.stream && msg.details) {
+        console.log(`[WS Stream] ${msg.stream}`);
+        console.log(`[WS Details] ${msg.details}`);
+      }
+
       if (msg.type === "register" && msg.msg?.client) {
         const client = msg.msg.client as string;
         let streamName: string;
         let sseUrl: string;
 
         if (arg.startsWith(".")) {
+          // EQL query
           streamName = "eql";
           sseUrl =
             `${auth.getBaseUrl()}/core/query/v1/eql` +
             `?eventclient=${encodeURIComponent(client)}` +
             `&stream=${streamName}` +
             `&query=${encodeURIComponent(arg)}`;
+        } else if (arg.startsWith("nql:")) {
+          // NQL query
+          streamName = "nql";
+          const nqlQuery = arg.substring(4); // Remove "nql:" prefix
+          sseUrl =
+            `${auth.getBaseUrl()}/core/query/v1/nql` +
+            `?eventclient=${encodeURIComponent(client)}` +
+            `&stream=${streamName}` +
+            `&query=${encodeURIComponent(nqlQuery)}`;
+
+          // Add namespaces parameter if provided via environment variable
+          const namespaces = process.env.NQL_NAMESPACES;
+          if (namespaces) {
+            sseUrl += `&namespaces=${encodeURIComponent(namespaces)}`;
+          }
         } else {
+          // Direct endpoint path
           streamName = arg.substring(arg.lastIndexOf("/") + 1);
           sseUrl =
             `${auth.getBaseUrl()}${arg}` +

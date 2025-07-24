@@ -45,6 +45,86 @@ body {
   margin-bottom: 16px;
 }
 
+.errors-summary {
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.errors-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(248, 113, 113, 0.2);
+}
+
+.error-icon {
+  font-size: 1.125rem;
+}
+
+.error-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.errors-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.error-summary-item {
+  background: var(--bg-primary);
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-size: 0.875rem;
+  border: 1px solid var(--border);
+}
+
+.error-summary-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.error-type-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 3px;
+  letter-spacing: 0.05em;
+}
+
+.error-type-badge.intent {
+  background: rgba(248, 113, 113, 0.2);
+  color: var(--error);
+}
+
+.error-type-badge.validation {
+  background: rgba(251, 191, 36, 0.2);
+  color: var(--warning);
+}
+
+.error-source {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.error-summary-message {
+  color: var(--text-secondary);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
 .header h1 {
   margin: 0 0 16px 0;
   font-size: 1.5rem;
@@ -223,7 +303,7 @@ body {
 
 .node-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
   gap: 12px;
   margin: 0;
   padding: 0;
@@ -232,19 +312,29 @@ body {
 
 .node-item {
   background: var(--bg-primary);
-  padding: 12px 16px;
+  padding: 16px;
   border-radius: 6px;
   border: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
   transition: all 0.2s ease;
+}
+
+.node-item.has-errors {
+  border-color: rgba(248, 113, 113, 0.3);
 }
 
 .node-item:hover {
   background: var(--bg-hover);
   transform: translateY(-2px);
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.node-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .node-name {
@@ -258,9 +348,76 @@ body {
 }
 
 .node-errors {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.error-item {
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  border-radius: 4px;
+  padding: 12px;
   font-size: 0.875rem;
+}
+
+.error-item.validation-error {
+  background: rgba(251, 191, 36, 0.1);
+  border-color: rgba(251, 191, 36, 0.2);
+}
+
+.error-item.commit-error {
+  background: rgba(248, 113, 113, 0.1);
+  border-color: rgba(248, 113, 113, 0.2);
+}
+
+.error-type {
+  font-weight: 600;
   color: var(--error);
-  margin-top: 4px;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+}
+
+.validation-error .error-type {
+  color: var(--warning);
+}
+
+.error-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.error-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.field-label {
+  font-weight: 500;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+}
+
+.error-message {
+  color: var(--text-primary);
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+code {
+  background: var(--vscode-textCodeBlock-background);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.85em;
+  word-break: break-all;
 }
 
 .raw-json-section {
