@@ -171,7 +171,7 @@ export class TransactionDetailsPanel extends BasePanel {
     const d = this.data;
 
     // Collect all errors
-    const allErrors: Array<{type: string, source: string, message: string}> = [];
+    const allErrors: Array<{type: string, source: string, message: string, crName?: string}> = [];
 
     // Collect intent errors
     if (d.intentsRun && Array.isArray(d.intentsRun)) {
@@ -197,11 +197,12 @@ export class TransactionDetailsPanel extends BasePanel {
           node.errors.forEach((err: string) => {
             const validationMatch = err.match(/failed\s+validate:\s*(.+?)\s*error_str:"(.+?)"\s*cr_name:"(.+?)"/);
             if (validationMatch) {
-              const [, , errorStr, ] = validationMatch;
+              const [, , errorStr, crName] = validationMatch;
               allErrors.push({
                 type: 'Validation Error',
                 source: node.name,
-                message: errorStr
+                message: errorStr,
+                crName: crName
               });
             }
           });
@@ -225,11 +226,12 @@ export class TransactionDetailsPanel extends BasePanel {
               <span class="error-title">Errors (${allErrors.length})</span>
             </div>
             <div class="errors-list">
-              ${allErrors.map(({type, source, message}) => `
+              ${allErrors.map(({type, source, message, crName}) => `
                 <div class="error-summary-item">
                   <div class="error-summary-header">
                     <span class="error-type-badge ${type === 'Intent Error' ? 'intent' : 'validation'}">${escapeHtml(type)}</span>
                     <span class="error-source">${escapeHtml(source)}</span>
+                    ${crName ? `<span class="error-cr-name">CR: ${escapeHtml(crName)}</span>` : ''}
                   </div>
                   <div class="error-summary-message">${escapeHtml(message)}</div>
                 </div>

@@ -119,6 +119,17 @@ body {
   color: var(--text-primary);
 }
 
+.error-cr-name {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-left: auto;
+  padding: 2px 8px;
+  background: var(--vscode-textCodeBlock-background);
+  border-radius: 3px;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
 .error-summary-message {
   color: var(--text-secondary);
   line-height: 1.4;
