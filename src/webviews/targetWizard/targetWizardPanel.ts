@@ -110,11 +110,10 @@ export class TargetWizardPanel extends BasePanel {
       delete current[msg.originalUrl];
     }
 
-    // Save new/updated configuration
+    // Save new/updated configuration (excluding secrets)
     current[msg.url] = {
       context: msg.context || undefined,
       edaUsername: msg.edaUsername || undefined,
-      clientSecret: msg.clientSecret || undefined,
       skipTlsVerify: msg.skipTlsVerify || undefined,
       coreNamespace: msg.coreNamespace || undefined
     };
@@ -186,12 +185,11 @@ export class TargetWizardPanel extends BasePanel {
     const previous = config.get<Record<string, any>>('edaTargets') || {};
     const updated: Record<string, any> = {};
 
-    // Build new configuration from targets array
+    // Build new configuration from targets array (excluding secrets)
     for (const target of targets) {
       updated[target.url] = {
         context: target.context || undefined,
         edaUsername: target.edaUsername || undefined,
-        clientSecret: target.clientSecret || undefined,
         skipTlsVerify: target.skipTlsVerify || undefined,
         coreNamespace: target.coreNamespace || undefined
       };
@@ -407,7 +405,7 @@ export class TargetWizardPanel extends BasePanel {
           context: val.context || undefined,
           edaUsername: val.edaUsername || undefined,
           edaPassword: edaPassword || undefined,
-          clientSecret: clientSecret || val.clientSecret || undefined,
+          clientSecret: clientSecret || undefined,
           skipTlsVerify: val.skipTlsVerify || undefined,
           coreNamespace: val.coreNamespace || undefined
         };

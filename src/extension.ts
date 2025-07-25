@@ -44,7 +44,6 @@ import { EmbeddingSearchService } from './services/embeddingSearchService';
 export interface EdaTargetConfig {
   context?: string;
   edaUsername?: string;
-  clientSecret?: string;
   skipTlsVerify?: boolean;
   coreNamespace?: string;
 }
