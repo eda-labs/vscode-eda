@@ -18,7 +18,9 @@ jobs:
   pre-release:
     runs-on: ubuntu-latest
     # Only run on the main repository, not on forks
-    if: github.repository == 'eda-labs/vscode-eda'
+    if: |
+      github.repository == 'eda-labs/vscode-eda' &&
+      !contains(github.event.head_commit.message, '[skip ci]')
     permissions:
       contents: write
       
