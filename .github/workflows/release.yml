@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.target_commitish }}
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Validate version
+        id: version
+        run: |
+          # Get version from package.json
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          echo "package=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
+          
+          # Get version from release tag
+          TAG_NAME="${{ github.event.release.tag_name }}"
+          TAG_VERSION="${TAG_NAME#v}"
+          echo "tag=$TAG_VERSION" >> $GITHUB_OUTPUT
+          
+          # Validate they match
+          if [ "$PACKAGE_VERSION" != "$TAG_VERSION" ]; then
+            echo "❌ Version mismatch!"
+            echo "Package.json version: $PACKAGE_VERSION"
+            echo "Release tag version: $TAG_VERSION"
+            echo ""
+            echo "Please ensure package.json version matches the release tag."
+            exit 1
+          fi
+          
+          echo "✅ Version validation passed: $PACKAGE_VERSION"
+          
+      - name: Run linter
+        run: npm run lint
+        
+      - name: Run type check
+        run: npm run check-types
+        
+      - name: Run tests
+        run: npm test
+        
+      - name: Build extension
+        run: npm run compile
+        
+      - name: Package extension
+        run: |
+          npm install -g @vscode/vsce
+          vsce package -o "vscode-eda-${{ steps.version.outputs.package }}.vsix"
+          
+      - name: Check for VS Code PAT
+        id: check-pat
+        run: |
+          if [ -n "${{ secrets.VSCE_PAT }}" ]; then
+            echo "has_pat=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_pat=false" >> $GITHUB_OUTPUT
+            echo "⚠️ VSCE_PAT secret not configured - skipping marketplace publish"
+          fi
+          
+      - name: Publish to VS Code Marketplace
+        if: steps.check-pat.outputs.has_pat == 'true'
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: vsce publish -p $VSCE_PAT
+        
+      - name: Upload VSIX to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            vscode-eda-${{ steps.version.outputs.package }}.vsix
+          fail_on_unmatched_files: true
