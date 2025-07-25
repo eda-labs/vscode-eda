@@ -45,8 +45,26 @@ jobs:
           echo "current=$CURRENT_VERSION" >> $GITHUB_OUTPUT
           
           # Get latest release tag (excluding pre-releases)
-          LATEST_TAG=$(git tag -l "v*" | grep -v "\-pre" | sort -V | tail -n1 || echo "v0.0.0")
-          LATEST_VERSION="${LATEST_TAG#v}"
+          LATEST_TAG=$(git tag -l "v*" | grep -v "\-pre" | sort -V | tail -n1 || echo "")
+          
+          if [ -z "$LATEST_TAG" ]; then
+            echo "No stable releases found, checking all tags..."
+            # If no stable releases, get the latest tag without -pre suffix
+            ALL_TAGS=$(git tag -l "v*" | sort -V)
+            for tag in $ALL_TAGS; do
+              # Extract version without -pre suffix
+              VERSION_WITHOUT_PRE="${tag%-pre}"
+              VERSION_WITHOUT_PRE="${VERSION_WITHOUT_PRE#v}"
+              LATEST_VERSION="$VERSION_WITHOUT_PRE"
+            done
+            
+            if [ -z "$LATEST_VERSION" ]; then
+              LATEST_VERSION="0.0.0"
+            fi
+          else
+            LATEST_VERSION="${LATEST_TAG#v}"
+          fi
+          
           echo "latest=$LATEST_VERSION" >> $GITHUB_OUTPUT
           
           # Check if current version is higher
