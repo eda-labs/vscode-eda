@@ -661,9 +661,9 @@ async function promptForApplyAction(resource: any, isEda: boolean): Promise<stri
   const name = resource.metadata?.name;
 
   const choices: ActionQuickPickItem[] = [
+    { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' },
     { label: '👁 View Changes (Diff)', id: 'diff', description: 'Compare changes before proceeding' },
-    { label: '✓ Validate (Dry Run)', id: 'validate', description: 'Check if changes are valid without applying' },
-    { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' }
+    { label: '✓ Validate (Dry Run)', id: 'validate', description: 'Check if changes are valid without applying' }
   ];
   if (isEda) {
     choices.push({ label: '🧺 Add to Basket', id: 'basket', description: 'Save changes to the transaction basket' });
@@ -685,8 +685,8 @@ async function promptForNextAction(resource: any, currentStep: string, isEda: bo
   let choices: ActionQuickPickItem[] = [];
   if (currentStep === 'diff') {
     choices = [
-      { label: '✓ Validate (Dry Run)', id: 'validate', description: 'Check if changes are valid without applying' },
-      { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' }
+      { label: '💾 Apply Changes', id: 'apply', description: 'Apply changes to the cluster' },
+      { label: '✓ Validate (Dry Run)', id: 'validate', description: 'Check if changes are valid without applying' }
     ];
     if (isEda) {
       choices.push({ label: '🧺 Add to Basket', id: 'basket', description: 'Save changes to the transaction basket' });
@@ -903,9 +903,10 @@ async function showResourceDiff(
       ? 'Continue with the operation?'
       : 'Apply changes to the resource?';
 
-    // Show a message with action buttons - no information message, just buttons
+    // Show a modal message so keyboard focus defaults to the confirm button
     const action = await vscode.window.showWarningMessage(
       promptMessage,
+      { modal: true },
       confirmLabel,
       'Cancel'
     );
