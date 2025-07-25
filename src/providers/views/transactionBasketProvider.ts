@@ -81,6 +81,19 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     return this.items.slice();
   }
 
+  public getTransaction(index: number): any | undefined {
+    return this.items[index];
+  }
+
+  public async updateTransaction(index: number, tx: any): Promise<void> {
+    if (index < 0 || index >= this.items.length) {
+      return;
+    }
+    this.items[index] = tx;
+    await this.saveBasket();
+    this.refresh();
+  }
+
   public async clearBasket(): Promise<void> {
     this.items = [];
     await this.saveBasket();

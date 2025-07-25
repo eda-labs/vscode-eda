@@ -300,6 +300,11 @@
         "icon": "$(trash)"
       },
       {
+        "command": "vscode-eda.editBasketItem",
+        "title": "EDA: Edit Basket Item",
+        "icon": "$(edit)"
+      },
+      {
         "command": "vscode-eda.showDashboard",
         "title": "EDA: Show Dashboard"
       }
@@ -566,7 +571,17 @@
           "group": "inline"
         },
         {
+          "command": "vscode-eda.editBasketItem",
+          "when": "viewItem == basket-item && view == edaTransactionBasket",
+          "group": "inline"
+        },
+        {
           "command": "vscode-eda.removeBasketItem",
+          "when": "viewItem == basket-item && view == edaTransactionBasket",
+          "group": "navigation"
+        },
+        {
+          "command": "vscode-eda.editBasketItem",
           "when": "viewItem == basket-item && view == edaTransactionBasket",
           "group": "navigation"
         }
