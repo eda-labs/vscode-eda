@@ -1,7 +1,14 @@
 import * as vscode from 'vscode';
+import * as yaml from 'js-yaml';
 import { serviceManager } from '../services/serviceManager';
 import { EdaClient } from '../clients/edaClient';
-import { edaOutputChannel, log, LogLevel, edaTransactionBasketProvider } from '../extension';
+import {
+  edaOutputChannel,
+  log,
+  LogLevel,
+  edaTransactionBasketProvider,
+  basketEditProvider
+} from '../extension';
 
 export function registerBasketCommands(context: vscode.ExtensionContext): void {
   const edaClient = serviceManager.getClient<EdaClient>('eda');
@@ -78,5 +85,46 @@ export function registerBasketCommands(context: vscode.ExtensionContext): void {
     await edaTransactionBasketProvider.removeTransaction(item.basketIndex);
   });
 
-  context.subscriptions.push(discardCmd, commitCmd, dryRunCmd, removeItemCmd);
+  const editItemCmd = vscode.commands.registerCommand('vscode-eda.editBasketItem', async (item: any) => {
+    if (!item || typeof item.basketIndex !== 'number') {
+      return;
+    }
+    const tx = edaTransactionBasketProvider.getTransaction(item.basketIndex);
+    if (!tx) {
+      return;
+    }
+    if (!Array.isArray(tx.crs) || tx.crs.length !== 1) {
+      vscode.window.showInformationMessage('Editing is only supported for single-resource transactions.');
+      return;
+    }
+    const cr = tx.crs[0];
+    const op = Object.keys(cr.type || {})[0];
+    const value = cr.type?.[op]?.value;
+    if (!value) {
+      vscode.window.showInformationMessage('This basket item is not editable.');
+      return;
+    }
+    const docUri = vscode.Uri.parse(`basket-edit:/${item.basketIndex}-${Date.now()}.yaml`);
+    const yamlText = yaml.dump(value, { indent: 2 });
+    basketEditProvider.setContentForUri(docUri, yamlText);
+    const doc = await vscode.workspace.openTextDocument(docUri);
+    await vscode.languages.setTextDocumentLanguage(doc, 'yaml');
+    await vscode.window.showTextDocument(doc, { preview: false });
+
+    const saveListener = vscode.workspace.onDidSaveTextDocument(async savedDoc => {
+      if (savedDoc.uri.toString() === docUri.toString()) {
+        saveListener.dispose();
+        try {
+          const updatedValue = yaml.load(savedDoc.getText());
+          cr.type[op].value = updatedValue;
+          await edaTransactionBasketProvider.updateTransaction(item.basketIndex, tx);
+          vscode.window.showInformationMessage('Basket item updated.');
+        } catch (err: any) {
+          vscode.window.showErrorMessage(`Failed to update basket item: ${err.message || err}`);
+        }
+      }
+    });
+  });
+
+  context.subscriptions.push(discardCmd, commitCmd, dryRunCmd, removeItemCmd, editItemCmd);
 }

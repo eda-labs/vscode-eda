@@ -13,6 +13,7 @@ import { DashboardProvider } from './providers/views/dashboardProvider';
 import { HelpProvider } from './providers/views/helpProvider';
 import { DeviationDetailsDocumentProvider } from './providers/documents/deviationDetailsProvider';
 import { BasketTransactionDocumentProvider } from './providers/documents/basketTransactionProvider';
+import { BasketEditDocumentProvider } from './providers/documents/basketEditProvider';
 import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefinitionProvider';
 import { ResourceEditDocumentProvider } from './providers/documents/resourceEditProvider';
 import { ResourceViewDocumentProvider } from './providers/documents/resourceViewProvider';
@@ -83,6 +84,7 @@ export let edaTransactionBasketProvider: TransactionBasketProvider;
 export let edaTransactionProvider: EdaTransactionProvider;
 export let deviationDetailsProvider: DeviationDetailsDocumentProvider;
 export let basketTransactionProvider: BasketTransactionDocumentProvider;
+export let basketEditProvider: BasketEditDocumentProvider;
 export let resourceViewProvider: ResourceViewDocumentProvider;
 export let resourceEditProvider: ResourceEditDocumentProvider;
 export let podDescribeProvider: PodDescribeDocumentProvider;
@@ -470,14 +472,17 @@ export async function activate(context: vscode.ExtensionContext) {
 
   const crdFsProvider = new CrdDefinitionFileSystemProvider();
   const basketProviderLocal = new BasketTransactionDocumentProvider();
+  const basketEditProviderLocal = new BasketEditDocumentProvider();
   const deviationDetailsProviderLocal = new DeviationDetailsDocumentProvider();
 
   deviationDetailsProvider = deviationDetailsProviderLocal;
   basketTransactionProvider = basketProviderLocal;
+  basketEditProvider = basketEditProviderLocal;
 
   context.subscriptions.push(
     vscode.workspace.registerFileSystemProvider('crd', crdFsProvider, { isCaseSensitive: true }),
     vscode.workspace.registerFileSystemProvider('basket-tx', basketProviderLocal, { isCaseSensitive: true }),
+    vscode.workspace.registerFileSystemProvider('basket-edit', basketEditProviderLocal, { isCaseSensitive: true }),
     vscode.workspace.registerFileSystemProvider('eda-deviation', deviationDetailsProviderLocal, { isCaseSensitive: true })
   );
 
