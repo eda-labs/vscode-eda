@@ -17,6 +17,8 @@ concurrency:
 jobs:
   pre-release:
     runs-on: ubuntu-latest
+    # Only run on the main repository, not on forks
+    if: github.repository == 'eda-labs/vscode-eda'
     permissions:
       contents: write
       
@@ -71,7 +73,7 @@ jobs:
       - name: Package extension
         run: |
           npm install -g @vscode/vsce
-          vsce package --pre-release -o "vscode-eda-${{ steps.version.outputs.current }}-pre.vsix"
+          vsce package --pre-release -o "vscode-eda-${{ steps.version.outputs.current }}.vsix"
           
       - name: Check for VS Code PAT
         id: check-pat
@@ -122,5 +124,5 @@ jobs:
           draft: false
           prerelease: true
           files: |
-            vscode-eda-${{ steps.version.outputs.current }}-pre.vsix
+            vscode-eda-${{ steps.version.outputs.current }}.vsix
           generate_release_notes: true
