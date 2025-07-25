@@ -22,3 +22,23 @@ body {
   width: 3px;
   background-color: var(--vscode-focusBorder);
 }
+
+/* Validation states */
+input.error,
+select.error {
+  border-color: var(--vscode-inputValidation-errorBorder) !important;
+  background-color: var(--vscode-inputValidation-errorBackground) !important;
+}
+
+input.error:focus,
+select.error:focus {
+  outline: 1px solid var(--vscode-inputValidation-errorBorder);
+  outline-offset: -1px;
+}
+
+.field-error {
+  display: block !important;
+  color: var(--vscode-errorForeground);
+  margin-top: 4px;
+  font-size: 12px;
+}

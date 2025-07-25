@@ -52,14 +52,20 @@ class TargetWizardWebview {
     });
 
     this.setupToggle('edaPass', 'toggleEdaPass');
-    this.setupToggle('kcPass', 'toggleKcPass');
+    this.setupToggle('clientSecret', 'toggleClientSecret');
+    this.setupValidation();
+
+    document.getElementById('retrieveSecret')?.addEventListener('click', () => this.retrieveClientSecret());
 
     window.addEventListener('message', e => this.handleMessage(e.data as DeleteConfirmedMessage));
   }
 
-  private handleMessage(msg: DeleteConfirmedMessage): void {
+  private handleMessage(msg: any): void {
     if (msg.command === 'deleteConfirmed') {
       this.performDelete(msg.index);
+    } else if (msg.command === 'clientSecretRetrieved') {
+      (document.getElementById('clientSecret') as HTMLInputElement).value = msg.clientSecret;
+      (document.getElementById('clientSecretHint') as HTMLElement).textContent = 'Client secret retrieved successfully';
     }
   }
 
@@ -194,8 +200,7 @@ class TargetWizardWebview {
     addRow('EDA Core Namespace', target.coreNamespace || 'eda-system');
     addRow('EDA Username', target.edaUsername || 'admin');
     addRow('EDA Password', target.edaPassword ? '••••••••' : '', 'Not configured');
-    addRow('Keycloak Admin Username', target.kcUsername || 'admin');
-    addRow('Keycloak Admin Password', target.kcPassword ? '••••••••' : '', 'Not configured');
+    addRow('Client Secret', target.clientSecret ? '••••••••' : '', 'Not configured');
     addRow('Skip TLS Verification', target.skipTlsVerify ? 'Yes' : 'No');
 
     const actions = document.createElement('div');
@@ -265,6 +270,9 @@ class TargetWizardWebview {
     detailsContent.style.display = 'none';
     formContainer.style.display = 'block';
     setDefaultBtn.style.display = 'none';
+
+    // Reset validation state
+    this.resetValidationState();
   }
 
   private populateForm(target: any): void {
@@ -272,11 +280,10 @@ class TargetWizardWebview {
     (document.getElementById('context') as HTMLSelectElement).value = target.context || '';
     (document.getElementById('coreNs') as HTMLInputElement).value = target.coreNamespace || 'eda-system';
     (document.getElementById('edaUser') as HTMLInputElement).value = target.edaUsername || 'admin';
-    (document.getElementById('kcUser') as HTMLInputElement).value = target.kcUsername || 'admin';
     (document.getElementById('edaPass') as HTMLInputElement).value = target.edaPassword || '';
-    (document.getElementById('kcPass') as HTMLInputElement).value = target.kcPassword || '';
-    (document.getElementById('edaPassHint') as HTMLElement).textContent = target.edaPassword ? 'Loaded from secret. Change to update.' : '';
-    (document.getElementById('kcPassHint') as HTMLElement).textContent = target.kcPassword ? 'Loaded from secret. Change to update.' : '';
+    (document.getElementById('clientSecret') as HTMLInputElement).value = target.clientSecret || '';
+    (document.getElementById('edaPassHint') as HTMLElement).textContent = target.edaPassword ? 'Loaded from secret storage' : '';
+    (document.getElementById('clientSecretHint') as HTMLElement).textContent = target.clientSecret ? 'Loaded from secret storage' : 'Leave empty to auto-retrieve from Keycloak';
     (document.getElementById('skipTls') as HTMLInputElement).checked = !!target.skipTlsVerify;
   }
 
@@ -285,11 +292,10 @@ class TargetWizardWebview {
     (document.getElementById('context') as HTMLSelectElement).value = '';
     (document.getElementById('coreNs') as HTMLInputElement).value = 'eda-system';
     (document.getElementById('edaUser') as HTMLInputElement).value = 'admin';
-    (document.getElementById('kcUser') as HTMLInputElement).value = 'admin';
     (document.getElementById('edaPass') as HTMLInputElement).value = '';
-    (document.getElementById('kcPass') as HTMLInputElement).value = '';
+    (document.getElementById('clientSecret') as HTMLInputElement).value = '';
     (document.getElementById('edaPassHint') as HTMLElement).textContent = '';
-    (document.getElementById('kcPassHint') as HTMLElement).textContent = '';
+    (document.getElementById('clientSecretHint') as HTMLElement).textContent = 'Click Retrieve to fetch from Keycloak';
     (document.getElementById('skipTls') as HTMLInputElement).checked = false;
   }
 
@@ -332,18 +338,30 @@ class TargetWizardWebview {
 
   private sendData(command: string): void {
     const url = (document.getElementById('url') as HTMLInputElement).value.trim();
-    if (!url) {
-      window.alert('URL is required');
+    const coreNamespace = (document.getElementById('coreNs') as HTMLInputElement).value.trim();
+    const edaUsername = (document.getElementById('edaUser') as HTMLInputElement).value.trim();
+    const edaPassword = (document.getElementById('edaPass') as HTMLInputElement).value.trim();
+    const clientSecret = (document.getElementById('clientSecret') as HTMLInputElement).value.trim();
+
+    // Validate required fields
+    const missingFields: string[] = [];
+    if (!url) missingFields.push('EDA API URL');
+    if (!coreNamespace) missingFields.push('EDA Core Namespace');
+    if (!edaUsername) missingFields.push('EDA Username');
+    if (!edaPassword) missingFields.push('EDA Password');
+    if (!clientSecret) missingFields.push('Client Secret');
+
+    if (missingFields.length > 0) {
+      this.validateAllFields();
+      const firstErrorField = document.querySelector('input.error') as HTMLInputElement;
+      if (firstErrorField) {
+        firstErrorField.focus();
+      }
       return;
     }
 
     const context = (document.getElementById('context') as HTMLSelectElement).value;
-    const edaUsername = (document.getElementById('edaUser') as HTMLInputElement).value;
-    const edaPassword = (document.getElementById('edaPass') as HTMLInputElement).value;
-    const kcUsername = (document.getElementById('kcUser') as HTMLInputElement).value;
-    const kcPassword = (document.getElementById('kcPass') as HTMLInputElement).value;
     const skipTlsVerify = (document.getElementById('skipTls') as HTMLInputElement).checked;
-    const coreNamespace = (document.getElementById('coreNs') as HTMLInputElement).value;
     const originalUrl = this.editIndex !== null ? this.targets[this.editIndex].url : null;
 
     this.vscode.postMessage({
@@ -352,8 +370,7 @@ class TargetWizardWebview {
       context,
       edaUsername,
       edaPassword,
-      kcUsername,
-      kcPassword,
+      clientSecret,
       skipTlsVerify,
       coreNamespace,
       originalUrl,
@@ -363,19 +380,35 @@ class TargetWizardWebview {
 
   private saveTarget(): void {
     const url = (document.getElementById('url') as HTMLInputElement).value.trim();
+    const coreNamespace = (document.getElementById('coreNs') as HTMLInputElement).value.trim();
+    const edaUsername = (document.getElementById('edaUser') as HTMLInputElement).value.trim();
+    const edaPassword = (document.getElementById('edaPass') as HTMLInputElement).value.trim();
+    const clientSecret = (document.getElementById('clientSecret') as HTMLInputElement).value.trim();
+
+    // Validate required fields
+    const missingFields: string[] = [];
+    if (!url) missingFields.push('EDA API URL');
+    if (!coreNamespace) missingFields.push('EDA Core Namespace');
+    if (!edaUsername) missingFields.push('EDA Username');
+    if (!edaPassword) missingFields.push('EDA Password');
+    if (!clientSecret) missingFields.push('Client Secret');
+
+    if (missingFields.length > 0) {
+      this.validateAllFields();
+      const firstErrorField = document.querySelector('input.error') as HTMLInputElement;
+      if (firstErrorField) {
+        firstErrorField.focus();
+      }
+      return;
+    }
+
     const item = {
       url,
       context: (document.getElementById('context') as HTMLSelectElement).value || undefined,
-      coreNamespace: (document.getElementById('coreNs') as HTMLInputElement).value || undefined,
-      edaUsername: (document.getElementById('edaUser') as HTMLInputElement).value || undefined,
-      kcUsername: (document.getElementById('kcUser') as HTMLInputElement).value || undefined,
+      coreNamespace,
+      edaUsername,
       skipTlsVerify: (document.getElementById('skipTls') as HTMLInputElement).checked || undefined
     } as any;
-
-    if (!url) {
-      window.alert('URL is required');
-      return;
-    }
 
     if (this.editIndex !== null) {
       this.targets[this.editIndex] = item;
@@ -393,7 +426,20 @@ class TargetWizardWebview {
     this.showTargetDetails(this.targets[this.selectedIdx]);
 
     (document.getElementById('edaPassHint') as HTMLElement).textContent = '';
-    (document.getElementById('kcPassHint') as HTMLElement).textContent = '';
+    (document.getElementById('clientSecretHint') as HTMLElement).textContent = '';
+  }
+
+  private retrieveClientSecret(): void {
+    const url = (document.getElementById('url') as HTMLInputElement).value.trim();
+    if (!url) {
+      window.alert('Please enter EDA API URL first');
+      return;
+    }
+
+    this.vscode.postMessage({
+      command: 'retrieveClientSecret',
+      url
+    });
   }
 
   private setupToggle(id: string, toggleId: string): void {
@@ -409,6 +455,85 @@ class TargetWizardWebview {
         btn.textContent = '👁';
         btn.setAttribute('aria-label', 'Show password');
       }
+    });
+  }
+
+  private setupValidation(): void {
+    const requiredFields = [
+      { id: 'url', errorId: 'urlError', name: 'EDA API URL' },
+      { id: 'coreNs', errorId: 'coreNsError', name: 'EDA Core Namespace' },
+      { id: 'edaUser', errorId: 'edaUserError', name: 'EDA Username' },
+      { id: 'edaPass', errorId: 'edaPassError', name: 'EDA Password' },
+      { id: 'clientSecret', errorId: 'clientSecretError', name: 'Client Secret' }
+    ];
+
+    requiredFields.forEach(field => {
+      const input = document.getElementById(field.id) as HTMLInputElement;
+      const errorSpan = document.getElementById(field.errorId) as HTMLSpanElement;
+
+      input.addEventListener('blur', () => {
+        this.validateField(input, errorSpan);
+      });
+
+      input.addEventListener('input', () => {
+        if (input.classList.contains('error')) {
+          this.validateField(input, errorSpan);
+        }
+      });
+    });
+  }
+
+  private validateField(input: HTMLInputElement, errorSpan: HTMLSpanElement): boolean {
+    const value = input.value.trim();
+    if (!value) {
+      input.classList.add('error');
+      errorSpan.classList.remove('hidden');
+      errorSpan.classList.add('field-error');
+      return false;
+    } else {
+      input.classList.remove('error');
+      errorSpan.classList.add('hidden');
+      errorSpan.classList.remove('field-error');
+      return true;
+    }
+  }
+
+  private validateAllFields(): boolean {
+    const requiredFields = [
+      { id: 'url', errorId: 'urlError' },
+      { id: 'coreNs', errorId: 'coreNsError' },
+      { id: 'edaUser', errorId: 'edaUserError' },
+      { id: 'edaPass', errorId: 'edaPassError' },
+      { id: 'clientSecret', errorId: 'clientSecretError' }
+    ];
+
+    let isValid = true;
+    requiredFields.forEach(field => {
+      const input = document.getElementById(field.id) as HTMLInputElement;
+      const errorSpan = document.getElementById(field.errorId) as HTMLSpanElement;
+      if (!this.validateField(input, errorSpan)) {
+        isValid = false;
+      }
+    });
+
+    return isValid;
+  }
+
+  private resetValidationState(): void {
+    const requiredFields = [
+      { id: 'url', errorId: 'urlError' },
+      { id: 'coreNs', errorId: 'coreNsError' },
+      { id: 'edaUser', errorId: 'edaUserError' },
+      { id: 'edaPass', errorId: 'edaPassError' },
+      { id: 'clientSecret', errorId: 'clientSecretError' }
+    ];
+
+    requiredFields.forEach(field => {
+      const input = document.getElementById(field.id) as HTMLInputElement;
+      const errorSpan = document.getElementById(field.errorId) as HTMLSpanElement;
+      input.classList.remove('error');
+      errorSpan.classList.add('hidden');
+      errorSpan.classList.remove('field-error');
     });
   }
 }

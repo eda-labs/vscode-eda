@@ -29,13 +29,13 @@ function log(
 }
 
 export interface EdaAuthOptions {
-  edaUsername?: string;
-  edaPassword?: string;
+  clientId?: string;
+  clientSecret: string;
+  skipTlsVerify?: boolean;
   kcUsername?: string;
   kcPassword?: string;
-  clientId?: string;
-  clientSecret?: string;
-  skipTlsVerify?: boolean;
+  edaUsername?: string;
+  edaPassword?: string;
 }
 
 /**
@@ -46,27 +46,31 @@ export class EdaAuthClient {
   private kcUrl: string;
   private token = '';
   private authPromise: Promise<void> = Promise.resolve();
-  private edaUsername: string;
-  private edaPassword: string;
-  private kcUsername: string;
-  private kcPassword: string;
   private clientId: string;
-  private clientSecret?: string;
+  private clientSecret: string;
   private agent: Agent | undefined;
   private skipTlsVerify = false;
   private refreshTimer: ReturnType<typeof setInterval> | undefined;
+  private kcUsername?: string;
+  private kcPassword?: string;
+  private edaUsername: string;
+  private edaPassword: string;
 
-  constructor(baseUrl: string, opts: EdaAuthOptions = {}) {
+  constructor(baseUrl: string, opts: EdaAuthOptions) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.kcUrl = `${this.baseUrl}/core/httpproxy/v1/keycloak`;
-    this.edaUsername = opts.edaUsername || process.env.EDA_USERNAME || 'admin';
-    this.edaPassword = opts.edaPassword || process.env.EDA_PASSWORD || 'admin';
-    this.kcUsername = opts.kcUsername || process.env.EDA_KC_USERNAME || 'admin';
-    this.kcPassword = opts.kcPassword || process.env.EDA_KC_PASSWORD || 'admin';
     this.clientId = opts.clientId || process.env.EDA_CLIENT_ID || 'eda';
-    this.clientSecret = opts.clientSecret || process.env.EDA_CLIENT_SECRET;
+    this.clientSecret = opts.clientSecret;
     this.skipTlsVerify = opts.skipTlsVerify || process.env.EDA_SKIP_TLS_VERIFY === 'true';
     this.agent = this.skipTlsVerify ? new Agent({ connect: { rejectUnauthorized: false } }) : undefined;
+    this.kcUsername = opts.kcUsername;
+    this.kcPassword = opts.kcPassword;
+    this.edaUsername = opts.edaUsername || process.env.EDA_USERNAME || 'admin';
+    this.edaPassword = opts.edaPassword || process.env.EDA_PASSWORD || 'admin';
+
+    if (!this.clientSecret) {
+      throw new Error('Client secret is required for authentication');
+    }
 
     log(
       `EdaAuthClient initialized for ${this.baseUrl} (clientId=${this.clientId})`,
@@ -142,7 +146,10 @@ export class EdaAuthClient {
     return status === 401 && body.includes('Access token has expired');
   }
 
-  private async fetchAdminToken(): Promise<string> {
+  public async fetchAdminToken(): Promise<string> {
+    if (!this.kcUsername || !this.kcPassword) {
+      throw new Error('Keycloak admin credentials are required to fetch admin token');
+    }
     const url = `${this.kcUrl}/realms/master/protocol/openid-connect/token`;
     log(`Requesting Keycloak admin token from ${url}`, LogLevel.DEBUG);
     const params = new URLSearchParams();
@@ -170,7 +177,7 @@ export class EdaAuthClient {
     return token;
   }
 
-  private async fetchClientSecret(adminToken: string): Promise<string> {
+  public async fetchClientSecret(adminToken: string): Promise<string> {
     const listUrl = `${this.kcUrl}/admin/realms/eda/clients`;
     log(`Listing clients from ${listUrl}`, LogLevel.DEBUG);
     const res = await fetch(listUrl, {
@@ -205,24 +212,15 @@ export class EdaAuthClient {
   private async auth(): Promise<void> {
     log('Authenticating with EDA API server', LogLevel.INFO);
     log(`Token endpoint ${this.kcUrl}/realms/eda/protocol/openid-connect/token`, LogLevel.DEBUG);
-    if (!this.clientSecret) {
-      try {
-        const adminToken = await this.fetchAdminToken();
-        this.clientSecret = await this.fetchClientSecret(adminToken);
-      } catch (err) {
-        log(`Failed to auto-fetch client secret: ${err}`, LogLevel.WARN, true);
-      }
-    }
+
     const url = `${this.kcUrl}/realms/eda/protocol/openid-connect/token`;
     const params = new URLSearchParams();
     params.set('grant_type', 'password');
     params.set('client_id', this.clientId);
+    params.set('client_secret', this.clientSecret);
     params.set('username', this.edaUsername);
     params.set('password', this.edaPassword);
     params.set('scope', 'openid');
-    if (this.clientSecret) {
-      params.set('client_secret', this.clientSecret);
-    }
 
     const res = await fetch(url, {
       method: 'POST',

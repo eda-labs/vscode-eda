@@ -22,7 +22,7 @@ export class EdaClient {
   private specManager: EdaSpecManager;
   private initPromise: Promise<void>;
 
-  constructor(baseUrl: string, opts: EdaClientOptions = {}) {
+  constructor(baseUrl: string, opts: EdaClientOptions) {
     log('Initializing EdaClient with new architecture', LogLevel.DEBUG);
 
     // Initialize sub-clients
