@@ -12,6 +12,7 @@ function escapeHtml(text: string): string {
 }
 
 export class TransactionDetailsPanel extends BasePanel {
+  private static panels: Map<string, TransactionDetailsPanel> = new Map();
   private data: Record<string, any>;
 
   constructor(context: vscode.ExtensionContext, data: Record<string, any>) {
@@ -42,6 +43,12 @@ export class TransactionDetailsPanel extends BasePanel {
       undefined,
       context.subscriptions
     );
+  }
+
+  private update(data: Record<string, any>): void {
+    this.data = data;
+    this.panel.title = `Transaction ${data.id}`;
+    this.panel.webview.html = this.buildHtml();
   }
 
   protected getHtml(): string {
@@ -349,6 +356,17 @@ export class TransactionDetailsPanel extends BasePanel {
   }
 
   static show(context: vscode.ExtensionContext, data: Record<string, any>): void {
-    new TransactionDetailsPanel(context, data);
+    const key = String(data.id);
+    const existing = TransactionDetailsPanel.panels.get(key);
+    if (existing) {
+      existing.update(data);
+      existing.panel.reveal(vscode.ViewColumn.Active);
+      return;
+    }
+    const panel = new TransactionDetailsPanel(context, data);
+    TransactionDetailsPanel.panels.set(key, panel);
+    panel.panel.onDidDispose(() => {
+      TransactionDetailsPanel.panels.delete(key);
+    });
   }
 }

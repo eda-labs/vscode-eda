@@ -11,6 +11,7 @@ function escapeHtml(text: string): string {
 }
 
 export class AlarmDetailsPanel extends BasePanel {
+  private static panels: Map<string, AlarmDetailsPanel> = new Map();
   private data: Record<string, any>;
 
   constructor(context: vscode.ExtensionContext, data: Record<string, any>) {
@@ -33,6 +34,12 @@ export class AlarmDetailsPanel extends BasePanel {
       undefined,
       context.subscriptions
     );
+  }
+
+  private update(data: Record<string, any>): void {
+    this.data = data;
+    this.panel.title = `Alarm ${data.name}`;
+    this.panel.webview.html = this.buildHtml();
   }
 
   protected getHtml(): string {
@@ -190,7 +197,18 @@ export class AlarmDetailsPanel extends BasePanel {
   }
 
   static show(context: vscode.ExtensionContext, data: Record<string, any>): void {
-    new AlarmDetailsPanel(context, data);
+    const key = String(data.name);
+    const existing = AlarmDetailsPanel.panels.get(key);
+    if (existing) {
+      existing.update(data);
+      existing.panel.reveal(vscode.ViewColumn.Active);
+      return;
+    }
+    const panel = new AlarmDetailsPanel(context, data);
+    AlarmDetailsPanel.panels.set(key, panel);
+    panel.panel.onDidDispose(() => {
+      AlarmDetailsPanel.panels.delete(key);
+    });
   }
 }
 
