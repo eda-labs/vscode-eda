@@ -417,9 +417,14 @@ declare function acquireVsCodeApi(): {
     return allRows.filter(row => {
       return inputs.every(inp => {
         const idx = parseInt(inp.dataset.idx || '0');
-        const val = inp.value.toLowerCase();
+        const val = inp.value;
         if (!val) return true;
-        return String(row[idx] ?? '').toLowerCase().includes(val);
+        try {
+          const regex = new RegExp(val, 'i');
+          return regex.test(String(row[idx] ?? ''));
+        } catch {
+          return String(row[idx] ?? '').toLowerCase().includes(val.toLowerCase());
+        }
       });
     });
   }
