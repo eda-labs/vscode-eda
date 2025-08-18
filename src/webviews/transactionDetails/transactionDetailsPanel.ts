@@ -287,6 +287,19 @@ export class TransactionDetailsPanel extends BasePanel {
       </div>
     ` : '';
 
+    const inputResourcesSection = d.inputCrs && d.inputCrs.length > 0 ? `
+      <div class="section">
+        <h2><span class="section-icon">📥</span> Input Resources</h2>
+        ${this.renderResourceList(d.inputCrs.map((cr: any) =>
+          `<li class="resource-item">
+            <span class="resource-path">${escapeHtml(cr.name?.namespace || 'default')} / ${escapeHtml(cr.name?.gvk?.kind || 'Unknown')}</span>
+            <span class="resource-name">${escapeHtml(cr.name?.name || '')}</span>
+            ${cr.isDelete ? '<span class="delete-badge">DELETE</span>' : ''}
+          </li>`
+        ))}
+      </div>
+    ` : '';
+
     const changedResourcesSection = d.changedCrs && d.changedCrs.length > 0 ? `
       <div class="section">
         <h2><span class="section-icon">✏️</span> Changed Resources</h2>
@@ -309,19 +322,6 @@ export class TransactionDetailsPanel extends BasePanel {
               </li>`)
             .join('');
         }).flat())}
-      </div>
-    ` : '';
-
-    const inputResourcesSection = d.inputCrs && d.inputCrs.length > 0 ? `
-      <div class="section">
-        <h2><span class="section-icon">📥</span> Input Resources</h2>
-        ${this.renderResourceList(d.inputCrs.map((cr: any) =>
-          `<li class="resource-item">
-            <span class="resource-path">${escapeHtml(cr.name?.namespace || 'default')} / ${escapeHtml(cr.name?.gvk?.kind || 'Unknown')}</span>
-            <span class="resource-name">${escapeHtml(cr.name?.name || '')}</span>
-            ${cr.isDelete ? '<span class="delete-badge">DELETE</span>' : ''}
-          </li>`
-        ))}
       </div>
     ` : '';
 
@@ -351,8 +351,8 @@ export class TransactionDetailsPanel extends BasePanel {
       </div>
     `;
 
-    return header + deletedResourcesSection + changedResourcesSection +
-           inputResourcesSection + nodesSection + errorSection + rawJsonSection;
+    return header + deletedResourcesSection + inputResourcesSection +
+           changedResourcesSection + nodesSection + errorSection + rawJsonSection;
   }
 
   static show(context: vscode.ExtensionContext, data: Record<string, any>): void {

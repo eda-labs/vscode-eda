@@ -746,7 +746,7 @@
     ]
   },
   "scripts": {
-    "compile": "npm run check-types && node ./esbuild.config.mjs",
+    "compile": "node ./esbuild.config.mjs",
     "watch": "webpack --mode development --watch --info-verbosity verbose",
     "check-types": "tsc --noEmit",
     "lint": "npm run check-types && eslint --ext .ts,.tsx .",
@@ -754,7 +754,8 @@
     "test": "mocha -r ts-node/register -r ./test/setup.ts test/**/*.test.ts",
     "stream:namespaces": "ts-node namespace-stream.ts",
     "compile-webpack": "npm run check-types && webpack --mode production",
-    "build:tailwind": "tailwindcss --content './src/webviews/**/*.{ts,html}' --content './src/styles/**/*.{css,ts}' -o ./resources/tailwind.css"
+    "build:tailwind": "tailwindcss --content './src/webviews/**/*.{ts,html}' --content './src/styles/**/*.{css,ts}' -o ./resources/tailwind.css",
+    "package": "rm -rf dist && npm run lint && npm run compile && vsce package"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.1.11",
