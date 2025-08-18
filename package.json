@@ -794,7 +794,7 @@
     "undici": "^7.10.0",
     "undici-types": "^7.10.0",
     "utf-8-validate": "^6.0.5",
-    "webpack": "^5.99.7",
+    "webpack": "^5.101.3",
     "webpack-cli": "^6.0.1",
     "ws": "^8.18.2"
   },
