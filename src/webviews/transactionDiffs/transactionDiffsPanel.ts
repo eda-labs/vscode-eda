@@ -92,6 +92,7 @@ export class TransactionDiffsPanel extends BasePanel {
       const emptyStateEl = document.getElementById('emptyState');
       const diffContainerEl = document.getElementById('diffContainer');
       const filterSelect = document.getElementById('typeFilter');
+      const searchInput = document.getElementById('diffSearch');
 
       let allDiffs = [];
       let diffs = [];
@@ -107,14 +108,34 @@ export class TransactionDiffsPanel extends BasePanel {
       let visibleRanges = [];
 
       filterSelect.addEventListener('change', applyFilter);
+      searchInput.addEventListener('input', applyFilter);
 
       function applyFilter() {
-        const val = filterSelect.value;
-        if (val === 'all') {
-          diffs = [...allDiffs];
-        } else {
-          diffs = allDiffs.filter(r => r.type === val);
+        const typeVal = filterSelect.value;
+        let filtered = [...allDiffs];
+        if (typeVal !== 'all') {
+          filtered = filtered.filter(r => r.type === typeVal);
         }
+        const query = searchInput.value;
+        if (query) {
+          try {
+            const re = new RegExp(query, 'i');
+            filtered = filtered.filter(r => {
+              const kind = r.type === 'node' ? 'Node Config' : r.kind;
+              return re.test(r.name) || re.test(kind);
+            });
+          } catch {
+            const lower = query.toLowerCase();
+            filtered = filtered.filter(r => {
+              const kind = r.type === 'node' ? 'Node Config' : r.kind;
+              return (
+                r.name.toLowerCase().includes(lower) ||
+                (kind || '').toLowerCase().includes(lower)
+              );
+            });
+          }
+        }
+        diffs = filtered;
         renderList();
       }
       
