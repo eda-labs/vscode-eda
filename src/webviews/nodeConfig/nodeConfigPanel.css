@@ -246,17 +246,6 @@
       font-style: italic;
     }
     
-    /* Indentation guide */
-    .indentation-guide {
-      display: inline-block;
-      width: 8px;
-      border-left: 1px solid var(--vscode-editorIndentGuide-background);
-      height: 100%;
-      position: absolute;
-      left: 0;
-      top: 0;
-    }
-
     body.color-mode-less .section-keyword,
     body.color-mode-less .interface-type,
     body.color-mode-less .property,

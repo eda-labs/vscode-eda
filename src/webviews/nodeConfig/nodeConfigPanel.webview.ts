@@ -325,19 +325,12 @@ class NodeConfigPanelWebview {
         return '';
       }
 
-      // Create indentation guides based on indentation level
-      const indentLevel = line.search(/\S|$/);
-      let indentGuides = '';
-      for (let i = 0; i < indentLevel; i += 4) {
-        indentGuides += '<span class="indentation-guide" style="left:' + i + 'px"></span>';
-      }
-
       // Escape HTML for safety
       let processedLine = escapeHtml(line);
 
       // Handle comments
       if (processedLine.trim().startsWith('#')) {
-        return indentGuides + '<span class="comment">' + processedLine + '</span>';
+        return '<span class="comment">' + processedLine + '</span>';
       }
 
       // First identify the line type
@@ -616,7 +609,7 @@ class NodeConfigPanelWebview {
         );
       }
 
-      return indentGuides + processedLine;
+      return processedLine;
     }
 
     function escapeHtml(text: string): string {
