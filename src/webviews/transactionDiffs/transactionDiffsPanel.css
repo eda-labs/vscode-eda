@@ -85,6 +85,22 @@ body {
   padding: 4px 8px;
 }
 
+.sidebar-search {
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.diff-search {
+  width: 100%;
+  box-sizing: border-box;
+  background-color: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+
 .resource-list {
   flex: 1;
   overflow-y: auto;
