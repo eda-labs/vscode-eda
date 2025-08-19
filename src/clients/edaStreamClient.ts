@@ -22,10 +22,11 @@ export interface StreamMessage {
 export class EdaStreamClient {
   private eventSocket: WebSocket | undefined;
   private eventClient: string | undefined;
-  private keepAliveTimer: ReturnType<typeof setInterval> | undefined;
   private activeStreams: Set<string> = new Set();
-  private messageIntervalMs = 1000;
   private transactionSummarySize = 50;
+  private lastNextTimestamps: Map<string, number> = new Map();
+  private pendingNextMessages: Set<string> = new Set();
+  private messageIntervalMs = 500;
   private summaryAbortController: AbortController | undefined;
   private summaryStreamPromise: Promise<void> | undefined;
   private userStorageFiles: Set<string> = new Set();
@@ -57,8 +58,7 @@ export class EdaStreamClient {
     'file',  // user-storage file stream requires path parameter
   ]);
 
-  constructor(messageIntervalMs = 500) {
-    this.messageIntervalMs = messageIntervalMs;
+  constructor() {
     this.disposed = false;
     log('EdaStreamClient initialized', LogLevel.DEBUG);
   }
@@ -167,18 +167,11 @@ export class EdaStreamClient {
 
       for (const stream of allStreams) {
         log(`Started to stream endpoint ${stream}`, LogLevel.DEBUG);
-        socket.send(JSON.stringify({ type: 'next', stream }));
+        this.sendNextMessage(stream);
       }
 
-      if (this.keepAliveTimer) {
-        clearInterval(this.keepAliveTimer);
-      }
-
-      this.keepAliveTimer = setInterval(() => {
-        for (const stream of this.activeStreams) {
-          socket.send(JSON.stringify({ type: 'next', stream }));
-        }
-      }, this.messageIntervalMs);
+      // Remove periodic next sending - we'll send next after processing each message instead
+      // The keepAliveTimer is no longer needed for sending periodic next messages
     });
 
     socket.on('message', data => {
@@ -233,10 +226,6 @@ export class EdaStreamClient {
     const reconnect = () => {
       this.eventSocket = undefined;
       this.eventClient = undefined;
-      if (this.keepAliveTimer) {
-        clearInterval(this.keepAliveTimer);
-        this.keepAliveTimer = undefined;
-      }
       if (!this.disposed) {
         setTimeout(() => {
           void this.connect();
@@ -274,7 +263,7 @@ export class EdaStreamClient {
     log(`Subscribed to stream: ${streamName}`, LogLevel.DEBUG);
 
     if (this.eventSocket?.readyState === WebSocket.OPEN) {
-      this.eventSocket.send(JSON.stringify({ type: 'next', stream: streamName }));
+      this.sendNextMessage(streamName);
       if (this.eqlStreams.has(streamName)) {
         void this.startEqlStream(this.eventClient as string, streamName);
       }
@@ -289,6 +278,13 @@ export class EdaStreamClient {
    */
   public unsubscribeFromStream(streamName: string): void {
     this.activeStreams.delete(streamName);
+
+    // Send 'close' message to server to indicate we're done with this stream
+    if (this.eventSocket?.readyState === WebSocket.OPEN) {
+      log(`Sending 'close' for stream: ${streamName}`, LogLevel.DEBUG);
+      this.eventSocket.send(JSON.stringify({ type: 'close', stream: streamName }));
+    }
+
     if (streamName === 'summary' && this.summaryAbortController) {
       this.summaryAbortController.abort();
       // do not clear summaryStreamPromise so a restart can wait for closure
@@ -371,10 +367,10 @@ export class EdaStreamClient {
    * Disconnect the WebSocket
    */
   public disconnect(clearStreams = true): void {
-    if (this.keepAliveTimer) {
-      clearInterval(this.keepAliveTimer);
-      this.keepAliveTimer = undefined;
-    }
+    // Clear any pending next messages
+    this.pendingNextMessages.clear();
+    this.lastNextTimestamps.clear();
+
     if (this.eventSocket) {
       this.eventSocket.close();
       this.eventSocket = undefined;
@@ -694,9 +690,54 @@ export class EdaStreamClient {
       }
       if (msg.stream) {
         this.enqueueStreamMessage({ stream: msg.stream, message: msg });
+
+        // Send 'next' after processing messages to indicate we're ready for more
+        // This includes both 'update' messages and initial 'details' messages
+        // But throttle to not send faster than messageIntervalMs
+        if ((msg.type === 'update' || msg.details) && this.eventSocket?.readyState === WebSocket.OPEN) {
+          this.scheduleNextMessage(msg.stream);
+        }
       }
     } catch (err) {
       log(`Failed to parse event message: ${err}`, LogLevel.ERROR);
+    }
+  }
+
+  /**
+   * Schedule a 'next' message with rate limiting
+   */
+  private scheduleNextMessage(stream: string): void {
+    const now = Date.now();
+    const lastSent = this.lastNextTimestamps.get(stream) || 0;
+    const timeSinceLastSent = now - lastSent;
+
+    if (timeSinceLastSent >= this.messageIntervalMs) {
+      // Enough time has passed, send immediately
+      this.sendNextMessage(stream);
+    } else if (!this.pendingNextMessages.has(stream)) {
+      // Schedule a delayed send
+      this.pendingNextMessages.add(stream);
+      const delay = this.messageIntervalMs - timeSinceLastSent;
+      log(`Scheduling 'next' for stream ${stream} in ${delay}ms`, LogLevel.DEBUG);
+
+      setTimeout(() => {
+        this.pendingNextMessages.delete(stream);
+        if (this.activeStreams.has(stream) && this.eventSocket?.readyState === WebSocket.OPEN) {
+          this.sendNextMessage(stream);
+        }
+      }, delay);
+    }
+    // If already pending, skip (we don't want multiple pending sends)
+  }
+
+  /**
+   * Send a 'next' message and update timestamp
+   */
+  private sendNextMessage(stream: string): void {
+    if (this.eventSocket?.readyState === WebSocket.OPEN) {
+      log(`Sending 'next' for stream ${stream}`, LogLevel.DEBUG);
+      this.eventSocket.send(JSON.stringify({ type: 'next', stream }));
+      this.lastNextTimestamps.set(stream, Date.now());
     }
   }
 

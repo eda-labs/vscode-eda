@@ -28,7 +28,7 @@ export class EdaClient {
     // Initialize sub-clients
     this.authClient = new EdaAuthClient(baseUrl, opts);
     this.apiClient = new EdaApiClient(this.authClient);
-    this.streamClient = new EdaStreamClient(opts.messageIntervalMs);
+    this.streamClient = new EdaStreamClient();
     this.specManager = new EdaSpecManager(this.apiClient, opts.coreNamespace);
     this.apiClient.setSpecManager(this.specManager);
 
