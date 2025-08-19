@@ -22,10 +22,11 @@ export interface StreamMessage {
 export class EdaStreamClient {
   private eventSocket: WebSocket | undefined;
   private eventClient: string | undefined;
-  private keepAliveTimer: ReturnType<typeof setInterval> | undefined;
   private activeStreams: Set<string> = new Set();
-  private messageIntervalMs = 1000;
   private transactionSummarySize = 50;
+  private lastNextTimestamps: Map<string, number> = new Map();
+  private pendingNextMessages: Set<string> = new Set();
+  private messageIntervalMs = 500;
   private summaryAbortController: AbortController | undefined;
   private summaryStreamPromise: Promise<void> | undefined;
   private userStorageFiles: Set<string> = new Set();
@@ -40,8 +41,6 @@ export class EdaStreamClient {
   private _onStreamMessage = new vscode.EventEmitter<StreamMessage>();
   public readonly onStreamMessage = this._onStreamMessage.event;
 
-  private messageBuffer: StreamMessage[] = [];
-  private processingBuffer = false;
 
   private authClient: EdaAuthClient | undefined;
   private streamEndpoints: StreamEndpoint[] = [];
@@ -57,29 +56,11 @@ export class EdaStreamClient {
     'file',  // user-storage file stream requires path parameter
   ]);
 
-  constructor(messageIntervalMs = 500) {
-    this.messageIntervalMs = messageIntervalMs;
+  constructor() {
     this.disposed = false;
     log('EdaStreamClient initialized', LogLevel.DEBUG);
   }
 
-  private enqueueStreamMessage(msg: StreamMessage): void {
-    this.messageBuffer.push(msg);
-    if (!this.processingBuffer) {
-      this.processingBuffer = true;
-      this.flushMessageBuffer();
-    }
-  }
-
-  private flushMessageBuffer(): void {
-    const next = this.messageBuffer.shift();
-    if (!next) {
-      this.processingBuffer = false;
-      return;
-    }
-    this._onStreamMessage.fire(next);
-    setTimeout(() => this.flushMessageBuffer(), 0);
-  }
 
   public isConnected(): boolean {
     return (
@@ -146,39 +127,23 @@ export class EdaStreamClient {
       log('Event WebSocket connected', LogLevel.DEBUG);
       log(`Started streaming on ${this.streamEndpoints.length} nodes`, LogLevel.INFO);
 
-      // Ensure we request updates for every discovered stream (except AUTO_EXCLUDE)
-      const allStreams = new Set<string>();
-
-      // Add active streams
-      for (const stream of this.activeStreams) {
-        allStreams.add(stream);
-      }
-
-      // Add discovered streams (except excluded ones)
+      // Build list of streams to auto-start (discovered streams minus excluded ones)
+      const autoStartStreams = new Set<string>();
       for (const ep of this.streamEndpoints) {
         if (!EdaStreamClient.AUTO_EXCLUDE.has(ep.stream)) {
-          allStreams.add(ep.stream);
+          autoStartStreams.add(ep.stream);
         }
       }
 
-      // Don't add user storage files to activeStreams here
-      // They need special handling with custom headers
-      this.activeStreams = allStreams;
-
-      for (const stream of allStreams) {
-        log(`Started to stream endpoint ${stream}`, LogLevel.DEBUG);
-        socket.send(JSON.stringify({ type: 'next', stream }));
+      // Add any explicitly subscribed streams
+      for (const stream of this.activeStreams) {
+        autoStartStreams.add(stream);
       }
 
-      if (this.keepAliveTimer) {
-        clearInterval(this.keepAliveTimer);
-      }
+      // Update activeStreams to include auto-start streams
+      this.activeStreams = autoStartStreams;
 
-      this.keepAliveTimer = setInterval(() => {
-        for (const stream of this.activeStreams) {
-          socket.send(JSON.stringify({ type: 'next', stream }));
-        }
-      }, this.messageIntervalMs);
+      log(`WebSocket opened with ${this.activeStreams.size} active streams (including auto-discovered)`, LogLevel.DEBUG);
     });
 
     socket.on('message', data => {
@@ -190,12 +155,13 @@ export class EdaStreamClient {
           if (obj.type === 'register' && client) {
             this.eventClient = client;
             log(`WS eventclient id = ${this.eventClient}`, LogLevel.DEBUG);
+
+            // Start all streams in activeStreams (includes auto-discovered + explicitly subscribed)
             for (const ep of this.streamEndpoints) {
-              if (EdaStreamClient.AUTO_EXCLUDE.has(ep.stream)) {
-                log(`Skipping auto-start for excluded stream: ${ep.stream}`, LogLevel.DEBUG);
-                continue;
+              if (this.activeStreams.has(ep.stream)) {
+                log(`Starting stream: ${ep.stream}`, LogLevel.DEBUG);
+                void this.startStream(this.eventClient, ep);
               }
-              void this.startStream(this.eventClient, ep);
             }
             if (this.activeStreams.has('current-alarms')) {
               void this.startCurrentAlarmStream(this.eventClient);
@@ -233,10 +199,6 @@ export class EdaStreamClient {
     const reconnect = () => {
       this.eventSocket = undefined;
       this.eventClient = undefined;
-      if (this.keepAliveTimer) {
-        clearInterval(this.keepAliveTimer);
-        this.keepAliveTimer = undefined;
-      }
       if (!this.disposed) {
         setTimeout(() => {
           void this.connect();
@@ -274,7 +236,7 @@ export class EdaStreamClient {
     log(`Subscribed to stream: ${streamName}`, LogLevel.DEBUG);
 
     if (this.eventSocket?.readyState === WebSocket.OPEN) {
-      this.eventSocket.send(JSON.stringify({ type: 'next', stream: streamName }));
+      this.sendNextMessage(streamName);
       if (this.eqlStreams.has(streamName)) {
         void this.startEqlStream(this.eventClient as string, streamName);
       }
@@ -289,6 +251,13 @@ export class EdaStreamClient {
    */
   public unsubscribeFromStream(streamName: string): void {
     this.activeStreams.delete(streamName);
+
+    // Send 'close' message to server to indicate we're done with this stream
+    if (this.eventSocket?.readyState === WebSocket.OPEN) {
+      log(`Sending 'close' for stream: ${streamName}`, LogLevel.DEBUG);
+      this.eventSocket.send(JSON.stringify({ type: 'close', stream: streamName }));
+    }
+
     if (streamName === 'summary' && this.summaryAbortController) {
       this.summaryAbortController.abort();
       // do not clear summaryStreamPromise so a restart can wait for closure
@@ -371,10 +340,10 @@ export class EdaStreamClient {
    * Disconnect the WebSocket
    */
   public disconnect(clearStreams = true): void {
-    if (this.keepAliveTimer) {
-      clearInterval(this.keepAliveTimer);
-      this.keepAliveTimer = undefined;
-    }
+    // Clear any pending next messages
+    this.pendingNextMessages.clear();
+    this.lastNextTimestamps.clear();
+
     if (this.eventSocket) {
       this.eventSocket.close();
       this.eventSocket = undefined;
@@ -693,10 +662,56 @@ export class EdaStreamClient {
         log(`Stream ${msg.stream} event received`, LogLevel.DEBUG);
       }
       if (msg.stream) {
-        this.enqueueStreamMessage({ stream: msg.stream, message: msg });
+        this._onStreamMessage.fire({ stream: msg.stream, message: msg });
+
+        // Send 'next' after processing messages to indicate we're ready for more
+        // This includes 'update' messages, 'details' messages, and initial stream registration confirmations
+        // But throttle to not send faster than messageIntervalMs
+        // Skip only 'register' type messages
+        if (msg.type !== 'register' && this.eventSocket?.readyState === WebSocket.OPEN) {
+          this.scheduleNextMessage(msg.stream);
+        }
       }
     } catch (err) {
       log(`Failed to parse event message: ${err}`, LogLevel.ERROR);
+    }
+  }
+
+  /**
+   * Schedule a 'next' message with rate limiting
+   */
+  private scheduleNextMessage(stream: string): void {
+    const now = Date.now();
+    const lastSent = this.lastNextTimestamps.get(stream) || 0;
+    const timeSinceLastSent = now - lastSent;
+
+    if (timeSinceLastSent >= this.messageIntervalMs) {
+      // Enough time has passed, send immediately
+      this.sendNextMessage(stream);
+    } else if (!this.pendingNextMessages.has(stream)) {
+      // Schedule a delayed send
+      this.pendingNextMessages.add(stream);
+      const delay = this.messageIntervalMs - timeSinceLastSent;
+      log(`Scheduling 'next' for stream ${stream} in ${delay}ms`, LogLevel.DEBUG);
+
+      setTimeout(() => {
+        this.pendingNextMessages.delete(stream);
+        if (this.activeStreams.has(stream) && this.eventSocket?.readyState === WebSocket.OPEN) {
+          this.sendNextMessage(stream);
+        }
+      }, delay);
+    }
+    // If already pending, skip (we don't want multiple pending sends)
+  }
+
+  /**
+   * Send a 'next' message and update timestamp
+   */
+  private sendNextMessage(stream: string): void {
+    if (this.eventSocket?.readyState === WebSocket.OPEN) {
+      log(`Sending 'next' for stream ${stream}`, LogLevel.DEBUG);
+      this.eventSocket.send(JSON.stringify({ type: 'next', stream }));
+      this.lastNextTimestamps.set(stream, Date.now());
     }
   }
 

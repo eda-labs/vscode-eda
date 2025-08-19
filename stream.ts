@@ -6,7 +6,6 @@ import { EdaAuthClient, EdaAuthOptions } from "./src/clients/edaAuthClient";
 
 interface StreamConfig extends EdaAuthOptions {
   edaUrl: string;
-  messageIntervalMs?: number;
 }
 
 function loadConfig(): StreamConfig {
@@ -24,7 +23,11 @@ function loadConfig(): StreamConfig {
   }
 }
 
-async function streamSse(url: string, auth: EdaAuthClient): Promise<void> {
+async function streamSse(
+  url: string,
+  auth: EdaAuthClient,
+  onMessage: () => void
+): Promise<void> {
   console.log(`\n[SSE] Connecting to: ${url}`);
 
   const res = await fetch(url, {
@@ -61,6 +64,7 @@ async function streamSse(url: string, auth: EdaAuthClient): Promise<void> {
     } catch {
       // Not JSON or doesn't have expected fields
     }
+    onMessage();
     return;
   }
 
@@ -96,6 +100,7 @@ async function streamSse(url: string, auth: EdaAuthClient): Promise<void> {
           // Not JSON, log as raw data
           console.log(`[SSE Data] ${line}`);
         }
+        onMessage();
       }
     }
   } catch (error) {
@@ -125,7 +130,33 @@ async function main(): Promise<void> {
     ...auth.getWsOptions(),
   });
 
-  let streamInterval: ReturnType<typeof setInterval> | null = null;
+  const messageIntervalMs = 500;
+  const lastNextTimestamps = new Map<string, number>();
+  const pendingNext = new Set<string>();
+
+  function sendNext(stream: string): void {
+    console.log(`[WS] Sending 'next' for stream: ${stream}`);
+    ws.send(JSON.stringify({ type: 'next', stream }));
+    lastNextTimestamps.set(stream, Date.now());
+  }
+
+  function scheduleNext(stream: string): void {
+    const now = Date.now();
+    const last = lastNextTimestamps.get(stream) || 0;
+    const elapsed = now - last;
+    if (elapsed >= messageIntervalMs) {
+      sendNext(stream);
+    } else if (!pendingNext.has(stream)) {
+      pendingNext.add(stream);
+      const delay = messageIntervalMs - elapsed;
+      setTimeout(() => {
+        pendingNext.delete(stream);
+        if (ws.readyState === WebSocket.OPEN) {
+          sendNext(stream);
+        }
+      }, delay);
+    }
+  }
 
   ws.on("open", () => {
     console.log("[WS] Connection opened");
@@ -137,9 +168,6 @@ async function main(): Promise<void> {
 
   ws.on("close", (code, reason) => {
     console.log(`[WS] Connection closed - Code: ${code}, Reason: ${reason.toString()}`);
-    if (streamInterval) {
-      clearInterval(streamInterval);
-    }
   });
 
   ws.on("message", async (data) => {
@@ -153,6 +181,10 @@ async function main(): Promise<void> {
       if (msg.stream && msg.details) {
         console.log(`[WS Stream] ${msg.stream}`);
         console.log(`[WS Details] ${msg.details}`);
+      }
+
+      if (msg.stream && msg.type !== "register") {
+        scheduleNext(msg.stream);
       }
 
       if (msg.type === "register" && msg.msg?.client) {
@@ -193,16 +225,10 @@ async function main(): Promise<void> {
         }
 
         console.log(`[WS] Sending initial next for stream: ${streamName}`);
-        ws.send(JSON.stringify({ type: "next", stream: streamName }));
-
-        // Set up periodic next messages
-        streamInterval = setInterval(() => {
-          console.log(`[WS] Sending periodic next for stream: ${streamName}`);
-          ws.send(JSON.stringify({ type: "next", stream: streamName }));
-        }, cfg.messageIntervalMs ?? 500);
+        sendNext(streamName);
 
         // Start SSE streaming in parallel - don't await it
-        streamSse(sseUrl, auth).then(() => {
+        streamSse(sseUrl, auth, () => scheduleNext(streamName)).then(() => {
           console.log("[SSE] Stream completed");
         }).catch((err) => {
           console.error("[SSE] Stream error:", err);
@@ -216,9 +242,6 @@ async function main(): Promise<void> {
   // Keep the process alive
   process.on("SIGINT", () => {
     console.log("\n[Main] Shutting down...");
-    if (streamInterval) {
-      clearInterval(streamInterval);
-    }
     ws.close();
     process.exit(0);
   });
