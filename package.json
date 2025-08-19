@@ -767,7 +767,7 @@
     "@types/sinon-chai": "^4.0.0",
     "@types/vscode": "^1.100.0",
     "@types/ws": "^8.18.0",
-    "@typescript-eslint/eslint-plugin": "^8.32.1",
+    "@typescript-eslint/eslint-plugin": "^8.40.0",
     "@typescript-eslint/parser": "^8.32.1",
     "@vscode/vsce": "^3.4.2",
     "bufferutil": "^4.0.9",
