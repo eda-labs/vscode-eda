@@ -41,8 +41,6 @@ export class EdaStreamClient {
   private _onStreamMessage = new vscode.EventEmitter<StreamMessage>();
   public readonly onStreamMessage = this._onStreamMessage.event;
 
-  private messageBuffer: StreamMessage[] = [];
-  private processingBuffer = false;
 
   private authClient: EdaAuthClient | undefined;
   private streamEndpoints: StreamEndpoint[] = [];
@@ -63,23 +61,6 @@ export class EdaStreamClient {
     log('EdaStreamClient initialized', LogLevel.DEBUG);
   }
 
-  private enqueueStreamMessage(msg: StreamMessage): void {
-    this.messageBuffer.push(msg);
-    if (!this.processingBuffer) {
-      this.processingBuffer = true;
-      this.flushMessageBuffer();
-    }
-  }
-
-  private flushMessageBuffer(): void {
-    const next = this.messageBuffer.shift();
-    if (!next) {
-      this.processingBuffer = false;
-      return;
-    }
-    this._onStreamMessage.fire(next);
-    setTimeout(() => this.flushMessageBuffer(), 0);
-  }
 
   public isConnected(): boolean {
     return (
@@ -681,7 +662,7 @@ export class EdaStreamClient {
         log(`Stream ${msg.stream} event received`, LogLevel.DEBUG);
       }
       if (msg.stream) {
-        this.enqueueStreamMessage({ stream: msg.stream, message: msg });
+        this._onStreamMessage.fire({ stream: msg.stream, message: msg });
 
         // Send 'next' after processing messages to indicate we're ready for more
         // This includes 'update' messages, 'details' messages, and initial stream registration confirmations
