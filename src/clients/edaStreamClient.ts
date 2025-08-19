@@ -146,32 +146,23 @@ export class EdaStreamClient {
       log('Event WebSocket connected', LogLevel.DEBUG);
       log(`Started streaming on ${this.streamEndpoints.length} nodes`, LogLevel.INFO);
 
-      // Ensure we request updates for every discovered stream (except AUTO_EXCLUDE)
-      const allStreams = new Set<string>();
-
-      // Add active streams
-      for (const stream of this.activeStreams) {
-        allStreams.add(stream);
-      }
-
-      // Add discovered streams (except excluded ones)
+      // Build list of streams to auto-start (discovered streams minus excluded ones)
+      const autoStartStreams = new Set<string>();
       for (const ep of this.streamEndpoints) {
         if (!EdaStreamClient.AUTO_EXCLUDE.has(ep.stream)) {
-          allStreams.add(ep.stream);
+          autoStartStreams.add(ep.stream);
         }
       }
 
-      // Don't add user storage files to activeStreams here
-      // They need special handling with custom headers
-      this.activeStreams = allStreams;
-
-      for (const stream of allStreams) {
-        log(`Started to stream endpoint ${stream}`, LogLevel.DEBUG);
-        this.sendNextMessage(stream);
+      // Add any explicitly subscribed streams
+      for (const stream of this.activeStreams) {
+        autoStartStreams.add(stream);
       }
 
-      // Remove periodic next sending - we'll send next after processing each message instead
-      // The keepAliveTimer is no longer needed for sending periodic next messages
+      // Update activeStreams to include auto-start streams
+      this.activeStreams = autoStartStreams;
+
+      log(`WebSocket opened with ${this.activeStreams.size} active streams (including auto-discovered)`, LogLevel.DEBUG);
     });
 
     socket.on('message', data => {
@@ -183,12 +174,13 @@ export class EdaStreamClient {
           if (obj.type === 'register' && client) {
             this.eventClient = client;
             log(`WS eventclient id = ${this.eventClient}`, LogLevel.DEBUG);
+
+            // Start all streams in activeStreams (includes auto-discovered + explicitly subscribed)
             for (const ep of this.streamEndpoints) {
-              if (EdaStreamClient.AUTO_EXCLUDE.has(ep.stream)) {
-                log(`Skipping auto-start for excluded stream: ${ep.stream}`, LogLevel.DEBUG);
-                continue;
+              if (this.activeStreams.has(ep.stream)) {
+                log(`Starting stream: ${ep.stream}`, LogLevel.DEBUG);
+                void this.startStream(this.eventClient, ep);
               }
-              void this.startStream(this.eventClient, ep);
             }
             if (this.activeStreams.has('current-alarms')) {
               void this.startCurrentAlarmStream(this.eventClient);
@@ -692,9 +684,10 @@ export class EdaStreamClient {
         this.enqueueStreamMessage({ stream: msg.stream, message: msg });
 
         // Send 'next' after processing messages to indicate we're ready for more
-        // This includes both 'update' messages and initial 'details' messages
+        // This includes 'update' messages, 'details' messages, and initial stream registration confirmations
         // But throttle to not send faster than messageIntervalMs
-        if ((msg.type === 'update' || msg.details) && this.eventSocket?.readyState === WebSocket.OPEN) {
+        // Skip only 'register' type messages
+        if (msg.type !== 'register' && this.eventSocket?.readyState === WebSocket.OPEN) {
           this.scheduleNextMessage(msg.stream);
         }
       }
