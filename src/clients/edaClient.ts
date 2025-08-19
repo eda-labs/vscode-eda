@@ -7,7 +7,6 @@ import { EdaSpecManager } from './edaSpecManager';
 // Re-export types for backward compatibility
 export type { NamespaceCallback, DeviationCallback, TransactionCallback, AlarmCallback } from './types';
 export interface EdaClientOptions extends EdaAuthOptions {
-  messageIntervalMs?: number;
   coreNamespace?: string;
 }
 
