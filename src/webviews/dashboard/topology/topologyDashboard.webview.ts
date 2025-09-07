@@ -308,9 +308,7 @@ class TopologyDashboard {
         layout: {
           name: 'preset'
         },
-        wheelSensitivity: 0,
-        minZoom: 0.3,
-        maxZoom: 300
+        wheelSensitivity: 0
       });
 
       this.cy.ready(() => {
