@@ -218,6 +218,10 @@
     user-select: none;
   }
 
+  .results-table td {
+    white-space: pre-wrap;
+  }
+
   .status-bar {
     padding: 4px 0;
     border-top: 1px solid var(--border);

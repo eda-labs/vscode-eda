@@ -216,6 +216,22 @@ export class QueriesDashboardPanel extends BasePanel {
     this.panel.webview.postMessage({ command: 'clear' });
   }
 
+  private flattenData(data: any, prefix = ''): Record<string, any> {
+    const result: Record<string, any> = {};
+    if (!data || typeof data !== 'object') {
+      return result;
+    }
+    for (const [key, value] of Object.entries(data)) {
+      const fullKey = prefix ? `${prefix}.${key}` : key;
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        Object.assign(result, this.flattenData(value, fullKey));
+      } else {
+        result[fullKey] = value;
+      }
+    }
+    return result;
+  }
+
   private handleQueryStream(msg: any): void {
     // Debug logging to understand all message structures
     log(`Received stream message: ${JSON.stringify(msg, null, 2)}`, LogLevel.DEBUG);
@@ -287,9 +303,10 @@ export class QueriesDashboardPanel extends BasePanel {
 
       for (const r of rows) {
         const data = r.data || r;
+        const flat = this.flattenData(data);
 
         // Update columns if we encounter new fields
-        const dataKeys = Object.keys(data);
+        const dataKeys = Object.keys(flat);
         let columnsChanged = false;
         for (const key of dataKeys) {
           if (!this.columns.includes(key)) {
@@ -312,7 +329,7 @@ export class QueriesDashboardPanel extends BasePanel {
           }
         }
 
-        const row = this.columns.map(c => data[c]);
+        const row = this.columns.map(c => flat[c]);
         const key = r.id !== undefined ? String(r.id) : `${Date.now()}${Math.random()}`;
         this.rowMap.set(key, row);
       }
