@@ -163,3 +163,16 @@
     padding: 0;
     margin-left: 4px;
   }
+
+  .schema-card > summary::before,
+  .schema-section > summary::before {
+    content: '▸';
+    display: inline-block;
+    margin-right: 4px;
+    transition: transform 0.1s ease-in-out;
+  }
+
+  .schema-card[open] > summary::before,
+  .schema-section[open] > summary::before {
+    transform: rotate(90deg);
+  }
