@@ -198,7 +198,8 @@
   }
 
   .results-table {
-    width: 100%;
+    width: max-content;
+    min-width: 100%;
     border-collapse: separate;
     border-spacing: 0;
     border-radius: 8px;
@@ -216,6 +217,17 @@
     cursor: pointer;
     position: relative;
     user-select: none;
+  }
+
+  .results-table td {
+    vertical-align: top;
+  }
+
+  .cell-content {
+    max-width: 600px;
+    max-height: 200px;
+    overflow: auto;
+    white-space: pre-wrap;
   }
 
   .status-bar {

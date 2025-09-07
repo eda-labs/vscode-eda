@@ -37,6 +37,45 @@ declare function acquireVsCodeApi(): {
   let sortAsc = true;
   let copyFormat: 'ascii' | 'markdown' | 'json' | 'yaml' = 'ascii';
 
+  function formatValue(value: any): string {
+    if (value === null || value === undefined) return '';
+    if (Array.isArray(value)) {
+      if (value.length === 0) return '';
+      const formatted = value.map(v => formatValue(v));
+      const isPrimitive = value.every(
+        v => v === null || v === undefined || typeof v !== 'object'
+      );
+      return formatted.join(isPrimitive ? ', ' : '\n');
+    }
+    if (typeof value === 'object') {
+      const entries = Object.entries(value);
+      if (entries.length === 0) return '';
+      return entries
+        .map(([k, v]) => `${k}: ${formatValue(v)}`)
+        .join(', ');
+    }
+    return String(value);
+  }
+
+  function pruneEmptyColumns(cols: string[], rows: any[][]): {
+    cols: string[];
+    rows: any[][];
+  } {
+    if (!rows.length) {
+      return { cols, rows };
+    }
+    const keep: number[] = [];
+    cols.forEach((_, idx) => {
+      const hasValue = rows.some(r => formatValue(r[idx]) !== '');
+      if (hasValue) keep.push(idx);
+    });
+    return {
+      cols: keep.map(i => cols[i]),
+      rows: rows.map(r => keep.map(i => r[i]))
+    };
+  }
+
+
   function updateQueryInputPlaceholder(): void {
     const queryType = queryTypeSelect.value;
     switch (queryType) {
@@ -252,9 +291,10 @@ declare function acquireVsCodeApi(): {
         autocompleteList.style.display = 'none';
       }
     } else if (msg.command === 'results') {
-      const colsChanged = !arraysEqual(columns, msg.columns);
-      columns = msg.columns;
-      allRows = msg.rows;
+      const filtered = pruneEmptyColumns(msg.columns, msg.rows);
+      const colsChanged = !arraysEqual(columns, filtered.cols);
+      columns = filtered.cols;
+      allRows = filtered.rows;
       if (colsChanged) {
         sortIndex = -1;
         sortAsc = true;
@@ -404,8 +444,10 @@ declare function acquireVsCodeApi(): {
       const tr = document.createElement('tr');
       columns.forEach((_, i) => {
         const td = document.createElement('td');
-        const val = row[i] == null ? '' : String(row[i]);
-        td.textContent = val;
+        const div = document.createElement('div');
+        div.className = 'cell-content';
+        div.textContent = formatValue(row[i]);
+        td.appendChild(div);
         tr.appendChild(td);
       });
       resultsBody.appendChild(tr);
@@ -421,9 +463,9 @@ declare function acquireVsCodeApi(): {
         if (!val) return true;
         try {
           const regex = new RegExp(val, 'i');
-          return regex.test(String(row[idx] ?? ''));
+          return regex.test(formatValue(row[idx]));
         } catch {
-          return String(row[idx] ?? '').toLowerCase().includes(val.toLowerCase());
+          return formatValue(row[idx]).toLowerCase().includes(val.toLowerCase());
         }
       });
     });
@@ -450,8 +492,8 @@ declare function acquireVsCodeApi(): {
   function sortRows(): void {
     if (sortIndex < 0) return;
     allRows.sort((a, b) => {
-      const av = a[sortIndex] ?? '';
-      const bv = b[sortIndex] ?? '';
+      const av = formatValue(a[sortIndex]);
+      const bv = formatValue(b[sortIndex]);
       if (av < bv) return sortAsc ? -1 : 1;
       if (av > bv) return sortAsc ? 1 : -1;
       return 0;
@@ -483,7 +525,9 @@ declare function acquireVsCodeApi(): {
     const lines = rows.map(r =>
       '| ' +
       cols
-        .map((_, i) => String(r[i] ?? '').replace(/[|]/g, '\\|'))
+        .map((_, i) =>
+          formatValue(r[i]).replace(/[|]/g, '\\|').replace(/\n/g, '<br/>')
+        )
         .join(' | ') +
       ' |'
     );
@@ -493,7 +537,7 @@ declare function acquireVsCodeApi(): {
   function toAsciiTable(cols: string[], rows: any[]): string {
     if (!cols.length) return '';
     const widths = cols.map((c, i) =>
-      Math.max(c.length, ...rows.map(r => String(r[i] ?? '').length))
+      Math.max(c.length, ...rows.map(r => formatValue(r[i]).length))
     );
     const hr = '+' + widths.map(w => '-'.repeat(w + 2)).join('+') + '+';
     const header =
@@ -501,7 +545,7 @@ declare function acquireVsCodeApi(): {
     const lines = rows.map(row =>
       '|' +
       cols
-        .map((_, i) => ' ' + String(row[i] ?? '').padEnd(widths[i]) + ' ')
+        .map((_, i) => ' ' + formatValue(row[i]).padEnd(widths[i]) + ' ')
         .join('|') +
       '|'
     );
@@ -523,7 +567,7 @@ declare function acquireVsCodeApi(): {
     const objs = rows.map(r => {
       const obj: Record<string, any> = {};
       cols.forEach((c, i) => {
-        obj[c] = r[i];
+        obj[c] = formatValue(r[i]);
       });
       return obj;
     });

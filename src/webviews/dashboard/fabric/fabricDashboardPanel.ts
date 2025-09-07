@@ -34,9 +34,12 @@ export class FabricDashboardPanel extends BasePanel {
   private superSpineStreamName = '';
   private fabricStatusStreamName = '';
   private initialized = false;
+  private useFieldsQuery = false;
 
   private get fabricQueryBase(): string {
-    return '.namespace.resources.cr-status.fabrics_eda_nokia_com.v1alpha1.fabric.status';
+    return this.useFieldsQuery
+      ? '.namespace.resources.cr.fabrics_eda_nokia_com.v1alpha1.fabric'
+      : '.namespace.resources.cr-status.fabrics_eda_nokia_com.v1alpha1.fabric.status';
   }
 
   constructor(context: vscode.ExtensionContext, title: string) {
@@ -46,6 +49,9 @@ export class FabricDashboardPanel extends BasePanel {
     });
 
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
+    const specManager = (this.edaClient as any)['specManager'];
+    const apiVersion = specManager?.getApiVersion?.() ?? '0';
+    this.useFieldsQuery = this.isVersionAtLeast(apiVersion, '25.8');
 
     this.streamClient = this.createStreamClient();
     void this.streamClient.connect();
@@ -112,6 +118,27 @@ export class FabricDashboardPanel extends BasePanel {
     client.subscribeToStream('toponodes');
     client.subscribeToStream('interfaces');
     return client;
+  }
+
+  private isVersionAtLeast(version: string, target: string): boolean {
+    const parse = (v: string) =>
+      v
+        .replace(/^[^0-9]*/, '')
+        .split('.')
+        .map(n => {
+          const num = parseInt(n, 10);
+          return Number.isNaN(num) ? 0 : num;
+        });
+    const vParts = parse(version);
+    const tParts = parse(target);
+    const len = Math.max(vParts.length, tParts.length);
+    for (let i = 0; i < len; i++) {
+      const vVal = vParts[i] ?? 0;
+      const tVal = tParts[i] ?? 0;
+      if (vVal > tVal) return true;
+      if (vVal < tVal) return false;
+    }
+    return true;
   }
 
   protected getHtml(): string {
@@ -485,7 +512,10 @@ export class FabricDashboardPanel extends BasePanel {
     await this.streamClient.closeEqlStream(this.spineStreamName);
     const namespaces = ns === 'All Namespaces' ? undefined : ns;
     this.spineStreamName = `spine-${namespaces ?? 'all'}-${randomUUID()}`;
-    this.streamClient.setEqlQuery(`${this.fabricQueryBase}.spineNodes`, namespaces, this.spineStreamName);
+    const query = this.useFieldsQuery
+      ? `${this.fabricQueryBase} fields [ status.spineNodes[].node ]`
+      : `${this.fabricQueryBase}.spineNodes`;
+    this.streamClient.setEqlQuery(query, namespaces, this.spineStreamName);
     this.streamClient.subscribeToStream(this.spineStreamName);
     await this.streamClient.connect();
     const stats = this.computeFabricGroupStats(ns, 'spines');
@@ -496,7 +526,10 @@ export class FabricDashboardPanel extends BasePanel {
     await this.streamClient.closeEqlStream(this.leafStreamName);
     const namespaces = ns === 'All Namespaces' ? undefined : ns;
     this.leafStreamName = `leaf-${namespaces ?? 'all'}-${randomUUID()}`;
-    this.streamClient.setEqlQuery(`${this.fabricQueryBase}.leafNodes`, namespaces, this.leafStreamName);
+    const query = this.useFieldsQuery
+      ? `${this.fabricQueryBase} fields [ status.leafNodes[].node ]`
+      : `${this.fabricQueryBase}.leafNodes`;
+    this.streamClient.setEqlQuery(query, namespaces, this.leafStreamName);
     this.streamClient.subscribeToStream(this.leafStreamName);
     await this.streamClient.connect();
     const stats = this.computeFabricGroupStats(ns, 'leafs');
@@ -507,7 +540,10 @@ export class FabricDashboardPanel extends BasePanel {
     await this.streamClient.closeEqlStream(this.borderLeafStreamName);
     const namespaces = ns === 'All Namespaces' ? undefined : ns;
     this.borderLeafStreamName = `borderleaf-${namespaces ?? 'all'}-${randomUUID()}`;
-    this.streamClient.setEqlQuery(`${this.fabricQueryBase}.borderLeafNodes`, namespaces, this.borderLeafStreamName);
+    const query = this.useFieldsQuery
+      ? `${this.fabricQueryBase} fields [ status.borderLeafNodes[].node ]`
+      : `${this.fabricQueryBase}.borderLeafNodes`;
+    this.streamClient.setEqlQuery(query, namespaces, this.borderLeafStreamName);
     this.streamClient.subscribeToStream(this.borderLeafStreamName);
     await this.streamClient.connect();
     const stats = this.computeFabricGroupStats(ns, 'borderleafs');
@@ -518,7 +554,10 @@ export class FabricDashboardPanel extends BasePanel {
     await this.streamClient.closeEqlStream(this.superSpineStreamName);
     const namespaces = ns === 'All Namespaces' ? undefined : ns;
     this.superSpineStreamName = `superspine-${namespaces ?? 'all'}-${randomUUID()}`;
-    this.streamClient.setEqlQuery(`${this.fabricQueryBase}.superSpineNodes`, namespaces, this.superSpineStreamName);
+    const query = this.useFieldsQuery
+      ? `${this.fabricQueryBase} fields [ status.superSpineNodes[].node ]`
+      : `${this.fabricQueryBase}.superSpineNodes`;
+    this.streamClient.setEqlQuery(query, namespaces, this.superSpineStreamName);
     this.streamClient.subscribeToStream(this.superSpineStreamName);
     await this.streamClient.connect();
     const stats = this.computeFabricGroupStats(ns, 'superspines');
@@ -529,7 +568,10 @@ export class FabricDashboardPanel extends BasePanel {
     await this.streamClient.closeEqlStream(this.fabricStatusStreamName);
     const namespaces = ns === 'All Namespaces' ? undefined : ns;
     this.fabricStatusStreamName = `fabricstatus-${namespaces ?? 'all'}-${randomUUID()}`;
-    this.streamClient.setEqlQuery(this.fabricQueryBase, namespaces, this.fabricStatusStreamName);
+    const query = this.useFieldsQuery
+      ? `${this.fabricQueryBase} fields [ status.health ]`
+      : this.fabricQueryBase;
+    this.streamClient.setEqlQuery(query, namespaces, this.fabricStatusStreamName);
     this.streamClient.subscribeToStream(this.fabricStatusStreamName);
     await this.streamClient.connect();
     const health = this.computeFabricHealth(ns);
@@ -560,6 +602,33 @@ export class FabricDashboardPanel extends BasePanel {
     this.updateNodeGroup(msg, 'superspines');
   }
 
+  private extractNodesFromRow(
+    data: any,
+    key: 'leafs' | 'borderleafs' | 'spines' | 'superspines'
+  ): string[] {
+    const status = data?.status;
+    if (!status) return [];
+    let arr: any[] | undefined;
+    switch (key) {
+      case 'spines':
+        arr = status.spineNodes;
+        break;
+      case 'leafs':
+        arr = status.leafNodes;
+        break;
+      case 'borderleafs':
+        arr = status.borderLeafNodes;
+        break;
+      case 'superspines':
+        arr = status.superSpineNodes;
+        break;
+    }
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map(n => n?.node)
+      .filter((n): n is string => typeof n === 'string');
+  }
+
   private updateNodeGroup(
     msg: any,
     key: 'leafs' | 'borderleafs' | 'spines' | 'superspines'
@@ -572,9 +641,7 @@ export class FabricDashboardPanel extends BasePanel {
       if (Array.isArray(rows)) {
         for (const r of rows) {
           const ns = r.data?.['.namespace.name'] as string | undefined;
-          const name = r.data?.node as string | undefined;
-          const id = r.id as number | undefined;
-          if (!ns || !name || id === undefined) continue;
+          if (!ns) continue;
           let stats = this.fabricMap.get(ns);
           if (!stats) {
             stats = {
@@ -586,16 +653,27 @@ export class FabricDashboardPanel extends BasePanel {
             };
             this.fabricMap.set(ns, stats);
           }
-          stats[key].nodes.set(id, name);
+          if (this.useFieldsQuery) {
+            const nodes = this.extractNodesFromRow(r.data, key);
+            stats[key].nodes.clear();
+            nodes.forEach((n, idx) => stats![key].nodes.set(idx, n));
+          } else {
+            const name = r.data?.node as string | undefined;
+            const id = r.id as number | undefined;
+            if (!name || id === undefined) continue;
+            stats[key].nodes.set(id, name);
+          }
           changed.add(ns);
         }
       }
-      const delIds = op?.delete?.ids;
-      if (Array.isArray(delIds)) {
-        for (const delId of delIds) {
-          for (const [ns, stats] of this.fabricMap) {
-            if (stats[key].nodes.delete(delId)) {
-              changed.add(ns);
+      if (!this.useFieldsQuery) {
+        const delIds = op?.delete?.ids;
+        if (Array.isArray(delIds)) {
+          for (const delId of delIds) {
+            for (const [ns, stats] of this.fabricMap) {
+              if (stats[key].nodes.delete(delId)) {
+                changed.add(ns);
+              }
             }
           }
         }
@@ -638,7 +716,9 @@ export class FabricDashboardPanel extends BasePanel {
           this.fabricMap.set(ns, stats);
         }
 
-        const newHealth = Number(data?.health ?? 0);
+        const newHealth = Number(
+          data?.health ?? data?.status?.health ?? 0
+        );
         if (stats.health !== newHealth) {
           stats.health = newHealth;
           changed.add(ns);
