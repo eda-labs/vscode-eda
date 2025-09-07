@@ -444,7 +444,10 @@ declare function acquireVsCodeApi(): {
       const tr = document.createElement('tr');
       columns.forEach((_, i) => {
         const td = document.createElement('td');
-        td.textContent = formatValue(row[i]);
+        const div = document.createElement('div');
+        div.className = 'cell-content';
+        div.textContent = formatValue(row[i]);
+        td.appendChild(div);
         tr.appendChild(td);
       });
       resultsBody.appendChild(tr);
