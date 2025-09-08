@@ -790,7 +790,7 @@
     "ts-loader": "^9.5.4",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3",
-    "typescript-eslint": "^8.40.0",
+    "typescript-eslint": "^8.43.0",
     "undici": "^7.15.0",
     "undici-types": "^7.15.0",
     "utf-8-validate": "^6.0.5",
