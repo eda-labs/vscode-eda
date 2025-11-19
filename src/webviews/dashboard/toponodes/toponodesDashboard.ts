@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { BasePanel } from '../../basePanel';
 import { serviceManager } from '../../../services/serviceManager';
 import { EdaClient } from '../../../clients/edaClient';
+import { KubernetesClient } from '../../../clients/kubernetesClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
 
 export class ToponodesDashboardPanel extends BasePanel {
@@ -85,7 +86,8 @@ export class ToponodesDashboardPanel extends BasePanel {
     this.panel.webview.postMessage({
       command: 'init',
       namespaces,
-      selected: this.selectedNamespace
+      selected: this.selectedNamespace,
+      hasKubernetesContext: this.hasKubernetesContext()
     });
   }
 
@@ -194,8 +196,22 @@ export class ToponodesDashboardPanel extends BasePanel {
       command: 'results',
       columns: this.columns,
       rows,
-      status: `Count: ${rows.length}`
+      status: `Count: ${rows.length}`,
+      hasKubernetesContext: this.hasKubernetesContext()
     });
+  }
+
+  private hasKubernetesContext(): boolean {
+    if (!serviceManager.getClientNames().includes('kubernetes')) {
+      return false;
+    }
+    try {
+      const client = serviceManager.getClient<KubernetesClient>('kubernetes');
+      const ctx = client.getCurrentContext();
+      return Boolean(ctx && ctx !== 'none');
+    } catch {
+      return false;
+    }
   }
 
   private handleTopoNodeStream(msg: any): void {

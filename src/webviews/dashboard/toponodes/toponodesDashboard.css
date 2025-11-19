@@ -62,6 +62,14 @@
     background-color: var(--accent-hover);
   }
 
+  .icon-btn:disabled,
+  .icon-btn:disabled:hover {
+    background-color: var(--accent);
+    color: var(--vscode-disabledForeground);
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   .select {
     background-color: var(--vscode-input-background);
     color: var(--vscode-input-foreground);
