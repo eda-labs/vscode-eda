@@ -20,6 +20,7 @@ declare function acquireVsCodeApi(): {
   let nameIdx = -1;
   let nsIdx = -1;
   let nodeDetailsIdx = -1;
+  let hasKubernetesContext = true;
 
   nsSelect.addEventListener('change', () => {
     vscode.postMessage({ command: 'setNamespace', namespace: nsSelect.value });
@@ -31,6 +32,9 @@ declare function acquireVsCodeApi(): {
 
   window.addEventListener('message', event => {
     const msg = event.data;
+    if (typeof msg.hasKubernetesContext === 'boolean') {
+      hasKubernetesContext = msg.hasKubernetesContext;
+    }
     if (msg.command === 'init') {
       nsSelect.innerHTML = '';
       msg.namespaces.forEach((ns: string) => {
@@ -113,8 +117,11 @@ declare function acquireVsCodeApi(): {
       viewBtn.innerHTML = '<span class="codicon codicon-file-code"></span>';
       const sshBtn = document.createElement('button');
       sshBtn.className = 'icon-btn';
-      sshBtn.title = 'SSH';
+      sshBtn.title = hasKubernetesContext
+        ? 'SSH'
+        : 'Kubernetes context needs to be set to enable SSH';
       sshBtn.innerHTML = '<span class="codicon codicon-terminal"></span>';
+      sshBtn.disabled = !hasKubernetesContext;
       const name = nameIdx >= 0 ? row[nameIdx] : '';
       const ns = nsIdx >= 0 ? row[nsIdx] : '';
       const nodeDetails = nodeDetailsIdx >= 0 ? row[nodeDetailsIdx] : undefined;
