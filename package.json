@@ -737,7 +737,8 @@
     "keybindings": [
       {
         "command": "vscode-eda.filterTree",
-        "key": "alt+shift+f"
+        "key": "alt+shift+f",
+        "when": "edaExplorerVisible"
       },
       {
         "command": "vscode-eda.createResource",
