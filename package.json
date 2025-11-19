@@ -6,7 +6,7 @@
   "description": "Manage and monitor Nokia EDA (Event Driven Automation) resources via the EDA API",
   "author": "EDA Labs",
   "homepage": "https://docs.eda.dev/",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "engines": {
     "vscode": "^1.100.0"
   },
@@ -737,7 +737,8 @@
     "keybindings": [
       {
         "command": "vscode-eda.filterTree",
-        "key": "alt+shift+f"
+        "key": "alt+shift+f",
+        "when": "edaExplorerVisible"
       },
       {
         "command": "vscode-eda.createResource",

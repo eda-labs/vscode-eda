@@ -398,6 +398,32 @@ export async function activate(context: vscode.ExtensionContext) {
       showCollapseAll: true
     });
 
+    const edaTreeViews = [
+      dashboardTreeView,
+      namespaceTreeView,
+      alarmTreeView,
+      deviationTreeView,
+      basketTreeView,
+      transactionTreeView,
+      helpTreeView
+    ];
+
+    const updateEdaExplorerVisibilityContext = () =>
+      vscode.commands.executeCommand(
+        'setContext',
+        'edaExplorerVisible',
+        edaTreeViews.some(view => view.visible)
+      );
+
+    edaTreeViews.forEach(treeView => {
+      context.subscriptions.push(
+        treeView.onDidChangeVisibility(() => {
+          void updateEdaExplorerVisibilityContext();
+        })
+      );
+    });
+    void updateEdaExplorerVisibilityContext();
+
 
 
 
