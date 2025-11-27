@@ -24,6 +24,15 @@ async function run() {
   });
 
   await build({
+    entryPoints: ['src/webviews/dashboard/simnodes/simnodesDashboard.webview.ts'],
+    bundle: true,
+    platform: 'browser',
+    format: 'iife',
+    sourcemap: false,
+    outfile: 'dist/simnodesDashboard.js'
+  });
+
+  await build({
     entryPoints: ['src/webviews/dashboard/resource/resourceBrowserPanel.webview.ts'],
     bundle: true,
     platform: 'browser',
