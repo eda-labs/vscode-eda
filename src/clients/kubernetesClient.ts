@@ -58,6 +58,8 @@ export class KubernetesClient {
   private engineconfigsCache: Map<string, any[]> = new Map();
   private nodeprofilesCache: Map<string, any[]> = new Map();
   private manifestsCache: Map<string, any[]> = new Map();
+  private simnodesCache: Map<string, any[]> = new Map();
+  private simlinksCache: Map<string, any[]> = new Map();
   private crdCache: any[] = [];
 
 
@@ -88,6 +90,8 @@ export class KubernetesClient {
     { name: 'engineconfigs', group: 'core.eda.nokia.com', version: 'v1', plural: 'engineconfigs', namespaced: true },
     { name: 'nodeprofiles', group: 'core.eda.nokia.com', version: 'v1', plural: 'nodeprofiles', namespaced: true },
     { name: 'manifests', group: 'core.eda.nokia.com', version: 'v1', plural: 'manifests', namespaced: true },
+    { name: 'simnodes', group: 'core.eda.nokia.com', version: 'v1', plural: 'simnodes', namespaced: true },
+    { name: 'simlinks', group: 'core.eda.nokia.com', version: 'v1', plural: 'simlinks', namespaced: true },
 
     // apps/v1
     { name: 'deployments', group: 'apps', version: 'v1', plural: 'deployments', namespaced: true },
@@ -539,6 +543,14 @@ export class KubernetesClient {
 
   public getCachedManifests(ns: string): any[] {
     return this.manifestsCache.get(ns) || [];
+  }
+
+  public getCachedSimnodes(ns: string): any[] {
+    return this.simnodesCache.get(ns) || [];
+  }
+
+  public getCachedSimlinks(ns: string): any[] {
+    return this.simlinksCache.get(ns) || [];
   }
 
 
