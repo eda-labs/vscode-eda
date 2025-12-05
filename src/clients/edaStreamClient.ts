@@ -418,8 +418,10 @@ export class EdaStreamClient {
       const authHeaders = this.authClient!.getHeaders();
       const finalHeaders: Record<string, string> = { ...authHeaders };
 
+      // Note: v25.12+ uses application/json for stream registration responses
+      // The actual stream data comes via WebSocket, not SSE
       if (!extraHeaders.Accept) {
-        finalHeaders.Accept = 'text/event-stream';
+        finalHeaders.Accept = 'application/json';
       }
 
       for (const [key, value] of Object.entries(extraHeaders)) {
@@ -643,8 +645,7 @@ export class EdaStreamClient {
       `&eventclient=${encodeURIComponent(client)}` +
       `&stream=file`;
 
-    // User-storage file stream requires Accept: */* instead of text/event-stream
-    // Otherwise it returns 406 Not Acceptable
+    // User-storage file stream uses Accept: */*
     const customHeaders = {
       Accept: '*/*',
       'Accept-Encoding': 'gzip, deflate, br, zsrd',

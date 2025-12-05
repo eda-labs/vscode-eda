@@ -4,6 +4,7 @@ import { FilteredTreeProvider } from './filteredTreeProvider';
 import { serviceManager } from '../../services/serviceManager';
 import { EdaClient } from '../../clients/edaClient';
 import { ResourceStatusService } from '../../services/resourceStatusService';
+import { getOps, getDelete, getDeleteIds, getInsertOrModify, getRows } from '../../utils/streamMessageUtils';
 
 export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
   private edaClient: EdaClient;
@@ -87,25 +88,27 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
 
   /** Process alarm stream updates */
   private processAlarmMessage(msg: any): void {
-    const ops: any[] = Array.isArray(msg.msg?.op) ? msg.msg.op : [];
+    const ops = getOps(msg.msg);
     if (ops.length === 0) {
       return;
     }
     let changed = false;
     for (const op of ops) {
-      if (op.delete && Array.isArray(op.delete.ids)) {
-        for (const id of op.delete.ids) {
-          if (this.alarms.delete(String(id))) {
-            changed = true;
-          }
+      const deleteOp = getDelete(op);
+      const deleteIds = getDeleteIds(deleteOp);
+      for (const id of deleteIds) {
+        if (this.alarms.delete(String(id))) {
+          changed = true;
         }
-      } else if (op.insert_or_modify && Array.isArray(op.insert_or_modify.rows)) {
-        for (const row of op.insert_or_modify.rows) {
-          if (row && row.id !== undefined) {
-            const data = row.data || row;
-            this.alarms.set(String(row.id), data);
-            changed = true;
-          }
+      }
+
+      const insertOrModify = getInsertOrModify(op);
+      const rows = getRows(insertOrModify);
+      for (const row of rows) {
+        if (row && row.id !== undefined) {
+          const data = row.data || row;
+          this.alarms.set(String(row.id), data);
+          changed = true;
         }
       }
     }

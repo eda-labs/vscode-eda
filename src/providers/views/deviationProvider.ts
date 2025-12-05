@@ -6,6 +6,7 @@ import { EdaClient } from '../../clients/edaClient';
 import { ResourceStatusService } from '../../services/resourceStatusService';
 import { log, LogLevel } from '../../extension';
 import { parseUpdateKey } from '../../utils/parseUpdateKey';
+import { getUpdates } from '../../utils/streamMessageUtils';
 
 export interface EdaDeviation {
   name?: string;
@@ -170,12 +171,13 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
       return;
     }
 
-    if (msg.stream !== 'deviations' || !Array.isArray(msg.msg?.updates)) {
+    const updates = getUpdates(msg.msg);
+    if (msg.stream !== 'deviations' || updates.length === 0) {
       return;
     }
 
     let changed = false;
-    for (const up of msg.msg.updates) {
+    for (const up of updates) {
       let name: string | undefined = up.data?.metadata?.name || up.data?.name;
       let ns: string | undefined = up.data?.metadata?.namespace;
       if ((!name || !ns) && up.key) {

@@ -3,6 +3,7 @@ import { BasePanel } from '../../basePanel';
 import { serviceManager } from '../../../services/serviceManager';
 import { EdaClient } from '../../../clients/edaClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
+import { getUpdates } from '../../../utils/streamMessageUtils';
 
 interface TierSelector {
   tier: number;
@@ -276,7 +277,7 @@ export class TopologyDashboardPanel extends BasePanel {
   }
 
   private handleTopoNodeStream(msg: any): void {
-    const updates = Array.isArray(msg.msg?.updates) ? msg.msg.updates : [];
+    const updates = getUpdates(msg.msg);
     if (updates.length === 0) return;
     for (const up of updates) {
       let name: string | undefined = up.data?.metadata?.name;
@@ -303,7 +304,7 @@ export class TopologyDashboardPanel extends BasePanel {
   }
 
   private handleTopoLinkStream(msg: any): void {
-    const updates = Array.isArray(msg.msg?.updates) ? msg.msg.updates : [];
+    const updates = getUpdates(msg.msg);
     if (updates.length === 0) return;
     for (const up of updates) {
       let name: string | undefined = up.data?.metadata?.name;

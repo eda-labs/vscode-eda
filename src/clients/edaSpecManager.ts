@@ -197,6 +197,11 @@ export class EdaSpecManager {
       if (!get) continue;
       const params = Array.isArray(get.parameters) ? get.parameters : [];
       const names = params.map((prm: any) => prm.name);
+      // Skip endpoints with required parameters (other than eventclient/stream)
+      const hasRequiredParams = params.some((prm: any) =>
+        prm.required && prm.name !== 'eventclient' && prm.name !== 'stream'
+      );
+      if (hasRequiredParams) continue;
       if (names.includes('eventclient') && names.includes('stream') && !p.includes('{')) {
         const stream = p.split('/').filter(Boolean).pop() ?? 'unknown';
         eps.push({ path: p, stream });

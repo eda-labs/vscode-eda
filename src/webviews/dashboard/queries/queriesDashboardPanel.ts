@@ -4,6 +4,7 @@ import { serviceManager } from '../../../services/serviceManager';
 import { EdaClient } from '../../../clients/edaClient';
 import { EmbeddingSearchService } from '../../../services/embeddingSearchService';
 import { LogLevel, log } from '../../../extension';
+import { getOps, getDelete, getDeleteIds, getInsertOrModify, getRows } from '../../../utils/streamMessageUtils';
 
 export class QueriesDashboardPanel extends BasePanel {
   private edaClient: EdaClient;
@@ -259,17 +260,17 @@ export class QueriesDashboardPanel extends BasePanel {
     }
 
     // Try to extract operations from various possible locations in the message structure
-    let ops: any[] = [];
-
-    // Check multiple possible locations for the operations array
-    if (Array.isArray(msg.msg?.op)) {
-      ops = msg.msg.op;
-    } else if (Array.isArray(msg.op)) {
-      ops = msg.op;
-    } else if (msg.msg && typeof msg.msg === 'object') {
+    // Uses case-insensitive helpers for API inconsistencies
+    let ops = getOps(msg.msg);
+    if (ops.length === 0) {
+      ops = getOps(msg);
+    }
+    if (ops.length === 0 && msg.msg && typeof msg.msg === 'object') {
       // For NQL streams, the structure might be different
       // Check if msg itself contains the operation data
-      if (msg.msg.insert_or_modify || msg.msg.delete) {
+      const insertOrModify = getInsertOrModify(msg.msg);
+      const deleteOp = getDelete(msg.msg);
+      if (insertOrModify || deleteOp) {
         ops = [msg.msg];
       }
     }
@@ -292,14 +293,15 @@ export class QueriesDashboardPanel extends BasePanel {
       return;
     }
     for (const op of ops) {
-      if (Array.isArray(op.delete?.ids)) {
-        for (const id of op.delete.ids) {
-          this.rowMap.delete(String(id));
-        }
+      const deleteOp = getDelete(op);
+      const deleteIds = getDeleteIds(deleteOp);
+      for (const id of deleteIds) {
+        this.rowMap.delete(String(id));
       }
 
-      const rows = op?.insert_or_modify?.rows;
-      if (!Array.isArray(rows)) continue;
+      const insertOrModify = getInsertOrModify(op);
+      const rows = getRows(insertOrModify);
+      if (rows.length === 0) continue;
 
       for (const r of rows) {
         const data = r.data || r;

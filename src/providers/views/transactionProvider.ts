@@ -5,6 +5,7 @@ import { serviceManager } from '../../services/serviceManager';
 import { EdaClient } from '../../clients/edaClient';
 import { ResourceStatusService } from '../../services/resourceStatusService';
 import { log, LogLevel } from '../../extension';
+import { getResults } from '../../utils/streamMessageUtils';
 
 export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTreeItem> {
   private edaClient: EdaClient;
@@ -155,11 +156,9 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
 
   /** Process transaction summary stream updates */
   private processTransactionMessage(msg: any): void {
-    let results: any[] = [];
-    if (Array.isArray(msg.results)) {
-      results = msg.results;
-    } else if (Array.isArray(msg.msg?.results)) {
-      results = msg.msg.results;
+    let results = getResults(msg);
+    if (results.length === 0) {
+      results = getResults(msg.msg);
     }
     if (results.length > 0) {
       this.mergeTransactions(results);

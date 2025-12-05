@@ -37,6 +37,7 @@ import { registerDashboardCommands } from './commands/dashboardCommands';
 import { registerApplyYamlFileCommand } from './commands/applyYamlFileCommand';
 import { registerResourceBrowserCommand } from './commands/resourceBrowserCommand';
 import { configureTargets } from './webviews/targetWizard/targetWizardPanel';
+import { setAuthLogger } from './clients/edaAuthClient';
 import { TreeItemBase } from './providers/views/treeItem';
 import { EmbeddingSearchService } from './services/embeddingSearchService';
 // import { registerResourceViewCommands } from './commands/resourceViewCommands';
@@ -160,6 +161,11 @@ export function measurePerformance<T>(
 export async function activate(context: vscode.ExtensionContext) {
   console.log('Activating EDA extension');
   edaOutputChannel = vscode.window.createOutputChannel('EDA');
+
+  // Set up auth logger to use VS Code output channel
+  setAuthLogger((message, level, forceLog, elapsedTime) => {
+    log(message, level as LogLevel, forceLog, elapsedTime);
+  });
 
   // Initialize filter context
   await vscode.commands.executeCommand('setContext', 'edaTreeFilterActive', false);
