@@ -1,19 +1,46 @@
-# Exclude development directories and config
+# Exclude source and test files
 src/**
 !src/templates/**
 !src/webviews/**/*.html
 !src/webviews/**/*.css
 test/**
+
+# Exclude development directories (must come before negation patterns)
+node_modules/**
+.vscode/**
+.github/**
+.claude/**
 javascript/**
 vscode-kubernetes-tools/**
-node_modules/**
-webpack.config.js
-tsconfig.json
-patch.sh
-.vscode/**
-.gitignore
-package-lock.json
-**/*.map
 spec_example/**
 tools/**
+
+# Exclude build and config files
+webpack.config.js
+tsconfig.json
+esbuild.config.mjs
+eslint.config.mjs
+tailwind.config.js
+patch.sh
+.gitignore
+.eslintrc*
+.prettierrc*
+
+# Exclude development/example files
+stream.ts
+stream.config.json
+stream_example.txt
+diff.d.ts
+
+# Exclude package files
+package-lock.json
+*.vsix
+
+# Exclude source maps
+**/*.map
+
+# Exclude documentation not needed in extension
+CLAUDE.md
+
+# Include bin if needed
 !bin/**
