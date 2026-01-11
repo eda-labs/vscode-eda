@@ -36,7 +36,7 @@ import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand'
 import { registerDashboardCommands } from './commands/dashboardCommands';
 import { registerApplyYamlFileCommand } from './commands/applyYamlFileCommand';
 import { registerResourceBrowserCommand } from './commands/resourceBrowserCommand';
-import { configureTargets } from './webviews/targetWizard/targetWizardPanel';
+import { configureTargets, fetchClientSecretDirectly } from './webviews/targetWizard/targetWizardPanel';
 import { TreeItemBase } from './providers/views/treeItem';
 import { EmbeddingSearchService } from './services/embeddingSearchService';
 // import { registerResourceViewCommands } from './commands/resourceViewCommands';
@@ -45,8 +45,11 @@ import { EmbeddingSearchService } from './services/embeddingSearchService';
 export interface EdaTargetConfig {
   context?: string;
   edaUsername?: string;
+  edaPassword?: string;
   skipTlsVerify?: boolean;
   coreNamespace?: string;
+  kcUsername?: string;
+  kcPassword?: string;
 }
 
 
@@ -186,6 +189,9 @@ export async function activate(context: vscode.ExtensionContext) {
     await configureTargets(context);
     return;
   }
+  let kcUsername: string | undefined;
+  let kcPassword: string | undefined;
+  let edaPasswordFromSettings: string | undefined;
   if (targetEntries.length > 0) {
     const idx = context.globalState.get<number>('selectedEdaTarget', 0) ?? 0;
     const [url, val] = targetEntries[Math.min(idx, targetEntries.length - 1)];
@@ -203,6 +209,9 @@ export async function activate(context: vscode.ExtensionContext) {
       if (val.coreNamespace) {
         coreNamespace = val.coreNamespace;
       }
+      kcUsername = val.kcUsername;
+      kcPassword = val.kcPassword;
+      edaPasswordFromSettings = val.edaPassword;
     }
   }
   const hostKey = (() => {
@@ -216,12 +225,28 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Load passwords from secrets storage
   edaPassword = await context.secrets.get(`edaPassword:${hostKey}`) || '';
-  const clientSecret = await context.secrets.get(`clientSecret:${hostKey}`) || '';
+  let clientSecret = await context.secrets.get(`clientSecret:${hostKey}`) || '';
+
+  if (!edaPassword && edaPasswordFromSettings) {
+    edaPassword = edaPasswordFromSettings;
+    await context.secrets.store(`edaPassword:${hostKey}`, edaPassword);
+  }
 
   log(`Loading credentials for ${edaUrl} (host: ${hostKey})`, LogLevel.INFO, true);
   log(`EDA Username: ${edaUsername}`, LogLevel.INFO, true);
   log(`EDA Password: ${edaPassword ? '[SET]' : '[NOT SET]'}`, LogLevel.INFO, true);
   log(`Client Secret: ${clientSecret ? '[SET]' : '[NOT SET]'}`, LogLevel.INFO, true);
+
+  if (!clientSecret && kcUsername && kcPassword) {
+    try {
+      clientSecret = await fetchClientSecretDirectly(edaUrl, kcUsername, kcPassword);
+      if (clientSecret) {
+        await context.secrets.store(`clientSecret:${hostKey}`, clientSecret);
+      }
+    } catch (error) {
+      log(`Failed to fetch client secret: ${error}`, LogLevel.ERROR, true);
+    }
+  }
 
   if (!clientSecret) {
     vscode.window.showErrorMessage('Client secret is required. Please configure EDA targets.');

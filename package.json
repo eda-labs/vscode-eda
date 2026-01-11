@@ -698,9 +698,17 @@
                     "type": "string",
                     "description": "Username for the EDA realm for this target"
                   },
+                  "edaPassword": {
+                    "type": "string",
+                    "description": "EDA user password for this target (optional)"
+                  },
                   "kcUsername": {
                     "type": "string",
                     "description": "Keycloak admin username for this target"
+                  },
+                  "kcPassword": {
+                    "type": "string",
+                    "description": "Keycloak admin password for this target (optional)"
                   },
                   "skipTlsVerify": {
                     "type": "boolean",
