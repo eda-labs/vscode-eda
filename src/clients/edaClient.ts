@@ -303,9 +303,14 @@ export class EdaClient {
     return this.apiClient.listTopoLinks(namespace);
   }
 
-  public async listTopologyGroupings(): Promise<any[]> {
+  public async listTopologies(): Promise<any[]> {
     await this.initPromise;
-    return this.apiClient.listTopologyGroupings();
+    return this.apiClient.listTopologies();
+  }
+
+  public async listTopologyGroupings(topologyName: string): Promise<any[]> {
+    await this.initPromise;
+    return this.apiClient.listTopologyGroupings(topologyName);
   }
 
   public async queryEql(query: string, namespaces?: string): Promise<any> {

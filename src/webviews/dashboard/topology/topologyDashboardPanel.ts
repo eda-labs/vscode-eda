@@ -137,7 +137,17 @@ export class TopologyDashboardPanel extends BasePanel {
 
   private async loadGroupings(): Promise<void> {
     try {
-      const list = await this.edaClient.listTopologyGroupings();
+      // First get list of topologies
+      const topologies = await this.edaClient.listTopologies();
+      if (!Array.isArray(topologies) || topologies.length === 0) {
+        return;
+      }
+      // Get groupings for the first topology
+      const topologyName = topologies[0]?.name;
+      if (!topologyName) {
+        return;
+      }
+      const list = await this.edaClient.listTopologyGroupings(topologyName);
       if (Array.isArray(list) && list.length) {
         const grp = list[0]?.spec?.tierSelectors;
         if (Array.isArray(grp)) {

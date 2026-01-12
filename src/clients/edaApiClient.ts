@@ -525,16 +525,29 @@ export class EdaApiClient {
   }
 
   /**
-   * List TopologyGroupings
+   * List Topologies
    */
-  public async listTopologyGroupings(): Promise<any[]> {
+  public async listTopologies(): Promise<any[]> {
+    if (!this.specManager) {
+      throw new Error('Spec manager not initialized');
+    }
+    const path = await this.specManager.getPathByOperationId('topologies');
+    const data = await this.fetchJSON<any>(path);
+    return Array.isArray(data) ? data : [];
+  }
+
+  /**
+   * List TopologyGroupings for a specific topology
+   */
+  public async listTopologyGroupings(topologyName: string): Promise<any[]> {
     if (!this.specManager) {
       throw new Error('Spec manager not initialized');
     }
     const template = await this.specManager.getPathByOperationId(
-      'listTopologiesEdaNokiaComV1alpha1Topologygroupings'
+      'getTopologyGroupings'
     );
-    const data = await this.fetchJSON<any>(template);
+    const path = template.replace('{topologyName}', topologyName);
+    const data = await this.fetchJSON<any>(path);
     return Array.isArray(data?.items) ? data.items : [];
   }
 
