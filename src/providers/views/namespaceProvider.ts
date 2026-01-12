@@ -10,6 +10,7 @@ import { ResourceService } from '../../services/resourceService';
 import { ResourceStatusService } from '../../services/resourceStatusService';
 import { log, LogLevel } from '../../extension';
 import { parseUpdateKey } from '../../utils/parseUpdateKey';
+import { getUpdates } from '../../utils/streamMessageUtils';
 
 /**
  * TreeDataProvider for the EDA Namespaces view
@@ -637,10 +638,12 @@ constructor() {
 
   /** Handle incoming stream messages and cache items */
   private processStreamMessage(stream: string, msg: any): void {
-    const updates = Array.isArray(msg.msg?.updates) ? msg.msg.updates : [];
+    const updates = getUpdates(msg.msg);
     if (updates.length === 0) {
+      log(`[STREAM:${stream}] No updates in message`, LogLevel.DEBUG);
       return;
     }
+    log(`[STREAM:${stream}] Processing ${updates.length} updates`, LogLevel.DEBUG);
     for (const up of updates) {
       const { name, namespace } = this.extractNames(up);
       if (!namespace || !name) {
@@ -663,7 +666,7 @@ constructor() {
 
   /** Update cached namespaces from stream messages */
   private handleNamespaceMessage(msg: any): void {
-    const updates = Array.isArray(msg.msg?.updates) ? msg.msg.updates : [];
+    const updates = getUpdates(msg.msg);
     if (updates.length === 0) {
       return;
     }

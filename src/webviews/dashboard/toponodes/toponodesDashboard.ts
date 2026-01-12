@@ -4,6 +4,7 @@ import { serviceManager } from '../../../services/serviceManager';
 import { EdaClient } from '../../../clients/edaClient';
 import { KubernetesClient } from '../../../clients/kubernetesClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
+import { getUpdates } from '../../../utils/streamMessageUtils';
 
 export class ToponodesDashboardPanel extends BasePanel {
   private edaClient: EdaClient;
@@ -215,7 +216,7 @@ export class ToponodesDashboardPanel extends BasePanel {
   }
 
   private handleTopoNodeStream(msg: any): void {
-    const updates = Array.isArray(msg.msg?.updates) ? msg.msg.updates : [];
+    const updates = getUpdates(msg.msg);
     if (updates.length === 0) {
       return;
     }

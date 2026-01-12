@@ -3,6 +3,7 @@ import { BasePanel } from '../../basePanel';
 import { serviceManager } from '../../../services/serviceManager';
 import { EdaClient } from '../../../clients/edaClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
+import { getUpdates } from '../../../utils/streamMessageUtils';
 
 interface TierSelector {
   tier: number;
@@ -136,7 +137,17 @@ export class TopologyDashboardPanel extends BasePanel {
 
   private async loadGroupings(): Promise<void> {
     try {
-      const list = await this.edaClient.listTopologyGroupings();
+      // First get list of topologies
+      const topologies = await this.edaClient.listTopologies();
+      if (!Array.isArray(topologies) || topologies.length === 0) {
+        return;
+      }
+      // Get groupings for the first topology
+      const topologyName = topologies[0]?.name;
+      if (!topologyName) {
+        return;
+      }
+      const list = await this.edaClient.listTopologyGroupings(topologyName);
       if (Array.isArray(list) && list.length) {
         const grp = list[0]?.spec?.tierSelectors;
         if (Array.isArray(grp)) {
@@ -276,7 +287,7 @@ export class TopologyDashboardPanel extends BasePanel {
   }
 
   private handleTopoNodeStream(msg: any): void {
-    const updates = Array.isArray(msg.msg?.updates) ? msg.msg.updates : [];
+    const updates = getUpdates(msg.msg);
     if (updates.length === 0) return;
     for (const up of updates) {
       let name: string | undefined = up.data?.metadata?.name;
@@ -303,7 +314,7 @@ export class TopologyDashboardPanel extends BasePanel {
   }
 
   private handleTopoLinkStream(msg: any): void {
-    const updates = Array.isArray(msg.msg?.updates) ? msg.msg.updates : [];
+    const updates = getUpdates(msg.msg);
     if (updates.length === 0) return;
     for (const up of updates) {
       let name: string | undefined = up.data?.metadata?.name;

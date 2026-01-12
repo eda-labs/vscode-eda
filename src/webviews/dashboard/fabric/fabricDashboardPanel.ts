@@ -5,6 +5,7 @@ import { EdaClient } from '../../../clients/edaClient';
 import { EdaStreamClient, StreamEndpoint } from '../../../clients/edaStreamClient';
 import { randomUUID } from 'crypto';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
+import { getUpdates, getOps, getDelete, getDeleteIds, getInsertOrModify, getRows } from '../../../utils/streamMessageUtils';
 
 interface NodeGroupStats {
   nodes: Map<number, string>;
@@ -224,7 +225,7 @@ export class FabricDashboardPanel extends BasePanel {
   }
 
   private handleTopoNodeStream(msg: any): void {
-    const updates = Array.isArray(msg.msg?.updates) ? msg.msg.updates : [];
+    const updates = getUpdates(msg.msg);
     if (updates.length === 0) {
       return;
     }
@@ -404,7 +405,7 @@ export class FabricDashboardPanel extends BasePanel {
   }
 
   private handleInterfaceStream(msg: any): void {
-    const updates = Array.isArray(msg.msg?.updates) ? msg.msg.updates : [];
+    const updates = getUpdates(msg.msg);
     if (updates.length === 0) {
       return;
     }
@@ -468,8 +469,11 @@ export class FabricDashboardPanel extends BasePanel {
   }
 
   private handleTrafficStream(msg: any): void {
-    const rows = msg.msg?.op?.[0]?.insert_or_modify?.rows;
-    if (!Array.isArray(rows) || rows.length === 0) return;
+    const ops = getOps(msg.msg);
+    if (ops.length === 0) return;
+    const insertOrModify = getInsertOrModify(ops[0]);
+    const rows = getRows(insertOrModify);
+    if (rows.length === 0) return;
     const data = rows[0]?.data;
     if (!data) return;
     const stats = {
@@ -633,47 +637,45 @@ export class FabricDashboardPanel extends BasePanel {
     msg: any,
     key: 'leafs' | 'borderleafs' | 'spines' | 'superspines'
   ): void {
-    const ops = msg.msg?.op;
-    if (!Array.isArray(ops) || ops.length === 0) return;
+    const ops = getOps(msg.msg);
+    if (ops.length === 0) return;
     const changed = new Set<string>();
     for (const op of ops) {
-      const rows = op?.insert_or_modify?.rows;
-      if (Array.isArray(rows)) {
-        for (const r of rows) {
-          const ns = r.data?.['.namespace.name'] as string | undefined;
-          if (!ns) continue;
-          let stats = this.fabricMap.get(ns);
-          if (!stats) {
-            stats = {
-              leafs: { nodes: new Map(), health: 0 },
-              borderleafs: { nodes: new Map(), health: 0 },
-              spines: { nodes: new Map(), health: 0 },
-              superspines: { nodes: new Map(), health: 0 },
-              health: 0
-            };
-            this.fabricMap.set(ns, stats);
-          }
-          if (this.useFieldsQuery) {
-            const nodes = this.extractNodesFromRow(r.data, key);
-            stats[key].nodes.clear();
-            nodes.forEach((n, idx) => stats![key].nodes.set(idx, n));
-          } else {
-            const name = r.data?.node as string | undefined;
-            const id = r.id as number | undefined;
-            if (!name || id === undefined) continue;
-            stats[key].nodes.set(id, name);
-          }
-          changed.add(ns);
+      const insertOrModify = getInsertOrModify(op);
+      const rows = getRows(insertOrModify);
+      for (const r of rows) {
+        const ns = r.data?.['.namespace.name'] as string | undefined;
+        if (!ns) continue;
+        let stats = this.fabricMap.get(ns);
+        if (!stats) {
+          stats = {
+            leafs: { nodes: new Map(), health: 0 },
+            borderleafs: { nodes: new Map(), health: 0 },
+            spines: { nodes: new Map(), health: 0 },
+            superspines: { nodes: new Map(), health: 0 },
+            health: 0
+          };
+          this.fabricMap.set(ns, stats);
         }
+        if (this.useFieldsQuery) {
+          const nodes = this.extractNodesFromRow(r.data, key);
+          stats[key].nodes.clear();
+          nodes.forEach((n, idx) => stats![key].nodes.set(idx, n));
+        } else {
+          const name = r.data?.node as string | undefined;
+          const id = r.id as number | undefined;
+          if (!name || id === undefined) continue;
+          stats[key].nodes.set(id, name);
+        }
+        changed.add(ns);
       }
       if (!this.useFieldsQuery) {
-        const delIds = op?.delete?.ids;
-        if (Array.isArray(delIds)) {
-          for (const delId of delIds) {
-            for (const [ns, stats] of this.fabricMap) {
-              if (stats[key].nodes.delete(delId)) {
-                changed.add(ns);
-              }
+        const deleteOp = getDelete(op);
+        const delIds = getDeleteIds(deleteOp);
+        for (const delId of delIds) {
+          for (const [ns, stats] of this.fabricMap) {
+            if (stats[key].nodes.delete(delId)) {
+              changed.add(ns);
             }
           }
         }
@@ -690,15 +692,14 @@ export class FabricDashboardPanel extends BasePanel {
   }
 
   private handleFabricStatusStream(msg: any): void {
-    const ops = msg.msg?.op;
-    if (!Array.isArray(ops) || ops.length === 0) return;
+    const ops = getOps(msg.msg);
+    if (ops.length === 0) return;
 
     const changed = new Set<string>();
 
     for (const op of ops) {
-      const rows = op?.insert_or_modify?.rows;
-      if (!Array.isArray(rows)) continue;
-
+      const insertOrModify = getInsertOrModify(op);
+      const rows = getRows(insertOrModify);
       for (const r of rows) {
         const data = r.data;
         const ns = data?.['.namespace.name'] as string | undefined;

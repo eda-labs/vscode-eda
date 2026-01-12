@@ -7,12 +7,27 @@ enum LogLevel {
   ERROR = 3,
 }
 
+// External logger callback that can be set by extension.ts
+type LoggerCallback = (message: string, level: number, forceLog?: boolean, elapsedTime?: number) => void;
+let externalLogger: LoggerCallback | undefined;
+
+export function setAuthLogger(logger: LoggerCallback): void {
+  externalLogger = logger;
+}
+
 function log(
   message: string,
   level: LogLevel = LogLevel.INFO,
   forceLog = false,
   elapsedTime?: number
 ): void {
+  // Use external logger if set (VS Code output channel)
+  if (externalLogger) {
+    externalLogger(message, level, forceLog, elapsedTime);
+    return;
+  }
+
+  // Fallback to console.log
   if (level >= LogLevel.INFO || forceLog) {
     const prefix = LogLevel[level];
     const timestamp = new Date().toISOString();
