@@ -793,7 +793,7 @@
     "mocha": "^11.7.5",
     "mochawesome": "^7.1.4",
     "openapi-typescript": "^7.10.1",
-    "prettier": "^3.7.4",
+    "prettier": "^3.8.0",
     "sinon": "^21.0.1",
     "tailwindcss": "^4.1.18",
     "ts-loader": "^9.5.4",
