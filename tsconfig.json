@@ -5,6 +5,8 @@
     "outDir": "out",
     "moduleResolution": "node",
     "lib": ["es6", "dom"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
     "sourceMap": true,
     "rootDir": ".",
     "alwaysStrict": true,

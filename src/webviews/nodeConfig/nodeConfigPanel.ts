@@ -47,23 +47,22 @@ export class NodeConfigPanel extends BasePanel {
     this.panel.webview.html = this.buildHtml();
 
     this.panel.webview.onDidReceiveMessage((message) => {
-      if (message.command === 'saveColorMode') {
+      if (message.command === 'ready') {
+        this.panel.webview.postMessage({
+          command: 'loadData',
+          config: this.config,
+          annotations: this.annotations,
+          colorMode: NodeConfigPanel.colorMode,
+        });
+      } else if (message.command === 'saveColorMode') {
         NodeConfigPanel.colorMode = message.colorMode;
         this.context.globalState.update('nodeConfigColorMode', NodeConfigPanel.colorMode);
       }
     });
-
-    // Now reading from the fields so they're actually used:
-    this.panel.webview.postMessage({
-      command: 'loadData',
-      config: this.config,
-      annotations: this.annotations,
-      colorMode: NodeConfigPanel.colorMode,
-    });
   }
 
   protected getHtml(): string {
-    return this.readWebviewFile('nodeConfig', 'nodeConfigPanel.html');
+    return '<div id="root"></div>';
   }
 
   protected getCustomStyles(): string {
@@ -76,7 +75,7 @@ export class NodeConfigPanel extends BasePanel {
 
   protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'nodeConfigPanel.js');
-    return `<script nonce="${nonce}" data-color-mode="${NodeConfigPanel.colorMode}" src="${scriptUri}"></script>`;
+    return `<script nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
   static show(

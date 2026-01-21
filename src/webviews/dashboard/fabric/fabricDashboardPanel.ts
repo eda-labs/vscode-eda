@@ -143,7 +143,7 @@ export class FabricDashboardPanel extends BasePanel {
   }
 
   protected getHtml(): string {
-    return this.readWebviewFile('dashboard', 'fabric', 'fabricDashboardPanel.html');
+    return '<div id="root"></div>';
   }
 
   protected getCustomStyles(): string {

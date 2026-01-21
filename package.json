@@ -763,7 +763,7 @@
     "test": "mocha -r ts-node/register -r ./test/setup.ts test/**/*.test.ts",
     "stream:namespaces": "ts-node namespace-stream.ts",
     "compile-webpack": "npm run check-types && webpack --mode production",
-    "build:tailwind": "tailwindcss --content './src/webviews/**/*.{ts,html}' --content './src/styles/**/*.{css,ts}' -o ./resources/tailwind.css",
+    "build:tailwind": "tailwindcss --content './src/webviews/**/*.{ts,tsx,html}' --content './src/styles/**/*.{css,ts}' -o ./resources/tailwind.css",
     "package": "rm -rf dist && npm run lint && npm run compile && vsce package"
   },
   "devDependencies": {
@@ -772,6 +772,8 @@
     "@types/js-yaml": "^4.0.9",
     "@types/mocha": "^10.0.10",
     "@types/node": "^25.0.6",
+    "@types/react": "^19.2.9",
+    "@types/react-dom": "^19.2.3",
     "@types/sinon": "^21.0.0",
     "@types/sinon-chai": "^4.0.0",
     "@types/vscode": "^1.99.0",
@@ -812,6 +814,8 @@
     "cytoscape-popper": "^4.0.1",
     "cytoscape-svg": "^0.4.0",
     "echarts": "^6.0.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
     "tippy.js": "^6.3.7"
   }
 }

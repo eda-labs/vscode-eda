@@ -62,7 +62,7 @@ export class ToponodesDashboardPanel extends BasePanel {
   }
 
   protected getHtml(): string {
-    return this.readWebviewFile('dashboard', 'toponodes', 'toponodesDashboard.html');
+    return '<div id="root"></div>';
   }
 
   protected getCustomStyles(): string {

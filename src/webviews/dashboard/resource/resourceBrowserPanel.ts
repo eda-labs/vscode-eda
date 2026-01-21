@@ -38,7 +38,7 @@ export class ResourceBrowserPanel extends BasePanel {
   }
 
   protected getHtml(): string {
-    return this.readWebviewFile('dashboard', 'resource', 'resourceBrowserPanel.html');
+    return '<div id="root"></div>';
   }
 
   protected getCustomStyles(): string {

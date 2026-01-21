@@ -48,6 +48,9 @@ export class TargetWizardPanel extends BasePanel {
 
     this.panel.webview.onDidReceiveMessage(async (msg: any) => {
       switch (msg.command) {
+        case 'ready':
+          this.sendInitialData();
+          break;
         case 'save':
           await this.saveConfiguration(msg, true);
           break;
@@ -76,14 +79,19 @@ export class TargetWizardPanel extends BasePanel {
     });
   }
 
-  protected getHtml(): string {
-    const html = this.readWebviewFile('targetWizard', 'targetWizardPanel.html');
-    if (!html) {
-      return '';
-    }
+  private sendInitialData(): void {
     const logoUri = this.getResourceUri('resources', 'eda.png');
-    const options = this.contexts.map(c => `<option value="${c}">${c}</option>`).join('');
-    return html.replace('${logo}', logoUri.toString()).replace('${options}', options);
+    this.panel.webview.postMessage({
+      command: 'init',
+      targets: this.targets,
+      selected: this.selected,
+      contexts: this.contexts,
+      logoUri: logoUri.toString()
+    });
+  }
+
+  protected getHtml(): string {
+    return '<div id="root"></div>';
   }
 
   protected getCustomStyles(): string {
@@ -96,9 +104,7 @@ export class TargetWizardPanel extends BasePanel {
 
   protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'targetWizardPanel.js');
-    const data = { targets: this.targets, selected: this.selected };
-    const dataJson = JSON.stringify(data).replace(/</g, '\\u003c');
-    return `<script id="initialData" type="application/json">${dataJson}</script>\n<script nonce="${nonce}" src="${scriptUri}"></script>`;
+    return `<script nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
   private async saveConfiguration(msg: any, close: boolean): Promise<void> {

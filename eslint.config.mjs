@@ -44,7 +44,8 @@ export default [
         fetch: 'readonly',
         URLSearchParams: 'readonly',
         URL: 'readonly',
-        getComputedStyle: 'readonly'
+        getComputedStyle: 'readonly',
+        navigator: 'readonly'
       }
     },
     plugins: { '@typescript-eslint': tseslint.plugin },

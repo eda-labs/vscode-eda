@@ -58,7 +58,7 @@ export class SimnodesDashboardPanel extends BasePanel {
   }
 
   protected getHtml(): string {
-    return this.readWebviewFile('dashboard', 'simnodes', 'simnodesDashboard.html');
+    return '<div id="root"></div>';
   }
 
   protected getCustomStyles(): string {

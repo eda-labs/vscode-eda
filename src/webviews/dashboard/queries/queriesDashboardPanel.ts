@@ -64,7 +64,7 @@ export class QueriesDashboardPanel extends BasePanel {
   }
 
   protected getHtml(): string {
-    return this.readWebviewFile('dashboard', 'queries', 'queriesDashboard.html');
+    return '<div id="root"></div>';
   }
 
   protected getCustomStyles(): string {

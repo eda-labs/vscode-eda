@@ -78,7 +78,7 @@ export class TopologyDashboardPanel extends BasePanel {
   }
 
   protected getHtml(): string {
-    return this.readWebviewFile('dashboard', 'topology', 'topologyDashboard.html');
+    return '<div id="root"></div>';
   }
 
   protected getCustomStyles(): string {
