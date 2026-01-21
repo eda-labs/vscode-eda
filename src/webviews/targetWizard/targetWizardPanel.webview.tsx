@@ -1,8 +1,7 @@
-import { createRoot } from 'react-dom/client';
-import { useState, useCallback, useEffect, useMemo } from 'react';
-import { usePostMessage, useMessageListener } from '../shared/hooks';
-import { VSCodeProvider } from '../shared/context';
+import { useState, useCallback, useMemo } from 'react';
+import { usePostMessage, useMessageListener, useReadySignal } from '../shared/hooks';
 import { VSCodeButton } from '../shared/components';
+import { mountWebview } from '../shared/utils';
 
 interface Target {
   url: string;
@@ -109,6 +108,8 @@ function TargetWizardPanel() {
   const [formUI, setFormUI] = useState<FormUIState>(initialFormUIState);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  useReadySignal();
+
   useMessageListener<TargetWizardMessage>(useCallback((msg) => {
     if (msg.command === 'init') {
       setTargets(msg.targets ?? []);
@@ -129,10 +130,6 @@ function TargetWizardPanel() {
       setFormUI(prev => ({ ...prev, clientSecretHint: 'Client secret retrieved successfully' }));
     }
   }, []));
-
-  useEffect(() => {
-    postMessage({ command: 'ready' });
-  }, [postMessage]);
 
   const currentTarget = useMemo(() => {
     return targets[selectedIdx] ?? null;
@@ -451,12 +448,4 @@ function TargetWizardPanel() {
   );
 }
 
-const container = document.getElementById('root');
-if (container) {
-  const root = createRoot(container);
-  root.render(
-    <VSCodeProvider>
-      <TargetWizardPanel />
-    </VSCodeProvider>
-  );
-}
+mountWebview(TargetWizardPanel);

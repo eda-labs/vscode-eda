@@ -1,7 +1,6 @@
-import React from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { useState, useCallback, useEffect, useRef } from 'react';
-import { usePostMessage, useMessageListener } from '../../shared/hooks';
+import { usePostMessage, useMessageListener, useReadySignal } from '../../shared/hooks';
 import { VSCodeProvider } from '../../shared/context';
 
 declare const echarts: any;
@@ -314,9 +313,7 @@ function FabricDashboard() {
 
   useMessageListener<FabricMessage>(handleMessage);
 
-  useEffect(() => {
-    postMessage({ command: 'ready' });
-  }, [postMessage]);
+  useReadySignal();
 
   const handleNamespaceChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
     const ns = e.target.value;

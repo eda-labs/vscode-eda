@@ -1,8 +1,6 @@
-import React from 'react';
-import { createRoot } from 'react-dom/client';
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { usePostMessage, useMessageListener } from '../shared/hooks';
-import { VSCodeProvider } from '../shared/context';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
+import { usePostMessage, useMessageListener, useReadySignal } from '../shared/hooks';
+import { mountWebview } from '../shared/utils';
 
 type ColorMode = 'full' | 'less' | 'none';
 
@@ -327,6 +325,8 @@ function NodeConfigPanel() {
   const annotationLineMapRef = useRef<Map<string, Set<number>>>(new Map());
   const annotationInfoMapRef = useRef<Map<string, AnnotationInfo>>(new Map());
 
+  useReadySignal();
+
   useMessageListener<NodeConfigMessage>(useCallback((msg) => {
     if (msg.command === 'loadData') {
       setConfigText(msg.config || '');
@@ -336,10 +336,6 @@ function NodeConfigPanel() {
       }
     }
   }, []));
-
-  useEffect(() => {
-    postMessage({ command: 'ready' });
-  }, [postMessage]);
 
   const lineData = useMemo(() => {
     if (!configText) return [];
@@ -517,12 +513,4 @@ function NodeConfigPanel() {
   );
 }
 
-const container = document.getElementById('root');
-if (container) {
-  const root = createRoot(container);
-  root.render(
-    <VSCodeProvider>
-      <NodeConfigPanel />
-    </VSCodeProvider>
-  );
-}
+mountWebview(NodeConfigPanel);

@@ -1,4 +1,4 @@
-import { SelectHTMLAttributes, forwardRef } from 'react';
+import { SelectHTMLAttributes, forwardRef, memo } from 'react';
 
 export interface SelectOption {
   value: string;
@@ -13,7 +13,7 @@ export interface VSCodeSelectProps extends SelectHTMLAttributes<HTMLSelectElemen
   placeholder?: string;
 }
 
-export const VSCodeSelect = forwardRef<HTMLSelectElement, VSCodeSelectProps>(
+export const VSCodeSelect = memo(forwardRef<HTMLSelectElement, VSCodeSelectProps>(
   function VSCodeSelect({ label, error, options, placeholder, className = '', id, ...props }, ref) {
     const selectId = id ?? label?.toLowerCase().replace(/\s+/g, '-');
 
@@ -56,4 +56,4 @@ export const VSCodeSelect = forwardRef<HTMLSelectElement, VSCodeSelectProps>(
       </div>
     );
   }
-);
+));

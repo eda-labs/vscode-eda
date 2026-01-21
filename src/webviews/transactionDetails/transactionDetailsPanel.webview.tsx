@@ -1,9 +1,7 @@
-import React from 'react';
-import { createRoot } from 'react-dom/client';
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { usePostMessage, useMessageListener } from '../shared/hooks';
-import { VSCodeProvider } from '../shared/context';
+import React, { useState, useCallback, useMemo } from 'react';
+import { usePostMessage, useMessageListener, useReadySignal, useCopyToClipboard } from '../shared/hooks';
 import { VSCodeButton } from '../shared/components';
+import { mountWebview } from '../shared/utils';
 
 interface NodeConfig {
   name: string;
@@ -128,8 +126,9 @@ function ErrorsSummary({ errors }: { errors: ErrorSummary[] }) {
 function TransactionDetailsPanel() {
   const postMessage = usePostMessage();
   const [data, setData] = useState<TransactionData | null>(null);
-  const [copied, setCopied] = useState(false);
-  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { copied, copyToClipboard } = useCopyToClipboard();
+
+  useReadySignal();
 
   useMessageListener<TransactionMessage>(useCallback((msg) => {
     if (msg.command === 'init' && msg.data) {
@@ -137,29 +136,12 @@ function TransactionDetailsPanel() {
     }
   }, []));
 
-  useEffect(() => {
-    postMessage({ command: 'ready' });
-  }, [postMessage]);
-
-  // Clean up timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (copyTimeoutRef.current) {
-        clearTimeout(copyTimeoutRef.current);
-      }
-    };
-  }, []);
-
   const handleCopy = useCallback(() => {
     if (data?.rawJson) {
       postMessage({ command: 'copy', text: data.rawJson });
-      setCopied(true);
-      if (copyTimeoutRef.current) {
-        clearTimeout(copyTimeoutRef.current);
-      }
-      copyTimeoutRef.current = setTimeout(() => setCopied(false), 2000);
+      copyToClipboard(data.rawJson);
     }
-  }, [data, postMessage]);
+  }, [data, postMessage, copyToClipboard]);
 
   const handleShowDiffs = useCallback(() => {
     postMessage({ command: 'showDiffs' });
@@ -336,12 +318,4 @@ function TransactionDetailsPanel() {
   );
 }
 
-const container = document.getElementById('root');
-if (container) {
-  const root = createRoot(container);
-  root.render(
-    <VSCodeProvider>
-      <TransactionDetailsPanel />
-    </VSCodeProvider>
-  );
-}
+mountWebview(TransactionDetailsPanel);

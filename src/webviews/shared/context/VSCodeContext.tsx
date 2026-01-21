@@ -1,4 +1,4 @@
-import { createContext, useContext, ReactNode, useCallback, useEffect, useState } from 'react';
+import { createContext, useContext, ReactNode, useCallback, useEffect, useRef } from 'react';
 import { getVSCodeApi } from '../hooks/useVSCodeApi';
 import { WebviewMessage } from '../hooks/useMessageListener';
 
@@ -55,7 +55,7 @@ export function WebviewApp<T extends WebviewMessage = WebviewMessage>({
   onMessage,
   onReady
 }: WebviewAppProps<T>) {
-  const [isReady, setIsReady] = useState(false);
+  const isReadyRef = useRef(false);
 
   useEffect(() => {
     if (!onMessage) {
@@ -69,11 +69,11 @@ export function WebviewApp<T extends WebviewMessage = WebviewMessage>({
   }, [onMessage]);
 
   useEffect(() => {
-    if (!isReady) {
-      setIsReady(true);
+    if (!isReadyRef.current) {
+      isReadyRef.current = true;
       onReady?.();
     }
-  }, [isReady, onReady]);
+  }, [onReady]);
 
   return (
     <VSCodeProvider>

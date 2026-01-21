@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, memo } from 'react';
 
 export interface Column<T> {
   key: keyof T | string;
@@ -27,7 +27,7 @@ interface SortState {
   direction: SortDirection;
 }
 
-export function DataTable<T extends Record<string, unknown>>({
+function DataTableInner<T extends Record<string, unknown>>({
   columns,
   data,
   keyField,
@@ -40,6 +40,10 @@ export function DataTable<T extends Record<string, unknown>>({
 }: DataTableProps<T>) {
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<SortState>({ column: null, direction: null });
+
+  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearch(e.target.value);
+  }, []);
 
   const handleSort = useCallback((columnKey: string) => {
     setSort(prev => {
@@ -95,7 +99,7 @@ export function DataTable<T extends Record<string, unknown>>({
           <input
             type="text"
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={handleSearchChange}
             placeholder={searchPlaceholder}
             className="w-full px-3 py-1.5 bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border border-[var(--vscode-input-border)] rounded focus:outline-none focus:border-[var(--vscode-focusBorder)]"
           />
@@ -158,3 +162,6 @@ export function DataTable<T extends Record<string, unknown>>({
     </div>
   );
 }
+
+// Wrap with memo using type assertion to preserve generic type
+export const DataTable = memo(DataTableInner) as typeof DataTableInner;

@@ -1,9 +1,7 @@
-import React, { createContext, useContext } from 'react';
-import { createRoot } from 'react-dom/client';
-import { useState, useCallback, useEffect, useMemo } from 'react';
-import { usePostMessage, useMessageListener } from '../../shared/hooks';
-import { VSCodeProvider } from '../../shared/context';
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
+import { usePostMessage, useMessageListener, useReadySignal } from '../../shared/hooks';
 import { VSCodeButton } from '../../shared/components';
+import { mountWebview } from '../../shared/utils';
 
 // Context for expand/collapse all trigger
 const ExpandContext = createContext<number>(0);
@@ -120,6 +118,8 @@ function ResourceBrowserPanel() {
   // Positive = expand all, negative = collapse all, increment to trigger
   const [expandTrigger, setExpandTrigger] = useState(0);
 
+  useReadySignal();
+
   useMessageListener<ResourceBrowserMessage>(useCallback((msg) => {
     if (msg.command === 'resources') {
       setResources(msg.list ?? []);
@@ -142,10 +142,6 @@ function ResourceBrowserPanel() {
       setSchema(null);
     }
   }, [postMessage]));
-
-  useEffect(() => {
-    postMessage({ command: 'ready' });
-  }, [postMessage]);
 
   const filteredResources = useMemo(() => {
     const lowerFilter = filter.toLowerCase();
@@ -226,12 +222,4 @@ function ResourceBrowserPanel() {
   );
 }
 
-const container = document.getElementById('root');
-if (container) {
-  const root = createRoot(container);
-  root.render(
-    <VSCodeProvider>
-      <ResourceBrowserPanel />
-    </VSCodeProvider>
-  );
-}
+mountWebview(ResourceBrowserPanel);

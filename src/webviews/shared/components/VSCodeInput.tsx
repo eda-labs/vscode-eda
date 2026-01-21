@@ -1,11 +1,11 @@
-import React, { InputHTMLAttributes, forwardRef } from 'react';
+import React, { InputHTMLAttributes, forwardRef, memo } from 'react';
 
 export interface VSCodeInputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   error?: string;
 }
 
-export const VSCodeInput = forwardRef<HTMLInputElement, VSCodeInputProps>(
+export const VSCodeInput = memo(forwardRef<HTMLInputElement, VSCodeInputProps>(
   function VSCodeInput({ label, error, className = '', id, ...props }, ref) {
     const inputId = id ?? label?.toLowerCase().replace(/\s+/g, '-');
 
@@ -33,14 +33,14 @@ export const VSCodeInput = forwardRef<HTMLInputElement, VSCodeInputProps>(
       </div>
     );
   }
-);
+));
 
 export interface VSCodeTextAreaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
   label?: string;
   error?: string;
 }
 
-export const VSCodeTextArea = forwardRef<HTMLTextAreaElement, VSCodeTextAreaProps>(
+export const VSCodeTextArea = memo(forwardRef<HTMLTextAreaElement, VSCodeTextAreaProps>(
   function VSCodeTextArea({ label, error, className = '', id, ...props }, ref) {
     const inputId = id ?? label?.toLowerCase().replace(/\s+/g, '-');
 
@@ -68,4 +68,4 @@ export const VSCodeTextArea = forwardRef<HTMLTextAreaElement, VSCodeTextAreaProp
       </div>
     );
   }
-);
+));

@@ -1,7 +1,6 @@
-import { createRoot } from 'react-dom/client';
-import { useState, useCallback, useEffect, useMemo } from 'react';
-import { usePostMessage, useMessageListener } from '../shared/hooks';
-import { VSCodeProvider } from '../shared/context';
+import { useState, useCallback, useMemo } from 'react';
+import { usePostMessage, useMessageListener, useReadySignal } from '../shared/hooks';
+import { mountWebview } from '../shared/utils';
 
 interface ResourceRef {
   group?: string;
@@ -164,6 +163,8 @@ function TransactionDiffsPanel() {
   const [searchQuery, setSearchQuery] = useState('');
   const [noDiff, setNoDiff] = useState(false);
 
+  useReadySignal();
+
   useMessageListener<TransactionDiffsMessage>(useCallback((msg) => {
     if (msg.command === 'diffs') {
       const diffs: ResourceRef[] = [];
@@ -186,10 +187,6 @@ function TransactionDiffsPanel() {
       setError(msg.message ?? 'Unknown error');
     }
   }, [postMessage]));
-
-  useEffect(() => {
-    postMessage({ command: 'ready' });
-  }, [postMessage]);
 
   const filteredDiffs = useMemo(() => {
     let filtered = [...allDiffs];
@@ -328,12 +325,4 @@ function TransactionDiffsPanel() {
   );
 }
 
-const container = document.getElementById('root');
-if (container) {
-  const root = createRoot(container);
-  root.render(
-    <VSCodeProvider>
-      <TransactionDiffsPanel />
-    </VSCodeProvider>
-  );
-}
+mountWebview(TransactionDiffsPanel);

@@ -1,8 +1,6 @@
-import React from 'react';
-import { createRoot } from 'react-dom/client';
-import { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { usePostMessage, useMessageListener } from '../../shared/hooks';
-import { VSCodeProvider } from '../../shared/context';
+import { mountWebview } from '../../shared/utils';
 import type cytoscape from 'cytoscape';
 import cytoscapePopper from 'cytoscape-popper';
 import tippy, { Instance as TippyInstance } from 'tippy.js';
@@ -1041,12 +1039,4 @@ function TopologyDashboard() {
   );
 }
 
-const container = document.getElementById('root');
-if (container) {
-  const root = createRoot(container);
-  root.render(
-    <VSCodeProvider>
-      <TopologyDashboard />
-    </VSCodeProvider>
-  );
-}
+mountWebview(TopologyDashboard);

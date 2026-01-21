@@ -1,8 +1,7 @@
-import React from 'react';
-import { createRoot } from 'react-dom/client';
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { usePostMessage, useMessageListener } from '../../shared/hooks';
-import { VSCodeProvider } from '../../shared/context';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { usePostMessage, useMessageListener, useReadySignal, useCopyToClipboard } from '../../shared/hooks';
+import { shallowArrayEquals, mountWebview } from '../../shared/utils';
+import { formatValue, pruneEmptyColumns, formatForClipboard, CopyFormat } from './queryFormatters';
 
 interface Alternative {
   query: string;
@@ -15,7 +14,7 @@ interface QueriesMessage {
   namespaces?: string[];
   selected?: string;
   columns?: string[];
-  rows?: any[][];
+  rows?: unknown[][];
   status?: string;
   error?: string;
   list?: string[];
@@ -25,122 +24,64 @@ interface QueriesMessage {
   alternatives?: Alternative[];
 }
 
-type CopyFormat = 'ascii' | 'markdown' | 'json' | 'yaml';
+type QueryType = 'eql' | 'nql' | 'emb';
 
-function formatValue(value: any): string {
-  if (value === null || value === undefined) return '';
-  if (Array.isArray(value)) {
-    if (value.length === 0) return '';
-    const formatted = value.map(v => formatValue(v));
-    const isPrimitive = value.every(
-      v => v === null || v === undefined || typeof v !== 'object'
-    );
-    return formatted.join(isPrimitive ? ', ' : '\n');
-  }
-  if (typeof value === 'object') {
-    const entries = Object.entries(value);
-    if (entries.length === 0) return '';
-    return entries
-      .map(([k, v]) => `${k}: ${formatValue(v)}`)
-      .join(', ');
-  }
-  return String(value);
+// Grouped state for conversion display
+interface ConversionState {
+  show: boolean;
+  eql: string;
+  label: string;
+  description: string;
+  alternatives: Alternative[];
+  showAlternatives: boolean;
 }
 
-function pruneEmptyColumns(cols: string[], rows: any[][]): { cols: string[]; rows: any[][] } {
-  if (!rows.length) {
-    return { cols, rows };
-  }
-  const keep: number[] = [];
-  cols.forEach((_, idx) => {
-    const hasValue = rows.some(r => formatValue(r[idx]) !== '');
-    if (hasValue) keep.push(idx);
-  });
-  return {
-    cols: keep.map(i => cols[i]),
-    rows: rows.map(r => keep.map(i => r[i]))
-  };
+const initialConversionState: ConversionState = {
+  show: false,
+  eql: '',
+  label: 'Query converted to EQL:',
+  description: '',
+  alternatives: [],
+  showAlternatives: false
+};
+
+// Grouped state for sort
+interface SortState {
+  index: number;
+  ascending: boolean;
 }
 
-function toAsciiTable(cols: string[], rows: any[][]): string {
-  if (!cols.length) return '';
-  const widths = cols.map((c, i) =>
-    Math.max(c.length, ...rows.map(r => formatValue(r[i]).length))
-  );
-  const hr = '+' + widths.map(w => '-'.repeat(w + 2)).join('+') + '+';
-  const header = '|' + cols.map((c, i) => ' ' + c.padEnd(widths[i]) + ' ').join('|') + '|';
-  const lines = rows.map(row =>
-    '|' + cols.map((_, i) => ' ' + formatValue(row[i]).padEnd(widths[i]) + ' ').join('|') + '|'
-  );
-  return [hr, header, hr, ...lines, hr].join('\n');
-}
-
-function toMarkdownTable(cols: string[], rows: any[][]): string {
-  if (!cols.length) return '';
-  const header = '| ' + cols.join(' | ') + ' |';
-  const sep = '| ' + cols.map(() => '---').join(' | ') + ' |';
-  const lines = rows.map(r =>
-    '| ' +
-    cols.map((_, i) =>
-      formatValue(r[i]).replace(/[|]/g, '\\|').replace(/\n/g, '<br/>')
-    ).join(' | ') +
-    ' |'
-  );
-  return [header, sep, ...lines].join('\n');
-}
-
-function toJson(cols: string[], rows: any[][]): string {
-  const objs = rows.map(r => {
-    const obj: Record<string, any> = {};
-    cols.forEach((c, i) => {
-      obj[c] = r[i];
-    });
-    return obj;
-  });
-  return JSON.stringify(objs, null, 2);
-}
-
-function toYaml(cols: string[], rows: any[][]): string {
-  const objs = rows.map(r => {
-    const obj: Record<string, any> = {};
-    cols.forEach((c, i) => {
-      obj[c] = formatValue(r[i]);
-    });
-    return obj;
-  });
-  return objs
-    .map(o =>
-      Object.entries(o)
-        .map(([k, v]) => k + ': ' + v)
-        .join('\n')
-    )
-    .join('\n---\n');
+// Grouped state for autocomplete
+interface AutocompleteState {
+  list: string[];
+  index: number;
 }
 
 function QueriesDashboard() {
   const postMessage = usePostMessage();
+  useReadySignal();
+  const { copied, copyToClipboard } = useCopyToClipboard({ successDuration: 1000 });
+
+  // Namespace state
   const [namespaces, setNamespaces] = useState<string[]>([]);
   const [selectedNamespace, setSelectedNamespace] = useState('');
+
+  // Query state
   const [queryInput, setQueryInput] = useState('');
-  const [queryType, setQueryType] = useState<'eql' | 'nql' | 'emb'>('eql');
+  const [queryType, setQueryType] = useState<QueryType>('eql');
+
+  // Results state
   const [columns, setColumns] = useState<string[]>([]);
-  const [allRows, setAllRows] = useState<any[][]>([]);
+  const [allRows, setAllRows] = useState<unknown[][]>([]);
   const [filters, setFilters] = useState<string[]>([]);
-  const [sortIndex, setSortIndex] = useState(-1);
-  const [sortAsc, setSortAsc] = useState(true);
+  const [sort, setSort] = useState<SortState>({ index: -1, ascending: true });
   const [status, setStatus] = useState('Ready');
-  const [autocompleteList, setAutocompleteList] = useState<string[]>([]);
-  const [autocompleteIndex, setAutocompleteIndex] = useState(-1);
+
+  // UI state
+  const [autocomplete, setAutocomplete] = useState<AutocompleteState>({ list: [], index: -1 });
   const [copyFormat, setCopyFormat] = useState<CopyFormat>('ascii');
   const [showFormatMenu, setShowFormatMenu] = useState(false);
-  const [copySuccess, setCopySuccess] = useState(false);
-
-  const [showConvertedQuery, setShowConvertedQuery] = useState(false);
-  const [convertedEQL, setConvertedEQL] = useState('');
-  const [conversionLabel, setConversionLabel] = useState('Query converted to EQL:');
-  const [convertedDescription, setConvertedDescription] = useState('');
-  const [alternatives, setAlternatives] = useState<Alternative[]>([]);
-  const [showAlternatives, setShowAlternatives] = useState(false);
+  const [conversion, setConversion] = useState<ConversionState>(initialConversionState);
 
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -153,17 +94,15 @@ function QueriesDashboard() {
       case 'clear':
         setColumns([]);
         setAllRows([]);
-        setSortIndex(-1);
-        setSortAsc(true);
+        setSort({ index: -1, ascending: true });
         setStatus('Running...');
         break;
       case 'results': {
         const filtered = pruneEmptyColumns(msg.columns || [], msg.rows || []);
         setColumns(prev => {
-          const colsChanged = JSON.stringify(prev) !== JSON.stringify(filtered.cols);
+          const colsChanged = !shallowArrayEquals(prev, filtered.cols);
           if (colsChanged) {
-            setSortIndex(-1);
-            setSortAsc(true);
+            setSort({ index: -1, ascending: true });
             setFilters(new Array(filtered.cols.length).fill(''));
           }
           return filtered.cols;
@@ -180,31 +119,20 @@ function QueriesDashboard() {
         setAllRows([]);
         break;
       case 'autocomplete':
-        setAutocompleteList(msg.list || []);
-        setAutocompleteIndex(-1);
+        setAutocomplete({ list: msg.list || [], index: -1 });
         break;
       case 'convertedQuery':
-        setConvertedEQL(msg.eqlQuery || '');
-        setShowConvertedQuery(true);
-        if (msg.queryType === 'nql') {
-          setConversionLabel('NQL converted to EQL:');
-        } else {
-          setConversionLabel('Natural language converted to EQL:');
-        }
-        if (msg.description) {
-          setConvertedDescription(msg.description);
-        } else {
-          setConvertedDescription('');
-        }
-        setAlternatives(msg.alternatives || []);
-        setShowAlternatives(false);
+        setConversion({
+          show: true,
+          eql: msg.eqlQuery || '',
+          label: msg.queryType === 'nql' ? 'NQL converted to EQL:' : 'Natural language converted to EQL:',
+          description: msg.description || '',
+          alternatives: msg.alternatives || [],
+          showAlternatives: false
+        });
         break;
     }
   }, []));
-
-  useEffect(() => {
-    postMessage({ command: 'ready' });
-  }, [postMessage]);
 
   const queryTypeNote = useMemo(() => {
     switch (queryType) {
@@ -229,29 +157,40 @@ function QueriesDashboard() {
   }, [queryType]);
 
   const sortedRows = useMemo(() => {
-    if (sortIndex < 0) return allRows;
+    if (sort.index < 0) return allRows;
     return [...allRows].sort((a, b) => {
-      const av = formatValue(a[sortIndex]);
-      const bv = formatValue(b[sortIndex]);
-      if (av < bv) return sortAsc ? -1 : 1;
-      if (av > bv) return sortAsc ? 1 : -1;
+      const av = formatValue(a[sort.index]);
+      const bv = formatValue(b[sort.index]);
+      if (av < bv) return sort.ascending ? -1 : 1;
+      if (av > bv) return sort.ascending ? 1 : -1;
       return 0;
     });
-  }, [allRows, sortIndex, sortAsc]);
+  }, [allRows, sort]);
+
+  // Pre-compile regexes for filters to avoid creating them in the filter loop
+  const compiledFilters = useMemo(() => {
+    return filters.map(f => {
+      if (!f) return null;
+      try {
+        return { type: 'regex' as const, pattern: new RegExp(f, 'i') };
+      } catch {
+        return { type: 'string' as const, pattern: f.toLowerCase() };
+      }
+    });
+  }, [filters]);
 
   const filteredRows = useMemo(() => {
     return sortedRows.filter(row => {
-      return filters.every((f, idx) => {
-        if (!f) return true;
-        try {
-          const regex = new RegExp(f, 'i');
-          return regex.test(formatValue(row[idx]));
-        } catch {
-          return formatValue(row[idx]).toLowerCase().includes(f.toLowerCase());
+      return compiledFilters.every((compiled, idx) => {
+        if (!compiled) return true;
+        const value = formatValue(row[idx]);
+        if (compiled.type === 'regex') {
+          return compiled.pattern.test(value);
         }
+        return value.toLowerCase().includes(compiled.pattern);
       });
     });
-  }, [sortedRows, filters]);
+  }, [sortedRows, compiledFilters]);
 
   useEffect(() => {
     setStatus(`Count: ${filteredRows.length}`);
@@ -265,7 +204,7 @@ function QueriesDashboard() {
       queryType,
       namespace: selectedNamespace
     });
-    setAutocompleteList([]);
+    setAutocomplete({ list: [], index: -1 });
   }, [postMessage, queryInput, queryType, selectedNamespace]);
 
   const handleQueryInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -274,7 +213,7 @@ function QueriesDashboard() {
     if (queryType === 'eql') {
       postMessage({ command: 'autocomplete', query: value });
     } else {
-      setAutocompleteList([]);
+      setAutocomplete({ list: [], index: -1 });
     }
   }, [postMessage, queryType]);
 
@@ -303,30 +242,31 @@ function QueriesDashboard() {
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
-      setAutocompleteList([]);
-      setAutocompleteIndex(-1);
+      setAutocomplete({ list: [], index: -1 });
       setShowFormatMenu(false);
-    } else if (e.key === 'Tab' && autocompleteList.length > 0 && queryType === 'eql') {
+    } else if (e.key === 'Tab' && autocomplete.list.length > 0 && queryType === 'eql') {
       e.preventDefault();
-      const target = autocompleteIndex >= 0 ? autocompleteList[autocompleteIndex] : autocompleteList[0];
+      const target = autocomplete.index >= 0 ? autocomplete.list[autocomplete.index] : autocomplete.list[0];
       if (target) {
         insertAutocomplete(target);
       }
-    } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && autocompleteList.length > 0) {
+    } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && autocomplete.list.length > 0) {
       e.preventDefault();
       if (e.key === 'ArrowDown') {
-        setAutocompleteIndex(prev =>
-          prev < autocompleteList.length - 1 ? prev + 1 : (prev === -1 ? 0 : prev)
-        );
+        setAutocomplete(prev => ({
+          ...prev,
+          index: prev.index < prev.list.length - 1 ? prev.index + 1 : (prev.index === -1 ? 0 : prev.index)
+        }));
       } else {
-        setAutocompleteIndex(prev =>
-          prev === -1 ? autocompleteList.length - 1 : (prev > 0 ? prev - 1 : prev)
-        );
+        setAutocomplete(prev => ({
+          ...prev,
+          index: prev.index === -1 ? prev.list.length - 1 : (prev.index > 0 ? prev.index - 1 : prev.index)
+        }));
       }
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (autocompleteIndex >= 0 && !e.metaKey && !e.ctrlKey && queryType === 'eql') {
-        const item = autocompleteList[autocompleteIndex];
+      if (autocomplete.index >= 0 && !e.metaKey && !e.ctrlKey && queryType === 'eql') {
+        const item = autocomplete.list[autocomplete.index];
         if (item) {
           insertAutocomplete(item);
         }
@@ -334,16 +274,14 @@ function QueriesDashboard() {
         handleRunQuery();
       }
     }
-  }, [autocompleteList, autocompleteIndex, queryType, insertAutocomplete, handleRunQuery]);
+  }, [autocomplete, queryType, insertAutocomplete, handleRunQuery]);
 
   const handleSort = useCallback((idx: number) => {
-    if (sortIndex === idx) {
-      setSortAsc(prev => !prev);
-    } else {
-      setSortIndex(idx);
-      setSortAsc(true);
-    }
-  }, [sortIndex]);
+    setSort(prev => ({
+      index: idx,
+      ascending: prev.index === idx ? !prev.ascending : true
+    }));
+  }, []);
 
   const handleFilterChange = useCallback((idx: number, value: string) => {
     setFilters(prev => {
@@ -353,31 +291,18 @@ function QueriesDashboard() {
     });
   }, []);
 
-  const handleCopy = useCallback(() => {
-    let text = '';
-    if (copyFormat === 'ascii') {
-      text = toAsciiTable(columns, filteredRows);
-    } else if (copyFormat === 'markdown') {
-      text = toMarkdownTable(columns, filteredRows);
-    } else if (copyFormat === 'json') {
-      text = toJson(columns, filteredRows);
-    } else {
-      text = toYaml(columns, filteredRows);
-    }
-    navigator.clipboard.writeText(text).then(() => {
-      setCopySuccess(true);
+  const handleCopy = useCallback(async () => {
+    const text = formatForClipboard(copyFormat, columns, filteredRows);
+    const success = await copyToClipboard(text);
+    if (success) {
       setStatus('Copied to clipboard');
-      setTimeout(() => {
-        setCopySuccess(false);
-        setStatus(`Count: ${filteredRows.length}`);
-      }, 1000);
-    });
-  }, [copyFormat, columns, filteredRows]);
+      setTimeout(() => setStatus(`Count: ${filteredRows.length}`), 1000);
+    }
+  }, [copyFormat, columns, filteredRows, copyToClipboard]);
 
   const handleAlternativeClick = useCallback((alt: Alternative) => {
     setQueryInput(alt.query);
-    setConvertedEQL(alt.query);
-    setShowAlternatives(false);
+    setConversion(prev => ({ ...prev, eql: alt.query, showAlternatives: false }));
     setTimeout(() => handleRunQuery(), 0);
   }, [handleRunQuery]);
 
@@ -385,7 +310,7 @@ function QueriesDashboard() {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (!target.closest('.query-input-wrapper')) {
-        setAutocompleteList([]);
+        setAutocomplete(prev => ({ ...prev, list: [] }));
       }
       if (!target.closest('.copy-dropdown')) {
         setShowFormatMenu(false);
@@ -405,7 +330,7 @@ function QueriesDashboard() {
           <select
             className="bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border border-[var(--vscode-input-border)] rounded px-2 py-1 mr-2 min-w-[60px]"
             value={queryType}
-            onChange={(e) => setQueryType(e.target.value as 'eql' | 'nql' | 'emb')}
+            onChange={(e) => setQueryType(e.target.value as QueryType)}
           >
             <option value="eql">EQL</option>
             <option value="nql">NQL</option>
@@ -421,13 +346,13 @@ function QueriesDashboard() {
               onChange={handleQueryInputChange}
               onKeyDown={handleKeyDown}
             />
-            {autocompleteList.length > 0 && (
+            {autocomplete.list.length > 0 && (
               <ul className="list-none m-0 p-0 absolute left-0 right-0 top-full bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] border-t-0 max-h-[200px] overflow-y-auto z-10">
-                {autocompleteList.map((item, idx) => (
+                {autocomplete.list.map((item, idx) => (
                   <li
                     key={idx}
-                    className={`px-2 py-0.5 cursor-pointer hover:bg-[var(--vscode-list-hoverBackground)] ${idx === autocompleteIndex ? 'bg-[var(--vscode-list-activeSelectionBackground)] text-[var(--vscode-list-activeSelectionForeground)]' : ''}`}
-                    onMouseOver={() => setAutocompleteIndex(idx)}
+                    className={`px-2 py-0.5 cursor-pointer hover:bg-[var(--vscode-list-hoverBackground)] ${idx === autocomplete.index ? 'bg-[var(--vscode-list-activeSelectionBackground)] text-[var(--vscode-list-activeSelectionForeground)]' : ''}`}
+                    onMouseOver={() => setAutocomplete(prev => ({ ...prev, index: idx }))}
                     onClick={() => insertAutocomplete(item)}
                   >
                     {item}
@@ -445,7 +370,7 @@ function QueriesDashboard() {
           <div className="flex items-center gap-0.5">
             <div className="copy-dropdown relative flex">
               <button
-                className={`flex items-center gap-1 px-3 py-1 pr-0 border-none rounded cursor-pointer ${copySuccess ? 'bg-[var(--vscode-debugConsole-infoForeground)]' : 'bg-[var(--vscode-button-background)]'} text-[var(--vscode-button-foreground)] hover:bg-[var(--vscode-button-hoverBackground)]`}
+                className={`flex items-center gap-1 px-3 py-1 pr-0 border-none rounded cursor-pointer ${copied ? 'bg-[var(--vscode-debugConsole-infoForeground)]' : 'bg-[var(--vscode-button-background)]'} text-[var(--vscode-button-foreground)] hover:bg-[var(--vscode-button-hoverBackground)]`}
                 onClick={handleCopy}
               >
                 <span>Copy</span>
@@ -499,40 +424,37 @@ function QueriesDashboard() {
         </div>
       )}
 
-      {showConvertedQuery && (
+      {conversion.show && (
         <div className="bg-[var(--vscode-notifications-background)] border border-[var(--vscode-notifications-border)] rounded mb-4 text-sm">
           <div className="flex items-center gap-2 py-3 px-4">
             <span className="text-[var(--vscode-notificationsInfoIcon-foreground)] text-base">{'\u2139\uFE0F'}</span>
             <div className="flex-1 text-[var(--vscode-notifications-foreground)]">
-              <div><span>{conversionLabel}</span> <code className="bg-[var(--vscode-textBlockQuote-background)] px-1.5 py-0.5 rounded text-xs font-mono">{convertedEQL}</code></div>
-              {convertedDescription && (
-                <div className="text-xs text-[var(--vscode-descriptionForeground)] mt-1 italic">{convertedDescription}</div>
+              <div><span>{conversion.label}</span> <code className="bg-[var(--vscode-textBlockQuote-background)] px-1.5 py-0.5 rounded text-xs font-mono">{conversion.eql}</code></div>
+              {conversion.description && (
+                <div className="text-xs text-[var(--vscode-descriptionForeground)] mt-1 italic">{conversion.description}</div>
               )}
             </div>
-            {alternatives.length > 0 && (
+            {conversion.alternatives.length > 0 && (
               <button
-                className={`bg-transparent border-none text-[var(--vscode-notifications-foreground)] cursor-pointer p-1 flex items-center transition-transform ${showAlternatives ? 'rotate-180' : ''}`}
+                className={`bg-transparent border-none text-[var(--vscode-notifications-foreground)] cursor-pointer p-1 flex items-center transition-transform ${conversion.showAlternatives ? 'rotate-180' : ''}`}
                 title="Show alternative queries"
-                onClick={() => setShowAlternatives(prev => !prev)}
+                onClick={() => setConversion(prev => ({ ...prev, showAlternatives: !prev.showAlternatives }))}
               >
                 <span className="codicon codicon-chevron-down"></span>
               </button>
             )}
             <button
               className="bg-transparent border-none text-[var(--vscode-notifications-foreground)] text-xl cursor-pointer p-1 opacity-70 hover:opacity-100"
-              onClick={() => {
-                setShowConvertedQuery(false);
-                setShowAlternatives(false);
-              }}
+              onClick={() => setConversion(initialConversionState)}
             >
               {'\u00D7'}
             </button>
           </div>
-          {showAlternatives && alternatives.length > 0 && (
+          {conversion.showAlternatives && conversion.alternatives.length > 0 && (
             <div className="px-4 pb-3 border-t border-[var(--vscode-notifications-border)]">
               <div className="my-2 font-medium text-[var(--vscode-notifications-foreground)]">Alternative queries:</div>
               <ul className="list-none m-0 p-0 max-h-[200px] overflow-y-auto">
-                {alternatives.map((alt, idx) => (
+                {conversion.alternatives.map((alt, idx) => (
                   <li
                     key={idx}
                     className="flex justify-between items-start gap-3 py-2 px-2.5 my-1 bg-[var(--vscode-textBlockQuote-background)] rounded cursor-pointer hover:bg-[var(--vscode-list-hoverBackground)]"
@@ -566,8 +488,8 @@ function QueriesDashboard() {
                   className="border border-[var(--vscode-panel-border)] px-2 py-1 bg-[var(--vscode-panel-background)] cursor-pointer select-none text-left"
                 >
                   {col}
-                  {sortIndex === idx && (
-                    <span className="ml-1">{sortAsc ? '▲' : '▼'}</span>
+                  {sort.index === idx && (
+                    <span className="ml-1">{sort.ascending ? '\u25B2' : '\u25BC'}</span>
                   )}
                 </th>
               ))}
@@ -604,12 +526,4 @@ function QueriesDashboard() {
   );
 }
 
-const container = document.getElementById('root');
-if (container) {
-  const root = createRoot(container);
-  root.render(
-    <VSCodeProvider>
-      <QueriesDashboard />
-    </VSCodeProvider>
-  );
-}
+mountWebview(QueriesDashboard);

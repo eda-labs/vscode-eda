@@ -1,9 +1,7 @@
-import React from 'react';
-import { createRoot } from 'react-dom/client';
-import { useState, useCallback, useEffect } from 'react';
-import { usePostMessage, useMessageListener } from '../shared/hooks';
-import { VSCodeProvider } from '../shared/context';
+import React, { useState, useCallback } from 'react';
+import { usePostMessage, useMessageListener, useReadySignal, useCopyToClipboard } from '../shared/hooks';
 import { VSCodeButton } from '../shared/components';
+import { mountWebview } from '../shared/utils';
 
 interface AlarmData {
   name: string;
@@ -70,7 +68,9 @@ function Section({ icon, title, children }: { icon: string; title: string; child
 function AlarmDetailsPanel() {
   const postMessage = usePostMessage();
   const [data, setData] = useState<AlarmData | null>(null);
-  const [copied, setCopied] = useState(false);
+  const { copied, copyToClipboard } = useCopyToClipboard();
+
+  useReadySignal();
 
   useMessageListener<AlarmMessage>(useCallback((msg) => {
     if (msg.command === 'init' && msg.data) {
@@ -78,17 +78,12 @@ function AlarmDetailsPanel() {
     }
   }, []));
 
-  useEffect(() => {
-    postMessage({ command: 'ready' });
-  }, [postMessage]);
-
   const handleCopy = useCallback(() => {
     if (data?.rawJson) {
       postMessage({ command: 'copy', text: data.rawJson });
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      copyToClipboard(data.rawJson);
     }
-  }, [data, postMessage]);
+  }, [data, postMessage, copyToClipboard]);
 
   if (!data) {
     return (
@@ -160,12 +155,4 @@ function AlarmDetailsPanel() {
   );
 }
 
-const container = document.getElementById('root');
-if (container) {
-  const root = createRoot(container);
-  root.render(
-    <VSCodeProvider>
-      <AlarmDetailsPanel />
-    </VSCodeProvider>
-  );
-}
+mountWebview(AlarmDetailsPanel);
