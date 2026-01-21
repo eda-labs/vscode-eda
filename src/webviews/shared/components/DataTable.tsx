@@ -101,7 +101,7 @@ function DataTableInner<T extends Record<string, unknown>>({
             value={search}
             onChange={handleSearchChange}
             placeholder={searchPlaceholder}
-            className="w-full px-3 py-1.5 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded focus:outline-none focus:border-(--vscode-focusBorder)"
+            className="w-full px-3 py-1.5 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded-sm focus:outline-none focus:border-(--vscode-focusBorder)"
           />
         </div>
       )}

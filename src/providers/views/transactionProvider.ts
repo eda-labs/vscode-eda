@@ -1,11 +1,13 @@
 import * as vscode from 'vscode';
-import { TreeItemBase } from './treeItem';
-import { FilteredTreeProvider } from './filteredTreeProvider';
+
 import { serviceManager } from '../../services/serviceManager';
-import { EdaClient } from '../../clients/edaClient';
-import { ResourceStatusService } from '../../services/resourceStatusService';
+import type { EdaClient } from '../../clients/edaClient';
+import type { ResourceStatusService } from '../../services/resourceStatusService';
 import { log, LogLevel } from '../../extension';
 import { getResults } from '../../utils/streamMessageUtils';
+
+import { FilteredTreeProvider } from './filteredTreeProvider';
+import { TreeItemBase } from './treeItem';
 
 export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTreeItem> {
   private edaClient: EdaClient;
@@ -45,12 +47,18 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
     super();
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
-    void this.edaClient.streamEdaTransactions(this.transactionLimit);
     this.edaClient.onStreamMessage((stream, msg) => {
       if (stream === 'summary') {
         this.processTransactionMessage(msg);
       }
     });
+  }
+
+  /**
+   * Initialize the transaction stream. Call this after construction.
+   */
+  public async initialize(): Promise<void> {
+    await this.edaClient.streamEdaTransactions(this.transactionLimit);
   }
 
   public getTransactionLimit(): number {
@@ -76,14 +84,14 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
     return element;
   }
 
-  async getChildren(element?: TransactionTreeItem): Promise<TransactionTreeItem[]> {
+  getChildren(element?: TransactionTreeItem): TransactionTreeItem[] {
     if (element) {
       return [];
     }
     return this.getTransactionItems();
   }
 
-  private async getTransactionItems(): Promise<TransactionTreeItem[]> {
+  private getTransactionItems(): TransactionTreeItem[] {
     log(`Loading transactions for the transaction tree...`, LogLevel.DEBUG);
     if (this.cachedTransactions.length === 0) {
       return [this.noTransactionsItem()];

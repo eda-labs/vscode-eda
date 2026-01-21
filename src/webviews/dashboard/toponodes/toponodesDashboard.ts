@@ -1,8 +1,10 @@
 import * as vscode from 'vscode';
+
 import { BasePanel } from '../../basePanel';
+import { ALL_NAMESPACES } from '../../constants';
 import { serviceManager } from '../../../services/serviceManager';
-import { EdaClient } from '../../../clients/edaClient';
-import { KubernetesClient } from '../../../clients/kubernetesClient';
+import type { EdaClient } from '../../../clients/edaClient';
+import type { KubernetesClient } from '../../../clients/kubernetesClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
 import { getUpdates } from '../../../utils/streamMessageUtils';
 
@@ -11,13 +13,10 @@ export class ToponodesDashboardPanel extends BasePanel {
   private rowMap: Map<string, Map<string, Record<string, any>>> = new Map();
   private columns: string[] = [];
   private columnSet: Set<string> = new Set();
-  private selectedNamespace = 'All Namespaces';
+  private selectedNamespace = ALL_NAMESPACES;
 
   constructor(context: vscode.ExtensionContext, title: string) {
-    super(context, 'toponodesDashboard', title, undefined, {
-      light: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-black.svg'),
-      dark: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-white.svg')
-    });
+    super(context, 'toponodesDashboard', title, undefined, BasePanel.getEdaIconPath(context));
 
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
 
@@ -34,8 +33,8 @@ export class ToponodesDashboardPanel extends BasePanel {
 
     this.panel.webview.onDidReceiveMessage(async msg => {
       if (msg.command === 'ready') {
-        await this.sendNamespaces();
-        await this.loadInitial('All Namespaces');
+        this.sendNamespaces();
+        await this.loadInitial(ALL_NAMESPACES);
       } else if (msg.command === 'setNamespace') {
         await this.loadInitial(msg.namespace as string);
       } else if (msg.command === 'showInTree') {
@@ -66,12 +65,12 @@ export class ToponodesDashboardPanel extends BasePanel {
     return `<script nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
-  private async sendNamespaces(): Promise<void> {
+  private sendNamespaces(): void {
     const coreNs = this.edaClient.getCoreNamespace();
     const namespaces = this.edaClient
       .getCachedNamespaces()
       .filter(ns => ns !== coreNs);
-    namespaces.unshift('All Namespaces');
+    namespaces.unshift(ALL_NAMESPACES);
     this.panel.webview.postMessage({
       command: 'init',
       namespaces,
@@ -136,7 +135,7 @@ export class ToponodesDashboardPanel extends BasePanel {
   private async loadInitial(ns: string): Promise<void> {
     this.selectedNamespace = ns;
     const targetNamespaces =
-      ns === 'All Namespaces'
+      ns === ALL_NAMESPACES
         ? this.edaClient
             .getCachedNamespaces()
             .filter(n => n !== this.edaClient.getCoreNamespace())
@@ -167,7 +166,7 @@ export class ToponodesDashboardPanel extends BasePanel {
   private postResults(): void {
     const coreNs = this.edaClient.getCoreNamespace();
     const namespaces =
-      this.selectedNamespace === 'All Namespaces'
+      this.selectedNamespace === ALL_NAMESPACES
         ? Array.from(this.rowMap.keys()).filter(n => n !== coreNs)
         : [this.selectedNamespace];
 
@@ -243,7 +242,7 @@ export class ToponodesDashboardPanel extends BasePanel {
     }
   }
 
-  static show(context: vscode.ExtensionContext, title: string): void {
-    new ToponodesDashboardPanel(context, title);
+  static show(context: vscode.ExtensionContext, title: string): ToponodesDashboardPanel {
+    return new ToponodesDashboardPanel(context, title);
   }
 }

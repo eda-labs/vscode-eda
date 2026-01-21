@@ -1,4 +1,5 @@
-import React, { InputHTMLAttributes, forwardRef, memo } from 'react';
+import type { InputHTMLAttributes} from 'react';
+import React, { forwardRef, memo } from 'react';
 
 export interface VSCodeInputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
@@ -22,7 +23,7 @@ export const VSCodeInput = memo(forwardRef<HTMLInputElement, VSCodeInputProps>(
         <input
           ref={ref}
           id={inputId}
-          className={`px-3 py-1.5 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded focus:outline-none focus:border-(--vscode-focusBorder) placeholder:text-(--vscode-input-placeholderForeground) ${error ? 'border-(--vscode-inputValidation-errorBorder)' : ''} ${className}`}
+          className={`px-3 py-1.5 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded-sm focus:outline-none focus:border-(--vscode-focusBorder) placeholder:text-(--vscode-input-placeholderForeground) ${error ? 'border-(--vscode-inputValidation-errorBorder)' : ''} ${className}`}
           {...props}
         />
         {error && (
@@ -57,7 +58,7 @@ export const VSCodeTextArea = memo(forwardRef<HTMLTextAreaElement, VSCodeTextAre
         <textarea
           ref={ref}
           id={inputId}
-          className={`px-3 py-1.5 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded focus:outline-none focus:border-(--vscode-focusBorder) placeholder:text-(--vscode-input-placeholderForeground) resize-y ${error ? 'border-(--vscode-inputValidation-errorBorder)' : ''} ${className}`}
+          className={`px-3 py-1.5 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded-sm focus:outline-none focus:border-(--vscode-focusBorder) placeholder:text-(--vscode-input-placeholderForeground) resize-y ${error ? 'border-(--vscode-inputValidation-errorBorder)' : ''} ${className}`}
           {...props}
         />
         {error && (

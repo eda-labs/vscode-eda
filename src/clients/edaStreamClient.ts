@@ -1,10 +1,20 @@
 /* global AbortController */
+import { TextDecoder } from 'util';
+
 import WebSocket from 'ws';
 import { fetch } from 'undici';
-import { TextDecoder } from 'util';
 import * as vscode from 'vscode';
+
 import { LogLevel, log } from '../extension';
-import { EdaAuthClient } from './edaAuthClient';
+
+import type { EdaAuthClient } from './edaAuthClient';
+
+// String constants for stream-related values (sonarjs/no-duplicate-string)
+const STREAM_FILE = 'file';
+const STREAM_SUMMARY = 'summary';
+const MSG_TYPE_NEXT = 'next';
+const MSG_TYPE_CLOSE = 'close';
+const MSG_TYPE_REGISTER = 'register';
 
 export interface StreamEndpoint {
   path: string;
@@ -51,9 +61,9 @@ export class EdaStreamClient {
     'v1',
     'eql',
     'nql',
-    'summary',
+    STREAM_SUMMARY,
     'directory',
-    'file',  // user-storage file stream requires path parameter
+    STREAM_FILE,  // user-storage file stream requires path parameter
   ]);
 
   constructor() {
@@ -149,49 +159,7 @@ export class EdaStreamClient {
     socket.on('message', data => {
       const txt = data.toString();
       if (!this.eventClient) {
-        try {
-          const obj = JSON.parse(txt);
-          const client = obj?.msg?.client as string | undefined;
-          if (obj.type === 'register' && client) {
-            this.eventClient = client;
-            log(`WS eventclient id = ${this.eventClient}`, LogLevel.DEBUG);
-
-            // Start all streams in activeStreams (includes auto-discovered + explicitly subscribed)
-            for (const ep of this.streamEndpoints) {
-              if (this.activeStreams.has(ep.stream)) {
-                log(`Starting stream: ${ep.stream}`, LogLevel.DEBUG);
-                void this.startStream(this.eventClient, ep);
-              }
-            }
-            if (this.activeStreams.has('current-alarms')) {
-              void this.startCurrentAlarmStream(this.eventClient);
-            }
-            if (this.activeStreams.has('summary')) {
-              void this.startTransactionSummaryStream(this.eventClient);
-            }
-            for (const streamName of this.eqlStreams.keys()) {
-              if (this.activeStreams.has(streamName)) {
-                void this.startEqlStream(this.eventClient, streamName);
-              }
-            }
-            for (const streamName of this.nqlStreams.keys()) {
-              if (this.activeStreams.has(streamName)) {
-                void this.startNqlStream(this.eventClient, streamName);
-              }
-            }
-            // If we have user storage files, make sure we're subscribed to 'file' stream
-            if (this.userStorageFiles.size > 0 && !this.activeStreams.has('file')) {
-              this.activeStreams.add('file');
-              socket.send(JSON.stringify({ type: 'next', stream: 'file' }));
-            }
-            for (const file of this.userStorageFiles) {
-              // Start user storage file streams with special headers
-              void this.startUserStorageFileStream(this.eventClient, file);
-            }
-          }
-        } catch {
-          /* ignore */
-        }
+        this.handleRegistrationMessage(txt, socket);
       }
       this.handleEventMessage(txt);
     });
@@ -201,47 +169,121 @@ export class EdaStreamClient {
       this.eventClient = undefined;
       if (!this.disposed) {
         setTimeout(() => {
-          void this.connect();
+          this.connect().catch(() => { /* ignore */ });
         }, 2000);
       }
     };
 
     socket.on('close', reconnect);
-    socket.on('unexpected-response', async (_req, res) => {
-      log(
-        `Event WebSocket unexpected response: HTTP ${res.statusCode}`,
-        LogLevel.ERROR
-      );
-      if (res.statusCode === 401 && this.authClient) {
-        log('Refreshing authentication token for WebSocket...', LogLevel.INFO);
-        await this.authClient.refreshAuth();
-      }
-      reconnect();
+    socket.on('unexpected-response', (_req, res) => {
+      const handleUnexpectedResponse = async () => {
+        log(
+          `Event WebSocket unexpected response: HTTP ${res.statusCode}`,
+          LogLevel.ERROR
+        );
+        if (res.statusCode === 401 && this.authClient) {
+          log('Refreshing authentication token for WebSocket...', LogLevel.INFO);
+          await this.authClient.refreshAuth();
+        }
+        reconnect();
+      };
+      handleUnexpectedResponse().catch(() => { /* ignore */ });
     });
-    socket.on('error', async err => {
-      log(`Event WebSocket error: ${err}`, LogLevel.ERROR);
-      if (err instanceof Error && err.message.includes('401') && this.authClient) {
-        log('Refreshing authentication token for WebSocket...', LogLevel.INFO);
-        await this.authClient.refreshAuth();
-      }
-      reconnect();
+    socket.on('error', err => {
+      const handleError = async () => {
+        log(`Event WebSocket error: ${err}`, LogLevel.ERROR);
+        if (err instanceof Error && err.message.includes('401') && this.authClient) {
+          log('Refreshing authentication token for WebSocket...', LogLevel.INFO);
+          await this.authClient.refreshAuth();
+        }
+        reconnect();
+      };
+      handleError().catch(() => { /* ignore */ });
     });
+  }
+
+  /**
+   * Handle WebSocket registration message and start all subscribed streams
+   */
+  private handleRegistrationMessage(txt: string, socket: WebSocket): void {
+    try {
+      const obj = JSON.parse(txt);
+      const client = obj?.msg?.client as string | undefined;
+      if (obj.type !== MSG_TYPE_REGISTER || !client) {
+        return;
+      }
+      this.eventClient = client;
+      log(`WS eventclient id = ${this.eventClient}`, LogLevel.DEBUG);
+
+      this.startSubscribedStreams(client);
+      this.startSpecialStreams(client);
+      this.startUserStorageStreams(client, socket);
+    } catch {
+      /* ignore parse errors */
+    }
+  }
+
+  /**
+   * Start all regular streams that are in activeStreams
+   */
+  private startSubscribedStreams(client: string): void {
+    for (const ep of this.streamEndpoints) {
+      if (this.activeStreams.has(ep.stream)) {
+        log(`Starting stream: ${ep.stream}`, LogLevel.DEBUG);
+        this.startStream(client, ep).catch(() => { /* ignore */ });
+      }
+    }
+  }
+
+  /**
+   * Start special streams (current-alarms, summary, EQL, NQL)
+   */
+  private startSpecialStreams(client: string): void {
+    if (this.activeStreams.has('current-alarms')) {
+      this.startCurrentAlarmStream(client).catch(() => { /* ignore */ });
+    }
+    if (this.activeStreams.has(STREAM_SUMMARY)) {
+      this.startTransactionSummaryStream(client);
+    }
+    for (const streamName of this.eqlStreams.keys()) {
+      if (this.activeStreams.has(streamName)) {
+        this.startEqlStream(client, streamName);
+      }
+    }
+    for (const streamName of this.nqlStreams.keys()) {
+      if (this.activeStreams.has(streamName)) {
+        this.startNqlStream(client, streamName);
+      }
+    }
+  }
+
+  /**
+   * Start user storage file streams
+   */
+  private startUserStorageStreams(client: string, socket: WebSocket): void {
+    if (this.userStorageFiles.size > 0 && !this.activeStreams.has(STREAM_FILE)) {
+      this.activeStreams.add(STREAM_FILE);
+      socket.send(JSON.stringify({ type: MSG_TYPE_NEXT, stream: STREAM_FILE }));
+    }
+    for (const file of this.userStorageFiles) {
+      this.startUserStorageFileStream(client, file).catch(() => { /* ignore */ });
+    }
   }
 
   /**
    * Subscribe to a stream
    */
-  public async subscribeToStream(streamName: string): Promise<void> {
+  public subscribeToStream(streamName: string): void {
     this.activeStreams.add(streamName);
     log(`Subscribed to stream: ${streamName}`, LogLevel.DEBUG);
 
     if (this.eventSocket?.readyState === WebSocket.OPEN) {
       this.sendNextMessage(streamName);
       if (this.eqlStreams.has(streamName)) {
-        void this.startEqlStream(this.eventClient as string, streamName);
+        this.startEqlStream(this.eventClient as string, streamName);
       }
       if (this.nqlStreams.has(streamName)) {
-        void this.startNqlStream(this.eventClient as string, streamName);
+        this.startNqlStream(this.eventClient as string, streamName);
       }
     }
   }
@@ -255,10 +297,10 @@ export class EdaStreamClient {
     // Send 'close' message to server to indicate we're done with this stream
     if (this.eventSocket?.readyState === WebSocket.OPEN) {
       log(`Sending 'close' for stream: ${streamName}`, LogLevel.DEBUG);
-      this.eventSocket.send(JSON.stringify({ type: 'close', stream: streamName }));
+      this.eventSocket.send(JSON.stringify({ type: MSG_TYPE_CLOSE, stream: streamName }));
     }
 
-    if (streamName === 'summary' && this.summaryAbortController) {
+    if (streamName === STREAM_SUMMARY && this.summaryAbortController) {
       this.summaryAbortController.abort();
       // do not clear summaryStreamPromise so a restart can wait for closure
       this.summaryAbortController = undefined;
@@ -353,7 +395,7 @@ export class EdaStreamClient {
     }
     if (this.summaryStreamPromise) {
       // wait briefly for the stream to close
-      void this.summaryStreamPromise.catch(() => {});
+      this.summaryStreamPromise.catch(() => { /* ignore */ });
       this.summaryStreamPromise = undefined;
     }
     this.summaryAbortController = undefined;
@@ -386,10 +428,10 @@ export class EdaStreamClient {
     this.userStorageFiles.add(path);
 
     // Make sure we're subscribed to the 'file' stream via WebSocket
-    if (!this.activeStreams.has('file')) {
-      this.activeStreams.add('file');
+    if (!this.activeStreams.has(STREAM_FILE)) {
+      this.activeStreams.add(STREAM_FILE);
       if (this.eventSocket?.readyState === WebSocket.OPEN) {
-        this.eventSocket.send(JSON.stringify({ type: 'next', stream: 'file' }));
+        this.eventSocket.send(JSON.stringify({ type: MSG_TYPE_NEXT, stream: STREAM_FILE }));
       }
     }
 
@@ -400,114 +442,66 @@ export class EdaStreamClient {
   }
 
   /**
-   * Open a server-sent events connection
+   * Build headers for SSE request
    */
-  private async streamSse(
+  private buildSseHeaders(
+    extraHeaders: Record<string, string>,
+    streamName: string,
+    url: string
+  ): Record<string, string> {
+    const authHeaders = this.authClient!.getHeaders();
+    const finalHeaders: Record<string, string> = { ...authHeaders };
+
+    // Note: v25.12+ uses application/json for stream registration responses
+    // The actual stream data comes via WebSocket, not SSE
+    if (!extraHeaders.Accept) {
+      finalHeaders.Accept = 'application/json';
+    }
+
+    for (const [key, value] of Object.entries(extraHeaders)) {
+      finalHeaders[key] = value;
+    }
+
+    const sanitizedHeaders: Record<string, string> = { ...finalHeaders };
+    if ('Authorization' in sanitizedHeaders) {
+      sanitizedHeaders.Authorization = 'Bearer ***';
+    }
+
+    log(`[STREAM:${streamName}] request ${url} with ${JSON.stringify(sanitizedHeaders)}`, LogLevel.DEBUG);
+    return finalHeaders;
+  }
+
+  /**
+   * Make SSE request with given headers
+   */
+  private doSseRequest(
     url: string,
-    controller?: AbortController,
-    extraHeaders: Record<string, string> = {}
-  ): Promise<void> {
-    if (!this.authClient) {
-      throw new Error('Auth client not set');
+    headers: Record<string, string>,
+    controller?: AbortController
+  ): Promise<any> {
+    return fetch(url, {
+      headers,
+      dispatcher: this.authClient!.getAgent(),
+      signal: controller?.signal,
+    } as any);
+  }
+
+  /**
+   * Handle abort errors during SSE requests
+   * @returns true if request was aborted
+   */
+  private handleSseAbort(err: Error, streamName: string): boolean {
+    if (err.name === 'AbortError') {
+      log(`[STREAM:${streamName}] request aborted`, LogLevel.DEBUG);
+      return true;
     }
+    return false;
+  }
 
-    const urlObj = new URL(url);
-    const streamName = urlObj.searchParams.get('stream') || 'unknown';
-
-    const doRequest = async () => {
-      const authHeaders = this.authClient!.getHeaders();
-      const finalHeaders: Record<string, string> = { ...authHeaders };
-
-      // Note: v25.12+ uses application/json for stream registration responses
-      // The actual stream data comes via WebSocket, not SSE
-      if (!extraHeaders.Accept) {
-        finalHeaders.Accept = 'application/json';
-      }
-
-      for (const [key, value] of Object.entries(extraHeaders)) {
-        finalHeaders[key] = value;
-      }
-
-      const sanitizedHeaders: Record<string, string> = { ...finalHeaders };
-      if ('Authorization' in sanitizedHeaders) {
-        sanitizedHeaders.Authorization = 'Bearer ***';
-      }
-
-      log(`[STREAM:${streamName}] request ${url} with ${JSON.stringify(sanitizedHeaders)}`, LogLevel.DEBUG);
-
-      return fetch(url, {
-        headers: finalHeaders,
-        dispatcher: this.authClient!.getAgent(),
-        signal: controller?.signal,
-      } as any);
-    };
-
-    let res: any;
-    let attempt = 0;
-    let delay = 1000;
-    const maxRetries = 5;
-    for (;;) {
-      try {
-        res = await doRequest();
-      } catch (err) {
-        if ((err as Error).name === 'AbortError') {
-          log(`[STREAM:${streamName}] request aborted`, LogLevel.DEBUG);
-          return;
-        }
-        log(`[STREAM:${streamName}] request failed for ${url}: ${err}`, LogLevel.ERROR);
-        if (++attempt > maxRetries) return;
-        await new Promise(r => setTimeout(r, delay));
-        delay = Math.min(delay * 2, 30000);
-        continue;
-      }
-
-      if (!res.ok || !res.body) {
-        let text = '';
-        try {
-          text = await res.text();
-        } catch {
-          /* ignore */
-        }
-        if (this.authClient.isTokenExpiredResponse(res.status, text)) {
-          log('Access token expired, refreshing...', LogLevel.INFO);
-          await this.authClient.refreshAuth();
-          try {
-            res = await doRequest();
-          } catch (err) {
-            if ((err as Error).name === 'AbortError') {
-              log(`[STREAM:${streamName}] request aborted`, LogLevel.DEBUG);
-              return;
-            } else {
-              log(`[STREAM:${streamName}] request failed for ${url}: ${err}`, LogLevel.ERROR);
-              if (++attempt > maxRetries) return;
-              await new Promise(r => setTimeout(r, delay));
-              delay = Math.min(delay * 2, 30000);
-              continue;
-            }
-          }
-        }
-        if (!res.ok || !res.body) {
-          log(`[STREAM:${streamName}] failed ${url}: HTTP ${res.status}`, LogLevel.ERROR);
-          if (++attempt > maxRetries) return;
-          await new Promise(r => setTimeout(r, delay));
-          delay = Math.min(delay * 2, 30000);
-          continue;
-        }
-      }
-      break;
-    }
-    log(`[STREAM:${streamName}] connected → ${url}`, LogLevel.DEBUG);
-
-    // Check if this is a non-streaming response (e.g., NQL with content-length)
-    if (res.headers.get('content-length')) {
-      const text = await res.text();
-      log(`[STREAM:${streamName}] Complete response received: ${text}`, LogLevel.DEBUG);
-
-      // Handle the complete response as a single message
-      this.handleEventMessage(text);
-      return;
-    }
-
+  /**
+   * Process streaming response body line by line
+   */
+  private async processStreamBody(res: any, streamName: string): Promise<void> {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -527,15 +521,211 @@ export class EdaStreamClient {
       }
 
       buffer += decoder.decode(value, { stream: true });
+      buffer = this.processStreamBuffer(buffer);
+    }
+  }
 
-      let nl;
-      while ((nl = buffer.indexOf('\n')) !== -1) {
-        const line = buffer.slice(0, nl).trim();
-        buffer = buffer.slice(nl + 1);
-        if (!line) continue;
+  /**
+   * Process buffered stream data and emit complete lines
+   * @returns remaining buffer content
+   */
+  private processStreamBuffer(buffer: string): string {
+    let nl;
+    while ((nl = buffer.indexOf('\n')) !== -1) {
+      const line = buffer.slice(0, nl).trim();
+      buffer = buffer.slice(nl + 1);
+      if (line) {
         this.handleEventMessage(line);
       }
     }
+    return buffer;
+  }
+
+  /**
+   * Open a server-sent events connection
+   */
+  private async streamSse(
+    url: string,
+    controller?: AbortController,
+    extraHeaders: Record<string, string> = {}
+  ): Promise<void> {
+    if (!this.authClient) {
+      throw new Error('Auth client not set');
+    }
+
+    const urlObj = new URL(url);
+    const streamName = urlObj.searchParams.get('stream') || 'unknown';
+
+    const res = await this.executeWithRetry(url, streamName, controller, extraHeaders);
+    if (!res) {
+      return;
+    }
+
+    log(`[STREAM:${streamName}] connected → ${url}`, LogLevel.DEBUG);
+
+    // Check if this is a non-streaming response (e.g., NQL with content-length)
+    if (res.headers.get('content-length')) {
+      const text = await res.text();
+      log(`[STREAM:${streamName}] Complete response received: ${text}`, LogLevel.DEBUG);
+      this.handleEventMessage(text);
+      return;
+    }
+
+    await this.processStreamBody(res, streamName);
+  }
+
+  /**
+   * Check if SSE request result is a successful response
+   */
+  private isSuccessfulResponse(result: { response?: any; aborted?: boolean }): boolean {
+    return Boolean(result.response?.ok && result.response?.body);
+  }
+
+  /**
+   * Log failed request error
+   */
+  private logFailedRequest(
+    result: { error?: Error; response?: any },
+    url: string,
+    streamName: string
+  ): void {
+    if (result.error) {
+      log(`[STREAM:${streamName}] request failed for ${url}: ${result.error}`, LogLevel.ERROR);
+    }
+    if (result.response && !result.response.ok) {
+      log(`[STREAM:${streamName}] failed ${url}: HTTP ${result.response.status}`, LogLevel.ERROR);
+    }
+  }
+
+  /**
+   * Wait with exponential backoff delay
+   * @returns updated delay value
+   */
+  private async waitWithBackoff(delay: number): Promise<number> {
+    await new Promise(r => setTimeout(r, delay));
+    return Math.min(delay * 2, 30000);
+  }
+
+  /**
+   * Execute SSE request with retry logic and token refresh
+   * @returns response object or undefined if aborted/max retries exceeded
+   */
+  private async executeWithRetry(
+    url: string,
+    streamName: string,
+    controller?: AbortController,
+    extraHeaders: Record<string, string> = {}
+  ): Promise<any | undefined> {
+    let attempt = 0;
+    let delay = 1000;
+    const maxRetries = 5;
+
+    for (;;) {
+      const headers = this.buildSseHeaders(extraHeaders, streamName, url);
+      const result = await this.attemptSseRequest(url, headers, streamName, controller);
+
+      if (result.aborted) {
+        return undefined;
+      }
+      if (this.isSuccessfulResponse(result)) {
+        return result.response;
+      }
+
+      // Try token refresh if response indicates expired token
+      const refreshResult = await this.handleFailedResponse(result, url, headers, streamName, controller);
+      if (refreshResult.aborted) {
+        return undefined;
+      }
+      if (refreshResult.response) {
+        return refreshResult.response;
+      }
+
+      this.logFailedRequest(result, url, streamName);
+
+      if (++attempt > maxRetries) {
+        return undefined;
+      }
+      delay = await this.waitWithBackoff(delay);
+    }
+  }
+
+  /**
+   * Handle failed response - attempt token refresh if applicable
+   */
+  private async handleFailedResponse(
+    result: { response?: any; error?: Error },
+    url: string,
+    headers: Record<string, string>,
+    streamName: string,
+    controller?: AbortController
+  ): Promise<{ response?: any; aborted?: boolean }> {
+    if (!result.response || result.response.ok) {
+      return {};
+    }
+
+    const refreshed = await this.tryTokenRefreshAndRetry(
+      result.response, url, headers, streamName, controller
+    );
+
+    if (refreshed.aborted) {
+      return { aborted: true };
+    }
+    if (this.isSuccessfulResponse(refreshed)) {
+      return { response: refreshed.response };
+    }
+
+    return {};
+  }
+
+  /**
+   * Attempt a single SSE request
+   */
+  private async attemptSseRequest(
+    url: string,
+    headers: Record<string, string>,
+    streamName: string,
+    controller?: AbortController
+  ): Promise<{ response?: any; error?: Error; aborted?: boolean }> {
+    try {
+      const response = await this.doSseRequest(url, headers, controller);
+      return { response };
+    } catch (err) {
+      if (this.handleSseAbort(err as Error, streamName)) {
+        return { aborted: true };
+      }
+      return { error: err as Error };
+    }
+  }
+
+  /**
+   * Try to refresh token and retry request if token expired
+   */
+  private async tryTokenRefreshAndRetry(
+    res: any,
+    url: string,
+    headers: Record<string, string>,
+    streamName: string,
+    controller?: AbortController
+  ): Promise<{ response?: any; aborted?: boolean; shouldRetry?: boolean }> {
+    let text = '';
+    try {
+      text = await res.text();
+    } catch {
+      /* ignore */
+    }
+
+    if (!this.authClient!.isTokenExpiredResponse(res.status, text)) {
+      return { shouldRetry: true };
+    }
+
+    log('Access token expired, refreshing...', LogLevel.INFO);
+    await this.authClient!.refreshAuth();
+
+    // Rebuild headers after auth refresh
+    const newHeaders = this.buildSseHeaders({}, streamName, url);
+    Object.assign(newHeaders, headers);
+
+    return this.attemptSseRequest(url, newHeaders, streamName, controller);
   }
 
   private async startStream(client: string, endpoint: StreamEndpoint): Promise<void> {
@@ -615,13 +805,13 @@ export class EdaStreamClient {
   private startTransactionSummaryStream(client: string): void {
     if (!this.authClient) return;
 
-    const ep = this.streamEndpoints.find(e => e.stream === 'summary');
+    const ep = this.streamEndpoints.find(e => e.stream === STREAM_SUMMARY);
     const path = ep?.path || '/core/transaction/v2/result/summary';
     const url =
       `${this.authClient.getBaseUrl()}${path}` +
       `?size=${this.transactionSummarySize}` +
       `&eventclient=${encodeURIComponent(client)}` +
-      `&stream=summary`;
+      `&stream=${STREAM_SUMMARY}`;
     this.summaryAbortController = new AbortController();
     log('Starting transaction summary stream', LogLevel.DEBUG);
     this.summaryStreamPromise = this.streamSse(url, this.summaryAbortController)
@@ -643,7 +833,7 @@ export class EdaStreamClient {
       `${this.authClient.getBaseUrl()}/core/user-storage/v2/file` +
       `?path=${encodeURIComponent(file)}` +
       `&eventclient=${encodeURIComponent(client)}` +
-      `&stream=file`;
+      `&stream=${STREAM_FILE}`;
 
     // User-storage file stream uses Accept: */*
     const customHeaders = {
@@ -669,7 +859,7 @@ export class EdaStreamClient {
         // This includes 'update' messages, 'details' messages, and initial stream registration confirmations
         // But throttle to not send faster than messageIntervalMs
         // Skip only 'register' type messages
-        if (msg.type !== 'register' && this.eventSocket?.readyState === WebSocket.OPEN) {
+        if (msg.type !== MSG_TYPE_REGISTER && this.eventSocket?.readyState === WebSocket.OPEN) {
           this.scheduleNextMessage(msg.stream);
         }
       }
@@ -711,7 +901,7 @@ export class EdaStreamClient {
   private sendNextMessage(stream: string): void {
     if (this.eventSocket?.readyState === WebSocket.OPEN) {
       log(`Sending 'next' for stream ${stream}`, LogLevel.DEBUG);
-      this.eventSocket.send(JSON.stringify({ type: 'next', stream }));
+      this.eventSocket.send(JSON.stringify({ type: MSG_TYPE_NEXT, stream }));
       this.lastNextTimestamps.set(stream, Date.now());
     }
   }

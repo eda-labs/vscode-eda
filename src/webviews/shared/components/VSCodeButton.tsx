@@ -1,4 +1,5 @@
-import { ButtonHTMLAttributes, forwardRef, memo } from 'react';
+import type { ButtonHTMLAttributes} from 'react';
+import { forwardRef, memo } from 'react';
 
 export interface VSCodeButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'icon';

@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
+
 import { serviceManager } from '../services/serviceManager';
-import { EdaClient } from '../clients/edaClient';
+import type { EdaClient } from '../clients/edaClient';
 import { edaOutputChannel, log, LogLevel, edaTransactionProvider } from '../extension';
+import { MSG_NO_TRANSACTION_ID } from './constants';
 
 function extractTransactionId(treeItem: any): string | undefined {
   if (treeItem?.resource?.raw?.id) {
@@ -20,7 +22,7 @@ export function registerTransactionCommands(context: vscode.ExtensionContext): v
   const revertCmd = vscode.commands.registerCommand('vscode-eda.revertTransaction', async (treeItem) => {
     const transactionId = extractTransactionId(treeItem);
     if (!transactionId) {
-      vscode.window.showErrorMessage('No transaction ID available.');
+      vscode.window.showErrorMessage(MSG_NO_TRANSACTION_ID);
       return;
     }
     const confirmed = await vscode.window.showWarningMessage(
@@ -47,7 +49,7 @@ export function registerTransactionCommands(context: vscode.ExtensionContext): v
   const restoreCmd = vscode.commands.registerCommand('vscode-eda.restoreTransaction', async (treeItem) => {
     const transactionId = extractTransactionId(treeItem);
     if (!transactionId) {
-      vscode.window.showErrorMessage('No transaction ID available.');
+      vscode.window.showErrorMessage(MSG_NO_TRANSACTION_ID);
       return;
     }
     const confirmed = await vscode.window.showWarningMessage(

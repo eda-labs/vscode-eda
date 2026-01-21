@@ -1,7 +1,8 @@
 // src/utils/templateLoader.ts
 import * as fs from 'fs';
 import * as path from 'path';
-import * as vscode from 'vscode';
+
+import type * as vscode from 'vscode';
 import * as Handlebars from 'handlebars';
 
 /**

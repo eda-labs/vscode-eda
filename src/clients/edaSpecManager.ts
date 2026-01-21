@@ -1,10 +1,18 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+
 import openapiTS, { astToString, COMMENT_HEADER } from 'openapi-typescript';
+
 import { LogLevel, log } from '../extension';
+
 import type { EdaApiClient } from './edaApiClient';
-import { StreamEndpoint } from './edaStreamClient';
+import type { StreamEndpoint } from './edaStreamClient';
+
+// Constants for repeated strings
+const SERVER_RELATIVE_URL = 'serverRelativeURL';
+const OPERATION_ID = 'operationId';
+const X_EDA_NOKIA_COM = 'x-eda-nokia-com';
 
 interface NamespaceData {
   name?: string;
@@ -33,6 +41,12 @@ export class EdaSpecManager {
     this.apiClient = apiClient;
     this.coreNamespace = coreNamespace;
     log('EdaSpecManager initialized', LogLevel.DEBUG);
+  }
+
+  /**
+   * Start async initialization. Call this after construction.
+   */
+  public startInitialization(): void {
     this.initPromise = this.initializeSpecs();
   }
 
@@ -112,7 +126,7 @@ export class EdaSpecManager {
     await this.initPromise;
     const path = this.operationMap.get(opId);
     if (!path) {
-      throw new Error(`operationId '${opId}' not found`);
+      throw new Error(`${OPERATION_ID} '${opId}' not found`);
     }
     return path;
   }
@@ -157,12 +171,12 @@ export class EdaSpecManager {
   private findPathByOperationId(spec: any, opId: string): string {
     for (const [p, methods] of Object.entries<any>(spec.paths ?? {})) {
       for (const m of Object.values<any>(methods as any)) {
-        if (m && typeof m === 'object' && m.operationId === opId) {
+        if (m && typeof m === 'object' && m[OPERATION_ID] === opId) {
           return p;
         }
       }
     }
-    throw new Error(`operationId '${opId}' not found`);
+    throw new Error(`${OPERATION_ID} '${opId}' not found`);
   }
 
   private parseApiPath(apiPath: string): { category: string; name: string } {
@@ -179,12 +193,12 @@ export class EdaSpecManager {
    */
   private extractServerRelativeURL(info: any): string | undefined {
     if (info && typeof info === 'object') {
-      if (typeof info.serverRelativeURL === 'string') {
-        return info.serverRelativeURL;
+      if (typeof info[SERVER_RELATIVE_URL] === 'string') {
+        return info[SERVER_RELATIVE_URL] as string;
       }
-      const ext = (info as any)['x-eda-nokia-com'];
-      if (ext && typeof ext.serverRelativeURL === 'string') {
-        return ext.serverRelativeURL;
+      const ext = (info as any)[X_EDA_NOKIA_COM];
+      if (ext && typeof ext[SERVER_RELATIVE_URL] === 'string') {
+        return ext[SERVER_RELATIVE_URL] as string;
       }
     }
     return undefined;
@@ -214,8 +228,8 @@ export class EdaSpecManager {
   private collectOperationPaths(spec: any): void {
     for (const [p, methods] of Object.entries<any>(spec.paths ?? {})) {
       for (const m of Object.values<any>(methods as any)) {
-        if (m && typeof m === 'object' && m.operationId) {
-          this.operationMap.set(m.operationId as string, p);
+        if (m && typeof m === 'object' && m[OPERATION_ID]) {
+          this.operationMap.set(m[OPERATION_ID] as string, p);
         }
       }
     }
@@ -255,7 +269,7 @@ export class EdaSpecManager {
     const url = `${baseUrl}${path}`;
     const data = await this.apiClient.fetchJsonUrl(url);
     const full = (data?.eda?.version as string | undefined) ?? 'unknown';
-    const match = full.match(/^([^-]+)/);
+    const match = /^([^-]+)/.exec(full);
     return match ? match[1] : full;
   }
 

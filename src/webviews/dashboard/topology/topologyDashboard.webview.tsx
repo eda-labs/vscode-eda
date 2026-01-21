@@ -1,9 +1,11 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { usePostMessage, useMessageListener } from '../../shared/hooks';
-import { mountWebview } from '../../shared/utils';
 import type cytoscape from 'cytoscape';
 import cytoscapePopper from 'cytoscape-popper';
-import tippy, { Instance as TippyInstance } from 'tippy.js';
+import type { Instance as TippyInstance } from 'tippy.js';
+import tippy from 'tippy.js';
+
+import { mountWebview } from '../../shared/utils';
+import { usePostMessage, useMessageListener } from '../../shared/hooks';
 
 declare module 'cytoscape' {
   interface Core {
@@ -41,7 +43,7 @@ interface TopologyMessage {
 
 const tippyFactory = (ref: any, content: HTMLElement): TippyInstance => {
   const dummyDomEle = document.createElement('div');
-  const tip = tippy(dummyDomEle, {
+  return tippy(dummyDomEle, {
     getReferenceClientRect: ref.getBoundingClientRect,
     trigger: 'manual',
     content,
@@ -53,7 +55,6 @@ const tippyFactory = (ref: any, content: HTMLElement): TippyInstance => {
     theme: 'edge-label',
     zIndex: 10
   });
-  return tip;
 };
 
 function shortenInterfaceName(name: string | undefined): string {
@@ -111,44 +112,17 @@ function TopologyDashboard() {
         postMessage({ command: 'ready' });
       });
 
+    const currentTippies = edgeTippiesRef.current;
+    const currentCy = cyRef.current;
     return () => {
-      edgeTippiesRef.current.forEach(tips => {
+      currentTippies.forEach(tips => {
         tips.source?.tip.destroy();
         tips.target?.tip.destroy();
       });
-      edgeTippiesRef.current.clear();
-      cyRef.current?.destroy();
+      currentTippies.clear();
+      currentCy?.destroy();
     };
   }, [postMessage]);
-
-  // Theme observer
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      applyThemeColors();
-    });
-    observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
-    return () => observer.disconnect();
-  }, []);
-
-  const applyThemeColors = useCallback(() => {
-    const cy = cyRef.current;
-    if (!cy) return;
-    const textSecondary = getComputedStyle(document.documentElement)
-      .getPropertyValue('--text-secondary')
-      .trim();
-
-    cy.style()
-      .selector('node')
-      .style({
-        'color': '#ffffff',
-        'background-color': '#001135'
-      })
-      .selector('edge')
-      .style('line-color', textSecondary)
-      .update();
-
-    updateEdgeColors();
-  }, []);
 
   const updateEdgeColors = useCallback(() => {
     const cy = cyRef.current;
@@ -174,6 +148,35 @@ function TopologyDashboard() {
       edge.style('line-color', color);
     });
   }, []);
+
+  const applyThemeColors = useCallback(() => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    const textSecondary = getComputedStyle(document.documentElement)
+      .getPropertyValue('--text-secondary')
+      .trim();
+
+    cy.style()
+      .selector('node')
+      .style({
+        'color': '#ffffff',
+        'background-color': '#001135'
+      })
+      .selector('edge')
+      .style('line-color', textSecondary)
+      .update();
+
+    updateEdgeColors();
+  }, [updateEdgeColors]);
+
+  // Theme observer
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      applyThemeColors();
+    });
+    observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, [applyThemeColors]);
 
   const updateEdgeLabelVisibility = useCallback(() => {
     const cy = cyRef.current;
@@ -795,7 +798,7 @@ function TopologyDashboard() {
     } else if (msg.command === 'data') {
       renderTopology(msg.nodes || [], msg.edges || []);
     }
-  }, []));
+  }, [renderTopology]));
 
   // Update label visibility when mode changes
   useEffect(() => {

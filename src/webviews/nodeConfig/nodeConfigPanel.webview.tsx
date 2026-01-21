@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, useRef } from 'react';
+
 import { usePostMessage, useMessageListener, useReadySignal } from '../shared/hooks';
 import { mountWebview } from '../shared/utils';
 
@@ -415,21 +416,21 @@ function NodeConfigPanel() {
       {/* Toolbar */}
       <div className="p-3 bg-(--vscode-sideBar-background) border-b border-(--vscode-sideBar-border) flex items-center gap-2.5">
         <button
-          className="bg-(--vscode-button-background) text-(--vscode-button-foreground) border border-(--vscode-button-border,transparent) rounded px-3 py-1.5 text-xs font-medium flex items-center gap-1.5 shadow-sm transition-all hover:bg-(--vscode-button-hoverBackground) hover:-translate-y-px cursor-pointer"
+          className="bg-(--vscode-button-background) text-(--vscode-button-foreground) border border-(--vscode-button-border,transparent) rounded-sm px-3 py-1.5 text-xs font-medium flex items-center gap-1.5 shadow-sm transition-all hover:bg-(--vscode-button-hoverBackground) hover:-translate-y-px cursor-pointer"
           onClick={handleToggleAnnotations}
         >
           <span className="text-sm leading-none">{'\u229E'}</span>
           <span>{isAnnotationsVisible ? 'Hide Annotations' : 'Show Annotations'}</span>
         </button>
         <button
-          className="bg-(--vscode-button-background) text-(--vscode-button-foreground) border border-(--vscode-button-border,transparent) rounded px-3 py-1.5 text-xs font-medium flex items-center gap-1.5 shadow-sm transition-all hover:bg-(--vscode-button-hoverBackground) hover:-translate-y-px cursor-pointer"
+          className="bg-(--vscode-button-background) text-(--vscode-button-foreground) border border-(--vscode-button-border,transparent) rounded-sm px-3 py-1.5 text-xs font-medium flex items-center gap-1.5 shadow-sm transition-all hover:bg-(--vscode-button-hoverBackground) hover:-translate-y-px cursor-pointer"
           onClick={handleCopyConfig}
         >
           <span className="text-sm leading-none">{'\u29C9'}</span>
           <span>Copy Config</span>
         </button>
         <select
-          className="bg-(--vscode-dropdown-background) text-(--vscode-dropdown-foreground) border border-(--vscode-dropdown-border) rounded px-2 py-1.5 text-xs cursor-pointer"
+          className="bg-(--vscode-dropdown-background) text-(--vscode-dropdown-foreground) border border-(--vscode-dropdown-border) rounded-sm px-2 py-1.5 text-xs cursor-pointer"
           value={colorMode}
           onChange={handleColorModeChange}
         >
@@ -501,7 +502,7 @@ function NodeConfigPanel() {
       </div>
 
       {/* Toast notification */}
-      <div className={`fixed bottom-5 right-5 bg-(--vscode-notificationToast-background) text-(--vscode-notificationToast-foreground) py-2.5 px-4 rounded shadow-lg z-9999 flex items-center gap-2 transition-all duration-300 ${
+      <div className={`fixed bottom-5 right-5 bg-(--vscode-notificationToast-background) text-(--vscode-notificationToast-foreground) py-2.5 px-4 rounded-sm shadow-lg z-9999 flex items-center gap-2 transition-all duration-300 ${
         showToast
           ? 'opacity-100 translate-y-0'
           : 'opacity-0 translate-y-5 pointer-events-none'

@@ -1,5 +1,7 @@
 import { useCallback } from 'react';
-import { DataGridDashboard, DataGridContext, DataGridMessage } from '../../shared/components';
+
+import type { DataGridContext, DataGridMessage } from '../../shared/components';
+import { DataGridDashboard } from '../../shared/components';
 import { mountWebview } from '../../shared/utils';
 
 interface SimnodesMessage extends DataGridMessage {
@@ -32,14 +34,14 @@ function SimnodesDashboard() {
     return (
       <>
         <button
-          className="mr-1 p-1 border-none bg-vscode-accent text-vscode-button-fg rounded cursor-pointer inline-flex items-center justify-center hover:bg-vscode-accent-hover"
+          className="mr-1 p-1 border-none bg-vscode-accent text-vscode-button-fg rounded-sm cursor-pointer inline-flex items-center justify-center hover:bg-vscode-accent-hover"
           title="View YAML"
           onClick={handleViewYaml}
         >
           <span className="codicon codicon-file-code" />
         </button>
         <button
-          className="p-1 border-none bg-vscode-accent text-vscode-button-fg rounded cursor-pointer inline-flex items-center justify-center hover:bg-vscode-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
+          className="p-1 border-none bg-vscode-accent text-vscode-button-fg rounded-sm cursor-pointer inline-flex items-center justify-center hover:bg-vscode-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
           title={hasKubernetesContext ? 'SSH to SimNode' : 'Kubernetes context needs to be set to enable SSH'}
           disabled={!hasKubernetesContext}
           onClick={handleSSH}

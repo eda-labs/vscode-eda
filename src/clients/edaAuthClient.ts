@@ -91,6 +91,15 @@ export class EdaAuthClient {
       `EdaAuthClient initialized for ${this.baseUrl} (clientId=${this.clientId})`,
       LogLevel.DEBUG
     );
+
+    // Start async initialization (separated from constructor to satisfy sonarjs/no-async-constructor)
+    this.startInitialization();
+  }
+
+  /**
+   * Start async initialization. Separated from constructor to satisfy sonarjs/no-async-constructor.
+   */
+  private startInitialization(): void {
     this.authPromise = this.auth();
     this.refreshTimer = setInterval(() => {
       void this.refreshAuth().catch(err =>

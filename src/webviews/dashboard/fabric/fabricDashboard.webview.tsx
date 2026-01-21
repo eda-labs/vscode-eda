@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
+
 import { usePostMessage, useMessageListener, useReadySignal } from '../../shared/hooks';
 import { VSCodeProvider } from '../../shared/context';
 
@@ -333,7 +334,7 @@ function FabricDashboard() {
           </p>
         </div>
         <select
-          className="bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded px-2 py-1"
+          className="bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded-sm px-2 py-1"
           value={selectedNamespace}
           onChange={handleNamespaceChange}
         >

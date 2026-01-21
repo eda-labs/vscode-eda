@@ -1,6 +1,9 @@
-import React, { useState, useCallback, useMemo, memo, ReactNode } from 'react';
+import type { ReactNode } from 'react';
+import React, { useState, useCallback, useMemo, memo } from 'react';
+
 import { shallowArrayEquals } from '../utils';
 import { usePostMessage, useMessageListener, useReadySignal } from '../hooks';
+
 import { VSCodeButton } from './VSCodeButton';
 
 export interface DataGridAction {
@@ -167,7 +170,7 @@ function DataGridDashboardInner<T extends DataGridMessage>({
         <select
           value={selectedNamespace}
           onChange={handleNamespaceChange}
-          className="px-2 py-1 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded"
+          className="px-2 py-1 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded-sm"
         >
           {namespaces.map(ns => (
             <option key={ns} value={ns}>{ns}</option>

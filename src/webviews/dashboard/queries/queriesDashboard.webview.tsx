@@ -1,7 +1,10 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+
 import { usePostMessage, useMessageListener, useReadySignal, useCopyToClipboard } from '../../shared/hooks';
 import { shallowArrayEquals, mountWebview } from '../../shared/utils';
-import { formatValue, pruneEmptyColumns, formatForClipboard, CopyFormat } from './queryFormatters';
+
+import type { CopyFormat } from './queryFormatters';
+import { formatValue, pruneEmptyColumns, formatForClipboard } from './queryFormatters';
 
 interface Alternative {
   query: string;
@@ -253,15 +256,25 @@ function QueriesDashboard() {
     } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && autocomplete.list.length > 0) {
       e.preventDefault();
       if (e.key === 'ArrowDown') {
-        setAutocomplete(prev => ({
-          ...prev,
-          index: prev.index < prev.list.length - 1 ? prev.index + 1 : (prev.index === -1 ? 0 : prev.index)
-        }));
+        setAutocomplete(prev => {
+          let newIndex = prev.index;
+          if (prev.index < prev.list.length - 1) {
+            newIndex = prev.index + 1;
+          } else if (prev.index === -1) {
+            newIndex = 0;
+          }
+          return { ...prev, index: newIndex };
+        });
       } else {
-        setAutocomplete(prev => ({
-          ...prev,
-          index: prev.index === -1 ? prev.list.length - 1 : (prev.index > 0 ? prev.index - 1 : prev.index)
-        }));
+        setAutocomplete(prev => {
+          let newIndex = prev.index;
+          if (prev.index === -1) {
+            newIndex = prev.list.length - 1;
+          } else if (prev.index > 0) {
+            newIndex = prev.index - 1;
+          }
+          return { ...prev, index: newIndex };
+        });
       }
     } else if (e.key === 'Enter') {
       e.preventDefault();
@@ -328,7 +341,7 @@ function QueriesDashboard() {
             <span className="codicon codicon-search mr-1"></span> Query
           </label>
           <select
-            className="bg-(--vscode-input-background) text-(--vscode-input-foreground) border border-(--vscode-input-border) rounded px-2 py-1 mr-2 min-w-15"
+            className="bg-(--vscode-input-background) text-(--vscode-input-foreground) border border-(--vscode-input-border) rounded-sm px-2 py-1 mr-2 min-w-15"
             value={queryType}
             onChange={(e) => setQueryType(e.target.value as QueryType)}
           >
@@ -340,7 +353,7 @@ function QueriesDashboard() {
             <input
               ref={inputRef}
               type="text"
-              className="w-full px-2 py-1 bg-(--vscode-input-background) text-(--vscode-input-foreground) border border-(--vscode-input-border) rounded"
+              className="w-full px-2 py-1 bg-(--vscode-input-background) text-(--vscode-input-foreground) border border-(--vscode-input-border) rounded-sm"
               placeholder={queryPlaceholder}
               value={queryInput}
               onChange={handleQueryInputChange}
@@ -362,7 +375,7 @@ function QueriesDashboard() {
             )}
           </div>
           <button
-            className="px-3 py-1 border-none bg-(--vscode-button-background) text-(--vscode-button-foreground) rounded cursor-pointer hover:bg-(--vscode-button-hoverBackground)"
+            className="px-3 py-1 border-none bg-(--vscode-button-background) text-(--vscode-button-foreground) rounded-sm cursor-pointer hover:bg-(--vscode-button-hoverBackground)"
             onClick={handleRunQuery}
           >
             Run
@@ -370,7 +383,7 @@ function QueriesDashboard() {
           <div className="flex items-center gap-0.5">
             <div className="copy-dropdown relative flex">
               <button
-                className={`flex items-center gap-1 px-3 py-1 pr-0 border-none rounded cursor-pointer ${copied ? 'bg-(--vscode-debugConsole-infoForeground)' : 'bg-(--vscode-button-background)'} text-(--vscode-button-foreground) hover:bg-(--vscode-button-hoverBackground)`}
+                className={`flex items-center gap-1 px-3 py-1 pr-0 border-none rounded-sm cursor-pointer ${copied ? 'bg-(--vscode-debugConsole-infoForeground)' : 'bg-(--vscode-button-background)'} text-(--vscode-button-foreground) hover:bg-(--vscode-button-hoverBackground)`}
                 onClick={handleCopy}
               >
                 <span>Copy</span>
@@ -405,7 +418,7 @@ function QueriesDashboard() {
           </div>
         </div>
         <select
-          className="bg-(--vscode-input-background) text-(--vscode-input-foreground) border border-(--vscode-input-border) rounded px-2 py-1"
+          className="bg-(--vscode-input-background) text-(--vscode-input-foreground) border border-(--vscode-input-border) rounded-sm px-2 py-1"
           value={selectedNamespace}
           onChange={(e) => setSelectedNamespace(e.target.value)}
         >
@@ -416,7 +429,7 @@ function QueriesDashboard() {
       </header>
 
       {queryTypeNote && (
-        <div className="bg-(--vscode-editorHoverWidget-background) border border-(--vscode-editorHoverWidget-border) rounded mb-3 text-xs">
+        <div className="bg-(--vscode-editorHoverWidget-background) border border-(--vscode-editorHoverWidget-border) rounded-sm mb-3 text-xs">
           <div className="flex items-center gap-2 py-2 px-3">
             <span className="text-(--vscode-notificationsInfoIcon-foreground) text-sm">{'\u2139\uFE0F'}</span>
             <span className="text-(--vscode-notifications-foreground) italic">{queryTypeNote}</span>
@@ -425,11 +438,11 @@ function QueriesDashboard() {
       )}
 
       {conversion.show && (
-        <div className="bg-(--vscode-notifications-background) border border-(--vscode-notifications-border) rounded mb-4 text-sm">
+        <div className="bg-(--vscode-notifications-background) border border-(--vscode-notifications-border) rounded-sm mb-4 text-sm">
           <div className="flex items-center gap-2 py-3 px-4">
             <span className="text-(--vscode-notificationsInfoIcon-foreground) text-base">{'\u2139\uFE0F'}</span>
             <div className="flex-1 text-(--vscode-notifications-foreground)">
-              <div><span>{conversion.label}</span> <code className="bg-(--vscode-textBlockQuote-background) px-1.5 py-0.5 rounded text-xs font-mono">{conversion.eql}</code></div>
+              <div><span>{conversion.label}</span> <code className="bg-(--vscode-textBlockQuote-background) px-1.5 py-0.5 rounded-sm text-xs font-mono">{conversion.eql}</code></div>
               {conversion.description && (
                 <div className="text-xs text-(--vscode-descriptionForeground) mt-1 italic">{conversion.description}</div>
               )}
@@ -457,7 +470,7 @@ function QueriesDashboard() {
                 {conversion.alternatives.map((alt, idx) => (
                   <li
                     key={idx}
-                    className="flex justify-between items-start gap-3 py-2 px-2.5 my-1 bg-(--vscode-textBlockQuote-background) rounded cursor-pointer hover:bg-(--vscode-list-hoverBackground)"
+                    className="flex justify-between items-start gap-3 py-2 px-2.5 my-1 bg-(--vscode-textBlockQuote-background) rounded-sm cursor-pointer hover:bg-(--vscode-list-hoverBackground)"
                     onClick={() => handleAlternativeClick(alt)}
                   >
                     <div className="flex-1">

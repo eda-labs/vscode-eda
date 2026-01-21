@@ -1,4 +1,5 @@
 import { expect } from 'chai';
+
 import { sanitizeResourceForEdit } from '../src/utils/yamlUtils';
 
 describe('sanitizeResourceForEdit', () => {

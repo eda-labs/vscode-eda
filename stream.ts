@@ -1,8 +1,11 @@
-import WebSocket from "ws";
-import { fetch } from "undici";
 import { TextDecoder } from "util";
 import { readFileSync } from "fs";
-import { EdaAuthClient, EdaAuthOptions } from "./src/clients/edaAuthClient";
+
+import WebSocket from "ws";
+import { fetch } from "undici";
+
+import type { EdaAuthOptions } from "./src/clients/edaAuthClient";
+import { EdaAuthClient } from "./src/clients/edaAuthClient";
 
 interface StreamConfig extends EdaAuthOptions {
   edaUrl: string;

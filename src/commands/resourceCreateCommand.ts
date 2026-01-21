@@ -1,9 +1,10 @@
 // src/commands/resourceCreateCommand.ts
 import * as vscode from 'vscode';
+import * as yaml from 'js-yaml';
+
 import { serviceManager } from '../services/serviceManager';
 import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
-import { SchemaProviderService } from '../services/schemaProviderService';
-import * as yaml from 'js-yaml';
+import type { SchemaProviderService } from '../services/schemaProviderService';
 import { log, LogLevel } from '../extension';
 
 function buildSkeletonFromSchema(schema: any): any {
@@ -103,8 +104,8 @@ export function registerResourceCreateCommand(
       await vscode.languages.setTextDocumentLanguage(document, 'yaml');
       await vscode.window.showTextDocument(document);
 
-      const schemaProvider = serviceManager.getService<SchemaProviderService>('schema-provider');
-      void schemaProvider; // ensure service loaded so schema will be associated
+      // Ensure schema provider service is loaded so schema will be associated
+      serviceManager.getService<SchemaProviderService>('schema-provider');
     } catch (err: any) {
       log(`Error creating resource: ${err}`, LogLevel.ERROR);
       vscode.window.showErrorMessage(`Failed to create resource: ${err.message || err}`);

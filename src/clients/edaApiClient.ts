@@ -1,10 +1,19 @@
 import { fetch } from 'undici';
 import * as yaml from 'js-yaml';
+
 import { LogLevel, log } from '../extension';
-import type { EdaAuthClient } from './edaAuthClient';
-import type { EdaSpecManager } from './edaSpecManager';
 import { sanitizeResource } from '../utils/yamlUtils';
 import { kindToPlural } from '../utils/pluralUtils';
+
+import type { EdaAuthClient } from './edaAuthClient';
+import type { EdaSpecManager } from './edaSpecManager';
+
+// Constants for duplicate strings
+const MSG_TOKEN_EXPIRED = 'Access token expired, refreshing...';
+const MSG_SPEC_NOT_INIT = 'Spec manager not initialized';
+const PARAM_NAMESPACE = '{namespace}';
+const PARAM_TRANSACTION_ID = '{transactionId}';
+const PARAM_NAME = '{name}';
 
 /**
  * Client for EDA REST API operations
@@ -40,7 +49,7 @@ export class EdaApiClient {
     if (!res.ok) {
       const text = await res.text();
       if (this.authClient.isTokenExpiredResponse(res.status, text)) {
-        log('Access token expired, refreshing...', LogLevel.INFO);
+        log(MSG_TOKEN_EXPIRED, LogLevel.INFO);
         await this.authClient.refreshAuth();
         res = await fetch(url, {
           headers: this.authClient.getHeaders(),
@@ -79,7 +88,7 @@ export class EdaApiClient {
     if (!res.ok) {
       const text = await res.text();
       if (this.authClient.isTokenExpiredResponse(res.status, text)) {
-        log('Access token expired, refreshing...', LogLevel.INFO);
+        log(MSG_TOKEN_EXPIRED, LogLevel.INFO);
         await this.authClient.refreshAuth();
         res = await fetch(url, {
           method,
@@ -113,7 +122,7 @@ export class EdaApiClient {
     let text = await res.text();
     if (!res.ok) {
       if (this.authClient.isTokenExpiredResponse(res.status, text)) {
-        log('Access token expired, refreshing...', LogLevel.INFO);
+        log(MSG_TOKEN_EXPIRED, LogLevel.INFO);
         await this.authClient.refreshAuth();
         res = await fetch(url, {
           headers: this.authClient.getHeaders(),
@@ -148,12 +157,12 @@ export class EdaApiClient {
     }
 
     const groupPascal = group
-      .split(/\.|-/)
+      .split(/[.-]/)
       .map(p => p.charAt(0).toUpperCase() + p.slice(1))
       .join('');
     const versionPascal = version.charAt(0).toUpperCase() + version.slice(1);
     const pluralPascal = plural
-      .split(/\.|-/)
+      .split(/[.-]/)
       .map(p => p.charAt(0).toUpperCase() + p.slice(1))
       .join('');
 
@@ -164,14 +173,14 @@ export class EdaApiClient {
       try {
         const template = await this.specManager.getPathByOperationId(namespacedOpId);
         path = template
-          .replace('{namespace}', namespace)
-          .replace('{name}', name);
+          .replace(PARAM_NAMESPACE, namespace)
+          .replace(PARAM_NAME, name);
       } catch {
         // If not found, try cluster scoped operation
         const clusterOpId = `read${groupPascal}${versionPascal}${pluralPascal}`;
         try {
           const template = await this.specManager.getPathByOperationId(clusterOpId);
-          path = template.replace('{name}', name);
+          path = template.replace(PARAM_NAME, name);
         } catch {
           // fall back to manual path below
         }
@@ -201,10 +210,10 @@ export class EdaApiClient {
    */
   public async restoreTransaction(transactionId: string | number): Promise<any> {
     if (!this.specManager) {
-      throw new Error('Spec manager not initialized');
+      throw new Error(MSG_SPEC_NOT_INIT);
     }
     const template = await this.specManager.getPathByOperationId('transRestoreTransaction');
-    const path = template.replace('{transactionId}', String(transactionId));
+    const path = template.replace(PARAM_TRANSACTION_ID, String(transactionId));
     return this.requestJSON('POST', path);
   }
 
@@ -213,10 +222,10 @@ export class EdaApiClient {
    */
   public async revertTransaction(transactionId: string | number): Promise<any> {
     if (!this.specManager) {
-      throw new Error('Spec manager not initialized');
+      throw new Error(MSG_SPEC_NOT_INIT);
     }
     const template = await this.specManager.getPathByOperationId('transRevertTransaction');
-    const path = template.replace('{transactionId}', String(transactionId));
+    const path = template.replace(PARAM_TRANSACTION_ID, String(transactionId));
     return this.requestJSON('POST', path);
   }
 
@@ -300,7 +309,7 @@ export class EdaApiClient {
    */
   public async getEdaTransactions(size = 50): Promise<any[]> {
     if (!this.specManager) {
-      throw new Error('Spec manager not initialized');
+      throw new Error(MSG_SPEC_NOT_INIT);
     }
     const path = await this.specManager.getPathByOperationId('transGetSummaryResultList');
     const data = await this.fetchJSON<any>(`${path}?size=${size}`);
@@ -312,10 +321,10 @@ export class EdaApiClient {
    */
   public async getTransactionSummary(transactionId: string | number): Promise<any> {
     if (!this.specManager) {
-      throw new Error('Spec manager not initialized');
+      throw new Error(MSG_SPEC_NOT_INIT);
     }
     const template = await this.specManager.getPathByOperationId('transGetSummaryResult');
-    const path = template.replace('{transactionId}', String(transactionId));
+    const path = template.replace(PARAM_TRANSACTION_ID, String(transactionId));
     return this.fetchJSON<any>(path);
   }
 
@@ -328,13 +337,13 @@ export class EdaApiClient {
     failOnErrors = false
   ): Promise<any> {
     if (!this.specManager) {
-      throw new Error('Spec manager not initialized');
+      throw new Error(MSG_SPEC_NOT_INIT);
     }
     const summaryTemplate = await this.specManager.getPathByOperationId(
       'transGetSummaryResult'
     );
     const summaryPath = summaryTemplate.replace(
-      '{transactionId}',
+      PARAM_TRANSACTION_ID,
       String(transactionId)
     );
 
@@ -342,7 +351,7 @@ export class EdaApiClient {
       'transGetResultExecution'
     );
     const execPath = execTemplate.replace(
-      '{transactionId}',
+      PARAM_TRANSACTION_ID,
       String(transactionId)
     );
     const params: string[] = [];
@@ -357,7 +366,7 @@ export class EdaApiClient {
     const inputTemplate = await this.specManager.getPathByOperationId(
       'transGetResultInputResources'
     );
-    const inputPath = inputTemplate.replace('{transactionId}', String(transactionId));
+    const inputPath = inputTemplate.replace(PARAM_TRANSACTION_ID, String(transactionId));
 
     const [summary, execution, inputResources] = await Promise.all([
       this.fetchJSON<any>(summaryPath),
@@ -380,10 +389,10 @@ export class EdaApiClient {
     namespace: string
   ): Promise<any> {
     if (!this.specManager) {
-      throw new Error('Spec manager not initialized');
+      throw new Error(MSG_SPEC_NOT_INIT);
     }
     const template = await this.specManager.getPathByOperationId('transGetResourceDiff');
-    const path = template.replace('{transactionId}', String(transactionId));
+    const path = template.replace(PARAM_TRANSACTION_ID, String(transactionId));
     const params = new URLSearchParams({ group, version, kind, name, namespace });
     return this.fetchJSON<any>(`${path}?${params.toString()}`);
   }
@@ -397,10 +406,10 @@ export class EdaApiClient {
     namespace: string
   ): Promise<any> {
     if (!this.specManager) {
-      throw new Error('Spec manager not initialized');
+      throw new Error(MSG_SPEC_NOT_INIT);
     }
     const template = await this.specManager.getPathByOperationId('transGetNodeConfigDiff');
-    const path = template.replace('{transactionId}', String(transactionId));
+    const path = template.replace(PARAM_TRANSACTION_ID, String(transactionId));
     const params = new URLSearchParams({ node, namespace });
     return this.fetchJSON<any>(`${path}?${params.toString()}`);
   }
@@ -430,12 +439,12 @@ export class EdaApiClient {
    */
   public async getNodeConfig(namespace: string, node: string): Promise<any> {
     if (!this.specManager) {
-      throw new Error('Spec manager not initialized');
+      throw new Error(MSG_SPEC_NOT_INIT);
     }
     const template = await this.specManager.getPathByOperationId('toolsGetNodeConfig');
     const path = template
       .replace('{nsName}', namespace)
-      .replace('{namespace}', namespace)
+      .replace(PARAM_NAMESPACE, namespace)
       .replace('{nodeName}', node)
       .replace('{node}', node);
     return this.fetchJSON<any>(path);
@@ -446,12 +455,12 @@ export class EdaApiClient {
    */
   public async listTopoNodes(namespace: string): Promise<any[]> {
     if (!this.specManager) {
-      throw new Error('Spec manager not initialized');
+      throw new Error(MSG_SPEC_NOT_INIT);
     }
     const template = await this.specManager.getPathByOperationId(
       'listCoreEdaNokiaComV1NamespaceToponodes'
     );
-    const path = template.replace('{namespace}', namespace);
+    const path = template.replace(PARAM_NAMESPACE, namespace);
     const data = await this.fetchJSON<any>(path);
     return Array.isArray(data?.items) ? data.items : [];
   }
@@ -461,14 +470,14 @@ export class EdaApiClient {
    */
   public async getTopoNode(namespace: string, name: string): Promise<any> {
     if (!this.specManager) {
-      throw new Error('Spec manager not initialized');
+      throw new Error(MSG_SPEC_NOT_INIT);
     }
     const template = await this.specManager.getPathByOperationId(
       'readCoreEdaNokiaComV1NamespaceToponodes'
     );
     const path = template
-      .replace('{namespace}', namespace)
-      .replace('{name}', name);
+      .replace(PARAM_NAMESPACE, namespace)
+      .replace(PARAM_NAME, name);
     return this.fetchJSON<any>(path);
   }
 
@@ -477,12 +486,12 @@ export class EdaApiClient {
    */
   public async listNodeUsers(namespace: string): Promise<any[]> {
     if (!this.specManager) {
-      throw new Error('Spec manager not initialized');
+      throw new Error(MSG_SPEC_NOT_INIT);
     }
     const template = await this.specManager.getPathByOperationId(
       'listCoreEdaNokiaComV1NamespaceNodeusers'
     );
-    const path = template.replace('{namespace}', namespace);
+    const path = template.replace(PARAM_NAMESPACE, namespace);
     const data = await this.fetchJSON<any>(path);
     return Array.isArray(data?.items) ? data.items : [];
   }
@@ -497,7 +506,7 @@ export class EdaApiClient {
         const template = await this.specManager.getPathByOperationId(
           'listInterfacesEdaNokiaComV1alpha1NamespaceInterfaces'
         );
-        path = template.replace('{namespace}', namespace);
+        path = template.replace(PARAM_NAMESPACE, namespace);
       } catch {
         // fallback to manual path below
       }
@@ -514,12 +523,12 @@ export class EdaApiClient {
    */
   public async listTopoLinks(namespace: string): Promise<any[]> {
     if (!this.specManager) {
-      throw new Error('Spec manager not initialized');
+      throw new Error(MSG_SPEC_NOT_INIT);
     }
     const template = await this.specManager.getPathByOperationId(
       'listCoreEdaNokiaComV1NamespaceTopolinks'
     );
-    const path = template.replace('{namespace}', namespace);
+    const path = template.replace(PARAM_NAMESPACE, namespace);
     const data = await this.fetchJSON<any>(path);
     return Array.isArray(data?.items) ? data.items : [];
   }
@@ -529,7 +538,7 @@ export class EdaApiClient {
    */
   public async listTopologies(): Promise<any[]> {
     if (!this.specManager) {
-      throw new Error('Spec manager not initialized');
+      throw new Error(MSG_SPEC_NOT_INIT);
     }
     const path = await this.specManager.getPathByOperationId('topologies');
     const data = await this.fetchJSON<any>(path);
@@ -541,7 +550,7 @@ export class EdaApiClient {
    */
   public async listTopologyGroupings(topologyName: string): Promise<any[]> {
     if (!this.specManager) {
-      throw new Error('Spec manager not initialized');
+      throw new Error(MSG_SPEC_NOT_INIT);
     }
     const template = await this.specManager.getPathByOperationId(
       'getTopologyGroupings'

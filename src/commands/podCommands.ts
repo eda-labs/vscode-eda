@@ -1,6 +1,14 @@
 import * as vscode from 'vscode';
-import { PodDescribeDocumentProvider } from '../providers/documents/podDescribeProvider';
+
+import type { PodDescribeDocumentProvider } from '../providers/documents/podDescribeProvider';
 import { runKubectl, getKubectlContext } from '../utils/kubectlRunner';
+import {
+  MSG_POD_NS_OR_NAME_MISSING,
+  MSG_NO_POD_AVAILABLE_DELETE,
+  MSG_NO_POD_AVAILABLE_TERMINAL,
+  MSG_NO_POD_AVAILABLE_LOGS,
+  MSG_NO_POD_AVAILABLE_DESCRIBE
+} from './constants';
 
 export function registerPodCommands(
   context: vscode.ExtensionContext,
@@ -8,7 +16,7 @@ export function registerPodCommands(
 ) {
   const deletePodCmd = vscode.commands.registerCommand('vscode-eda.deletePod', async (treeItem) => {
     if (!treeItem || !treeItem.resource) {
-      vscode.window.showErrorMessage('No pod available to delete.');
+      vscode.window.showErrorMessage(MSG_NO_POD_AVAILABLE_DELETE);
       return;
     }
 
@@ -17,7 +25,7 @@ export function registerPodCommands(
     const name = treeItem.resource.name;
 
     if (!ns || !name) {
-      vscode.window.showErrorMessage('Pod namespace or name is missing.');
+      vscode.window.showErrorMessage(MSG_POD_NS_OR_NAME_MISSING);
       return;
     }
 
@@ -38,9 +46,9 @@ export function registerPodCommands(
   });
 
   // Open Terminal (shell) in Pod
-  const terminalPodCmd = vscode.commands.registerCommand('vscode-eda.terminalPod', async (treeItem) => {
+  const terminalPodCmd = vscode.commands.registerCommand('vscode-eda.terminalPod', (treeItem) => {
     if (!treeItem || !treeItem.resource) {
-      vscode.window.showErrorMessage('No pod available for terminal.');
+      vscode.window.showErrorMessage(MSG_NO_POD_AVAILABLE_TERMINAL);
       return;
     }
 
@@ -49,7 +57,7 @@ export function registerPodCommands(
     const name = treeItem.resource.name;
 
     if (!ns || !name) {
-      vscode.window.showErrorMessage('Pod namespace or name is missing.');
+      vscode.window.showErrorMessage(MSG_POD_NS_OR_NAME_MISSING);
       return;
     }
 
@@ -67,9 +75,9 @@ export function registerPodCommands(
   });
 
   // View Logs in a new Terminal
-  const logsPodCmd = vscode.commands.registerCommand('vscode-eda.logsPod', async (treeItem) => {
+  const logsPodCmd = vscode.commands.registerCommand('vscode-eda.logsPod', (treeItem) => {
     if (!treeItem || !treeItem.resource) {
-      vscode.window.showErrorMessage('No pod available for logs.');
+      vscode.window.showErrorMessage(MSG_NO_POD_AVAILABLE_LOGS);
       return;
     }
 
@@ -78,7 +86,7 @@ export function registerPodCommands(
     const name = treeItem.resource.name;
 
     if (!ns || !name) {
-      vscode.window.showErrorMessage('Pod namespace or name is missing.');
+      vscode.window.showErrorMessage(MSG_POD_NS_OR_NAME_MISSING);
       return;
     }
 
@@ -98,7 +106,7 @@ export function registerPodCommands(
   // Describe Pod in a read-only doc
   const describePodCmd = vscode.commands.registerCommand('vscode-eda.describePod', async (treeItem) => {
     if (!treeItem || !treeItem.resource) {
-      vscode.window.showErrorMessage('No pod available to describe.');
+      vscode.window.showErrorMessage(MSG_NO_POD_AVAILABLE_DESCRIBE);
       return;
     }
 
@@ -107,7 +115,7 @@ export function registerPodCommands(
     const name = treeItem.resource.name;
 
     if (!ns || !name) {
-      vscode.window.showErrorMessage('Pod namespace or name is missing.');
+      vscode.window.showErrorMessage(MSG_POD_NS_OR_NAME_MISSING);
       return;
     }
 

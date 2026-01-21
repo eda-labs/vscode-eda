@@ -1,4 +1,4 @@
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
 
 const viewOrigins = new Map<string, boolean>();
 const resourceOrigins = new Map<string, boolean>();

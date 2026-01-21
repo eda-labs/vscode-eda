@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { TreeItemBase } from './treeItem';
+
+import type { TreeItemBase } from './treeItem';
 
 export abstract class FilteredTreeProvider<T extends TreeItemBase> implements vscode.TreeDataProvider<T> {
   protected _onDidChangeTreeData = new vscode.EventEmitter<T | undefined | null | void>();

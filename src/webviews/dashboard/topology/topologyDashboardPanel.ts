@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
+
 import { BasePanel } from '../../basePanel';
+import { ALL_NAMESPACES, RESOURCES_DIR } from '../../constants';
 import { serviceManager } from '../../../services/serviceManager';
-import { EdaClient } from '../../../clients/edaClient';
+import type { EdaClient } from '../../../clients/edaClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
 import { getUpdates } from '../../../utils/streamMessageUtils';
 
@@ -28,13 +30,10 @@ export class TopologyDashboardPanel extends BasePanel {
   private nodeMap: Map<string, Map<string, any>> = new Map();
   private linkMap: Map<string, any[]> = new Map();
   private groupings: TierSelector[] = [];
-  private selectedNamespace = 'All Namespaces';
+  private selectedNamespace = ALL_NAMESPACES;
 
   constructor(context: vscode.ExtensionContext, title: string) {
-    super(context, 'topologyDashboard', title, undefined, {
-      light: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-black.svg'),
-      dark: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-white.svg')
-    });
+    super(context, 'topologyDashboard', title, undefined, BasePanel.getEdaIconPath(context));
 
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
 
@@ -55,9 +54,9 @@ export class TopologyDashboardPanel extends BasePanel {
 
     this.panel.webview.onDidReceiveMessage(async msg => {
       if (msg.command === 'ready') {
-        await this.sendNamespaces();
+        this.sendNamespaces();
         await this.loadGroupings();
-        await this.loadInitial('All Namespaces');
+        await this.loadInitial(ALL_NAMESPACES);
       } else if (msg.command === 'setNamespace') {
         await this.loadInitial(msg.namespace as string);
       } else if (msg.command === 'sshTopoNode') {
@@ -89,10 +88,10 @@ export class TopologyDashboardPanel extends BasePanel {
   protected buildHtml(): string {
     const nonce = this.getNonce();
     const csp = this.panel.webview.cspSource;
-    const codiconUri = this.getResourceUri('resources', 'codicon.css');
-    const cytoscapeUri = this.getResourceUri('resources', 'cytoscape.min.js');
-    const cytoscapeSvgUri = this.getResourceUri('resources', 'cytoscape-svg.js');
-    const nodeIcon = this.getResourceUri('resources', 'node.svg');
+    const codiconUri = this.getResourceUri(RESOURCES_DIR, 'codicon.css');
+    const cytoscapeUri = this.getResourceUri(RESOURCES_DIR, 'cytoscape.min.js');
+    const cytoscapeSvgUri = this.getResourceUri(RESOURCES_DIR, 'cytoscape-svg.js');
+    const nodeIcon = this.getResourceUri(RESOURCES_DIR, 'node.svg');
     const tailwind = (BasePanel as any).tailwind ?? '';
     const styles = `${tailwind}\n${this.getCustomStyles()}`;
 
@@ -114,12 +113,12 @@ export class TopologyDashboardPanel extends BasePanel {
 </html>`;
   }
 
-  private async sendNamespaces(): Promise<void> {
+  private sendNamespaces(): void {
     const coreNs = this.edaClient.getCoreNamespace();
     const namespaces = this.edaClient
       .getCachedNamespaces()
       .filter(ns => ns !== coreNs);
-    namespaces.unshift('All Namespaces');
+    namespaces.unshift(ALL_NAMESPACES);
     this.panel.webview.postMessage({
       command: 'init',
       namespaces,
@@ -157,7 +156,7 @@ export class TopologyDashboardPanel extends BasePanel {
   private async loadInitial(ns: string): Promise<void> {
     this.selectedNamespace = ns;
     const target =
-      ns === 'All Namespaces'
+      ns === ALL_NAMESPACES
         ? this.edaClient
             .getCachedNamespaces()
             .filter(n => n !== this.edaClient.getCoreNamespace())
@@ -208,7 +207,7 @@ export class TopologyDashboardPanel extends BasePanel {
   private postGraph(): void {
     const coreNs = this.edaClient.getCoreNamespace();
     const namespaces =
-      this.selectedNamespace === 'All Namespaces'
+      this.selectedNamespace === ALL_NAMESPACES
         ? Array.from(this.nodeMap.keys()).filter(n => n !== coreNs)
         : [this.selectedNamespace];
     const nodes: { id: string; label: string; tier: number; raw: any }[] = [];
@@ -340,7 +339,7 @@ export class TopologyDashboardPanel extends BasePanel {
     this.postGraph();
   }
 
-  static show(context: vscode.ExtensionContext, title: string): void {
-    new TopologyDashboardPanel(context, title);
+  static show(context: vscode.ExtensionContext, title: string): TopologyDashboardPanel {
+    return new TopologyDashboardPanel(context, title);
   }
 }

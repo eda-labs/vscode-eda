@@ -1,9 +1,11 @@
-/* eslint-env mocha, node */
+import * as path from 'path';
+
 import { expect } from 'chai';
 import sinon from 'sinon';
-import * as path from 'path';
-import { loadTemplate } from '../src/utils/templateLoader';
 import type * as vscode from 'vscode';
+
+import { loadTemplate } from '../src/utils/templateLoader';
+
 
 /**
  * Helper context object used by the template loader. Only the

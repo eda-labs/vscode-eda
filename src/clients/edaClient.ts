@@ -1,11 +1,15 @@
 import { LogLevel, log } from '../extension';
-import { EdaAuthClient, EdaAuthOptions } from './edaAuthClient';
+
+import type { EdaAuthOptions } from './edaAuthClient';
+import { EdaAuthClient } from './edaAuthClient';
 import { EdaApiClient } from './edaApiClient';
-import { EdaStreamClient, StreamMessage } from './edaStreamClient';
+import type { StreamMessage } from './edaStreamClient';
+import { EdaStreamClient } from './edaStreamClient';
 import { EdaSpecManager } from './edaSpecManager';
 
-// Re-export types for backward compatibility
-export type { NamespaceCallback, DeviationCallback, TransactionCallback, AlarmCallback } from './types';
+// Constants for stream names
+const STREAM_SUMMARY = 'summary';
+
 export interface EdaClientOptions extends EdaAuthOptions {
   coreNamespace?: string;
 }
@@ -19,7 +23,7 @@ export class EdaClient {
   private apiClient: EdaApiClient;
   private streamClient: EdaStreamClient;
   private specManager: EdaSpecManager;
-  private initPromise: Promise<void>;
+  private initPromise: Promise<void> = Promise.resolve();
 
   constructor(baseUrl: string, opts: EdaClientOptions) {
     log('Initializing EdaClient with new architecture', LogLevel.DEBUG);
@@ -34,13 +38,18 @@ export class EdaClient {
     // Connect components
     this.streamClient.setAuthClient(this.authClient);
 
-    // Initialize specs and set up streaming
-    this.initPromise = this.initializeAsync();
+    // Start async initialization
+    this.startInitialization();
   }
 
-  private async initializeAsync(): Promise<void> {
-    await this.specManager.waitForInit();
-    this.streamClient.setStreamEndpoints(this.specManager.getStreamEndpoints());
+  /**
+   * Start async initialization. Separated from constructor to satisfy sonarjs/no-async-constructor.
+   */
+  private startInitialization(): void {
+    this.specManager.startInitialization();
+    this.initPromise = this.specManager.waitForInit().then(() => {
+      this.streamClient.setStreamEndpoints(this.specManager.getStreamEndpoints());
+    });
   }
 
   // Stream event forwarding
@@ -125,8 +134,8 @@ export class EdaClient {
   public async streamEdaTransactions(size = 50): Promise<void> {
     await this.initPromise;
     this.streamClient.setTransactionSummarySize(size);
-    if (!this.streamClient.isSubscribed('summary')) {
-      this.streamClient.subscribeToStream('summary');
+    if (!this.streamClient.isSubscribed(STREAM_SUMMARY)) {
+      this.streamClient.subscribeToStream(STREAM_SUMMARY);
     }
     if (!this.streamClient.isConnected()) {
       await this.streamClient.connect();
@@ -156,7 +165,7 @@ export class EdaClient {
   }
 
   public closeTransactionStream(): void {
-    this.streamClient.unsubscribeFromStream('summary');
+    this.streamClient.unsubscribeFromStream(STREAM_SUMMARY);
   }
 
   // API methods (delegated)
@@ -351,7 +360,8 @@ export class EdaClient {
 
   // Compatibility method
   public async executeEdactl(command: string): Promise<string> {
-    const getMatch = command.match(/^get\s+deviation\s+(\S+)\s+-n\s+(\S+)\s+-o\s+yaml$/);
+    const regex = /^get\s+deviation\s+(\S+)\s+-n\s+(\S+)\s+-o\s+yaml$/;
+    const getMatch = regex.exec(command);
     if (getMatch) {
       const [, name, ns] = getMatch;
       return this.getEdaResourceYaml('deviation', name, ns);

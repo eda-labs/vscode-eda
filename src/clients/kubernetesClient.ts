@@ -1,12 +1,23 @@
-import { fetch, Agent } from 'undici';
 /* global AbortController, TextDecoder */
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+
+import { fetch, Agent } from 'undici';
 import * as yaml from 'js-yaml';
 import * as vscode from 'vscode';
+
 import { log, LogLevel } from '../extension';
 import { sanitizeResource } from '../utils/yamlUtils';
+
+// API group constants
+const API_GROUP_CORE_EDA = 'core.eda.nokia.com';
+const API_GROUP_ARTIFACTS_EDA = 'artifacts.eda.nokia.com';
+const API_GROUP_APPS = 'apps';
+const API_GROUP_BATCH = 'batch';
+const API_GROUP_NETWORKING = 'networking.k8s.io';
+const API_GROUP_STORAGE = 'storage.k8s.io';
+const API_GROUP_RBAC = 'rbac.authorization.k8s.io';
 
 interface KubeConfigContext {
   name: string;
@@ -84,34 +95,34 @@ export class KubernetesClient {
     { name: 'services', group: '', version: 'v1', plural: 'services', namespaced: true },
 
     // artifacts.eda.nokia.com/v1
-    { name: 'artifacts', group: 'artifacts.eda.nokia.com', version: 'v1', plural: 'artifacts', namespaced: true },
+    { name: 'artifacts', group: API_GROUP_ARTIFACTS_EDA, version: 'v1', plural: 'artifacts', namespaced: true },
 
     // core.eda.nokia.com/v1
-    { name: 'engineconfigs', group: 'core.eda.nokia.com', version: 'v1', plural: 'engineconfigs', namespaced: true },
-    { name: 'nodeprofiles', group: 'core.eda.nokia.com', version: 'v1', plural: 'nodeprofiles', namespaced: true },
-    { name: 'manifests', group: 'core.eda.nokia.com', version: 'v1', plural: 'manifests', namespaced: true },
-    { name: 'simnodes', group: 'core.eda.nokia.com', version: 'v1', plural: 'simnodes', namespaced: true },
-    { name: 'simlinks', group: 'core.eda.nokia.com', version: 'v1', plural: 'simlinks', namespaced: true },
+    { name: 'engineconfigs', group: API_GROUP_CORE_EDA, version: 'v1', plural: 'engineconfigs', namespaced: true },
+    { name: 'nodeprofiles', group: API_GROUP_CORE_EDA, version: 'v1', plural: 'nodeprofiles', namespaced: true },
+    { name: 'manifests', group: API_GROUP_CORE_EDA, version: 'v1', plural: 'manifests', namespaced: true },
+    { name: 'simnodes', group: API_GROUP_CORE_EDA, version: 'v1', plural: 'simnodes', namespaced: true },
+    { name: 'simlinks', group: API_GROUP_CORE_EDA, version: 'v1', plural: 'simlinks', namespaced: true },
 
     // apps/v1
-    { name: 'deployments', group: 'apps', version: 'v1', plural: 'deployments', namespaced: true },
-    { name: 'statefulsets', group: 'apps', version: 'v1', plural: 'statefulsets', namespaced: true },
-    { name: 'daemonsets', group: 'apps', version: 'v1', plural: 'daemonsets', namespaced: true },
+    { name: 'deployments', group: API_GROUP_APPS, version: 'v1', plural: 'deployments', namespaced: true },
+    { name: 'statefulsets', group: API_GROUP_APPS, version: 'v1', plural: 'statefulsets', namespaced: true },
+    { name: 'daemonsets', group: API_GROUP_APPS, version: 'v1', plural: 'daemonsets', namespaced: true },
 
 
     // batch/v1
-    { name: 'jobs', group: 'batch', version: 'v1', plural: 'jobs', namespaced: true },
-    { name: 'cronjobs', group: 'batch', version: 'v1', plural: 'cronjobs', namespaced: true },
+    { name: 'jobs', group: API_GROUP_BATCH, version: 'v1', plural: 'jobs', namespaced: true },
+    { name: 'cronjobs', group: API_GROUP_BATCH, version: 'v1', plural: 'cronjobs', namespaced: true },
 
     // networking.k8s.io/v1
-    { name: 'ingresses', group: 'networking.k8s.io', version: 'v1', plural: 'ingresses', namespaced: true },
+    { name: 'ingresses', group: API_GROUP_NETWORKING, version: 'v1', plural: 'ingresses', namespaced: true },
 
     // Cluster scoped resources
     { name: 'nodes', group: '', version: 'v1', plural: 'nodes', namespaced: false },
     { name: 'persistentvolumes', group: '', version: 'v1', plural: 'persistentvolumes', namespaced: false },
-    { name: 'storageclasses', group: 'storage.k8s.io', version: 'v1', plural: 'storageclasses', namespaced: false },
-    { name: 'clusterroles', group: 'rbac.authorization.k8s.io', version: 'v1', plural: 'clusterroles', namespaced: false },
-    { name: 'clusterrolebindings', group: 'rbac.authorization.k8s.io', version: 'v1', plural: 'clusterrolebindings', namespaced: false }
+    { name: 'storageclasses', group: API_GROUP_STORAGE, version: 'v1', plural: 'storageclasses', namespaced: false },
+    { name: 'clusterroles', group: API_GROUP_RBAC, version: 'v1', plural: 'clusterroles', namespaced: false },
+    { name: 'clusterrolebindings', group: API_GROUP_RBAC, version: 'v1', plural: 'clusterrolebindings', namespaced: false }
   ];
 
   private _onResourceChanged = new vscode.EventEmitter<void>();
@@ -134,43 +145,92 @@ export class KubernetesClient {
     this.loadKubeConfig(contextName);
   }
 
+  /**
+   * Get the kubeconfig file path from environment or default location
+   */
+  private getKubeConfigPath(): string {
+    return process.env.KUBECONFIG || path.join(os.homedir(), '.kube', 'config');
+  }
+
+  /**
+   * Read a credential value from base64 data or a file path
+   */
+  private readCredential(base64Data?: string, filePath?: string): string | undefined {
+    if (base64Data) {
+      return Buffer.from(base64Data, 'base64').toString('utf8');
+    }
+    if (filePath && fs.existsSync(filePath)) {
+      return fs.readFileSync(filePath, 'utf8');
+    }
+    return undefined;
+  }
+
+  /**
+   * Build TLS connect options from cluster and user config
+   */
+  private buildConnectOptions(
+    cluster: KubeConfigCluster['cluster'] | undefined,
+    user: KubeConfigUser['user'] | undefined
+  ): Record<string, string> {
+    const connect: Record<string, string> = {};
+
+    const ca = this.readCredential(
+      cluster?.['certificate-authority-data'],
+      cluster?.['certificate-authority']
+    );
+    if (ca) {
+      connect.ca = ca;
+    }
+
+    const cert = this.readCredential(
+      user?.['client-certificate-data'],
+      user?.['client-certificate']
+    );
+    const key = this.readCredential(
+      user?.['client-key-data'],
+      user?.['client-key']
+    );
+    if (cert && key) {
+      connect.cert = cert;
+      connect.key = key;
+    }
+
+    return connect;
+  }
+
+  /**
+   * Resolve the current context name from the provided name, existing state, or kubeconfig default
+   */
+  private resolveContextName(contextName: string | undefined, kc: KubeConfigFile): string {
+    return contextName ?? (this.currentContext || kc['current-context'] || '');
+  }
+
+  /**
+   * Extract cluster and user configuration from a kubeconfig context
+   */
+  private extractContextConfig(kc: KubeConfigFile): {
+    cluster: KubeConfigCluster['cluster'] | undefined;
+    user: KubeConfigUser['user'] | undefined;
+  } {
+    const ctx = (kc.contexts ?? []).find(c => c.name === this.currentContext)?.context;
+    const cluster = (kc.clusters ?? []).find(c => c.name === ctx?.cluster)?.cluster;
+    const user = (kc.users ?? []).find(u => u.name === ctx?.user)?.user;
+    return { cluster, user };
+  }
 
   private loadKubeConfig(contextName?: string): void {
     try {
-      const configPath = process.env.KUBECONFIG || path.join(os.homedir(), '.kube', 'config');
-      const content = fs.readFileSync(configPath, 'utf8');
+      const content = fs.readFileSync(this.getKubeConfigPath(), 'utf8');
       const kc = yaml.load(content) as KubeConfigFile;
-      this.contexts = (kc.contexts || []).map(c => c.name);
-      this.currentContext = contextName || this.currentContext || kc['current-context'] || '';
-      const ctx = (kc.contexts || []).find(c => c.name === this.currentContext)?.context;
-      const clusterName = ctx?.cluster;
-      const userName = ctx?.user;
-      const cluster = (kc.clusters || []).find(c => c.name === clusterName)?.cluster;
-      const user = (kc.users || []).find(u => u.name === userName)?.user;
-      this.server = cluster?.server || '';
+
+      this.contexts = (kc.contexts ?? []).map(c => c.name);
+      this.currentContext = this.resolveContextName(contextName, kc);
+
+      const { cluster, user } = this.extractContextConfig(kc);
+      this.server = cluster?.server ?? '';
       this.token = user?.token;
-      const caData = cluster?.['certificate-authority-data'];
-      const caPath = cluster?.['certificate-authority'];
-      const certData = user?.['client-certificate-data'];
-      const certPath = user?.['client-certificate'];
-      const keyData = user?.['client-key-data'];
-      const keyPath = user?.['client-key'];
 
-      const connect: Record<string, string> = {};
-      if (caData) {
-        connect.ca = Buffer.from(caData, 'base64').toString('utf8');
-      } else if (caPath && fs.existsSync(caPath)) {
-        connect.ca = fs.readFileSync(caPath, 'utf8');
-      }
-
-      if (certData && keyData) {
-        connect.cert = Buffer.from(certData, 'base64').toString('utf8');
-        connect.key = Buffer.from(keyData, 'base64').toString('utf8');
-      } else if (certPath && keyPath && fs.existsSync(certPath) && fs.existsSync(keyPath)) {
-        connect.cert = fs.readFileSync(certPath, 'utf8');
-        connect.key = fs.readFileSync(keyPath, 'utf8');
-      }
-
+      const connect = this.buildConnectOptions(cluster, user);
       this.agent = Object.keys(connect).length > 0 ? new Agent({ connect }) : undefined;
     } catch (err) {
       log(`Failed to load kubeconfig: ${err}`, LogLevel.ERROR);
@@ -185,23 +245,24 @@ export class KubernetesClient {
     return this.contexts;
   }
 
-  public async switchContext(contextName: string): Promise<void> {
-    if (this.contexts.includes(contextName)) {
-      this.clearWatchers();
-      const prevNamespaces = this.namespaceCache.slice();
-      this.namespaceCache = [];
-      for (const def of this.watchDefinitions) {
-        const key = `${def.name}Cache` as keyof this;
-        if (def.namespaced) {
-          (this as any)[key] = new Map();
-        } else {
-          (this as any)[key] = [];
-        }
-      }
-      this.currentContext = contextName;
-      this.loadKubeConfig(contextName);
-      await this.startWatchers(prevNamespaces);
+  public switchContext(contextName: string): void {
+    if (!this.contexts.includes(contextName)) {
+      return;
     }
+    this.clearWatchers();
+    const prevNamespaces = this.namespaceCache.slice();
+    this.namespaceCache = [];
+    for (const def of this.watchDefinitions) {
+      const key = `${def.name}Cache` as keyof this;
+      if (def.namespaced) {
+        (this as any)[key] = new Map();
+      } else {
+        (this as any)[key] = [];
+      }
+    }
+    this.currentContext = contextName;
+    this.loadKubeConfig(contextName);
+    this.startWatchers(prevNamespaces);
   }
 
   private async fetchJSON(pathname: string): Promise<any> {
@@ -255,18 +316,35 @@ export class KubernetesClient {
     return `${lower}s`;
   }
 
+  /**
+   * Parse apiVersion into group and version components
+   */
+  private parseApiVersion(apiVersion: string): { group: string; version: string } {
+    if (apiVersion.includes('/')) {
+      const [group, version] = apiVersion.split('/');
+      return { group, version };
+    }
+    return { group: '', version: apiVersion };
+  }
+
+  /**
+   * Build the base API path for a resource
+   */
+  private buildApiBasePath(group: string, version: string, namespace: string | undefined, plural: string, namespaced: boolean): string {
+    const base = group ? `/apis/${group}/${version}` : `/api/${version}`;
+    const nsPart = namespaced ? `/namespaces/${namespace}` : '';
+    return `${base}${nsPart}/${plural}`;
+  }
+
   public async applyResource(
     resource: any,
     opts: { dryRun?: boolean; isNew?: boolean } = {}
   ): Promise<any> {
-    const dryRun = opts.dryRun ?? false;
-    const isNew = opts.isNew ?? false;
-
-    const apiVersion: string = resource.apiVersion || '';
-    const [groupPart, version] = apiVersion.includes('/') ? apiVersion.split('/') : ['', apiVersion];
-    const group = groupPart;
+    const { dryRun = false, isNew = false } = opts;
+    const { group, version } = this.parseApiVersion(resource.apiVersion ?? '');
     const namespace: string | undefined = resource.metadata?.namespace;
     const name: string | undefined = resource.metadata?.name;
+
     const pluralGuess = this.guessPlural(resource.kind);
     const def = this.watchDefinitions.find(
       d => d.plural === pluralGuess && d.group === group && d.version === version
@@ -274,56 +352,71 @@ export class KubernetesClient {
     const plural = def?.plural ?? pluralGuess;
     const namespaced = def?.namespaced ?? namespace !== undefined;
 
-    const base = group ? `/apis/${group}/${version}` : `/api/${version}`;
-    const nsPart = namespaced ? `/namespaces/${namespace}` : '';
-    const basePath = `${base}${nsPart}/${plural}`;
-    const path = isNew ? basePath : `${basePath}/${name}`;
-    const params: string[] = [];
+    const basePath = this.buildApiBasePath(group, version, namespace, plural, namespaced);
+    const resourcePath = isNew ? basePath : `${basePath}/${name}`;
+
+    const params = ['fieldValidation=Strict'];
     if (dryRun) {
-      params.push('dryRun=All');
+      params.unshift('dryRun=All');
     }
-    // Enable strict field validation to surface unknown fields
-    params.push('fieldValidation=Strict');
-    const url = params.length > 0 ? `${path}?${params.join('&')}` : path;
+    const url = `${resourcePath}?${params.join('&')}`;
+
     const method = isNew ? 'POST' : 'PUT';
-    const sanitized = sanitizeResource(resource);
-    return this.requestJSON(method, url, sanitized);
+    return this.requestJSON(method, url, sanitizeResource(resource));
   }
 
 
-  private updateNamespaceWatchers(namespaces: string[]): void {
-    const old = this.namespaceCache;
-    this.namespaceCache = namespaces;
-
+  /**
+   * Start watchers for namespaced resources in newly added namespaces
+   */
+  private startNamespacedWatchers(namespaces: string[]): void {
+    const namespacedDefs = this.watchDefinitions.filter(d => d.namespaced);
     for (const ns of namespaces) {
-      for (const def of this.watchDefinitions.filter(d => d.namespaced)) {
+      for (const def of namespacedDefs) {
         const key = `${def.name}:${ns}`;
         if (!this.activeWatchers.has(key)) {
           this.watchApiResource(def, ns);
         }
       }
     }
+  }
 
+  /**
+   * Stop watchers for namespaced resources in removed namespaces
+   */
+  private stopRemovedNamespaceWatchers(namespaces: string[]): void {
     for (const key of Array.from(this.activeWatchers.keys())) {
-      const parts = key.split(':');
-      if (parts.length === 2) {
-        const ns = parts[1];
-        if (!namespaces.includes(ns)) {
-          const controller = this.activeWatchers.get(key);
-          controller?.abort();
-          this.activeWatchers.delete(key);
-          const cacheName = `${parts[0]}Cache` as keyof this;
-          const map = (this as any)[cacheName] as Map<string, any[]>;
-          map?.delete(ns);
-        }
+      const [resourceName, ns] = key.split(':');
+      if (!ns || namespaces.includes(ns)) {
+        continue;
       }
-    }
+      this.activeWatchers.get(key)?.abort();
+      this.activeWatchers.delete(key);
 
+      const cacheName = `${resourceName}Cache` as keyof this;
+      const map = (this as any)[cacheName] as Map<string, any[]> | undefined;
+      map?.delete(ns);
+    }
+  }
+
+  /**
+   * Ensure cluster-scoped resource watchers are running
+   */
+  private ensureClusterScopedWatchers(): void {
     for (const def of this.watchDefinitions.filter(d => !d.namespaced)) {
       if (!this.activeWatchers.has(def.name)) {
         this.watchApiResource(def);
       }
     }
+  }
+
+  private updateNamespaceWatchers(namespaces: string[]): void {
+    const old = this.namespaceCache;
+    this.namespaceCache = namespaces;
+
+    this.startNamespacedWatchers(namespaces);
+    this.stopRemovedNamespaceWatchers(namespaces);
+    this.ensureClusterScopedWatchers();
 
     if (JSON.stringify(namespaces) !== JSON.stringify(old)) {
       this._onNamespacesChanged.fire();
@@ -474,7 +567,7 @@ export class KubernetesClient {
     void run();
   }
 
-  public async startWatchers(namespaces: string[] = this.namespaceCache): Promise<void> {
+  public startWatchers(namespaces: string[] = this.namespaceCache): void {
     try {
       this.updateNamespaceWatchers(namespaces);
     } catch (err) {
@@ -482,7 +575,7 @@ export class KubernetesClient {
     }
   }
 
-  public async setWatchedNamespaces(namespaces: string[]): Promise<void> {
+  public setWatchedNamespaces(namespaces: string[]): void {
     this.updateNamespaceWatchers(namespaces);
   }
 
@@ -568,43 +661,19 @@ export class KubernetesClient {
   }
 
   public async getArtifactYaml(name: string, namespace: string): Promise<string> {
-    return this.getCustomResourceYaml(
-      'artifacts.eda.nokia.com',
-      'v1',
-      'artifacts',
-      name,
-      namespace
-    );
+    return this.getCustomResourceYaml(API_GROUP_ARTIFACTS_EDA, 'v1', 'artifacts', name, namespace);
   }
 
   public async getEngineconfigYaml(name: string, namespace: string): Promise<string> {
-    return this.getCustomResourceYaml(
-      'core.eda.nokia.com',
-      'v1',
-      'engineconfigs',
-      name,
-      namespace
-    );
+    return this.getCustomResourceYaml(API_GROUP_CORE_EDA, 'v1', 'engineconfigs', name, namespace);
   }
 
   public async getNodeprofileYaml(name: string, namespace: string): Promise<string> {
-    return this.getCustomResourceYaml(
-      'core.eda.nokia.com',
-      'v1',
-      'nodeprofiles',
-      name,
-      namespace
-    );
+    return this.getCustomResourceYaml(API_GROUP_CORE_EDA, 'v1', 'nodeprofiles', name, namespace);
   }
 
   public async getManifestYaml(name: string, namespace: string): Promise<string> {
-    return this.getCustomResourceYaml(
-      'core.eda.nokia.com',
-      'v1',
-      'manifests',
-      name,
-      namespace
-    );
+    return this.getCustomResourceYaml(API_GROUP_CORE_EDA, 'v1', 'manifests', name, namespace);
   }
 
   /**

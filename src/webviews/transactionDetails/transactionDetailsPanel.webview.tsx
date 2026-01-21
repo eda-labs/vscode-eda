@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
+
 import { usePostMessage, useMessageListener, useReadySignal, useCopyToClipboard } from '../shared/hooks';
 import { VSCodeButton } from '../shared/components';
 import { mountWebview } from '../shared/utils';
@@ -66,10 +67,10 @@ function Section({ icon, title, children }: { icon: string; title: string; child
 
 function ResourceItem({ path, name, isDelete }: { path: string; name?: string; isDelete?: boolean }) {
   return (
-    <li className="flex items-center gap-2 py-1 px-2 hover:bg-vscode-bg-hover rounded">
+    <li className="flex items-center gap-2 py-1 px-2 hover:bg-vscode-bg-hover rounded-sm">
       <span className="text-vscode-text-secondary">{path}</span>
       {name && <span className="font-medium">{name}</span>}
-      {isDelete && <span className="text-xs px-1 py-0.5 bg-status-error/20 text-status-error rounded">DELETE</span>}
+      {isDelete && <span className="text-xs px-1 py-0.5 bg-status-error/20 text-status-error rounded-sm">DELETE</span>}
     </li>
   );
 }
@@ -78,7 +79,7 @@ function NodeItem({ node }: { node: NodeConfig }) {
   const hasErrors = node.errors && node.errors.length > 0;
 
   return (
-    <li className={`p-3 mb-2 rounded border ${hasErrors ? 'border-status-error/50 bg-status-error/10' : 'border-vscode-border'}`}>
+    <li className={`p-3 mb-2 rounded-sm border ${hasErrors ? 'border-status-error/50 bg-status-error/10' : 'border-vscode-border'}`}>
       <div className="flex justify-between items-center mb-1">
         <span className="font-medium">{node.name}</span>
         <span className="text-sm text-vscode-text-secondary">Namespace: {node.namespace}</span>
@@ -86,7 +87,7 @@ function NodeItem({ node }: { node: NodeConfig }) {
       {hasErrors && (
         <div className="mt-2 space-y-2">
           {node.errors!.map((err, idx) => (
-            <div key={idx} className="text-sm p-2 bg-status-error/20 rounded">
+            <div key={idx} className="text-sm p-2 bg-status-error/20 rounded-sm">
               <div className="text-status-error">{err}</div>
             </div>
           ))}
@@ -107,9 +108,9 @@ function ErrorsSummary({ errors }: { errors: ErrorSummary[] }) {
       </div>
       <div className="space-y-2">
         {errors.map((err, idx) => (
-          <div key={idx} className="p-2 bg-vscode-bg-secondary rounded">
+          <div key={idx} className="p-2 bg-vscode-bg-secondary rounded-sm">
             <div className="flex items-center gap-2 mb-1">
-              <span className={`text-xs px-1.5 py-0.5 rounded ${err.type === 'Intent Error' ? 'bg-status-warning/20 text-status-warning' : 'bg-status-error/20 text-status-error'}`}>
+              <span className={`text-xs px-1.5 py-0.5 rounded-sm ${err.type === 'Intent Error' ? 'bg-status-warning/20 text-status-warning' : 'bg-status-error/20 text-status-error'}`}>
                 {err.type}
               </span>
               <span className="text-sm font-medium">{err.source}</span>
@@ -269,7 +270,14 @@ function TransactionDetailsPanel() {
         <Section icon="✏️" title="Changed Resources">
           <ul className="space-y-1">
             {data.changedCrs.flatMap((cr, idx) => {
-              const names = Array.isArray(cr.names) && cr.names.length > 0 ? cr.names : cr.name ? [cr.name] : [];
+              let names: string[];
+              if (Array.isArray(cr.names) && cr.names.length > 0) {
+                names = cr.names;
+              } else if (cr.name) {
+                names = [cr.name];
+              } else {
+                names = [];
+              }
               const path = `${cr.namespace || 'default'} / ${cr.gvk?.kind || 'Unknown'}`;
               if (names.length === 0) {
                 return [<ResourceItem key={idx} path={path} />];
@@ -310,7 +318,7 @@ function TransactionDetailsPanel() {
             {copied ? '✓ Copied!' : '📋 Copy'}
           </VSCodeButton>
         </div>
-        <pre className="text-xs overflow-auto max-h-96 p-2 bg-vscode-code-bg rounded">
+        <pre className="text-xs overflow-auto max-h-96 p-2 bg-vscode-code-bg rounded-sm">
           {data.rawJson}
         </pre>
       </div>

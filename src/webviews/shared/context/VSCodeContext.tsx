@@ -1,6 +1,8 @@
-import { createContext, useContext, ReactNode, useCallback, useEffect, useRef } from 'react';
+import type { ReactNode} from 'react';
+import { createContext, useContext, useCallback, useEffect, useRef } from 'react';
+
 import { getVSCodeApi } from '../hooks/useVSCodeApi';
-import { WebviewMessage } from '../hooks/useMessageListener';
+import type { WebviewMessage } from '../hooks/useMessageListener';
 
 interface VSCodeContextValue {
   postMessage: <T>(message: T) => void;

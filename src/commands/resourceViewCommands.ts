@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
+import * as yaml from 'js-yaml';
+
 import { log, LogLevel } from '../extension';
 import { serviceManager } from '../services/serviceManager';
-import { KubernetesClient } from '../clients/kubernetesClient';
-import { EdaClient } from '../clients/edaClient';
+import type { KubernetesClient } from '../clients/kubernetesClient';
+import type { EdaClient } from '../clients/edaClient';
 import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
-import * as yaml from 'js-yaml';
 import { stripManagedFieldsFromYaml, sanitizeResource } from '../utils/yamlUtils';
 import { isEdaResource } from '../utils/edaGroupUtils';
 import { setViewIsEda, setResourceOrigin } from '../utils/resourceOriginStore';

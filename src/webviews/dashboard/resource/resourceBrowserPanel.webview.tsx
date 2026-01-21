@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
+
 import { usePostMessage, useMessageListener, useReadySignal } from '../../shared/hooks';
 import { VSCodeButton } from '../../shared/components';
 import { mountWebview } from '../../shared/utils';
@@ -49,9 +50,9 @@ function SchemaProp({ name, node, isRequired }: { name: string; node: SchemaNode
       >
         <span className="font-medium text-(--vscode-symbolIcon-propertyForeground)">{name}</span>
         {isRequired && (
-          <span className="text-xs px-1 py-0.5 bg-status-error/20 text-status-error rounded">required</span>
+          <span className="text-xs px-1 py-0.5 bg-status-error/20 text-status-error rounded-sm">required</span>
         )}
-        <span className="text-xs px-1 py-0.5 bg-(--vscode-badge-background) text-(--vscode-badge-foreground) rounded">{type}</span>
+        <span className="text-xs px-1 py-0.5 bg-(--vscode-badge-background) text-(--vscode-badge-foreground) rounded-sm">{type}</span>
       </summary>
       <div className="ml-2 border-l border-vscode-border pl-2">
         {node.description && (
@@ -88,13 +89,13 @@ function SchemaSection({ name, node }: { name: string; node: SchemaNode }) {
   }, [expandTrigger]);
 
   return (
-    <details className="mb-4 border border-vscode-border rounded" open={isOpen}>
+    <details className="mb-4 border border-vscode-border rounded-sm" open={isOpen}>
       <summary
         className="flex items-center gap-2 cursor-pointer p-2 bg-vscode-bg-secondary hover:bg-vscode-bg-hover"
         onClick={(e) => { e.preventDefault(); setIsOpen(!isOpen); }}
       >
         <span className="font-semibold">{name}</span>
-        <span className="text-xs px-1 py-0.5 bg-(--vscode-badge-background) text-(--vscode-badge-foreground) rounded">{type}</span>
+        <span className="text-xs px-1 py-0.5 bg-(--vscode-badge-background) text-(--vscode-badge-foreground) rounded-sm">{type}</span>
       </summary>
       <div className="p-2">
         {node.description && (
@@ -181,12 +182,12 @@ function ResourceBrowserPanel() {
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Search..."
-            className="px-2 py-1 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded flex-1 max-w-xs"
+            className="px-2 py-1 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded-sm flex-1 max-w-xs"
           />
           <select
             value={selectedResource}
             onChange={handleResourceChange}
-            className="px-2 py-1 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded flex-1"
+            className="px-2 py-1 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded-sm flex-1"
           >
             {filteredResources.map(r => (
               <option key={r.name} value={r.name}>{r.kind} ({r.name})</option>
@@ -197,7 +198,7 @@ function ResourceBrowserPanel() {
 
         <h1 className="text-xl font-semibold mb-2">{title}</h1>
 
-        <div className="mb-4 p-2 bg-vscode-code-bg rounded overflow-auto max-h-48">
+        <div className="mb-4 p-2 bg-vscode-code-bg rounded-sm overflow-auto max-h-48">
           <pre className="text-sm whitespace-pre-wrap">{yaml}</pre>
         </div>
 

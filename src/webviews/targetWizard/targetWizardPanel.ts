@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
-import { BasePanel } from '../basePanel';
-import { KubernetesClient } from '../../clients/kubernetesClient';
 import { fetch, Agent } from 'undici';
+
+import { BasePanel } from '../basePanel';
+import { EXTENSION_CONFIG_SECTION } from '../constants';
+import { KubernetesClient } from '../../clients/kubernetesClient';
 
 export interface TargetWizardResult {
   url: string;
@@ -96,7 +98,7 @@ export class TargetWizardPanel extends BasePanel {
   }
 
   private async saveConfiguration(msg: any, close: boolean): Promise<void> {
-    const config = vscode.workspace.getConfiguration('vscode-eda');
+    const config = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
     const current = config.get<Record<string, any>>('edaTargets') || {};
 
     // Handle URL changes (remove old entry if URL changed)
@@ -148,7 +150,7 @@ export class TargetWizardPanel extends BasePanel {
   }
 
   private async deleteTarget(url: string): Promise<void> {
-    const config = vscode.workspace.getConfiguration('vscode-eda');
+    const config = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
     const current = config.get<Record<string, any>>('edaTargets') || {};
     delete current[url];
     await config.update('edaTargets', current, vscode.ConfigurationTarget.Global);
@@ -175,7 +177,7 @@ export class TargetWizardPanel extends BasePanel {
   }
 
   private async commitTargets(targets: any[]): Promise<void> {
-    const config = vscode.workspace.getConfiguration('vscode-eda');
+    const config = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
     const previous = config.get<Record<string, any>>('edaTargets') || {};
     const updated: Record<string, any> = {};
 
@@ -301,7 +303,7 @@ export class TargetWizardPanel extends BasePanel {
   static async show(context: vscode.ExtensionContext): Promise<void> {
     const k8sClient = new KubernetesClient();
     const contexts = k8sClient.getAvailableContexts();
-    const config = vscode.workspace.getConfiguration('vscode-eda');
+    const config = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
     const targetsMap = config.get<Record<string, any>>('edaTargets') || {};
 
     // Load targets with their stored passwords

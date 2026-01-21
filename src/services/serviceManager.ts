@@ -1,6 +1,7 @@
 // src/services/serviceManager.ts
 import { LogLevel, log } from '../extension';
-import { CoreService } from './coreService';
+
+import type { CoreService } from './coreService';
 
 /**
  * Central registry and lifecycle manager for all services

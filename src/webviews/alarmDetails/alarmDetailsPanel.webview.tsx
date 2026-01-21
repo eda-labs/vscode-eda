@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+
 import { usePostMessage, useMessageListener, useReadySignal, useCopyToClipboard } from '../shared/hooks';
 import { VSCodeButton } from '../shared/components';
 import { mountWebview } from '../shared/utils';
@@ -147,7 +148,7 @@ function AlarmDetailsPanel() {
             {copied ? '✓ Copied!' : '📋 Copy'}
           </VSCodeButton>
         </div>
-        <pre className="text-xs overflow-auto max-h-96 p-2 bg-vscode-code-bg rounded">
+        <pre className="text-xs overflow-auto max-h-96 p-2 bg-vscode-code-bg rounded-sm">
           {data.rawJson}
         </pre>
       </div>

@@ -1,5 +1,6 @@
 // src/providers/documents/deviationDetailsProvider.ts
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
+
 import { BaseDocumentProvider } from './baseDocumentProvider';
 
 /**

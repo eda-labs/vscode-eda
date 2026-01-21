@@ -1,10 +1,12 @@
 import * as vscode from 'vscode';
-import { TreeItemBase } from './treeItem';
-import { FilteredTreeProvider } from './filteredTreeProvider';
+
 import { serviceManager } from '../../services/serviceManager';
-import { EdaClient } from '../../clients/edaClient';
-import { ResourceStatusService } from '../../services/resourceStatusService';
+import type { EdaClient } from '../../clients/edaClient';
+import type { ResourceStatusService } from '../../services/resourceStatusService';
 import { getOps, getDelete, getDeleteIds, getInsertOrModify, getRows } from '../../utils/streamMessageUtils';
+
+import { FilteredTreeProvider } from './filteredTreeProvider';
+import { TreeItemBase } from './treeItem';
 
 export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
   private edaClient: EdaClient;
@@ -22,7 +24,6 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
 
-    void this.edaClient.streamEdaAlarms();
     this.edaClient.onStreamMessage((stream, msg) => {
       if (stream === 'current-alarms') {
         this.processAlarmMessage(msg);
@@ -33,12 +34,19 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
     this._onAlarmCountChanged.fire(this.count);
   }
 
+  /**
+   * Initialize the alarm stream. Call this after construction.
+   */
+  public async initialize(): Promise<void> {
+    await this.edaClient.streamEdaAlarms();
+  }
+
 
   getTreeItem(element: TreeItemBase): vscode.TreeItem {
     return element;
   }
 
-  async getChildren(element?: TreeItemBase): Promise<TreeItemBase[]> {
+  getChildren(element?: TreeItemBase): TreeItemBase[] {
     if (element) {
       return [];
     }

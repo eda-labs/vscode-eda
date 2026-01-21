@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+
 import { BasePanel } from '../basePanel';
 
 export interface LineRange {
@@ -18,8 +19,10 @@ export interface Annotation {
   lines: LineRange[];
 }
 
+export type ColorMode = 'full' | 'less' | 'none';
+
 export class NodeConfigPanel extends BasePanel {
-  private static colorMode: 'full' | 'less' | 'none' = 'full';
+  private static colorMode: ColorMode = 'full';
   private config: string;
   private annotations: Annotation[];
 
@@ -29,19 +32,16 @@ export class NodeConfigPanel extends BasePanel {
     annotations: Annotation[],
     title: string
   ) {
-    super(context, 'nodeConfig', `Node Config: ${title}`, { enableFindWidget: true }, {
-      light: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-black.svg'),
-      dark: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-white.svg')
-    });
+    super(context, 'nodeConfig', `Node Config: ${title}`, { enableFindWidget: true }, BasePanel.getEdaIconPath(context));
 
     this.config = config;
     this.annotations = annotations;
 
-    NodeConfigPanel.colorMode = context.globalState.get<'full' | 'less' | 'none'>(
+    NodeConfigPanel.colorMode = context.globalState.get<ColorMode>(
       'nodeConfigColorMode',
       vscode.workspace
         .getConfiguration('vscode-eda')
-        .get<'full' | 'less' | 'none'>('nodeConfigColorMode', 'full')
+        .get<ColorMode>('nodeConfigColorMode', 'full')
     );
 
     this.panel.webview.html = this.buildHtml();
@@ -71,7 +71,7 @@ export class NodeConfigPanel extends BasePanel {
     config: string,
     annotations: Annotation[],
     node: string
-  ): void {
-    new NodeConfigPanel(context, config, annotations, node);
+  ): NodeConfigPanel {
+    return new NodeConfigPanel(context, config, annotations, node);
   }
 }

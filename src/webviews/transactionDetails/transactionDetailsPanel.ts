@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+
 import { BasePanel } from '../basePanel';
 import { TransactionDiffsPanel } from '../transactionDiffs/transactionDiffsPanel';
 
@@ -7,10 +8,7 @@ export class TransactionDetailsPanel extends BasePanel {
   private data: Record<string, unknown>;
 
   constructor(context: vscode.ExtensionContext, data: Record<string, unknown>) {
-    super(context, 'transactionDetails', `Transaction ${data.id}`, undefined, {
-      light: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-black.svg'),
-      dark: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-white.svg')
-    });
+    super(context, 'transactionDetails', `Transaction ${data.id}`, undefined, BasePanel.getEdaIconPath(context));
     this.data = data;
     this.panel.webview.html = this.buildHtml();
 

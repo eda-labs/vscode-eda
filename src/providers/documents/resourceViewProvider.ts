@@ -1,5 +1,6 @@
 // Updated src/providers/documents/resourceViewProvider.ts
 import * as vscode from 'vscode';
+
 import { BaseDocumentProvider } from './baseDocumentProvider';
 
 /**

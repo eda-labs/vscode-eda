@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
+
 import { BasePanel } from '../basePanel';
 import { serviceManager } from '../../services/serviceManager';
-import { EdaClient } from '../../clients/edaClient';
+import type { EdaClient } from '../../clients/edaClient';
 
 interface ResourceRef {
   group: string;
@@ -28,10 +29,7 @@ export class TransactionDiffsPanel extends BasePanel {
     diffs: ResourceRef[],
     nodes: NodeRef[]
   ) {
-    super(context, 'transactionDiffs', `Transaction ${transactionId} Diffs`, undefined, {
-      light: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-black.svg'),
-      dark: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-white.svg')
-    });
+    super(context, 'transactionDiffs', `Transaction ${transactionId} Diffs`, undefined, BasePanel.getEdaIconPath(context));
     this.transactionId = transactionId;
     this.diffs = diffs;
     this.nodes = nodes;
@@ -88,14 +86,21 @@ export class TransactionDiffsPanel extends BasePanel {
     transactionId: string | number,
     crs: any[],
     nodes: any[]
-  ): void {
+  ): TransactionDiffsPanel {
     const diffs: ResourceRef[] = [];
     for (const cr of crs) {
       const group = cr.gvk?.group || '';
       const version = cr.gvk?.version || '';
       const kind = cr.gvk?.kind || '';
       const namespace = cr.namespace || 'default';
-      const names = Array.isArray(cr.names) ? cr.names : cr.name ? [cr.name] : [];
+      let names: string[];
+      if (Array.isArray(cr.names)) {
+        names = cr.names;
+      } else if (cr.name) {
+        names = [cr.name];
+      } else {
+        names = [];
+      }
       for (const n of names) {
         diffs.push({ group, version, kind, namespace, name: n });
       }
@@ -106,6 +111,6 @@ export class TransactionDiffsPanel extends BasePanel {
         nodeRefs.push({ name: node.name, namespace: node.namespace || 'default' });
       }
     }
-    new TransactionDiffsPanel(context, transactionId, diffs, nodeRefs);
+    return new TransactionDiffsPanel(context, transactionId, diffs, nodeRefs);
   }
 }

@@ -1,10 +1,12 @@
 import * as vscode from 'vscode';
-import { FilteredTreeProvider } from './filteredTreeProvider';
-import { TreeItemBase } from './treeItem';
+
 import { serviceManager } from '../../services/serviceManager';
-import { EdaClient } from '../../clients/edaClient';
-import { ResourceStatusService } from '../../services/resourceStatusService';
+import type { EdaClient } from '../../clients/edaClient';
+import type { ResourceStatusService } from '../../services/resourceStatusService';
 import { log, LogLevel } from '../../extension';
+
+import { TreeItemBase } from './treeItem';
+import { FilteredTreeProvider } from './filteredTreeProvider';
 
 export class TransactionBasketProvider extends FilteredTreeProvider<TransactionBasketItem> {
   private edaClient: EdaClient;
@@ -115,7 +117,7 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     return element;
   }
 
-  async getChildren(element?: TransactionBasketItem): Promise<TransactionBasketItem[]> {
+  getChildren(element?: TransactionBasketItem): TransactionBasketItem[] {
     if (element) {
       return [];
     }

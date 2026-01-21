@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
+
 import { usePostMessage, useMessageListener, useReadySignal } from '../shared/hooks';
 import { VSCodeButton } from '../shared/components';
 import { mountWebview } from '../shared/utils';
@@ -87,7 +88,7 @@ function DetailRow({ label, value, placeholder }: { label: string; value?: strin
   return (
     <div className="mb-5">
       <div className="text-sm font-medium text-vscode-text-secondary mb-1">{label}</div>
-      <div className={`text-sm px-3 py-2 bg-vscode-input-bg border border-vscode-input-border rounded break-all ${!value && placeholder ? 'text-vscode-text-secondary italic' : ''}`}>
+      <div className={`text-sm px-3 py-2 bg-vscode-input-bg border border-vscode-input-border rounded-sm break-all ${!value && placeholder ? 'text-vscode-text-secondary italic' : ''}`}>
         {value || placeholder || ''}
       </div>
     </div>
@@ -293,7 +294,9 @@ function TargetWizardPanel() {
         <div className="flex flex-col flex-1 bg-vscode-bg-primary border border-vscode-border rounded-lg overflow-hidden">
           <div className="flex justify-between items-center p-4 border-b border-vscode-border bg-(--vscode-editorGroupHeader-tabsBackground)">
             <h3 className="text-base font-semibold">
-              {mode === 'new' ? 'Add New Target' : mode === 'edit' ? 'Edit Target' : 'Target Details'}
+              {mode === 'new' && 'Add New Target'}
+              {mode === 'edit' && 'Edit Target'}
+              {mode === 'view' && 'Target Details'}
             </h3>
             {mode === 'view' && currentTarget && selectedIdx !== targets.indexOf(currentTarget) && (
               <VSCodeButton variant="secondary" onClick={() => handleSetDefault(targets.indexOf(currentTarget))}>
@@ -317,7 +320,7 @@ function TargetWizardPanel() {
                   <div className="flex gap-3 pt-4 mt-6 border-t border-vscode-border">
                     <VSCodeButton variant="secondary" onClick={() => handleEdit(selectedIdx)}>Edit</VSCodeButton>
                     <button
-                      className="px-4 py-2 rounded font-medium text-sm cursor-pointer transition-colors bg-status-error text-vscode-bg-primary border-none hover:opacity-90"
+                      className="px-4 py-2 rounded-sm font-medium text-sm cursor-pointer transition-colors bg-status-error text-vscode-bg-primary border-none hover:opacity-90"
                       onClick={() => handleDelete(selectedIdx)}
                     >
                       Delete
@@ -339,7 +342,7 @@ function TargetWizardPanel() {
                   value={formData.url}
                   onChange={(e) => setFormData(prev => ({ ...prev, url: e.target.value }))}
                   placeholder="https://eda.example.com"
-                  className={`w-full px-3 py-2 text-vscode-input-fg bg-vscode-input-bg border border-vscode-input-border rounded text-sm ${errors.url ? 'border-(--vscode-inputValidation-errorBorder)' : ''}`}
+                  className={`w-full px-3 py-2 text-vscode-input-fg bg-vscode-input-bg border border-vscode-input-border rounded-sm text-sm ${errors.url ? 'border-(--vscode-inputValidation-errorBorder)' : ''}`}
                 />
                 {errors.url && <span className="text-xs text-status-error mt-1">{errors.url}</span>}
               </div>
@@ -349,7 +352,7 @@ function TargetWizardPanel() {
                 <select
                   value={formData.context}
                   onChange={(e) => setFormData(prev => ({ ...prev, context: e.target.value }))}
-                  className="w-full px-3 py-2 text-vscode-input-fg bg-vscode-input-bg border border-vscode-input-border rounded text-sm"
+                  className="w-full px-3 py-2 text-vscode-input-fg bg-vscode-input-bg border border-vscode-input-border rounded-sm text-sm"
                 >
                   <option value="">None</option>
                   {contexts.map(ctx => <option key={ctx} value={ctx}>{ctx}</option>)}
@@ -362,7 +365,7 @@ function TargetWizardPanel() {
                   type="text"
                   value={formData.coreNs}
                   onChange={(e) => setFormData(prev => ({ ...prev, coreNs: e.target.value }))}
-                  className={`w-full px-3 py-2 text-vscode-input-fg bg-vscode-input-bg border border-vscode-input-border rounded text-sm ${errors.coreNs ? 'border-(--vscode-inputValidation-errorBorder)' : ''}`}
+                  className={`w-full px-3 py-2 text-vscode-input-fg bg-vscode-input-bg border border-vscode-input-border rounded-sm text-sm ${errors.coreNs ? 'border-(--vscode-inputValidation-errorBorder)' : ''}`}
                 />
                 {errors.coreNs && <span className="text-xs text-status-error mt-1">{errors.coreNs}</span>}
               </div>
@@ -373,7 +376,7 @@ function TargetWizardPanel() {
                   type="text"
                   value={formData.edaUser}
                   onChange={(e) => setFormData(prev => ({ ...prev, edaUser: e.target.value }))}
-                  className={`w-full px-3 py-2 text-vscode-input-fg bg-vscode-input-bg border border-vscode-input-border rounded text-sm ${errors.edaUser ? 'border-(--vscode-inputValidation-errorBorder)' : ''}`}
+                  className={`w-full px-3 py-2 text-vscode-input-fg bg-vscode-input-bg border border-vscode-input-border rounded-sm text-sm ${errors.edaUser ? 'border-(--vscode-inputValidation-errorBorder)' : ''}`}
                 />
                 {errors.edaUser && <span className="text-xs text-status-error mt-1">{errors.edaUser}</span>}
               </div>
@@ -385,7 +388,7 @@ function TargetWizardPanel() {
                     type={formUI.showEdaPass ? 'text' : 'password'}
                     value={formData.edaPass}
                     onChange={(e) => setFormData(prev => ({ ...prev, edaPass: e.target.value }))}
-                    className={`w-full px-3 py-2 pr-8 text-vscode-input-fg bg-vscode-input-bg border border-vscode-input-border rounded text-sm ${errors.edaPass ? 'border-(--vscode-inputValidation-errorBorder)' : ''}`}
+                    className={`w-full px-3 py-2 pr-8 text-vscode-input-fg bg-vscode-input-bg border border-vscode-input-border rounded-sm text-sm ${errors.edaPass ? 'border-(--vscode-inputValidation-errorBorder)' : ''}`}
                   />
                   <button
                     type="button"
@@ -408,7 +411,7 @@ function TargetWizardPanel() {
                       value={formData.clientSecret}
                       onChange={(e) => setFormData(prev => ({ ...prev, clientSecret: e.target.value }))}
                       placeholder="Client secret for OAuth2 authentication"
-                      className={`w-full px-3 py-2 pr-8 text-vscode-input-fg bg-vscode-input-bg border border-vscode-input-border rounded text-sm ${errors.clientSecret ? 'border-(--vscode-inputValidation-errorBorder)' : ''}`}
+                      className={`w-full px-3 py-2 pr-8 text-vscode-input-fg bg-vscode-input-bg border border-vscode-input-border rounded-sm text-sm ${errors.clientSecret ? 'border-(--vscode-inputValidation-errorBorder)' : ''}`}
                     />
                     <button
                       type="button"

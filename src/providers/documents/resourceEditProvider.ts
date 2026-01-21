@@ -1,8 +1,10 @@
 // src/providers/documents/resourceEditProvider.ts
 import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
-import { BaseDocumentProvider } from './baseDocumentProvider';
+
 import type { EdaCrd } from '../../types';
+
+import { BaseDocumentProvider } from './baseDocumentProvider';
 
 /**
  * A file system provider for the "k8s:" scheme, handling the editable version
@@ -72,7 +74,7 @@ export class ResourceEditDocumentProvider extends BaseDocumentProvider {
   /**
    * Check if the current resource has changes compared to the original
    */
-  public async hasChanges(uri: vscode.Uri): Promise<boolean> {
+  public hasChanges(uri: vscode.Uri): boolean {
     try {
       // Get the original resource
       const originalResource = this.originalResources.get(uri.toString());

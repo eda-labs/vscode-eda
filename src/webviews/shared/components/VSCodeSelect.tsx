@@ -1,4 +1,5 @@
-import { SelectHTMLAttributes, forwardRef, memo } from 'react';
+import type { SelectHTMLAttributes} from 'react';
+import { forwardRef, memo } from 'react';
 
 export interface SelectOption {
   value: string;
@@ -30,7 +31,7 @@ export const VSCodeSelect = memo(forwardRef<HTMLSelectElement, VSCodeSelectProps
         <select
           ref={ref}
           id={selectId}
-          className={`px-3 py-1.5 bg-(--vscode-dropdown-background) text-(--vscode-dropdown-foreground) border border-(--vscode-dropdown-border) rounded focus:outline-none focus:border-(--vscode-focusBorder) ${error ? 'border-(--vscode-inputValidation-errorBorder)' : ''} ${className}`}
+          className={`px-3 py-1.5 bg-(--vscode-dropdown-background) text-(--vscode-dropdown-foreground) border border-(--vscode-dropdown-border) rounded-sm focus:outline-none focus:border-(--vscode-focusBorder) ${error ? 'border-(--vscode-inputValidation-errorBorder)' : ''} ${className}`}
           {...props}
         >
           {placeholder && (

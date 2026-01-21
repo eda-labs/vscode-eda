@@ -2,6 +2,7 @@ import { expect } from 'chai';
 import sinon from 'sinon';
 // Use CommonJS require to obtain a mutable module object for stubbing
 import undici = require('undici');
+
 import { EdaApiClient } from '../src/clients/edaApiClient';
 import type { EdaAuthClient } from '../src/clients/edaAuthClient';
 import * as extension from '../src/extension';
@@ -25,7 +26,7 @@ describe('EdaApiClient token refresh', () => {
     fetchStub = sinon.stub(undici, 'fetch');
     logStub = sinon.stub(extension, 'log');
     authClient = {
-      getBaseUrl: () => 'http://api',
+      getBaseUrl: () => 'https://api',
       getHeaders: () => ({ Authorization: 'Bearer token' }),
       getAgent: () => undefined,
       waitForAuth: sinon.stub().resolves(),

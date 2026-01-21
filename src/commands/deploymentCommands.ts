@@ -1,9 +1,11 @@
 // src/commands/deploymentCommands.ts
 import * as vscode from 'vscode';
+
 import { runKubectl } from '../utils/kubectlRunner';
 import { log, LogLevel, edaOutputChannel } from '../extension';
 import { serviceManager } from '../services/serviceManager';
-import { ResourceService } from '../services/resourceService';
+import type { ResourceService } from '../services/resourceService';
+import { MSG_DEPLOYMENT_NS_OR_NAME_MISSING } from './constants';
 
 export function registerDeploymentCommands(context: vscode.ExtensionContext) {
   const restartDeploymentCmd = vscode.commands.registerCommand('vscode-eda.restartDeployment', async (treeItem: any) => {
@@ -22,7 +24,7 @@ export function registerDeploymentCommands(context: vscode.ExtensionContext) {
     const name = treeItem.resource?.name || treeItem.label;
 
     if (!ns || !name) {
-      vscode.window.showErrorMessage('Deployment namespace or name is missing.');
+      vscode.window.showErrorMessage(MSG_DEPLOYMENT_NS_OR_NAME_MISSING);
       return;
     }
 

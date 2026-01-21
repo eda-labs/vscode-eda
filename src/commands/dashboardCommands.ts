@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+
 import { FabricDashboardPanel } from '../webviews/dashboard/fabric/fabricDashboardPanel';
 import { QueriesDashboardPanel } from '../webviews/dashboard/queries/queriesDashboardPanel';
 import { ToponodesDashboardPanel } from '../webviews/dashboard/toponodes/toponodesDashboard';

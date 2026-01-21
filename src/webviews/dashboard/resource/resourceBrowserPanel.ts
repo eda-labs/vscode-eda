@@ -1,9 +1,10 @@
 import * as vscode from 'vscode';
+import * as yaml from 'js-yaml';
+
 import { BasePanel } from '../../basePanel';
 import { serviceManager } from '../../../services/serviceManager';
-import { SchemaProviderService } from '../../../services/schemaProviderService';
-import { EdaCrd } from '../../../types';
-import * as yaml from 'js-yaml';
+import type { SchemaProviderService } from '../../../services/schemaProviderService';
+import type { EdaCrd } from '../../../types';
 
 export class ResourceBrowserPanel extends BasePanel {
   private schemaProvider: SchemaProviderService;
@@ -15,10 +16,7 @@ export class ResourceBrowserPanel extends BasePanel {
     title: string,
     target?: { group: string; kind: string }
   ) {
-    super(context, 'resourceBrowser', title, { enableFindWidget: true }, {
-      light: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-black.svg'),
-      dark: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-white.svg')
-    });
+    super(context, 'resourceBrowser', title, { enableFindWidget: true }, BasePanel.getEdaIconPath(context));
 
     this.target = target;
 
@@ -95,7 +93,7 @@ export class ResourceBrowserPanel extends BasePanel {
     context: vscode.ExtensionContext,
     title: string,
     target?: { group: string; kind: string }
-  ): void {
-    new ResourceBrowserPanel(context, title, target);
+  ): ResourceBrowserPanel {
+    return new ResourceBrowserPanel(context, title, target);
   }
 }

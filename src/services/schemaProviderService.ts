@@ -1,15 +1,27 @@
-import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+
+import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
-import { CoreService } from './coreService';
+
 import { log, LogLevel } from '../extension';
 import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
 import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
-import { EdaCrd } from '../types';
+import type { EdaCrd } from '../types';
+import type { KubernetesClient } from '../clients/kubernetesClient';
+
 import { serviceManager } from './serviceManager';
-import { KubernetesClient } from '../clients/kubernetesClient';
+import { CoreService } from './coreService';
+
+// Constants for duplicate strings
+const UTF8 = 'utf8' as const;
+const SCHEME_K8S_VIEW = 'k8s-view' as const;
+const SCHEME_K8S = 'k8s' as const;
+
+// Regex patterns for OpenAPI spec parsing
+const PATH_PATTERN = /^\/apps\/([^/]+)\/([^/]+)(?:\/namespaces\/{namespace\})?\/([^/]+)$/;
+const REF_PATTERN = /\.([^./]+)$/;
 
 export class SchemaProviderService extends CoreService {
   private schemaCacheDir: string;
@@ -30,7 +42,7 @@ export class SchemaProviderService extends CoreService {
     let existingPriority = -1;
     if (fs.existsSync(schemaPath)) {
       try {
-        const existing = JSON.parse(await fs.promises.readFile(schemaPath, 'utf8'));
+        const existing = JSON.parse(await fs.promises.readFile(schemaPath, UTF8));
         existingPriority = existing?.properties?.metadata || existing?.properties?.spec ? 1 : 0;
       } catch {
         existingPriority = 0;
@@ -97,7 +109,7 @@ export class SchemaProviderService extends CoreService {
 
   private async processSpecFile(file: string): Promise<void> {
     try {
-      const content = await fs.promises.readFile(file, 'utf8');
+      const content = await fs.promises.readFile(file, UTF8);
       const json = JSON.parse(content);
       const schemas = json.components?.schemas ?? {};
       for (const [name, schema] of Object.entries<any>(schemas)) {
@@ -116,15 +128,15 @@ export class SchemaProviderService extends CoreService {
     }
   }
 
-  private async handleDocument(document: vscode.TextDocument): Promise<void> {
+  private handleDocument(document: vscode.TextDocument): void {
     if (document.languageId !== 'yaml') {
       return;
     }
     try {
       let kind: string | undefined;
-      if (document.uri.scheme === 'k8s-view') {
+      if (document.uri.scheme === SCHEME_K8S_VIEW) {
         kind = ResourceViewDocumentProvider.parseUri(document.uri).kind;
-      } else if (document.uri.scheme === 'k8s') {
+      } else if (document.uri.scheme === SCHEME_K8S) {
         kind = ResourceEditDocumentProvider.parseUri(document.uri).kind;
       } else {
         const parsed = yaml.load(document.getText()) as any;
@@ -133,14 +145,14 @@ export class SchemaProviderService extends CoreService {
         }
       }
       if (kind) {
-        await this.getOrCreateSchemaForKind(kind);
+        this.getOrCreateSchemaForKind(kind);
       }
     } catch (err) {
       log(`Error handling document: ${err}`, LogLevel.ERROR);
     }
   }
 
-  private async getOrCreateSchemaForKind(kind: string): Promise<string | null> {
+  private getOrCreateSchemaForKind(kind: string): string | null {
     if (this.schemaCache.has(kind)) {
       return this.schemaCache.get(kind) || null;
     }
@@ -174,9 +186,9 @@ export class SchemaProviderService extends CoreService {
     try {
       const uri = vscode.Uri.parse(resource);
       let kind: string | undefined;
-      if (uri.scheme === 'k8s-view') {
+      if (uri.scheme === SCHEME_K8S_VIEW) {
         kind = ResourceViewDocumentProvider.parseUri(uri).kind;
-      } else if (uri.scheme === 'k8s') {
+      } else if (uri.scheme === SCHEME_K8S) {
         kind = ResourceEditDocumentProvider.parseUri(uri).kind;
       } else {
         const doc = vscode.workspace.textDocuments.find(d => d.uri.toString() === resource);
@@ -200,7 +212,7 @@ export class SchemaProviderService extends CoreService {
     try {
       const filePath = vscode.Uri.parse(schemaUri).fsPath;
       if (fs.existsSync(filePath)) {
-        return fs.readFileSync(filePath, 'utf8');
+        return fs.readFileSync(filePath, UTF8);
       }
     } catch (err) {
       log(`Error loading schema content ${schemaUri}: ${err}`, LogLevel.ERROR);
@@ -208,9 +220,58 @@ export class SchemaProviderService extends CoreService {
     return undefined;
   }
 
-  /** Return CRD metadata discovered from cached OpenAPI specs */
-  public async getCustomResourceDefinitions(): Promise<EdaCrd[]> {
-    const specDir = await this.findSpecDir();
+  /** Extract CRD from an OpenAPI spec path entry */
+  private extractCrdFromPath(
+    p: string,
+    methods: any,
+    spec: any
+  ): EdaCrd | null {
+    const post = (methods as any).post;
+    if (!post?.requestBody) {
+      return null;
+    }
+    const match = PATH_PATTERN.exec(p);
+    if (!match) {
+      return null;
+    }
+    const [, group, version, plural] = match;
+    const namespaced = p.includes('/namespaces/{namespace}/');
+    let kind: string | undefined;
+    let description: string | undefined = post.description || post.summary;
+    const ref = post.requestBody.content?.['application/json']?.schema?.['$ref'];
+    if (typeof ref === 'string') {
+      const m = REF_PATTERN.exec(ref);
+      if (m) {
+        kind = m[1];
+        description = description ?? spec.components?.schemas?.[m[1]]?.description;
+      }
+    }
+    if (!kind) {
+      kind = plural.replace(/s$/, '').replace(/(^|[-_])(\w)/g, (_, __, ch: string) => ch.toUpperCase());
+    }
+    return { kind, group, version, plural, namespaced, description };
+  }
+
+  /** Load CRDs from a single spec file */
+  private async loadCrdsFromSpecFile(specPath: string): Promise<EdaCrd[]> {
+    const results: EdaCrd[] = [];
+    try {
+      const raw = await fs.promises.readFile(specPath, UTF8);
+      const spec = JSON.parse(raw);
+      for (const [p, methods] of Object.entries<any>(spec.paths ?? {})) {
+        const crd = this.extractCrdFromPath(p, methods, spec);
+        if (crd) {
+          results.push(crd);
+        }
+      }
+    } catch (err) {
+      log(`Failed to parse spec ${specPath}: ${err}`, LogLevel.WARN);
+    }
+    return results;
+  }
+
+  /** Load CRDs from local OpenAPI spec files */
+  private async loadCrdsFromSpecs(specDir: string): Promise<EdaCrd[]> {
     const results: EdaCrd[] = [];
     try {
       const categories = await fs.promises.readdir(specDir, { withFileTypes: true });
@@ -221,72 +282,65 @@ export class SchemaProviderService extends CoreService {
         for (const file of files) {
           if (!file.endsWith('.json')) continue;
           const specPath = path.join(catDir, file);
-          try {
-            const raw = await fs.promises.readFile(specPath, 'utf8');
-            const spec = JSON.parse(raw);
-            for (const [p, methods] of Object.entries<any>(spec.paths ?? {})) {
-              const post = (methods as any).post;
-              if (!post || !post.requestBody) continue;
-              const match = p.match(/^\/apps\/([^/]+)\/([^/]+)(?:\/namespaces\/{namespace\})?\/([^/]+)$/);
-              if (!match) continue;
-              const [, group, version, plural] = match;
-              const namespaced = p.includes('/namespaces/{namespace}/');
-              let kind: string | undefined;
-              let description: string | undefined = post.description || post.summary;
-              const ref = post.requestBody.content?.['application/json']?.schema?.['$ref'];
-              if (typeof ref === 'string') {
-                const m = /\.([^./]+)$/.exec(ref);
-                if (m) {
-                  kind = m[1];
-                  description = description ?? spec.components?.schemas?.[m[1]]?.description;
-                }
-              }
-              if (!kind) {
-                kind = plural.replace(/s$/, '').replace(/(^|[-_])(\w)/g, (_, __, ch) => ch.toUpperCase());
-              }
-              results.push({ kind, group, version, plural, namespaced, description });
-            }
-          } catch (err) {
-            log(`Failed to parse spec ${specPath}: ${err}`, LogLevel.WARN);
-          }
+          const crds = await this.loadCrdsFromSpecFile(specPath);
+          results.push(...crds);
         }
       }
     } catch (err) {
       log(`Failed to load CRD definitions: ${err}`, LogLevel.WARN);
     }
-    // If a Kubernetes client is available, include CRDs from the cluster
+    return results;
+  }
+
+  /** Extract CRD metadata from a Kubernetes CRD object */
+  private extractCrdFromK8s(crd: any): (EdaCrd & { schema?: any }) | null {
+    const kind = crd?.spec?.names?.kind as string | undefined;
+    const group = crd?.spec?.group as string | undefined;
+    const versionObj =
+      crd?.spec?.versions?.find((v: any) => v.storage) ||
+      crd?.spec?.versions?.[0];
+    const version = versionObj?.name || (crd?.spec?.version as string | undefined);
+    const plural = crd?.spec?.names?.plural as string | undefined;
+    if (!kind || !group || !version || !plural) {
+      return null;
+    }
+    const namespaced = crd?.spec?.scope === 'Namespaced';
+    const schema = versionObj?.schema?.openAPIV3Schema;
+    const description = schema?.description as string | undefined;
+    return { kind, group, version, plural, namespaced, description, schema };
+  }
+
+  /** Load CRDs from Kubernetes cluster */
+  private async loadCrdsFromCluster(existing: Set<string>): Promise<EdaCrd[]> {
+    const results: EdaCrd[] = [];
     try {
       const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
       const crds = await k8sClient.listCrds();
-      const existing = new Set(results.map(r => `${r.group}/${r.kind}`));
       for (const crd of crds) {
-        const kind = crd?.spec?.names?.kind as string | undefined;
-        const group = crd?.spec?.group as string | undefined;
-        const versionObj =
-          (crd?.spec?.versions && crd.spec.versions.find((v: any) => v.storage)) ||
-          (crd?.spec?.versions && crd.spec.versions[0]);
-        const version = (versionObj && versionObj.name) || (crd?.spec?.version as string | undefined);
-        const plural = crd?.spec?.names?.plural as string | undefined;
-        const namespaced = crd?.spec?.scope === 'Namespaced';
-        const schema = versionObj?.schema?.openAPIV3Schema;
-        const description = schema?.description as string | undefined;
-        if (!kind || !group || !version || !plural) {
-          continue;
-        }
-        const key = `${group}/${kind}`;
-        if (existing.has(key)) {
-          continue;
-        }
+        const extracted = this.extractCrdFromK8s(crd);
+        if (!extracted) continue;
+        const { schema, ...crdData } = extracted;
+        const key = `${crdData.group}/${crdData.kind}`;
+        if (existing.has(key)) continue;
         existing.add(key);
         if (schema) {
-          await this.cacheSchema(kind, schema);
+          await this.cacheSchema(crdData.kind, schema);
         }
-        results.push({ kind, group, version, plural, namespaced, description });
+        results.push(crdData);
       }
     } catch (err) {
       log(`Failed to load Kubernetes CRDs: ${err}`, LogLevel.DEBUG);
     }
+    return results;
+  }
 
+  /** Return CRD metadata discovered from cached OpenAPI specs */
+  public async getCustomResourceDefinitions(): Promise<EdaCrd[]> {
+    const specDir = await this.findSpecDir();
+    const results = await this.loadCrdsFromSpecs(specDir);
+    const existing = new Set(results.map(r => `${r.group}/${r.kind}`));
+    const clusterCrds = await this.loadCrdsFromCluster(existing);
+    results.push(...clusterCrds);
     results.sort((a, b) => a.kind.localeCompare(b.kind));
     return results;
   }
@@ -298,7 +352,7 @@ export class SchemaProviderService extends CoreService {
     }
     const schemaPath = this.schemaCache.get(kind) as string;
     try {
-      const raw = await fs.promises.readFile(schemaPath, 'utf8');
+      const raw = await fs.promises.readFile(schemaPath, UTF8);
       return JSON.parse(raw);
     } catch {
       return null;

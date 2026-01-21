@@ -1,4 +1,5 @@
-import React, { Component, ReactNode } from 'react';
+import type { ReactNode } from 'react';
+import React, { Component } from 'react';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -46,7 +47,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             An error occurred while rendering this view.
           </p>
           {this.state.error && (
-            <details className="text-left bg-vscode-code-bg p-3 rounded text-xs">
+            <details className="text-left bg-vscode-code-bg p-3 rounded-sm text-xs">
               <summary className="cursor-pointer mb-2 font-medium">Error details</summary>
               <pre className="overflow-auto whitespace-pre-wrap text-status-error">
                 {this.state.error.message}
@@ -59,7 +60,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             </details>
           )}
           <button
-            className="mt-4 px-4 py-2 bg-vscode-accent text-vscode-button-fg rounded hover:bg-vscode-accent-hover"
+            className="mt-4 px-4 py-2 bg-vscode-accent text-vscode-button-fg rounded-sm hover:bg-vscode-accent-hover"
             onClick={() => this.setState({ hasError: false, error: null })}
           >
             Try again

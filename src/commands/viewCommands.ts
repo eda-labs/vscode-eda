@@ -1,17 +1,19 @@
 // src/commands/viewCommands.ts
 import * as vscode from 'vscode';
-import { serviceManager } from '../services/serviceManager';
-import { EdaClient } from '../clients/edaClient';
 import * as yaml from 'js-yaml';
-const Diff: any = require('diff');
-import { KubernetesClient } from '../clients/kubernetesClient';
+
+import type { EdaClient } from '../clients/edaClient';
+import { serviceManager } from '../services/serviceManager';
+import type { KubernetesClient } from '../clients/kubernetesClient';
 import { edaOutputChannel } from '../extension';
-import { CrdDefinitionFileSystemProvider } from '../providers/documents/crdDefinitionProvider';
-import { DeviationDetailsDocumentProvider } from '../providers/documents/deviationDetailsProvider';
-import { BasketTransactionDocumentProvider } from '../providers/documents/basketTransactionProvider';
+import type { CrdDefinitionFileSystemProvider } from '../providers/documents/crdDefinitionProvider';
+import type { DeviationDetailsDocumentProvider } from '../providers/documents/deviationDetailsProvider';
+import type { BasketTransactionDocumentProvider } from '../providers/documents/basketTransactionProvider';
 import { loadTemplate } from '../utils/templateLoader';
 import { TransactionDetailsPanel } from '../webviews/transactionDetails/transactionDetailsPanel';
 import { AlarmDetailsPanel } from '../webviews/alarmDetails/alarmDetailsPanel';
+
+const Diff: any = require('diff');
 
 export function registerViewCommands(
   context: vscode.ExtensionContext,
@@ -130,7 +132,7 @@ export function registerViewCommands(
   );
 
   // Show alarm details using a webview
-  vscode.commands.registerCommand('vscode-eda.showAlarmDetails', async (arg: any) => {
+  vscode.commands.registerCommand('vscode-eda.showAlarmDetails', (arg: any) => {
     const alarm = arg && arg.alarm ? arg.alarm : arg;
     if (!alarm) {
       vscode.window.showErrorMessage('No alarm details available.');

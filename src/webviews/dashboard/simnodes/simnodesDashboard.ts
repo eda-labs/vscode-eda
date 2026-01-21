@@ -1,8 +1,10 @@
 import * as vscode from 'vscode';
+
 import { BasePanel } from '../../basePanel';
+import { ALL_NAMESPACES } from '../../constants';
 import { serviceManager } from '../../../services/serviceManager';
-import { KubernetesClient } from '../../../clients/kubernetesClient';
-import { EdaClient } from '../../../clients/edaClient';
+import type { KubernetesClient } from '../../../clients/kubernetesClient';
+import type { EdaClient } from '../../../clients/edaClient';
 
 export class SimnodesDashboardPanel extends BasePanel {
   private kubernetesClient: KubernetesClient;
@@ -10,14 +12,11 @@ export class SimnodesDashboardPanel extends BasePanel {
   private rowMap: Map<string, Map<string, Record<string, any>>> = new Map();
   private columns: string[] = [];
   private columnSet: Set<string> = new Set();
-  private selectedNamespace = 'All Namespaces';
+  private selectedNamespace = ALL_NAMESPACES;
   private disposables: vscode.Disposable[] = [];
 
   constructor(context: vscode.ExtensionContext, title: string) {
-    super(context, 'simnodesDashboard', title, undefined, {
-      light: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-black.svg'),
-      dark: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-white.svg')
-    });
+    super(context, 'simnodesDashboard', title, undefined, BasePanel.getEdaIconPath(context));
 
     this.kubernetesClient = serviceManager.getClient<KubernetesClient>('kubernetes');
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
@@ -37,8 +36,8 @@ export class SimnodesDashboardPanel extends BasePanel {
 
     this.panel.webview.onDidReceiveMessage(async msg => {
       if (msg.command === 'ready') {
-        await this.sendNamespaces();
-        await this.loadInitial('All Namespaces');
+        this.sendNamespaces();
+        await this.loadInitial(ALL_NAMESPACES);
       } else if (msg.command === 'setNamespace') {
         await this.loadInitial(msg.namespace as string);
       } else if (msg.command === 'showInTree') {
@@ -62,12 +61,12 @@ export class SimnodesDashboardPanel extends BasePanel {
     return `<script nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
-  private async sendNamespaces(): Promise<void> {
+  private sendNamespaces(): void {
     const coreNs = this.edaClient.getCoreNamespace();
     const namespaces = this.edaClient
       .getCachedNamespaces()
       .filter(ns => ns !== coreNs);
-    namespaces.unshift('All Namespaces');
+    namespaces.unshift(ALL_NAMESPACES);
     this.panel.webview.postMessage({
       command: 'init',
       namespaces,
@@ -160,11 +159,11 @@ export class SimnodesDashboardPanel extends BasePanel {
     return phase;
   }
 
-  private async loadInitial(ns: string): Promise<void> {
+  private loadInitial(ns: string): void {
     this.selectedNamespace = ns;
     const coreNs = this.edaClient.getCoreNamespace();
     const targetNamespaces =
-      ns === 'All Namespaces'
+      ns === ALL_NAMESPACES
         ? this.edaClient
             .getCachedNamespaces()
             .filter(n => n !== coreNs)
@@ -199,18 +198,18 @@ export class SimnodesDashboardPanel extends BasePanel {
     this.postResults();
   }
 
-  private async refreshData(): Promise<void> {
+  private refreshData(): void {
     // Only refresh if panel is visible
     if (!this.panel.visible) {
       return;
     }
-    await this.loadInitial(this.selectedNamespace);
+    this.loadInitial(this.selectedNamespace);
   }
 
   private postResults(): void {
     const coreNs = this.edaClient.getCoreNamespace();
     const namespaces =
-      this.selectedNamespace === 'All Namespaces'
+      this.selectedNamespace === ALL_NAMESPACES
         ? Array.from(this.rowMap.keys()).filter(n => n !== coreNs)
         : [this.selectedNamespace];
 
@@ -265,7 +264,7 @@ export class SimnodesDashboardPanel extends BasePanel {
     }
   }
 
-  private async sshSimnode(name: string, namespace: string, operatingSystem?: string): Promise<void> {
+  private sshSimnode(name: string, namespace: string, operatingSystem?: string): void {
     // Find the pod for this simnode
     const coreNs = this.edaClient.getCoreNamespace();
     const pods = this.kubernetesClient.getCachedPods(coreNs);
@@ -292,7 +291,7 @@ export class SimnodesDashboardPanel extends BasePanel {
     terminal.sendText(`kubectl exec -it -n ${coreNs} ${podName} -c ${containerName} -- ${shellCmd}`);
   }
 
-  static show(context: vscode.ExtensionContext, title: string): void {
-    new SimnodesDashboardPanel(context, title);
+  static show(context: vscode.ExtensionContext, title: string): SimnodesDashboardPanel {
+    return new SimnodesDashboardPanel(context, title);
   }
 }

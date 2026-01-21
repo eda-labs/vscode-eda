@@ -1,7 +1,11 @@
+import { randomUUID } from 'crypto';
+
 import * as vscode from 'vscode';
+
 import { BasePanel } from '../../basePanel';
+import { ALL_NAMESPACES } from '../../constants';
 import { serviceManager } from '../../../services/serviceManager';
-import { EdaClient } from '../../../clients/edaClient';
+import type { EdaClient } from '../../../clients/edaClient';
 import { EmbeddingSearchService } from '../../../services/embeddingSearchService';
 import { LogLevel, log } from '../../../extension';
 import { getOps, getDelete, getDeleteIds, getInsertOrModify, getRows } from '../../../utils/streamMessageUtils';
@@ -16,10 +20,7 @@ export class QueriesDashboardPanel extends BasePanel {
   private nqlConversionShown: boolean = false;
 
   constructor(context: vscode.ExtensionContext, title: string) {
-    super(context, 'queriesDashboard', title, undefined, {
-      light: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-black.svg'),
-      dark: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-white.svg')
-    });
+    super(context, 'queriesDashboard', title, undefined, BasePanel.getEdaIconPath(context));
 
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.embeddingSearch = EmbeddingSearchService.getInstance();
@@ -42,7 +43,7 @@ export class QueriesDashboardPanel extends BasePanel {
 
     this.panel.webview.onDidReceiveMessage(async msg => {
       if (msg.command === 'ready') {
-        await this.sendNamespaces();
+        this.sendNamespaces();
       } else if (msg.command === 'runQuery') {
         await this.handleQuery(msg.query as string, msg.namespace as string, msg.queryType as string);
       } else if (msg.command === 'autocomplete') {
@@ -68,16 +69,16 @@ export class QueriesDashboardPanel extends BasePanel {
     return `<script nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
-  private async sendNamespaces(): Promise<void> {
+  private sendNamespaces(): void {
     const coreNs = this.edaClient.getCoreNamespace();
     const namespaces = this.edaClient
       .getCachedNamespaces()
       .filter(ns => ns !== coreNs);
-    namespaces.unshift('All Namespaces');
+    namespaces.unshift(ALL_NAMESPACES);
     this.panel.webview.postMessage({
       command: 'init',
       namespaces,
-      selected: 'All Namespaces'
+      selected: ALL_NAMESPACES
     });
   }
 
@@ -182,7 +183,7 @@ export class QueriesDashboardPanel extends BasePanel {
       await this.edaClient.closeEqlStream(this.queryStreamName);
     }
     this.queryStreamName = `query-${Date.now()}`;
-    const ns = namespace === 'All Namespaces' ? undefined : namespace;
+    const ns = namespace === ALL_NAMESPACES ? undefined : namespace;
     await this.edaClient.streamEql(query, ns, this.queryStreamName);
     this.panel.webview.postMessage({ command: 'clear' });
   }
@@ -198,7 +199,7 @@ export class QueriesDashboardPanel extends BasePanel {
     this.queryStreamName = `nql-${Date.now()}`;
 
     // For NQL, if "All Namespaces" is selected, pass undefined (no namespace parameter)
-    const ns = namespace === 'All Namespaces' ? undefined : namespace;
+    const ns = namespace === ALL_NAMESPACES ? undefined : namespace;
 
     log(`Starting NQL stream with namespace: ${ns}`, LogLevel.DEBUG);
     await this.edaClient.streamNql(query, ns, this.queryStreamName);
@@ -320,7 +321,7 @@ export class QueriesDashboardPanel extends BasePanel {
         }
 
         const row = this.columns.map(c => flat[c]);
-        const key = r.id !== undefined ? String(r.id) : `${Date.now()}${Math.random()}`;
+        const key = r.id !== undefined ? String(r.id) : randomUUID();
         this.rowMap.set(key, row);
       }
     }
@@ -334,7 +335,7 @@ export class QueriesDashboardPanel extends BasePanel {
     });
   }
 
-  static show(context: vscode.ExtensionContext, title: string): void {
-    new QueriesDashboardPanel(context, title);
+  static show(context: vscode.ExtensionContext, title: string): QueriesDashboardPanel {
+    return new QueriesDashboardPanel(context, title);
   }
 }

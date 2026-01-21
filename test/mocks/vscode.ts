@@ -1,6 +1,7 @@
+import Module from 'module';
+
 import sinon from 'sinon';
 import { createVSCodeMock } from 'jest-mock-vscode';
-import Module from 'module';
 
 // Cast to any to satisfy the TestFramework interface expected by
 // createVSCodeMock. Sinon stubs provide the spying functionality

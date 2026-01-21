@@ -1,8 +1,10 @@
 // src/utils/kubectlRunner.ts
-import { execSync, ExecSyncOptions } from 'child_process';
+import type { ExecSyncOptions } from 'child_process';
+import { execSync } from 'child_process';
+
 import { LogLevel, log } from '../extension';
 import { serviceManager } from '../services/serviceManager';
-import { KubernetesClient } from '../clients/kubernetesClient';
+import type { KubernetesClient } from '../clients/kubernetesClient';
 
 /**
  * Interface for kubectl execution options

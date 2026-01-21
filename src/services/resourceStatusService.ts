@@ -1,7 +1,11 @@
-import * as vscode from 'vscode';
 import * as path from 'path';
-import { CoreService } from './coreService';
+
+import * as vscode from 'vscode';
+
 import { LogLevel, log } from '../extension';
+
+import { CoreService } from './coreService';
+
 
 /**
  * Service for handling resource status information, icons, and tooltips
@@ -25,7 +29,7 @@ export class ResourceStatusService extends CoreService {
    * Initialize the service with extension context and loading CRD status schemas
    * This should be called during extension activation
    */
-  public async initialize(context: vscode.ExtensionContext): Promise<void> {
+  public initialize(context: vscode.ExtensionContext): void {
     if (this.initialized) return;
 
     try {
