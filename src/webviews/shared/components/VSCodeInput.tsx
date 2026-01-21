@@ -14,7 +14,7 @@ export const VSCodeInput = memo(forwardRef<HTMLInputElement, VSCodeInputProps>(
         {label && (
           <label
             htmlFor={inputId}
-            className="text-sm text-[var(--vscode-foreground)]"
+            className="text-sm text-vscode-text-primary"
           >
             {label}
           </label>
@@ -22,11 +22,11 @@ export const VSCodeInput = memo(forwardRef<HTMLInputElement, VSCodeInputProps>(
         <input
           ref={ref}
           id={inputId}
-          className={`px-3 py-1.5 bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border border-[var(--vscode-input-border)] rounded focus:outline-none focus:border-[var(--vscode-focusBorder)] placeholder:text-[var(--vscode-input-placeholderForeground)] ${error ? 'border-[var(--vscode-inputValidation-errorBorder)]' : ''} ${className}`}
+          className={`px-3 py-1.5 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded focus:outline-none focus:border-(--vscode-focusBorder) placeholder:text-(--vscode-input-placeholderForeground) ${error ? 'border-(--vscode-inputValidation-errorBorder)' : ''} ${className}`}
           {...props}
         />
         {error && (
-          <span className="text-xs text-[var(--vscode-inputValidation-errorForeground)]">
+          <span className="text-xs text-status-error">
             {error}
           </span>
         )}
@@ -49,7 +49,7 @@ export const VSCodeTextArea = memo(forwardRef<HTMLTextAreaElement, VSCodeTextAre
         {label && (
           <label
             htmlFor={inputId}
-            className="text-sm text-[var(--vscode-foreground)]"
+            className="text-sm text-vscode-text-primary"
           >
             {label}
           </label>
@@ -57,11 +57,11 @@ export const VSCodeTextArea = memo(forwardRef<HTMLTextAreaElement, VSCodeTextAre
         <textarea
           ref={ref}
           id={inputId}
-          className={`px-3 py-1.5 bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border border-[var(--vscode-input-border)] rounded focus:outline-none focus:border-[var(--vscode-focusBorder)] placeholder:text-[var(--vscode-input-placeholderForeground)] resize-y ${error ? 'border-[var(--vscode-inputValidation-errorBorder)]' : ''} ${className}`}
+          className={`px-3 py-1.5 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded focus:outline-none focus:border-(--vscode-focusBorder) placeholder:text-(--vscode-input-placeholderForeground) resize-y ${error ? 'border-(--vscode-inputValidation-errorBorder)' : ''} ${className}`}
           {...props}
         />
         {error && (
-          <span className="text-xs text-[var(--vscode-inputValidation-errorForeground)]">
+          <span className="text-xs text-status-error">
             {error}
           </span>
         )}

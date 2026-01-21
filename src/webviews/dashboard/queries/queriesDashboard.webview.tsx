@@ -321,14 +321,14 @@ function QueriesDashboard() {
   }, []);
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto">
+    <div className="p-6 max-w-350 mx-auto">
       <header className="flex items-center justify-between mb-4 gap-2">
         <div className="flex items-center gap-2 flex-1 relative mr-2">
           <label className="flex items-center" htmlFor="queryInput">
             <span className="codicon codicon-search mr-1"></span> Query
           </label>
           <select
-            className="bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border border-[var(--vscode-input-border)] rounded px-2 py-1 mr-2 min-w-[60px]"
+            className="bg-(--vscode-input-background) text-(--vscode-input-foreground) border border-(--vscode-input-border) rounded px-2 py-1 mr-2 min-w-15"
             value={queryType}
             onChange={(e) => setQueryType(e.target.value as QueryType)}
           >
@@ -340,18 +340,18 @@ function QueriesDashboard() {
             <input
               ref={inputRef}
               type="text"
-              className="w-full px-2 py-1 bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border border-[var(--vscode-input-border)] rounded"
+              className="w-full px-2 py-1 bg-(--vscode-input-background) text-(--vscode-input-foreground) border border-(--vscode-input-border) rounded"
               placeholder={queryPlaceholder}
               value={queryInput}
               onChange={handleQueryInputChange}
               onKeyDown={handleKeyDown}
             />
             {autocomplete.list.length > 0 && (
-              <ul className="list-none m-0 p-0 absolute left-0 right-0 top-full bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] border-t-0 max-h-[200px] overflow-y-auto z-10">
+              <ul className="list-none m-0 p-0 absolute left-0 right-0 top-full bg-(--vscode-input-background) border border-(--vscode-input-border) border-t-0 max-h-50 overflow-y-auto z-10">
                 {autocomplete.list.map((item, idx) => (
                   <li
                     key={idx}
-                    className={`px-2 py-0.5 cursor-pointer hover:bg-[var(--vscode-list-hoverBackground)] ${idx === autocomplete.index ? 'bg-[var(--vscode-list-activeSelectionBackground)] text-[var(--vscode-list-activeSelectionForeground)]' : ''}`}
+                    className={`px-2 py-0.5 cursor-pointer hover:bg-(--vscode-list-hoverBackground) ${idx === autocomplete.index ? 'bg-(--vscode-list-activeSelectionBackground) text-(--vscode-list-activeSelectionForeground)' : ''}`}
                     onMouseOver={() => setAutocomplete(prev => ({ ...prev, index: idx }))}
                     onClick={() => insertAutocomplete(item)}
                   >
@@ -362,7 +362,7 @@ function QueriesDashboard() {
             )}
           </div>
           <button
-            className="px-3 py-1 border-none bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] rounded cursor-pointer hover:bg-[var(--vscode-button-hoverBackground)]"
+            className="px-3 py-1 border-none bg-(--vscode-button-background) text-(--vscode-button-foreground) rounded cursor-pointer hover:bg-(--vscode-button-hoverBackground)"
             onClick={handleRunQuery}
           >
             Run
@@ -370,12 +370,12 @@ function QueriesDashboard() {
           <div className="flex items-center gap-0.5">
             <div className="copy-dropdown relative flex">
               <button
-                className={`flex items-center gap-1 px-3 py-1 pr-0 border-none rounded cursor-pointer ${copied ? 'bg-[var(--vscode-debugConsole-infoForeground)]' : 'bg-[var(--vscode-button-background)]'} text-[var(--vscode-button-foreground)] hover:bg-[var(--vscode-button-hoverBackground)]`}
+                className={`flex items-center gap-1 px-3 py-1 pr-0 border-none rounded cursor-pointer ${copied ? 'bg-(--vscode-debugConsole-infoForeground)' : 'bg-(--vscode-button-background)'} text-(--vscode-button-foreground) hover:bg-(--vscode-button-hoverBackground)`}
                 onClick={handleCopy}
               >
                 <span>Copy</span>
                 <span
-                  className="flex items-center py-0 px-3 pl-1 ml-1 border-l border-[var(--vscode-panel-border)] cursor-pointer"
+                  className="flex items-center py-0 px-3 pl-1 ml-1 border-l border-(--vscode-panel-border) cursor-pointer"
                   onClick={(e) => {
                     e.stopPropagation();
                     setShowFormatMenu(prev => !prev);
@@ -385,11 +385,11 @@ function QueriesDashboard() {
                 </span>
               </button>
               {showFormatMenu && (
-                <ul className="list-none m-0 p-0 absolute right-0 top-full bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] z-10">
+                <ul className="list-none m-0 p-0 absolute right-0 top-full bg-(--vscode-input-background) border border-(--vscode-input-border) z-10">
                   {(['ascii', 'markdown', 'json', 'yaml'] as CopyFormat[]).map(fmt => (
                     <li
                       key={fmt}
-                      className="px-2 py-0.5 cursor-pointer hover:bg-[var(--vscode-list-hoverBackground)]"
+                      className="px-2 py-0.5 cursor-pointer hover:bg-(--vscode-list-hoverBackground)"
                       onClick={() => {
                         setCopyFormat(fmt);
                         setShowFormatMenu(false);
@@ -405,7 +405,7 @@ function QueriesDashboard() {
           </div>
         </div>
         <select
-          className="bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border border-[var(--vscode-input-border)] rounded px-2 py-1"
+          className="bg-(--vscode-input-background) text-(--vscode-input-foreground) border border-(--vscode-input-border) rounded px-2 py-1"
           value={selectedNamespace}
           onChange={(e) => setSelectedNamespace(e.target.value)}
         >
@@ -416,27 +416,27 @@ function QueriesDashboard() {
       </header>
 
       {queryTypeNote && (
-        <div className="bg-[var(--vscode-editorHoverWidget-background)] border border-[var(--vscode-editorHoverWidget-border)] rounded mb-3 text-xs">
+        <div className="bg-(--vscode-editorHoverWidget-background) border border-(--vscode-editorHoverWidget-border) rounded mb-3 text-xs">
           <div className="flex items-center gap-2 py-2 px-3">
-            <span className="text-[var(--vscode-notificationsInfoIcon-foreground)] text-sm">{'\u2139\uFE0F'}</span>
-            <span className="text-[var(--vscode-notifications-foreground)] italic">{queryTypeNote}</span>
+            <span className="text-(--vscode-notificationsInfoIcon-foreground) text-sm">{'\u2139\uFE0F'}</span>
+            <span className="text-(--vscode-notifications-foreground) italic">{queryTypeNote}</span>
           </div>
         </div>
       )}
 
       {conversion.show && (
-        <div className="bg-[var(--vscode-notifications-background)] border border-[var(--vscode-notifications-border)] rounded mb-4 text-sm">
+        <div className="bg-(--vscode-notifications-background) border border-(--vscode-notifications-border) rounded mb-4 text-sm">
           <div className="flex items-center gap-2 py-3 px-4">
-            <span className="text-[var(--vscode-notificationsInfoIcon-foreground)] text-base">{'\u2139\uFE0F'}</span>
-            <div className="flex-1 text-[var(--vscode-notifications-foreground)]">
-              <div><span>{conversion.label}</span> <code className="bg-[var(--vscode-textBlockQuote-background)] px-1.5 py-0.5 rounded text-xs font-mono">{conversion.eql}</code></div>
+            <span className="text-(--vscode-notificationsInfoIcon-foreground) text-base">{'\u2139\uFE0F'}</span>
+            <div className="flex-1 text-(--vscode-notifications-foreground)">
+              <div><span>{conversion.label}</span> <code className="bg-(--vscode-textBlockQuote-background) px-1.5 py-0.5 rounded text-xs font-mono">{conversion.eql}</code></div>
               {conversion.description && (
-                <div className="text-xs text-[var(--vscode-descriptionForeground)] mt-1 italic">{conversion.description}</div>
+                <div className="text-xs text-(--vscode-descriptionForeground) mt-1 italic">{conversion.description}</div>
               )}
             </div>
             {conversion.alternatives.length > 0 && (
               <button
-                className={`bg-transparent border-none text-[var(--vscode-notifications-foreground)] cursor-pointer p-1 flex items-center transition-transform ${conversion.showAlternatives ? 'rotate-180' : ''}`}
+                className={`bg-transparent border-none text-(--vscode-notifications-foreground) cursor-pointer p-1 flex items-center transition-transform ${conversion.showAlternatives ? 'rotate-180' : ''}`}
                 title="Show alternative queries"
                 onClick={() => setConversion(prev => ({ ...prev, showAlternatives: !prev.showAlternatives }))}
               >
@@ -444,31 +444,31 @@ function QueriesDashboard() {
               </button>
             )}
             <button
-              className="bg-transparent border-none text-[var(--vscode-notifications-foreground)] text-xl cursor-pointer p-1 opacity-70 hover:opacity-100"
+              className="bg-transparent border-none text-(--vscode-notifications-foreground) text-xl cursor-pointer p-1 opacity-70 hover:opacity-100"
               onClick={() => setConversion(initialConversionState)}
             >
               {'\u00D7'}
             </button>
           </div>
           {conversion.showAlternatives && conversion.alternatives.length > 0 && (
-            <div className="px-4 pb-3 border-t border-[var(--vscode-notifications-border)]">
-              <div className="my-2 font-medium text-[var(--vscode-notifications-foreground)]">Alternative queries:</div>
-              <ul className="list-none m-0 p-0 max-h-[200px] overflow-y-auto">
+            <div className="px-4 pb-3 border-t border-(--vscode-notifications-border)">
+              <div className="my-2 font-medium text-(--vscode-notifications-foreground)">Alternative queries:</div>
+              <ul className="list-none m-0 p-0 max-h-50 overflow-y-auto">
                 {conversion.alternatives.map((alt, idx) => (
                   <li
                     key={idx}
-                    className="flex justify-between items-start gap-3 py-2 px-2.5 my-1 bg-[var(--vscode-textBlockQuote-background)] rounded cursor-pointer hover:bg-[var(--vscode-list-hoverBackground)]"
+                    className="flex justify-between items-start gap-3 py-2 px-2.5 my-1 bg-(--vscode-textBlockQuote-background) rounded cursor-pointer hover:bg-(--vscode-list-hoverBackground)"
                     onClick={() => handleAlternativeClick(alt)}
                   >
                     <div className="flex-1">
                       <code className="font-mono text-xs">{alt.query}</code>
                       {alt.description && (
-                        <div className="text-[11px] text-[var(--vscode-descriptionForeground)] mt-0.5">
+                        <div className="text-[11px] text-(--vscode-descriptionForeground) mt-0.5">
                           {alt.description}
                         </div>
                       )}
                     </div>
-                    <span className="text-[11px] text-[var(--vscode-descriptionForeground)] ml-2">Score: {alt.score.toFixed(1)}</span>
+                    <span className="text-[11px] text-(--vscode-descriptionForeground) ml-2">Score: {alt.score.toFixed(1)}</span>
                   </li>
                 ))}
               </ul>
@@ -485,7 +485,7 @@ function QueriesDashboard() {
                 <th
                   key={col}
                   onClick={() => handleSort(idx)}
-                  className="border border-[var(--vscode-panel-border)] px-2 py-1 bg-[var(--vscode-panel-background)] cursor-pointer select-none text-left"
+                  className="border border-(--vscode-panel-border) px-2 py-1 bg-(--vscode-panel-background) cursor-pointer select-none text-left"
                 >
                   {col}
                   {sort.index === idx && (
@@ -496,11 +496,11 @@ function QueriesDashboard() {
             </tr>
             <tr>
               {columns.map((_, idx) => (
-                <td key={idx} className="border border-[var(--vscode-panel-border)] p-0 bg-[var(--vscode-editorWidget-background)]">
+                <td key={idx} className="border border-(--vscode-panel-border) p-0 bg-(--vscode-editorWidget-background)">
                   <input
                     value={filters[idx] || ''}
                     onChange={(e) => handleFilterChange(idx, e.target.value)}
-                    className="w-full px-1 py-0.5 bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border-none rounded-sm"
+                    className="w-full px-1 py-0.5 bg-(--vscode-input-background) text-(--vscode-input-foreground) border-none rounded-sm"
                   />
                 </td>
               ))}
@@ -508,10 +508,10 @@ function QueriesDashboard() {
           </thead>
           <tbody>
             {filteredRows.map((row, rowIdx) => (
-              <tr key={rowIdx} className="hover:bg-[var(--vscode-list-hoverBackground)]">
+              <tr key={rowIdx} className="hover:bg-(--vscode-list-hoverBackground)">
                 {columns.map((_, colIdx) => (
-                  <td key={colIdx} className="border border-[var(--vscode-panel-border)] px-2 py-1 whitespace-pre align-top">
-                    <div className="max-w-[600px] max-h-[200px] overflow-auto whitespace-pre-wrap">{formatValue(row[colIdx])}</div>
+                  <td key={colIdx} className="border border-(--vscode-panel-border) px-2 py-1 whitespace-pre align-top">
+                    <div className="max-w-150 max-h-50 overflow-auto whitespace-pre-wrap">{formatValue(row[colIdx])}</div>
                   </td>
                 ))}
               </tr>
@@ -519,7 +519,7 @@ function QueriesDashboard() {
           </tbody>
         </table>
       </div>
-      <div className="pt-1 border-t border-[var(--vscode-panel-border)] mt-2">
+      <div className="pt-1 border-t border-(--vscode-panel-border) mt-2">
         <span>{status}</span>
       </div>
     </div>

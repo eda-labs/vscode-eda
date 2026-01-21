@@ -130,7 +130,7 @@ function DiffLineComponent({ item }: { item: DiffLine }) {
 
   return (
     <div className={`flex font-mono text-xs ${bgColors[item.type]}`}>
-      <span className="w-12 flex-shrink-0 text-right pr-2 text-[var(--vscode-descriptionForeground)] border-r border-[var(--vscode-panel-border)]">
+      <span className="w-12 flex-shrink-0 text-right pr-2 text-(--vscode-descriptionForeground) border-r border-(--vscode-panel-border)">
         {item.lineNum}
       </span>
       <span className="pl-2 whitespace-pre overflow-x-auto">{item.line || ' '}</span>
@@ -143,11 +143,11 @@ function ResourceItem({ resource, isSelected, onClick }: { resource: ResourceRef
 
   return (
     <button
-      className={`w-full text-left px-3 py-2 border-b border-[var(--vscode-panel-border)] hover:bg-[var(--vscode-list-hoverBackground)] ${isSelected ? 'bg-[var(--vscode-list-activeSelectionBackground)] text-[var(--vscode-list-activeSelectionForeground)]' : ''}`}
+      className={`w-full text-left px-3 py-2 border-b border-(--vscode-panel-border) hover:bg-(--vscode-list-hoverBackground) ${isSelected ? 'bg-(--vscode-list-activeSelectionBackground) text-(--vscode-list-activeSelectionForeground)' : ''}`}
       onClick={onClick}
     >
       <div className="font-medium">{resource.name}</div>
-      <div className="text-xs text-[var(--vscode-descriptionForeground)]">{kind} - {resource.namespace}</div>
+      <div className="text-xs text-(--vscode-descriptionForeground)">{kind} - {resource.namespace}</div>
     </button>
   );
 }
@@ -222,13 +222,13 @@ function TransactionDiffsPanel() {
   return (
     <div className="flex h-screen">
       {/* Sidebar */}
-      <div className="w-72 flex-shrink-0 border-r border-[var(--vscode-panel-border)] flex flex-col bg-[var(--vscode-sideBar-background)]">
-        <div className="p-3 border-b border-[var(--vscode-panel-border)]">
+      <div className="w-72 flex-shrink-0 border-r border-(--vscode-panel-border) flex flex-col bg-(--vscode-sideBar-background)">
+        <div className="p-3 border-b border-(--vscode-panel-border)">
           <h3 className="font-semibold mb-2">Diffs</h3>
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
-            className="w-full px-2 py-1 mb-2 bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border border-[var(--vscode-input-border)] rounded text-sm"
+            className="w-full px-2 py-1 mb-2 bg-(--vscode-input-background) text-(--vscode-input-foreground) border border-(--vscode-input-border) rounded text-sm"
           >
             <option value="all">All</option>
             <option value="resource">Resource</option>
@@ -239,7 +239,7 @@ function TransactionDiffsPanel() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search..."
-            className="w-full px-2 py-1 bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border border-[var(--vscode-input-border)] rounded text-sm"
+            className="w-full px-2 py-1 bg-(--vscode-input-background) text-(--vscode-input-foreground) border border-(--vscode-input-border) rounded text-sm"
           />
         </div>
         <div className="flex-1 overflow-y-auto">
@@ -256,7 +256,7 @@ function TransactionDiffsPanel() {
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0">
-        <div className="p-3 border-b border-[var(--vscode-panel-border)] flex items-center justify-between">
+        <div className="p-3 border-b border-(--vscode-panel-border) flex items-center justify-between">
           <h2 className="font-semibold">
             {selectedResource ? `${titleKind}/${selectedResource.name}` : 'Select a resource to view diff'}
           </h2>
@@ -264,7 +264,7 @@ function TransactionDiffsPanel() {
             <div className="flex gap-3 text-sm">
               <span className="text-green-500">+{stats.added}</span>
               <span className="text-red-500">-{stats.removed}</span>
-              <span className="text-[var(--vscode-descriptionForeground)]">Total: {stats.total} lines</span>
+              <span className="text-(--vscode-descriptionForeground)">Total: {stats.total} lines</span>
             </div>
           )}
         </div>
@@ -279,14 +279,14 @@ function TransactionDiffsPanel() {
           </div>
         ) : noDiff ? (
           <div className="flex-1 flex items-center justify-center">
-            <div className="text-center text-[var(--vscode-descriptionForeground)]">
+            <div className="text-center text-(--vscode-descriptionForeground)">
               <span className="text-4xl mb-2 block">📄</span>
               <p>No differences found</p>
             </div>
           </div>
         ) : !selectedResource ? (
           <div className="flex-1 flex items-center justify-center">
-            <div className="text-center text-[var(--vscode-descriptionForeground)]">
+            <div className="text-center text-(--vscode-descriptionForeground)">
               <span className="text-4xl mb-2 block">📄</span>
               <p>Select a resource from the list to view its diff</p>
             </div>
@@ -294,8 +294,8 @@ function TransactionDiffsPanel() {
         ) : (
           <div className="flex-1 flex min-h-0">
             {/* Before pane */}
-            <div className="flex-1 flex flex-col min-w-0 border-r border-[var(--vscode-panel-border)]">
-              <div className="px-3 py-2 border-b border-[var(--vscode-panel-border)] flex items-center justify-between bg-[var(--vscode-editorGroupHeader-tabsBackground)]">
+            <div className="flex-1 flex flex-col min-w-0 border-r border-(--vscode-panel-border)">
+              <div className="px-3 py-2 border-b border-(--vscode-panel-border) flex items-center justify-between bg-(--vscode-editorGroupHeader-tabsBackground)">
                 <span className="font-medium">Before</span>
                 <span className="text-xs px-2 py-0.5 bg-red-500/20 text-red-400 rounded">Deleted</span>
               </div>
@@ -308,7 +308,7 @@ function TransactionDiffsPanel() {
 
             {/* After pane */}
             <div className="flex-1 flex flex-col min-w-0">
-              <div className="px-3 py-2 border-b border-[var(--vscode-panel-border)] flex items-center justify-between bg-[var(--vscode-editorGroupHeader-tabsBackground)]">
+              <div className="px-3 py-2 border-b border-(--vscode-panel-border) flex items-center justify-between bg-(--vscode-editorGroupHeader-tabsBackground)">
                 <span className="font-medium">After</span>
                 <span className="text-xs px-2 py-0.5 bg-green-500/20 text-green-400 rounded">Added</span>
               </div>

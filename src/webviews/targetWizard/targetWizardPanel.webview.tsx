@@ -62,19 +62,19 @@ const initialFormUIState: FormUIState = {
 function TargetItem({ target, isSelected, onClick }: { target: Target; isSelected: boolean; onClick: () => void }) {
   return (
     <div
-      className={`cursor-pointer border-b border-[var(--vscode-panel-border)] px-4 py-3 transition-colors hover:bg-[var(--vscode-list-hoverBackground)] ${isSelected ? 'bg-[var(--vscode-list-activeSelectionBackground)] text-[var(--vscode-list-activeSelectionForeground)]' : ''}`}
+      className={`cursor-pointer border-b border-vscode-border px-4 py-3 transition-colors hover:bg-vscode-bg-hover ${isSelected ? 'bg-(--vscode-list-activeSelectionBackground) text-(--vscode-list-activeSelectionForeground)' : ''}`}
       onClick={onClick}
     >
       <div className="font-medium mb-1 break-all">{target.url}</div>
-      <div className="text-xs text-[var(--vscode-descriptionForeground)] flex items-center gap-2">
+      <div className="text-xs text-vscode-text-secondary flex items-center gap-2">
         {target.context && <span className="italic">{target.context}</span>}
         {isSelected && (
-          <span className="bg-[var(--vscode-badge-background)] text-[var(--vscode-badge-foreground)] px-2 rounded-full text-[0.7rem] font-medium">
+          <span className="bg-(--vscode-badge-background) text-(--vscode-badge-foreground) px-2 rounded-full text-[0.7rem] font-medium">
             Default
           </span>
         )}
         {target.skipTlsVerify && (
-          <span className="bg-[var(--vscode-badge-background)] text-[var(--vscode-badge-foreground)] px-2 rounded-full text-[0.7rem] font-medium">
+          <span className="bg-(--vscode-badge-background) text-(--vscode-badge-foreground) px-2 rounded-full text-[0.7rem] font-medium">
             Skip TLS
           </span>
         )}
@@ -86,8 +86,8 @@ function TargetItem({ target, isSelected, onClick }: { target: Target; isSelecte
 function DetailRow({ label, value, placeholder }: { label: string; value?: string; placeholder?: string }) {
   return (
     <div className="mb-5">
-      <div className="text-sm font-medium text-[var(--vscode-descriptionForeground)] mb-1">{label}</div>
-      <div className={`text-sm px-3 py-2 bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded break-all ${!value && placeholder ? 'text-[var(--vscode-descriptionForeground)] italic' : ''}`}>
+      <div className="text-sm font-medium text-vscode-text-secondary mb-1">{label}</div>
+      <div className={`text-sm px-3 py-2 bg-vscode-input-bg border border-vscode-input-border rounded break-all ${!value && placeholder ? 'text-vscode-text-secondary italic' : ''}`}>
         {value || placeholder || ''}
       </div>
     </div>
@@ -264,16 +264,16 @@ function TargetWizardPanel() {
         <div className="mt-2 text-sm font-medium">Nokia Event-Driven Automation</div>
       </div>
 
-      <div className="flex flex-col gap-6 md:flex-row max-w-screen-xl mx-auto items-start">
+      <div className="flex flex-col gap-6 md:flex-row max-w-7xl mx-auto items-start">
         {/* Left Pane: Target List */}
-        <div className="flex flex-col flex-none w-96 bg-[var(--vscode-editorWidget-background)] border border-[var(--vscode-panel-border)] rounded-lg overflow-hidden">
-          <div className="flex justify-between items-center p-4 border-b border-[var(--vscode-panel-border)] bg-[var(--vscode-editorGroupHeader-tabsBackground)]">
+        <div className="flex flex-col flex-none w-96 bg-vscode-bg-widget border border-vscode-border rounded-lg overflow-hidden">
+          <div className="flex justify-between items-center p-4 border-b border-vscode-border bg-(--vscode-editorGroupHeader-tabsBackground)">
             <h3 className="text-base font-semibold">EDA Targets</h3>
             <VSCodeButton onClick={handleAddNew}>Add New</VSCodeButton>
           </div>
           <div className="flex-1 py-2">
             {targets.length === 0 ? (
-              <div className="py-10 px-4 text-center text-[var(--vscode-descriptionForeground)] italic">
+              <div className="py-10 px-4 text-center text-vscode-text-secondary italic">
                 No targets configured yet.
               </div>
             ) : (
@@ -290,8 +290,8 @@ function TargetWizardPanel() {
         </div>
 
         {/* Right Pane: Details/Form */}
-        <div className="flex flex-col flex-1 bg-[var(--vscode-editor-background)] border border-[var(--vscode-panel-border)] rounded-lg overflow-hidden">
-          <div className="flex justify-between items-center p-4 border-b border-[var(--vscode-panel-border)] bg-[var(--vscode-editorGroupHeader-tabsBackground)]">
+        <div className="flex flex-col flex-1 bg-vscode-bg-primary border border-vscode-border rounded-lg overflow-hidden">
+          <div className="flex justify-between items-center p-4 border-b border-vscode-border bg-(--vscode-editorGroupHeader-tabsBackground)">
             <h3 className="text-base font-semibold">
               {mode === 'new' ? 'Add New Target' : mode === 'edit' ? 'Edit Target' : 'Target Details'}
             </h3>
@@ -303,7 +303,7 @@ function TargetWizardPanel() {
           </div>
 
           {mode === 'view' ? (
-            <div className="p-6 max-w-[500px]">
+            <div className="p-6 max-w-125">
               {currentTarget ? (
                 <>
                   <DetailRow label="EDA API URL" value={currentTarget.url} />
@@ -314,10 +314,10 @@ function TargetWizardPanel() {
                   <DetailRow label="Client Secret" value={currentTarget.clientSecret ? '••••••••' : ''} placeholder="Not configured" />
                   <DetailRow label="Skip TLS Verification" value={currentTarget.skipTlsVerify ? 'Yes' : 'No'} />
 
-                  <div className="flex gap-3 pt-4 mt-6 border-t border-[var(--vscode-panel-border)]">
+                  <div className="flex gap-3 pt-4 mt-6 border-t border-vscode-border">
                     <VSCodeButton variant="secondary" onClick={() => handleEdit(selectedIdx)}>Edit</VSCodeButton>
                     <button
-                      className="px-4 py-2 rounded font-medium text-sm cursor-pointer transition-colors bg-[var(--vscode-errorForeground)] text-[var(--vscode-editor-background)] border-none hover:opacity-90"
+                      className="px-4 py-2 rounded font-medium text-sm cursor-pointer transition-colors bg-status-error text-vscode-bg-primary border-none hover:opacity-90"
                       onClick={() => handleDelete(selectedIdx)}
                     >
                       Delete
@@ -331,25 +331,25 @@ function TargetWizardPanel() {
               )}
             </div>
           ) : (
-            <div className="space-y-4 p-6 max-w-[500px]">
+            <div className="space-y-4 p-6 max-w-125">
               <div>
-                <label className="block text-sm font-medium">EDA API URL <span className="text-[var(--vscode-errorForeground)]">*</span></label>
+                <label className="block text-sm font-medium">EDA API URL <span className="text-status-error">*</span></label>
                 <input
                   type="text"
                   value={formData.url}
                   onChange={(e) => setFormData(prev => ({ ...prev, url: e.target.value }))}
                   placeholder="https://eda.example.com"
-                  className={`w-full px-3 py-2 text-[var(--vscode-input-foreground)] bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded text-sm ${errors.url ? 'border-[var(--vscode-inputValidation-errorBorder)]' : ''}`}
+                  className={`w-full px-3 py-2 text-vscode-input-fg bg-vscode-input-bg border border-vscode-input-border rounded text-sm ${errors.url ? 'border-(--vscode-inputValidation-errorBorder)' : ''}`}
                 />
-                {errors.url && <span className="text-xs text-[var(--vscode-errorForeground)] mt-1">{errors.url}</span>}
+                {errors.url && <span className="text-xs text-status-error mt-1">{errors.url}</span>}
               </div>
 
               <div>
-                <label className="block text-sm font-medium">Kubernetes Context <span className="text-[var(--vscode-descriptionForeground)] text-xs">(optional)</span></label>
+                <label className="block text-sm font-medium">Kubernetes Context <span className="text-vscode-text-secondary text-xs">(optional)</span></label>
                 <select
                   value={formData.context}
                   onChange={(e) => setFormData(prev => ({ ...prev, context: e.target.value }))}
-                  className="w-full px-3 py-2 text-[var(--vscode-input-foreground)] bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded text-sm"
+                  className="w-full px-3 py-2 text-vscode-input-fg bg-vscode-input-bg border border-vscode-input-border rounded text-sm"
                 >
                   <option value="">None</option>
                   {contexts.map(ctx => <option key={ctx} value={ctx}>{ctx}</option>)}
@@ -357,35 +357,35 @@ function TargetWizardPanel() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium">EDA Core Namespace <span className="text-[var(--vscode-errorForeground)]">*</span></label>
+                <label className="block text-sm font-medium">EDA Core Namespace <span className="text-status-error">*</span></label>
                 <input
                   type="text"
                   value={formData.coreNs}
                   onChange={(e) => setFormData(prev => ({ ...prev, coreNs: e.target.value }))}
-                  className={`w-full px-3 py-2 text-[var(--vscode-input-foreground)] bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded text-sm ${errors.coreNs ? 'border-[var(--vscode-inputValidation-errorBorder)]' : ''}`}
+                  className={`w-full px-3 py-2 text-vscode-input-fg bg-vscode-input-bg border border-vscode-input-border rounded text-sm ${errors.coreNs ? 'border-(--vscode-inputValidation-errorBorder)' : ''}`}
                 />
-                {errors.coreNs && <span className="text-xs text-[var(--vscode-errorForeground)] mt-1">{errors.coreNs}</span>}
+                {errors.coreNs && <span className="text-xs text-status-error mt-1">{errors.coreNs}</span>}
               </div>
 
               <div>
-                <label className="block text-sm font-medium">EDA Username <span className="text-[var(--vscode-errorForeground)]">*</span></label>
+                <label className="block text-sm font-medium">EDA Username <span className="text-status-error">*</span></label>
                 <input
                   type="text"
                   value={formData.edaUser}
                   onChange={(e) => setFormData(prev => ({ ...prev, edaUser: e.target.value }))}
-                  className={`w-full px-3 py-2 text-[var(--vscode-input-foreground)] bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded text-sm ${errors.edaUser ? 'border-[var(--vscode-inputValidation-errorBorder)]' : ''}`}
+                  className={`w-full px-3 py-2 text-vscode-input-fg bg-vscode-input-bg border border-vscode-input-border rounded text-sm ${errors.edaUser ? 'border-(--vscode-inputValidation-errorBorder)' : ''}`}
                 />
-                {errors.edaUser && <span className="text-xs text-[var(--vscode-errorForeground)] mt-1">{errors.edaUser}</span>}
+                {errors.edaUser && <span className="text-xs text-status-error mt-1">{errors.edaUser}</span>}
               </div>
 
               <div>
-                <label className="block text-sm font-medium">EDA Password <span className="text-[var(--vscode-errorForeground)]">*</span></label>
+                <label className="block text-sm font-medium">EDA Password <span className="text-status-error">*</span></label>
                 <div className="relative">
                   <input
                     type={formUI.showEdaPass ? 'text' : 'password'}
                     value={formData.edaPass}
                     onChange={(e) => setFormData(prev => ({ ...prev, edaPass: e.target.value }))}
-                    className={`w-full px-3 py-2 pr-8 text-[var(--vscode-input-foreground)] bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded text-sm ${errors.edaPass ? 'border-[var(--vscode-inputValidation-errorBorder)]' : ''}`}
+                    className={`w-full px-3 py-2 pr-8 text-vscode-input-fg bg-vscode-input-bg border border-vscode-input-border rounded text-sm ${errors.edaPass ? 'border-(--vscode-inputValidation-errorBorder)' : ''}`}
                   />
                   <button
                     type="button"
@@ -395,12 +395,12 @@ function TargetWizardPanel() {
                     {formUI.showEdaPass ? '🙈' : '👁'}
                   </button>
                 </div>
-                {errors.edaPass && <span className="text-xs text-[var(--vscode-errorForeground)] mt-1">{errors.edaPass}</span>}
-                {formUI.edaPassHint && <span className="text-xs text-[var(--vscode-descriptionForeground)] mt-1">{formUI.edaPassHint}</span>}
+                {errors.edaPass && <span className="text-xs text-status-error mt-1">{errors.edaPass}</span>}
+                {formUI.edaPassHint && <span className="text-xs text-vscode-text-secondary mt-1">{formUI.edaPassHint}</span>}
               </div>
 
               <div>
-                <label className="block text-sm font-medium">Client Secret <span className="text-[var(--vscode-errorForeground)]">*</span></label>
+                <label className="block text-sm font-medium">Client Secret <span className="text-status-error">*</span></label>
                 <div className="flex gap-2">
                   <div className="relative flex-1">
                     <input
@@ -408,7 +408,7 @@ function TargetWizardPanel() {
                       value={formData.clientSecret}
                       onChange={(e) => setFormData(prev => ({ ...prev, clientSecret: e.target.value }))}
                       placeholder="Client secret for OAuth2 authentication"
-                      className={`w-full px-3 py-2 pr-8 text-[var(--vscode-input-foreground)] bg-[var(--vscode-input-background)] border border-[var(--vscode-input-border)] rounded text-sm ${errors.clientSecret ? 'border-[var(--vscode-inputValidation-errorBorder)]' : ''}`}
+                      className={`w-full px-3 py-2 pr-8 text-vscode-input-fg bg-vscode-input-bg border border-vscode-input-border rounded text-sm ${errors.clientSecret ? 'border-(--vscode-inputValidation-errorBorder)' : ''}`}
                     />
                     <button
                       type="button"
@@ -420,8 +420,8 @@ function TargetWizardPanel() {
                   </div>
                   <VSCodeButton variant="secondary" onClick={handleRetrieveSecret}>Retrieve</VSCodeButton>
                 </div>
-                {errors.clientSecret && <span className="text-xs text-[var(--vscode-errorForeground)] mt-1">{errors.clientSecret}</span>}
-                <span className="text-xs text-[var(--vscode-descriptionForeground)] mt-1 block">{formUI.clientSecretHint}</span>
+                {errors.clientSecret && <span className="text-xs text-status-error mt-1">{errors.clientSecret}</span>}
+                <span className="text-xs text-vscode-text-secondary mt-1 block">{formUI.clientSecretHint}</span>
               </div>
 
               <div>
@@ -436,7 +436,7 @@ function TargetWizardPanel() {
                 </label>
               </div>
 
-              <div className="flex justify-end gap-3 pt-4 mt-6 border-t border-[var(--vscode-panel-border)]">
+              <div className="flex justify-end gap-3 pt-4 mt-6 border-t border-vscode-border">
                 <VSCodeButton variant="secondary" onClick={handleCancel}>Cancel</VSCodeButton>
                 <VSCodeButton onClick={handleSave}>Save</VSCodeButton>
               </div>

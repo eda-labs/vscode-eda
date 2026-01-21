@@ -411,25 +411,25 @@ function NodeConfigPanel() {
   }, [highlightedAnnotation]);
 
   return (
-    <div className="grid grid-rows-[auto_1fr] h-screen overflow-hidden font-mono text-[length:var(--vscode-editor-font-size)]">
+    <div className="grid grid-rows-[auto_1fr] h-screen overflow-hidden font-mono text-(length:--vscode-editor-font-size)">
       {/* Toolbar */}
-      <div className="p-3 bg-[var(--vscode-sideBar-background)] border-b border-[var(--vscode-sideBar-border)] flex items-center gap-2.5">
+      <div className="p-3 bg-(--vscode-sideBar-background) border-b border-(--vscode-sideBar-border) flex items-center gap-2.5">
         <button
-          className="bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] border border-[var(--vscode-button-border,transparent)] rounded px-3 py-1.5 text-xs font-medium flex items-center gap-1.5 shadow-sm transition-all hover:bg-[var(--vscode-button-hoverBackground)] hover:-translate-y-px cursor-pointer"
+          className="bg-(--vscode-button-background) text-(--vscode-button-foreground) border border-(--vscode-button-border,transparent) rounded px-3 py-1.5 text-xs font-medium flex items-center gap-1.5 shadow-sm transition-all hover:bg-(--vscode-button-hoverBackground) hover:-translate-y-px cursor-pointer"
           onClick={handleToggleAnnotations}
         >
           <span className="text-sm leading-none">{'\u229E'}</span>
           <span>{isAnnotationsVisible ? 'Hide Annotations' : 'Show Annotations'}</span>
         </button>
         <button
-          className="bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] border border-[var(--vscode-button-border,transparent)] rounded px-3 py-1.5 text-xs font-medium flex items-center gap-1.5 shadow-sm transition-all hover:bg-[var(--vscode-button-hoverBackground)] hover:-translate-y-px cursor-pointer"
+          className="bg-(--vscode-button-background) text-(--vscode-button-foreground) border border-(--vscode-button-border,transparent) rounded px-3 py-1.5 text-xs font-medium flex items-center gap-1.5 shadow-sm transition-all hover:bg-(--vscode-button-hoverBackground) hover:-translate-y-px cursor-pointer"
           onClick={handleCopyConfig}
         >
           <span className="text-sm leading-none">{'\u29C9'}</span>
           <span>Copy Config</span>
         </button>
         <select
-          className="bg-[var(--vscode-dropdown-background)] text-[var(--vscode-dropdown-foreground)] border border-[var(--vscode-dropdown-border)] rounded px-2 py-1.5 text-xs cursor-pointer"
+          className="bg-(--vscode-dropdown-background) text-(--vscode-dropdown-foreground) border border-(--vscode-dropdown-border) rounded px-2 py-1.5 text-xs cursor-pointer"
           value={colorMode}
           onChange={handleColorModeChange}
         >
@@ -442,13 +442,13 @@ function NodeConfigPanel() {
       {/* Config View */}
       <div className={`grid overflow-y-auto font-mono transition-[grid-template-columns] duration-300 ${
         isAnnotationsVisible
-          ? '[grid-template-columns:max-content_auto_1fr]'
-          : '[grid-template-columns:auto_1fr]'
+          ? 'grid-cols-[max-content_auto_1fr]'
+          : 'grid-cols-[auto_1fr]'
       }`}>
         {lineData.map((line, idx) => (
           <div key={idx} className="contents">
             {line.showDivider && isAnnotationsVisible && (
-              <div className="col-span-full border-b border-[var(--vscode-textSeparator-foreground)] my-2.5" />
+              <div className="col-span-full border-b border-(--vscode-textSeparator-foreground) my-2.5" />
             )}
             <div
               className="contents"
@@ -460,10 +460,10 @@ function NodeConfigPanel() {
               {/* Annotation column */}
               {isAnnotationsVisible && (
                 <div
-                  className={`py-0.5 px-2.5 whitespace-pre text-right cursor-default select-none border-r border-[var(--vscode-sideBar-border)] transition-colors duration-200 ${
+                  className={`py-0.5 px-2.5 whitespace-pre text-right cursor-default select-none border-r border-(--vscode-sideBar-border) transition-colors duration-200 ${
                     isHighlighted(line.annotationKey)
-                      ? 'text-[var(--vscode-list-activeSelectionForeground)] bg-[var(--vscode-list-activeSelectionBackground)] font-bold'
-                      : 'text-[var(--vscode-descriptionForeground)] bg-[var(--vscode-editorWidget-background)] hover:text-[var(--vscode-list-hoverForeground)] hover:bg-[var(--vscode-list-hoverBackground)]'
+                      ? 'text-(--vscode-list-activeSelectionForeground) bg-(--vscode-list-activeSelectionBackground) font-bold'
+                      : 'text-(--vscode-descriptionForeground) bg-(--vscode-editorWidget-background) hover:text-(--vscode-list-hoverForeground) hover:bg-(--vscode-list-hoverBackground)'
                   }`}
                   data-annotation={line.annotationKey}
                 >
@@ -473,7 +473,7 @@ function NodeConfigPanel() {
                       {line.annotationInfo && line.annotationInfo.group && line.annotationInfo.version && line.annotationInfo.kind && (
                         <>
                           <br />
-                          <span className="text-[0.8em] text-[var(--vscode-editor-foreground)]">
+                          <span className="text-[0.8em] text-(--vscode-editor-foreground)">
                             {line.annotationInfo.group}/{line.annotationInfo.version} {line.annotationInfo.kind}
                           </span>
                         </>
@@ -483,15 +483,15 @@ function NodeConfigPanel() {
                 </div>
               )}
               {/* Line number column */}
-              <div className="py-0.5 px-2.5 whitespace-pre text-right text-[var(--vscode-editorLineNumber-foreground)] bg-[var(--vscode-editor-background)] select-none">
+              <div className="py-0.5 px-2.5 whitespace-pre text-right text-(--vscode-editorLineNumber-foreground) bg-(--vscode-editor-background) select-none">
                 {line.lineNum}
               </div>
               {/* Code column */}
               <div
-                className={`py-0.5 px-2.5 whitespace-pre transition-colors duration-200 relative z-[1] ${
+                className={`py-0.5 px-2.5 whitespace-pre transition-colors duration-200 relative z-1 ${
                   isHighlighted(line.annotationKey)
-                    ? 'bg-[var(--vscode-editor-selectionBackground)]'
-                    : 'bg-[var(--vscode-editor-background)]'
+                    ? 'bg-(--vscode-editor-selectionBackground)'
+                    : 'bg-(--vscode-editor-background)'
                 }`}
                 dangerouslySetInnerHTML={{ __html: line.content || ' ' }}
               />
@@ -501,7 +501,7 @@ function NodeConfigPanel() {
       </div>
 
       {/* Toast notification */}
-      <div className={`fixed bottom-5 right-5 bg-[var(--vscode-notificationToast-background)] text-[var(--vscode-notificationToast-foreground)] py-2.5 px-4 rounded shadow-lg z-[9999] flex items-center gap-2 transition-all duration-300 ${
+      <div className={`fixed bottom-5 right-5 bg-(--vscode-notificationToast-background) text-(--vscode-notificationToast-foreground) py-2.5 px-4 rounded shadow-lg z-9999 flex items-center gap-2 transition-all duration-300 ${
         showToast
           ? 'opacity-100 translate-y-0'
           : 'opacity-0 translate-y-5 pointer-events-none'

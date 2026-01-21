@@ -28,14 +28,14 @@
   margin-right: 8px;
   padding: 4px 12px;
   border: none;
-  background-color: var(--accent);
+  background-color: var(--color-vscode-accent);
   color: var(--vscode-button-foreground);
   border-radius: 4px;
   cursor: pointer;
 }
 
 .toggle-btn:hover {
-  background-color: var(--accent-hover);
+  background-color: var(--color-vscode-accent-hover);
 }
 
 .body {
@@ -46,17 +46,17 @@
 
 .cy {
   flex: 4;
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-vscode-border);
   border-radius: 8px;
-  background-color: var(--bg-secondary);
+  background-color: var(--color-vscode-bg-secondary);
   overflow: hidden;
 }
 
 .info-card {
   flex: 1;
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-vscode-border);
   border-radius: 8px;
-  background-color: var(--bg-secondary);
+  background-color: var(--color-vscode-bg-secondary);
   padding: 8px;
   overflow: auto;
   font-family: var(--vscode-font-family);
@@ -81,7 +81,7 @@
 }
 
 .info-card td:first-child {
-  color: var(--text-secondary);
+  color: var(--color-vscode-text-secondary);
 }
 
 .info-card tr.section td {
@@ -89,12 +89,14 @@
   padding-top: 6px;
 }
 
-.info-card .node-link {
+.info-card .node-link,
+.info-card .link-resource {
   color: var(--vscode-textLink-foreground);
   text-decoration: none;
 }
 
-.info-card .node-link:hover {
+.info-card .node-link:hover,
+.info-card .link-resource:hover {
   text-decoration: underline;
 }
 
@@ -138,9 +140,9 @@
 }
 
 .popup-content {
-  background-color: var(--bg-secondary);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
+  background-color: var(--color-vscode-bg-secondary);
+  color: var(--color-vscode-text-primary);
+  border: 1px solid var(--color-vscode-border);
   border-radius: 8px;
   padding: 16px;
   display: flex;

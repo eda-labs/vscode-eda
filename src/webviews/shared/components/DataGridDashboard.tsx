@@ -159,7 +159,7 @@ function DataGridDashboardInner<T extends DataGridMessage>({
   }), [columns, nameIdx, nsIdx, hasKubernetesContext, postMessage, getColumnIndex]);
 
   return (
-    <div className="p-6 max-w-[1400px] mx-auto">
+    <div className="p-6 max-w-350 mx-auto">
       <header className="flex items-center justify-end mb-4 gap-2">
         <VSCodeButton onClick={handleShowInTree}>
           Show in VS Code Tree
@@ -167,7 +167,7 @@ function DataGridDashboardInner<T extends DataGridMessage>({
         <select
           value={selectedNamespace}
           onChange={handleNamespaceChange}
-          className="px-2 py-1 bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border border-[var(--vscode-input-border)] rounded"
+          className="px-2 py-1 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded"
         >
           {namespaces.map(ns => (
             <option key={ns} value={ns}>{ns}</option>
@@ -179,13 +179,13 @@ function DataGridDashboardInner<T extends DataGridMessage>({
         <table className="w-full border-collapse rounded-lg overflow-hidden text-sm">
           <thead>
             <tr>
-              <th className="border border-[var(--vscode-panel-border)] px-2 py-1 bg-[var(--vscode-panel-background)] text-left">
+              <th className="border border-vscode-border px-2 py-1 bg-vscode-bg-secondary text-left">
                 Actions
               </th>
               {columns.map((col, idx) => (
                 <th
                   key={col}
-                  className="border border-[var(--vscode-panel-border)] px-2 py-1 bg-[var(--vscode-panel-background)] cursor-pointer select-none text-left"
+                  className="border border-vscode-border px-2 py-1 bg-vscode-bg-secondary cursor-pointer select-none text-left"
                   onClick={() => handleSort(idx)}
                 >
                   {col}
@@ -196,14 +196,14 @@ function DataGridDashboardInner<T extends DataGridMessage>({
               ))}
             </tr>
             <tr className="filters">
-              <td className="border border-[var(--vscode-panel-border)] p-0 bg-[var(--vscode-editorWidget-background)]" />
+              <td className="border border-vscode-border p-0 bg-vscode-bg-widget" />
               {columns.map((_, idx) => (
-                <td key={idx} className="border border-[var(--vscode-panel-border)] p-0 bg-[var(--vscode-editorWidget-background)]">
+                <td key={idx} className="border border-vscode-border p-0 bg-vscode-bg-widget">
                   <input
                     type="text"
                     value={filters[idx] ?? ''}
                     onChange={(e) => handleFilterChange(idx, e.target.value)}
-                    className="w-full px-1 py-0.5 bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border border-[var(--vscode-input-border)] rounded-sm"
+                    className="w-full px-1 py-0.5 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded-sm"
                   />
                 </td>
               ))}
@@ -211,15 +211,15 @@ function DataGridDashboardInner<T extends DataGridMessage>({
           </thead>
           <tbody>
             {filteredAndSortedRows.map((row, rowIdx) => (
-              <tr key={rowIdx} className="hover:bg-[var(--vscode-list-hoverBackground)]">
-                <td className="border border-[var(--vscode-panel-border)] px-2 py-1 whitespace-pre">
+              <tr key={rowIdx} className="hover:bg-vscode-bg-hover">
+                <td className="border border-vscode-border px-2 py-1 whitespace-pre">
                   {renderActions(row, context)}
                 </td>
                 {columns.map((col, colIdx) => {
                   const value = row[colIdx] == null ? '' : String(row[colIdx]);
                   const content = renderCell ? renderCell(value, col, colIdx, row) : value;
                   return (
-                    <td key={colIdx} className="border border-[var(--vscode-panel-border)] px-2 py-1 whitespace-pre">
+                    <td key={colIdx} className="border border-vscode-border px-2 py-1 whitespace-pre">
                       {content}
                     </td>
                   );
@@ -230,7 +230,7 @@ function DataGridDashboardInner<T extends DataGridMessage>({
         </table>
       </div>
 
-      <div className="pt-1 border-t border-[var(--vscode-panel-border)] mt-2">
+      <div className="pt-1 border-t border-vscode-border mt-2">
         <span>{displayStatus}</span>
       </div>
     </div>

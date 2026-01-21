@@ -86,7 +86,7 @@ function DataTableInner<T extends Record<string, unknown>>({
   };
 
   const getRowClasses = (row: T) => {
-    const base = 'border-b border-[var(--vscode-widget-border)] hover:bg-[var(--vscode-list-hoverBackground)]';
+    const base = 'border-b border-vscode-border hover:bg-vscode-bg-hover';
     const clickable = onRowClick ? 'cursor-pointer' : '';
     const custom = typeof rowClassName === 'function' ? rowClassName(row) : (rowClassName ?? '');
     return `${base} ${clickable} ${custom}`.trim();
@@ -101,18 +101,18 @@ function DataTableInner<T extends Record<string, unknown>>({
             value={search}
             onChange={handleSearchChange}
             placeholder={searchPlaceholder}
-            className="w-full px-3 py-1.5 bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border border-[var(--vscode-input-border)] rounded focus:outline-none focus:border-[var(--vscode-focusBorder)]"
+            className="w-full px-3 py-1.5 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded focus:outline-none focus:border-(--vscode-focusBorder)"
           />
         </div>
       )}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left border-b border-[var(--vscode-widget-border)]">
+            <tr className="text-left border-b border-vscode-border">
               {columns.map(col => (
                 <th
                   key={String(col.key)}
-                  className={`px-3 py-2 font-medium text-[var(--vscode-foreground)] ${col.sortable !== false ? 'cursor-pointer select-none hover:bg-[var(--vscode-list-hoverBackground)]' : ''} ${col.className ?? ''}`}
+                  className={`px-3 py-2 font-medium text-vscode-text-primary ${col.sortable !== false ? 'cursor-pointer select-none hover:bg-vscode-bg-hover' : ''} ${col.className ?? ''}`}
                   onClick={col.sortable !== false ? () => handleSort(String(col.key)) : undefined}
                 >
                   <span className="flex items-center gap-1">
@@ -130,7 +130,7 @@ function DataTableInner<T extends Record<string, unknown>>({
               <tr>
                 <td
                   colSpan={columns.length}
-                  className="px-3 py-8 text-center text-[var(--vscode-descriptionForeground)]"
+                  className="px-3 py-8 text-center text-vscode-text-secondary"
                 >
                   {emptyMessage}
                 </td>
@@ -147,7 +147,7 @@ function DataTableInner<T extends Record<string, unknown>>({
                     return (
                       <td
                         key={String(col.key)}
-                        className={`px-3 py-2 text-[var(--vscode-foreground)] ${col.className ?? ''}`}
+                        className={`px-3 py-2 text-vscode-text-primary ${col.className ?? ''}`}
                       >
                         {col.render ? col.render(value, row) : String(value ?? '')}
                       </td>

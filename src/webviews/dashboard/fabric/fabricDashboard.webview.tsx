@@ -51,19 +51,19 @@ interface FabricStats {
 
 function StatCard({ label, value, healthIndicator }: { label: string; value: string | number; healthIndicator?: number }) {
   const getHealthColor = (h: number | undefined) => {
-    if (h === undefined) return 'bg-[var(--info)]';
-    if (h >= 90) return 'bg-green-500';
-    if (h >= 50) return 'bg-yellow-500';
-    return 'bg-red-500';
+    if (h === undefined) return 'bg-status-info';
+    if (h >= 90) return 'bg-status-success';
+    if (h >= 50) return 'bg-status-warning';
+    return 'bg-status-error';
   };
 
   return (
-    <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-6 transition-all relative overflow-hidden hover:-translate-y-1 hover:shadow-lg hover:border-[var(--accent)]">
-      <div className="text-[var(--text-secondary)] text-xs uppercase tracking-wide mb-2">{label}</div>
+    <div className="bg-vscode-bg-secondary border border-vscode-border rounded-xl p-6 transition-all relative overflow-hidden hover:-translate-y-1 hover:shadow-lg hover:border-vscode-accent">
+      <div className="text-vscode-text-secondary text-xs uppercase tracking-wide mb-2">{label}</div>
       <div className="flex items-center gap-2">
         <div className="text-2xl font-bold mb-1">{value}</div>
         {healthIndicator !== undefined && (
-          <div className={`w-3 h-3 rounded-full shrink-0 ${getHealthColor(healthIndicator)}`}></div>
+          <div className={`size-3 rounded-full shrink-0 ${getHealthColor(healthIndicator)}`}></div>
         )}
       </div>
     </div>
@@ -322,18 +322,18 @@ function FabricDashboard() {
   }, [postMessage]);
 
   return (
-    <div className="p-6 max-w-screen-xl mx-auto">
+    <div className="p-6 max-w-7xl mx-auto">
       <header className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-semibold mb-1 bg-gradient-to-r from-[var(--accent)] to-[var(--info)] bg-clip-text text-transparent">
+          <h1 className="text-2xl font-semibold mb-1 bg-linear-to-r from-vscode-accent to-status-info bg-clip-text text-transparent">
             Fabric Network Dashboard
           </h1>
-          <p className="text-sm text-[var(--text-secondary)]">
+          <p className="text-sm text-vscode-text-secondary">
             Real-time monitoring and analytics for your network infrastructure
           </p>
         </div>
         <select
-          className="bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border border-[var(--vscode-input-border)] rounded px-2 py-1"
+          className="bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded px-2 py-1"
           value={selectedNamespace}
           onChange={handleNamespaceChange}
         >
@@ -343,28 +343,28 @@ function FabricDashboard() {
         </select>
       </header>
 
-      <div className="grid gap-5 mb-8 [grid-template-columns:repeat(auto-fit,minmax(280px,1fr))]">
+      <div className="grid gap-5 mb-8 grid-cols-[repeat(auto-fit,minmax(280px,1fr))]">
         <StatCard label="Total Nodes" value={nodeStats.total} />
         <StatCard label="Synced Nodes" value={nodeStats.synced} />
         <StatCard label="Not Synced" value={nodeStats.notSynced} />
       </div>
 
-      <div className="grid gap-5 mb-8 xl:[grid-template-columns:auto_1fr]">
-        <div className="flex flex-col gap-5 w-[280px] sm:flex-row xl:flex-col xl:w-[280px] sm:w-full">
+      <div className="grid gap-5 mb-8 xl:grid-cols-[auto_1fr]">
+        <div className="flex flex-col gap-5 w-70 sm:flex-row xl:flex-col xl:w-70 sm:w-full">
           <StatCard label="Total Interfaces" value={interfaceStats.total} />
           <StatCard label="Up Interfaces" value={interfaceStats.up} />
           <StatCard label="Down Interfaces" value={interfaceStats.down} />
         </div>
 
-        <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-6 transition-all hover:border-[var(--accent)] hover:shadow-md flex-1">
+        <div className="bg-vscode-bg-secondary border border-vscode-border rounded-xl p-6 transition-all hover:border-vscode-accent hover:shadow-md flex-1">
           <div className="text-lg font-semibold mb-4 flex items-center justify-between">
             <span>Traffic Rate</span>
           </div>
-          <div ref={chartRef} className="h-[300px]"></div>
+          <div ref={chartRef} className="h-75"></div>
         </div>
       </div>
 
-      <div className="grid gap-5 mb-8 [grid-template-columns:repeat(5,1fr)]">
+      <div className="grid gap-5 mb-8 grid-cols-5">
         <StatCard label="Fabric Health" value={`${fabricStats.health}%`} healthIndicator={fabricStats.health} />
         <StatCard label="Spines" value={fabricStats.spines.count} healthIndicator={fabricStats.spines.health} />
         <StatCard label="Leafs" value={fabricStats.leafs.count} healthIndicator={fabricStats.leafs.health} />

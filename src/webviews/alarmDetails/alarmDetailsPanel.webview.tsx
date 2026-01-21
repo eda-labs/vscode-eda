@@ -48,7 +48,7 @@ function getSeverityColor(severity: string | undefined): string {
 function SummaryItem({ label, value, className = '' }: { label: string; value: string; className?: string }) {
   return (
     <div className={`flex flex-col gap-1 ${className}`}>
-      <div className="text-xs text-[var(--vscode-descriptionForeground)] uppercase tracking-wide">{label}</div>
+      <div className="text-xs text-vscode-text-secondary uppercase tracking-wide">{label}</div>
       <div className="text-sm">{value}</div>
     </div>
   );
@@ -56,7 +56,7 @@ function SummaryItem({ label, value, className = '' }: { label: string; value: s
 
 function Section({ icon, title, children }: { icon: string; title: string; children: React.ReactNode }) {
   return (
-    <div className="mb-6 p-4 bg-[var(--vscode-panel-background)] rounded-lg border border-[var(--vscode-panel-border)]">
+    <div className="mb-6 p-4 bg-vscode-bg-secondary rounded-lg border border-vscode-border">
       <h2 className="text-lg font-semibold mb-2 flex items-center gap-2">
         <span>{icon}</span> {title}
       </h2>
@@ -88,7 +88,7 @@ function AlarmDetailsPanel() {
   if (!data) {
     return (
       <div className="p-6 flex items-center justify-center">
-        <span className="text-[var(--vscode-descriptionForeground)]">Loading...</span>
+        <span className="text-vscode-text-secondary">Loading...</span>
       </div>
     );
   }
@@ -96,16 +96,16 @@ function AlarmDetailsPanel() {
   const severityColor = getSeverityColor(data.severity);
 
   return (
-    <div className="p-6 max-w-[1200px] mx-auto">
+    <div className="p-6 max-w-300 mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-semibold mb-4">
-          Alarm <span className="text-[var(--vscode-textLink-foreground)]">{data.name}</span>
+          Alarm <span className="text-vscode-link">{data.name}</span>
         </h1>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 p-4 bg-[var(--vscode-panel-background)] rounded-lg border border-[var(--vscode-panel-border)]">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 p-4 bg-vscode-bg-secondary rounded-lg border border-vscode-border">
           <SummaryItem label="Kind" value={data.kind} />
           <SummaryItem label="Type" value={data.type} />
           <div className="flex flex-col gap-1">
-            <div className="text-xs text-[var(--vscode-descriptionForeground)] uppercase tracking-wide">Severity</div>
+            <div className="text-xs text-vscode-text-secondary uppercase tracking-wide">Severity</div>
             <div className="text-sm" style={{ color: severityColor }}>{data.severity}</div>
           </div>
           <SummaryItem label="Namespace" value={data.namespace} />
@@ -138,7 +138,7 @@ function AlarmDetailsPanel() {
         </Section>
       )}
 
-      <div className="mb-6 p-4 bg-[var(--vscode-panel-background)] rounded-lg border border-[var(--vscode-panel-border)]">
+      <div className="mb-6 p-4 bg-vscode-bg-secondary rounded-lg border border-vscode-border">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <span>📋</span> Raw JSON
@@ -147,7 +147,7 @@ function AlarmDetailsPanel() {
             {copied ? '✓ Copied!' : '📋 Copy'}
           </VSCodeButton>
         </div>
-        <pre className="text-xs overflow-auto max-h-96 p-2 bg-[var(--vscode-textCodeBlock-background)] rounded">
+        <pre className="text-xs overflow-auto max-h-96 p-2 bg-vscode-code-bg rounded">
           {data.rawJson}
         </pre>
       </div>

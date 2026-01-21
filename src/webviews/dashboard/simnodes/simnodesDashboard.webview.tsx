@@ -7,9 +7,9 @@ interface SimnodesMessage extends DataGridMessage {
 }
 
 function getStatusClassName(value: string): string {
-  if (value === 'Running') return 'text-green-500';
-  if (value === 'Starting' || value === 'Pending') return 'text-yellow-500';
-  if (value === 'No Pod' || value === 'Failed' || value === 'Unknown') return 'text-red-500';
+  if (value === 'Running') return 'text-status-success';
+  if (value === 'Starting' || value === 'Pending') return 'text-status-warning';
+  if (value === 'No Pod' || value === 'Failed' || value === 'Unknown') return 'text-status-error';
   return '';
 }
 
@@ -32,14 +32,14 @@ function SimnodesDashboard() {
     return (
       <>
         <button
-          className="mr-1 p-1 border-none bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] rounded cursor-pointer inline-flex items-center justify-center hover:bg-[var(--vscode-button-hoverBackground)]"
+          className="mr-1 p-1 border-none bg-vscode-accent text-vscode-button-fg rounded cursor-pointer inline-flex items-center justify-center hover:bg-vscode-accent-hover"
           title="View YAML"
           onClick={handleViewYaml}
         >
           <span className="codicon codicon-file-code" />
         </button>
         <button
-          className="p-1 border-none bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] rounded cursor-pointer inline-flex items-center justify-center hover:bg-[var(--vscode-button-hoverBackground)] disabled:opacity-50 disabled:cursor-not-allowed"
+          className="p-1 border-none bg-vscode-accent text-vscode-button-fg rounded cursor-pointer inline-flex items-center justify-center hover:bg-vscode-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
           title={hasKubernetesContext ? 'SSH to SimNode' : 'Kubernetes context needs to be set to enable SSH'}
           disabled={!hasKubernetesContext}
           onClick={handleSSH}

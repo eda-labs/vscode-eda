@@ -39,27 +39,27 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           <div className="mb-4">
             <span className="text-4xl">⚠️</span>
           </div>
-          <h2 className="text-lg font-semibold mb-2 text-[var(--vscode-errorForeground)]">
+          <h2 className="text-lg font-semibold mb-2 text-status-error">
             Something went wrong
           </h2>
-          <p className="text-sm text-[var(--vscode-descriptionForeground)] mb-4">
+          <p className="text-sm text-vscode-text-secondary mb-4">
             An error occurred while rendering this view.
           </p>
           {this.state.error && (
-            <details className="text-left bg-[var(--vscode-textBlockQuote-background)] p-3 rounded text-xs">
+            <details className="text-left bg-vscode-code-bg p-3 rounded text-xs">
               <summary className="cursor-pointer mb-2 font-medium">Error details</summary>
-              <pre className="overflow-auto whitespace-pre-wrap text-[var(--vscode-errorForeground)]">
+              <pre className="overflow-auto whitespace-pre-wrap text-status-error">
                 {this.state.error.message}
               </pre>
               {this.state.error.stack && (
-                <pre className="overflow-auto whitespace-pre-wrap mt-2 text-[var(--vscode-descriptionForeground)]">
+                <pre className="overflow-auto whitespace-pre-wrap mt-2 text-vscode-text-secondary">
                   {this.state.error.stack}
                 </pre>
               )}
             </details>
           )}
           <button
-            className="mt-4 px-4 py-2 bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] rounded hover:bg-[var(--vscode-button-hoverBackground)]"
+            className="mt-4 px-4 py-2 bg-vscode-accent text-vscode-button-fg rounded hover:bg-vscode-accent-hover"
             onClick={() => this.setState({ hasError: false, error: null })}
           >
             Try again

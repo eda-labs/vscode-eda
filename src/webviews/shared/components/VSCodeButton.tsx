@@ -7,12 +7,12 @@ export interface VSCodeButtonProps extends ButtonHTMLAttributes<HTMLButtonElemen
 
 export const VSCodeButton = memo(forwardRef<HTMLButtonElement, VSCodeButtonProps>(
   function VSCodeButton({ variant = 'primary', size = 'md', className = '', children, ...props }, ref) {
-    const baseClasses = 'inline-flex items-center justify-center font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--vscode-focusBorder)] disabled:opacity-50 disabled:cursor-not-allowed';
+    const baseClasses = 'inline-flex items-center justify-center font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-(--vscode-focusBorder) disabled:opacity-50 disabled:cursor-not-allowed';
 
     const variantClasses = {
-      primary: 'bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] hover:bg-[var(--vscode-button-hoverBackground)]',
-      secondary: 'bg-[var(--vscode-button-secondaryBackground)] text-[var(--vscode-button-secondaryForeground)] hover:bg-[var(--vscode-button-secondaryHoverBackground)]',
-      icon: 'bg-transparent text-[var(--vscode-foreground)] hover:bg-[var(--vscode-toolbar-hoverBackground)]'
+      primary: 'bg-vscode-accent text-vscode-button-fg hover:bg-vscode-accent-hover',
+      secondary: 'bg-(--vscode-button-secondaryBackground) text-(--vscode-button-secondaryForeground) hover:bg-(--vscode-button-secondaryHoverBackground)',
+      icon: 'bg-transparent text-vscode-text-primary hover:bg-vscode-bg-hover'
     };
 
     const sizeClasses = {

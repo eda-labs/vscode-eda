@@ -22,7 +22,7 @@ export const VSCodeSelect = memo(forwardRef<HTMLSelectElement, VSCodeSelectProps
         {label && (
           <label
             htmlFor={selectId}
-            className="text-sm text-[var(--vscode-foreground)]"
+            className="text-sm text-vscode-text-primary"
           >
             {label}
           </label>
@@ -30,7 +30,7 @@ export const VSCodeSelect = memo(forwardRef<HTMLSelectElement, VSCodeSelectProps
         <select
           ref={ref}
           id={selectId}
-          className={`px-3 py-1.5 bg-[var(--vscode-dropdown-background)] text-[var(--vscode-dropdown-foreground)] border border-[var(--vscode-dropdown-border)] rounded focus:outline-none focus:border-[var(--vscode-focusBorder)] ${error ? 'border-[var(--vscode-inputValidation-errorBorder)]' : ''} ${className}`}
+          className={`px-3 py-1.5 bg-(--vscode-dropdown-background) text-(--vscode-dropdown-foreground) border border-(--vscode-dropdown-border) rounded focus:outline-none focus:border-(--vscode-focusBorder) ${error ? 'border-(--vscode-inputValidation-errorBorder)' : ''} ${className}`}
           {...props}
         >
           {placeholder && (
@@ -49,7 +49,7 @@ export const VSCodeSelect = memo(forwardRef<HTMLSelectElement, VSCodeSelectProps
           ))}
         </select>
         {error && (
-          <span className="text-xs text-[var(--vscode-inputValidation-errorForeground)]">
+          <span className="text-xs text-status-error">
             {error}
           </span>
         )}

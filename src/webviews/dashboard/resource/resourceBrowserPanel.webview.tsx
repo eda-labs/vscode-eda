@@ -44,18 +44,18 @@ function SchemaProp({ name, node, isRequired }: { name: string; node: SchemaNode
   return (
     <details className="ml-4 mb-1" open={isOpen}>
       <summary
-        className="flex items-center gap-2 cursor-pointer py-1 hover:bg-[var(--vscode-list-hoverBackground)]"
+        className="flex items-center gap-2 cursor-pointer py-1 hover:bg-vscode-bg-hover"
         onClick={(e) => { e.preventDefault(); setIsOpen(!isOpen); }}
       >
-        <span className="font-medium text-[var(--vscode-symbolIcon-propertyForeground)]">{name}</span>
+        <span className="font-medium text-(--vscode-symbolIcon-propertyForeground)">{name}</span>
         {isRequired && (
-          <span className="text-xs px-1 py-0.5 bg-red-500/20 text-red-400 rounded">required</span>
+          <span className="text-xs px-1 py-0.5 bg-status-error/20 text-status-error rounded">required</span>
         )}
-        <span className="text-xs px-1 py-0.5 bg-[var(--vscode-badge-background)] text-[var(--vscode-badge-foreground)] rounded">{type}</span>
+        <span className="text-xs px-1 py-0.5 bg-(--vscode-badge-background) text-(--vscode-badge-foreground) rounded">{type}</span>
       </summary>
-      <div className="ml-2 border-l border-[var(--vscode-panel-border)] pl-2">
+      <div className="ml-2 border-l border-vscode-border pl-2">
         {node.description && (
-          <p className="text-sm text-[var(--vscode-descriptionForeground)] mb-1">{node.description}</p>
+          <p className="text-sm text-vscode-text-secondary mb-1">{node.description}</p>
         )}
         {node.properties && <SchemaProps node={node} />}
         {node.items?.properties && <SchemaProps node={node.items} />}
@@ -88,17 +88,17 @@ function SchemaSection({ name, node }: { name: string; node: SchemaNode }) {
   }, [expandTrigger]);
 
   return (
-    <details className="mb-4 border border-[var(--vscode-panel-border)] rounded" open={isOpen}>
+    <details className="mb-4 border border-vscode-border rounded" open={isOpen}>
       <summary
-        className="flex items-center gap-2 cursor-pointer p-2 bg-[var(--vscode-panel-background)] hover:bg-[var(--vscode-list-hoverBackground)]"
+        className="flex items-center gap-2 cursor-pointer p-2 bg-vscode-bg-secondary hover:bg-vscode-bg-hover"
         onClick={(e) => { e.preventDefault(); setIsOpen(!isOpen); }}
       >
         <span className="font-semibold">{name}</span>
-        <span className="text-xs px-1 py-0.5 bg-[var(--vscode-badge-background)] text-[var(--vscode-badge-foreground)] rounded">{type}</span>
+        <span className="text-xs px-1 py-0.5 bg-(--vscode-badge-background) text-(--vscode-badge-foreground) rounded">{type}</span>
       </summary>
       <div className="p-2">
         {node.description && (
-          <p className="text-sm text-[var(--vscode-descriptionForeground)] mb-2">{node.description}</p>
+          <p className="text-sm text-vscode-text-secondary mb-2">{node.description}</p>
         )}
         <SchemaProps node={node} />
       </div>
@@ -174,19 +174,19 @@ function ResourceBrowserPanel() {
 
   return (
     <ExpandContext.Provider value={expandTrigger}>
-      <div className="p-6 max-w-[1400px] mx-auto">
+      <div className="p-6 max-w-350 mx-auto">
         <header className="flex items-center gap-2 mb-4">
           <input
             type="text"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Search..."
-            className="px-2 py-1 bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border border-[var(--vscode-input-border)] rounded flex-1 max-w-xs"
+            className="px-2 py-1 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded flex-1 max-w-xs"
           />
           <select
             value={selectedResource}
             onChange={handleResourceChange}
-            className="px-2 py-1 bg-[var(--vscode-input-background)] text-[var(--vscode-input-foreground)] border border-[var(--vscode-input-border)] rounded flex-1"
+            className="px-2 py-1 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded flex-1"
           >
             {filteredResources.map(r => (
               <option key={r.name} value={r.name}>{r.kind} ({r.name})</option>
@@ -197,12 +197,12 @@ function ResourceBrowserPanel() {
 
         <h1 className="text-xl font-semibold mb-2">{title}</h1>
 
-        <div className="mb-4 p-2 bg-[var(--vscode-textCodeBlock-background)] rounded overflow-auto max-h-48">
+        <div className="mb-4 p-2 bg-vscode-code-bg rounded overflow-auto max-h-48">
           <pre className="text-sm whitespace-pre-wrap">{yaml}</pre>
         </div>
 
         {description && (
-          <p className="text-[var(--vscode-descriptionForeground)] mb-4">{description}</p>
+          <p className="text-vscode-text-secondary mb-4">{description}</p>
         )}
 
         <div className="flex gap-2 mb-4">

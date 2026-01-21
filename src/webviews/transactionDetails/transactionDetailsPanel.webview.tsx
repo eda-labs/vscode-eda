@@ -55,7 +55,7 @@ interface ErrorSummary {
 
 function Section({ icon, title, children }: { icon: string; title: string; children: React.ReactNode }) {
   return (
-    <div className="mb-6 p-4 bg-[var(--vscode-panel-background)] rounded-lg border border-[var(--vscode-panel-border)]">
+    <div className="mb-6 p-4 bg-vscode-bg-secondary rounded-lg border border-vscode-border">
       <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
         <span>{icon}</span> {title}
       </h2>
@@ -66,10 +66,10 @@ function Section({ icon, title, children }: { icon: string; title: string; child
 
 function ResourceItem({ path, name, isDelete }: { path: string; name?: string; isDelete?: boolean }) {
   return (
-    <li className="flex items-center gap-2 py-1 px-2 hover:bg-[var(--vscode-list-hoverBackground)] rounded">
-      <span className="text-[var(--vscode-descriptionForeground)]">{path}</span>
+    <li className="flex items-center gap-2 py-1 px-2 hover:bg-vscode-bg-hover rounded">
+      <span className="text-vscode-text-secondary">{path}</span>
       {name && <span className="font-medium">{name}</span>}
-      {isDelete && <span className="text-xs px-1 py-0.5 bg-red-500/20 text-red-400 rounded">DELETE</span>}
+      {isDelete && <span className="text-xs px-1 py-0.5 bg-status-error/20 text-status-error rounded">DELETE</span>}
     </li>
   );
 }
@@ -78,16 +78,16 @@ function NodeItem({ node }: { node: NodeConfig }) {
   const hasErrors = node.errors && node.errors.length > 0;
 
   return (
-    <li className={`p-3 mb-2 rounded border ${hasErrors ? 'border-red-500/50 bg-red-500/10' : 'border-[var(--vscode-panel-border)]'}`}>
+    <li className={`p-3 mb-2 rounded border ${hasErrors ? 'border-status-error/50 bg-status-error/10' : 'border-vscode-border'}`}>
       <div className="flex justify-between items-center mb-1">
         <span className="font-medium">{node.name}</span>
-        <span className="text-sm text-[var(--vscode-descriptionForeground)]">Namespace: {node.namespace}</span>
+        <span className="text-sm text-vscode-text-secondary">Namespace: {node.namespace}</span>
       </div>
       {hasErrors && (
         <div className="mt-2 space-y-2">
           {node.errors!.map((err, idx) => (
-            <div key={idx} className="text-sm p-2 bg-red-500/20 rounded">
-              <div className="text-red-400">{err}</div>
+            <div key={idx} className="text-sm p-2 bg-status-error/20 rounded">
+              <div className="text-status-error">{err}</div>
             </div>
           ))}
         </div>
@@ -100,22 +100,22 @@ function ErrorsSummary({ errors }: { errors: ErrorSummary[] }) {
   if (errors.length === 0) return <></>;
 
   return (
-    <div className="mb-4 p-4 bg-red-500/10 border border-red-500/50 rounded-lg">
+    <div className="mb-4 p-4 bg-status-error/10 border border-status-error/50 rounded-lg">
       <div className="flex items-center gap-2 mb-2">
         <span>⚠️</span>
         <span className="font-semibold">Errors ({errors.length})</span>
       </div>
       <div className="space-y-2">
         {errors.map((err, idx) => (
-          <div key={idx} className="p-2 bg-[var(--vscode-panel-background)] rounded">
+          <div key={idx} className="p-2 bg-vscode-bg-secondary rounded">
             <div className="flex items-center gap-2 mb-1">
-              <span className={`text-xs px-1.5 py-0.5 rounded ${err.type === 'Intent Error' ? 'bg-orange-500/20 text-orange-400' : 'bg-red-500/20 text-red-400'}`}>
+              <span className={`text-xs px-1.5 py-0.5 rounded ${err.type === 'Intent Error' ? 'bg-status-warning/20 text-status-warning' : 'bg-status-error/20 text-status-error'}`}>
                 {err.type}
               </span>
               <span className="text-sm font-medium">{err.source}</span>
-              {err.crName && <span className="text-xs text-[var(--vscode-descriptionForeground)]">CR: {err.crName}</span>}
+              {err.crName && <span className="text-xs text-vscode-text-secondary">CR: {err.crName}</span>}
             </div>
-            <div className="text-sm text-[var(--vscode-descriptionForeground)]">{err.message}</div>
+            <div className="text-sm text-vscode-text-secondary">{err.message}</div>
           </div>
         ))}
       </div>
@@ -194,7 +194,7 @@ function TransactionDetailsPanel() {
   if (!data) {
     return (
       <div className="p-6 flex items-center justify-center">
-        <span className="text-[var(--vscode-descriptionForeground)]">Loading...</span>
+        <span className="text-vscode-text-secondary">Loading...</span>
       </div>
     );
   }
@@ -202,39 +202,39 @@ function TransactionDetailsPanel() {
   const isSuccess = data.success === 'Yes';
 
   return (
-    <div className="p-6 max-w-[1200px] mx-auto">
+    <div className="p-6 max-w-300 mx-auto">
       <div className="mb-6">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-semibold">
-            Transaction <span className={isSuccess ? 'text-green-500' : 'text-red-500'}>#{data.id}</span>
+            Transaction <span className={isSuccess ? 'text-status-success' : 'text-status-error'}>#{data.id}</span>
           </h1>
           <VSCodeButton onClick={handleShowDiffs}>Show Diffs</VSCodeButton>
         </div>
 
         <ErrorsSummary errors={allErrors} />
 
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 p-4 bg-[var(--vscode-panel-background)] rounded-lg border border-[var(--vscode-panel-border)]">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 p-4 bg-vscode-bg-secondary rounded-lg border border-vscode-border">
           <div>
-            <div className="text-xs text-[var(--vscode-descriptionForeground)] uppercase">State</div>
+            <div className="text-xs text-vscode-text-secondary uppercase">State</div>
             <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${isSuccess ? 'bg-green-500' : 'bg-red-500'}`} />
+              <span className={`size-2 rounded-full ${isSuccess ? 'bg-status-success' : 'bg-status-error'}`} />
               {data.state}
             </div>
           </div>
           <div>
-            <div className="text-xs text-[var(--vscode-descriptionForeground)] uppercase">User</div>
+            <div className="text-xs text-vscode-text-secondary uppercase">User</div>
             <div>{data.username}</div>
           </div>
           <div>
-            <div className="text-xs text-[var(--vscode-descriptionForeground)] uppercase">Success</div>
-            <div className={isSuccess ? 'text-green-500' : 'text-red-500'}>{data.success}</div>
+            <div className="text-xs text-vscode-text-secondary uppercase">Success</div>
+            <div className={isSuccess ? 'text-status-success' : 'text-status-error'}>{data.success}</div>
           </div>
           <div>
-            <div className="text-xs text-[var(--vscode-descriptionForeground)] uppercase">Dry Run</div>
+            <div className="text-xs text-vscode-text-secondary uppercase">Dry Run</div>
             <div>{data.dryRun}</div>
           </div>
           <div className="col-span-2 md:col-span-3 lg:col-span-1">
-            <div className="text-xs text-[var(--vscode-descriptionForeground)] uppercase">Description</div>
+            <div className="text-xs text-vscode-text-secondary uppercase">Description</div>
             <div>{data.description}</div>
           </div>
         </div>
@@ -293,7 +293,7 @@ function TransactionDetailsPanel() {
       )}
 
       {data.generalErrors && (
-        <div className="mb-6 p-4 bg-red-500/10 border border-red-500/50 rounded-lg">
+        <div className="mb-6 p-4 bg-status-error/10 border border-status-error/50 rounded-lg">
           <h2 className="text-lg font-semibold mb-2 flex items-center gap-2">
             <span>⚠️</span> General Errors
           </h2>
@@ -301,7 +301,7 @@ function TransactionDetailsPanel() {
         </div>
       )}
 
-      <div className="mb-6 p-4 bg-[var(--vscode-panel-background)] rounded-lg border border-[var(--vscode-panel-border)]">
+      <div className="mb-6 p-4 bg-vscode-bg-secondary rounded-lg border border-vscode-border">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <span>📋</span> Raw JSON
@@ -310,7 +310,7 @@ function TransactionDetailsPanel() {
             {copied ? '✓ Copied!' : '📋 Copy'}
           </VSCodeButton>
         </div>
-        <pre className="text-xs overflow-auto max-h-96 p-2 bg-[var(--vscode-textCodeBlock-background)] rounded">
+        <pre className="text-xs overflow-auto max-h-96 p-2 bg-vscode-code-bg rounded">
           {data.rawJson}
         </pre>
       </div>
