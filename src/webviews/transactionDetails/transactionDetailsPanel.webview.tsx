@@ -54,7 +54,7 @@ interface ErrorSummary {
   crName?: string;
 }
 
-function Section({ icon, title, children }: { icon: string; title: string; children: React.ReactNode }) {
+function Section({ icon, title, children }: Readonly<{ icon: string; title: string; children: React.ReactNode }>) {
   return (
     <div className="mb-6 p-4 bg-vscode-bg-secondary rounded-lg border border-vscode-border">
       <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
@@ -65,7 +65,7 @@ function Section({ icon, title, children }: { icon: string; title: string; child
   );
 }
 
-function ResourceItem({ path, name, isDelete }: { path: string; name?: string; isDelete?: boolean }) {
+function ResourceItem({ path, name, isDelete }: Readonly<{ path: string; name?: string; isDelete?: boolean }>) {
   return (
     <li className="flex items-center gap-2 py-1 px-2 hover:bg-vscode-bg-hover rounded-sm">
       <span className="text-vscode-text-secondary">{path}</span>
@@ -75,7 +75,7 @@ function ResourceItem({ path, name, isDelete }: { path: string; name?: string; i
   );
 }
 
-function NodeItem({ node }: { node: NodeConfig }) {
+function NodeItem({ node }: Readonly<{ node: NodeConfig }>) {
   const hasErrors = node.errors && node.errors.length > 0;
 
   return (
@@ -97,7 +97,7 @@ function NodeItem({ node }: { node: NodeConfig }) {
   );
 }
 
-function ErrorsSummary({ errors }: { errors: ErrorSummary[] }) {
+function ErrorsSummary({ errors }: Readonly<{ errors: ErrorSummary[] }>) {
   if (errors.length === 0) return <></>;
 
   return (
@@ -140,7 +140,7 @@ function TransactionDetailsPanel() {
   const handleCopy = useCallback(() => {
     if (data?.rawJson) {
       postMessage({ command: 'copy', text: data.rawJson });
-      copyToClipboard(data.rawJson);
+      copyToClipboard(data.rawJson).catch(() => {});
     }
   }, [data, postMessage, copyToClipboard]);
 
@@ -174,7 +174,7 @@ function TransactionDetailsPanel() {
       data.nodesWithConfigChanges.forEach(node => {
         if (node.errors) {
           node.errors.forEach(err => {
-            const validationMatch = err.match(/failed\s+validate:\s*(.+?)\s*error_str:"(.+?)"\s*cr_name:"(.+?)"/);
+            const validationMatch = /failed\s+validate:\s*(\S+)\s+error_str:"([^"]*)"\s*cr_name:"([^"]*)"/.exec(err);
             if (validationMatch) {
               const [, , errorStr, crName] = validationMatch;
               errors.push({

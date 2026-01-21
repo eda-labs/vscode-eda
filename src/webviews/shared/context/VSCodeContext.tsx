@@ -1,7 +1,7 @@
 import type { ReactNode} from 'react';
 import { createContext, useContext, useCallback, useEffect, useRef } from 'react';
 
-import { getVSCodeApi } from '../hooks/useVSCodeApi';
+import { getVSCodeApi } from '../hooks/useVsCodeApi';
 import type { WebviewMessage } from '../hooks/useMessageListener';
 
 interface VSCodeContextValue {
@@ -16,7 +16,7 @@ interface VSCodeProviderProps {
   children: ReactNode;
 }
 
-export function VSCodeProvider({ children }: VSCodeProviderProps) {
+export function VSCodeProvider({ children }: Readonly<VSCodeProviderProps>) {
   const api = getVSCodeApi();
 
   const postMessage = useCallback(<T,>(message: T) => {
@@ -56,7 +56,7 @@ export function WebviewApp<T extends WebviewMessage = WebviewMessage>({
   children,
   onMessage,
   onReady
-}: WebviewAppProps<T>) {
+}: Readonly<WebviewAppProps<T>>) {
   const isReadyRef = useRef(false);
 
   useEffect(() => {

@@ -54,6 +54,127 @@ interface SortState {
   ascending: boolean;
 }
 
+// Message handler helpers
+function handleInitMessage(
+  msg: QueriesMessage,
+  setNamespaces: React.Dispatch<React.SetStateAction<string[]>>,
+  setSelectedNamespace: React.Dispatch<React.SetStateAction<string>>
+): void {
+  setNamespaces(msg.namespaces || []);
+  setSelectedNamespace(msg.selected || (msg.namespaces?.[0] || ''));
+}
+
+function handleClearMessage(
+  setColumns: React.Dispatch<React.SetStateAction<string[]>>,
+  setAllRows: React.Dispatch<React.SetStateAction<unknown[][]>>,
+  setSort: React.Dispatch<React.SetStateAction<SortState>>,
+  setStatus: React.Dispatch<React.SetStateAction<string>>
+): void {
+  setColumns([]);
+  setAllRows([]);
+  setSort({ index: -1, ascending: true });
+  setStatus('Running...');
+}
+
+function handleResultsMessage(
+  msg: QueriesMessage,
+  setColumns: React.Dispatch<React.SetStateAction<string[]>>,
+  setAllRows: React.Dispatch<React.SetStateAction<unknown[][]>>,
+  setSort: React.Dispatch<React.SetStateAction<SortState>>,
+  setFilters: React.Dispatch<React.SetStateAction<string[]>>,
+  setStatus: React.Dispatch<React.SetStateAction<string>>
+): void {
+  const filtered = pruneEmptyColumns(msg.columns || [], msg.rows || []);
+  setColumns(prev => {
+    const colsChanged = !shallowArrayEquals(prev, filtered.cols);
+    if (colsChanged) {
+      setSort({ index: -1, ascending: true });
+      setFilters(new Array(filtered.cols.length).fill(''));
+    }
+    return filtered.cols;
+  });
+  setAllRows(filtered.rows);
+  if (msg.status) {
+    setStatus(msg.status);
+  }
+}
+
+function handleErrorMessage(
+  msg: QueriesMessage,
+  setStatus: React.Dispatch<React.SetStateAction<string>>,
+  setColumns: React.Dispatch<React.SetStateAction<string[]>>,
+  setAllRows: React.Dispatch<React.SetStateAction<unknown[][]>>
+): void {
+  setStatus(msg.error || 'Error');
+  setColumns([]);
+  setAllRows([]);
+}
+
+function handleConvertedQueryMessage(
+  msg: QueriesMessage,
+  setConversion: React.Dispatch<React.SetStateAction<ConversionState>>
+): void {
+  setConversion({
+    show: true,
+    eql: msg.eqlQuery || '',
+    label: msg.queryType === 'nql' ? 'NQL converted to EQL:' : 'Natural language converted to EQL:',
+    description: msg.description || '',
+    alternatives: msg.alternatives || [],
+    showAlternatives: false
+  });
+}
+
+// Keyboard handler helpers
+function computeNextAutocompleteIndex(index: number, listLength: number, isDown: boolean): number {
+  if (isDown) {
+    if (index < listLength - 1) return index + 1;
+    if (index === -1) return 0;
+    return index;
+  }
+  if (index === -1) return listLength - 1;
+  if (index > 0) return index - 1;
+  return index;
+}
+
+function handleArrowNavigation(
+  key: string,
+  setAutocomplete: React.Dispatch<React.SetStateAction<AutocompleteState>>
+): void {
+  const isDown = key === 'ArrowDown';
+  setAutocomplete(prev => {
+    const newIndex = computeNextAutocompleteIndex(prev.index, prev.list.length, isDown);
+    return { ...prev, index: newIndex };
+  });
+}
+
+function handleTabKey(
+  autocomplete: AutocompleteState,
+  insertAutocomplete: (text: string) => void
+): void {
+  const target = autocomplete.index >= 0 ? autocomplete.list[autocomplete.index] : autocomplete.list[0];
+  if (target) {
+    insertAutocomplete(target);
+  }
+}
+
+function handleEnterKey(
+  e: React.KeyboardEvent<HTMLInputElement>,
+  autocomplete: AutocompleteState,
+  queryType: QueryType,
+  insertAutocomplete: (text: string) => void,
+  handleRunQuery: () => void
+): void {
+  const shouldInsertAutocomplete = autocomplete.index >= 0 && !e.metaKey && !e.ctrlKey && queryType === 'eql';
+  if (shouldInsertAutocomplete) {
+    const item = autocomplete.list[autocomplete.index];
+    if (item) {
+      insertAutocomplete(item);
+    }
+  } else {
+    handleRunQuery();
+  }
+}
+
 // Grouped state for autocomplete
 interface AutocompleteState {
   list: string[];
@@ -91,48 +212,22 @@ function QueriesDashboard() {
   useMessageListener<QueriesMessage>(useCallback((msg) => {
     switch (msg.command) {
       case 'init':
-        setNamespaces(msg.namespaces || []);
-        setSelectedNamespace(msg.selected || (msg.namespaces?.[0] || ''));
+        handleInitMessage(msg, setNamespaces, setSelectedNamespace);
         break;
       case 'clear':
-        setColumns([]);
-        setAllRows([]);
-        setSort({ index: -1, ascending: true });
-        setStatus('Running...');
+        handleClearMessage(setColumns, setAllRows, setSort, setStatus);
         break;
-      case 'results': {
-        const filtered = pruneEmptyColumns(msg.columns || [], msg.rows || []);
-        setColumns(prev => {
-          const colsChanged = !shallowArrayEquals(prev, filtered.cols);
-          if (colsChanged) {
-            setSort({ index: -1, ascending: true });
-            setFilters(new Array(filtered.cols.length).fill(''));
-          }
-          return filtered.cols;
-        });
-        setAllRows(filtered.rows);
-        if (msg.status) {
-          setStatus(msg.status);
-        }
+      case 'results':
+        handleResultsMessage(msg, setColumns, setAllRows, setSort, setFilters, setStatus);
         break;
-      }
       case 'error':
-        setStatus(msg.error || 'Error');
-        setColumns([]);
-        setAllRows([]);
+        handleErrorMessage(msg, setStatus, setColumns, setAllRows);
         break;
       case 'autocomplete':
         setAutocomplete({ list: msg.list || [], index: -1 });
         break;
       case 'convertedQuery':
-        setConversion({
-          show: true,
-          eql: msg.eqlQuery || '',
-          label: msg.queryType === 'nql' ? 'NQL converted to EQL:' : 'Natural language converted to EQL:',
-          description: msg.description || '',
-          alternatives: msg.alternatives || [],
-          showAlternatives: false
-        });
+        handleConvertedQueryMessage(msg, setConversion);
         break;
     }
   }, []));
@@ -231,8 +326,17 @@ function QueriesDashboard() {
     const isWord = /^[a-zA-Z0-9._()-]+$/.test(text);
     let tokenStart = start;
     if (isWord) {
-      const match = before.match(/[a-zA-Z0-9._()-]*$/);
-      if (match) tokenStart = start - match[0].length;
+      // Find the last token boundary (word characters, dots, parens, hyphens)
+      let matchLen = 0;
+      for (let i = before.length - 1; i >= 0; i--) {
+        const c = before[i];
+        if (/[\w.()-]/.test(c)) {
+          matchLen++;
+        } else {
+          break;
+        }
+      }
+      if (matchLen > 0) tokenStart = start - matchLen;
     }
     const newValue = before.slice(0, tokenStart) + text + after;
     const newPos = tokenStart + text.length;
@@ -244,48 +348,30 @@ function QueriesDashboard() {
   }, [postMessage]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Escape') {
+    const { key } = e;
+    const hasAutocomplete = autocomplete.list.length > 0;
+
+    if (key === 'Escape') {
       setAutocomplete({ list: [], index: -1 });
       setShowFormatMenu(false);
-    } else if (e.key === 'Tab' && autocomplete.list.length > 0 && queryType === 'eql') {
+      return;
+    }
+
+    if (key === 'Tab' && hasAutocomplete && queryType === 'eql') {
       e.preventDefault();
-      const target = autocomplete.index >= 0 ? autocomplete.list[autocomplete.index] : autocomplete.list[0];
-      if (target) {
-        insertAutocomplete(target);
-      }
-    } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && autocomplete.list.length > 0) {
+      handleTabKey(autocomplete, insertAutocomplete);
+      return;
+    }
+
+    if ((key === 'ArrowDown' || key === 'ArrowUp') && hasAutocomplete) {
       e.preventDefault();
-      if (e.key === 'ArrowDown') {
-        setAutocomplete(prev => {
-          let newIndex = prev.index;
-          if (prev.index < prev.list.length - 1) {
-            newIndex = prev.index + 1;
-          } else if (prev.index === -1) {
-            newIndex = 0;
-          }
-          return { ...prev, index: newIndex };
-        });
-      } else {
-        setAutocomplete(prev => {
-          let newIndex = prev.index;
-          if (prev.index === -1) {
-            newIndex = prev.list.length - 1;
-          } else if (prev.index > 0) {
-            newIndex = prev.index - 1;
-          }
-          return { ...prev, index: newIndex };
-        });
-      }
-    } else if (e.key === 'Enter') {
+      handleArrowNavigation(key, setAutocomplete);
+      return;
+    }
+
+    if (key === 'Enter') {
       e.preventDefault();
-      if (autocomplete.index >= 0 && !e.metaKey && !e.ctrlKey && queryType === 'eql') {
-        const item = autocomplete.list[autocomplete.index];
-        if (item) {
-          insertAutocomplete(item);
-        }
-      } else {
-        handleRunQuery();
-      }
+      handleEnterKey(e, autocomplete, queryType, insertAutocomplete, handleRunQuery);
     }
   }, [autocomplete, queryType, insertAutocomplete, handleRunQuery]);
 
@@ -304,13 +390,14 @@ function QueriesDashboard() {
     });
   }, []);
 
-  const handleCopy = useCallback(async () => {
+  const handleCopy = useCallback(() => {
     const text = formatForClipboard(copyFormat, columns, filteredRows);
-    const success = await copyToClipboard(text);
-    if (success) {
-      setStatus('Copied to clipboard');
-      setTimeout(() => setStatus(`Count: ${filteredRows.length}`), 1000);
-    }
+    copyToClipboard(text).then((success) => {
+      if (success) {
+        setStatus('Copied to clipboard');
+        setTimeout(() => setStatus(`Count: ${filteredRows.length}`), 1000);
+      }
+    }).catch(() => {});
   }, [copyFormat, columns, filteredRows, copyToClipboard]);
 
   const handleAlternativeClick = useCallback((alt: Alternative) => {

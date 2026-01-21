@@ -50,62 +50,85 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
 constructor() {
     super();
     this.kubernetesIcon = new vscode.ThemeIcon('layers');
-    // Debug log constructor start
     log('EdaNamespaceProvider constructor starting', LogLevel.DEBUG);
 
-    // Add immediate check
+    this.initializeKubernetesClient();
+    this.initializeServices();
+    this.setupEventListeners();
+    this.logKubernetesClientStatus();
+    this.initializeNamespaceCache();
+    this.setupStreamMessageHandler();
+  }
+
+  /** Initialize Kubernetes client and related streams */
+  private initializeKubernetesClient(): void {
     const hasK8sClient = serviceManager.getClientNames().includes(STREAM_GROUP_KUBERNETES);
     log(`Kubernetes client registered in serviceManager: ${hasK8sClient}`, LogLevel.DEBUG);
 
     try {
       this.k8sClient = serviceManager.getClient<KubernetesClient>(STREAM_GROUP_KUBERNETES);
       log(`Kubernetes client obtained: ${this.k8sClient ? 'YES' : 'NO'}`, LogLevel.DEBUG);
-
-      // Add test to verify event emitter works
-      if (this.k8sClient) {
-        log('Testing k8s client event emitter...', LogLevel.DEBUG);
-        const testDisp = this.k8sClient.onResourceChanged(() => {
-          log('TEST: K8s resource change event received!', LogLevel.DEBUG);
-        });
-        // Immediately dispose the test listener
-        testDisp.dispose();
-        log('Test listener set up and disposed successfully', LogLevel.DEBUG);
-      }
+      this.verifyKubernetesEventEmitter();
     } catch (err) {
       log(`Failed to get Kubernetes client: ${err}`, LogLevel.DEBUG);
       this.k8sClient = undefined;
     }
+
     if (this.k8sClient) {
-      this.k8sStreams = this.k8sClient
-        .getWatchedResourceTypes()
-        .slice()
-        .sort();
+      this.k8sStreams = this.k8sClient.getWatchedResourceTypes().slice().sort();
     }
+  }
+
+  /** Verify that the Kubernetes event emitter is working */
+  private verifyKubernetesEventEmitter(): void {
+    if (!this.k8sClient) {
+      return;
+    }
+    log('Testing k8s client event emitter...', LogLevel.DEBUG);
+    const testDisp = this.k8sClient.onResourceChanged(() => {
+      log('TEST: K8s resource change event received!', LogLevel.DEBUG);
+    });
+    testDisp.dispose();
+    log('Test listener set up and disposed successfully', LogLevel.DEBUG);
+  }
+
+  /** Initialize resource and status services */
+  private initializeServices(): void {
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
+
     try {
       this.resourceService = serviceManager.getService<ResourceService>('kubernetes-resources');
     } catch {
       this.resourceService = undefined;
     }
+
     try {
       this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
     } catch {
       this.statusService = undefined;
     }
+  }
 
-    this.setupEventListeners();
+  /** Log the Kubernetes client initialization status */
+  private logKubernetesClientStatus(): void {
     if (this.k8sClient) {
       log('Kubernetes client event listeners should be set up', LogLevel.DEBUG);
     } else {
       log('No Kubernetes client - event listeners NOT set up', LogLevel.WARN);
     }
+  }
 
+  /** Initialize namespace cache from EDA client */
+  private initializeNamespaceCache(): void {
     this.cachedNamespaces = this.edaClient.getCachedNamespaces();
     const coreNs = this.edaClient.getCoreNamespace();
     if (!this.cachedNamespaces.includes(coreNs)) {
       this.cachedNamespaces.push(coreNs);
     }
+  }
 
+  /** Set up stream message handler */
+  private setupStreamMessageHandler(): void {
     this.edaClient.onStreamMessage((stream, msg) => {
       if (stream === 'namespaces') {
         this.handleNamespaceMessage(msg);

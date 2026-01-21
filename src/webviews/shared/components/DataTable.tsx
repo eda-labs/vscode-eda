@@ -37,7 +37,7 @@ function DataTableInner<T extends Record<string, unknown>>({
   emptyMessage = 'No data available',
   className = '',
   rowClassName
-}: DataTableProps<T>) {
+}: Readonly<DataTableProps<T>>) {
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<SortState>({ column: null, direction: null });
 

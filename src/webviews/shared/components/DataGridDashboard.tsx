@@ -4,7 +4,7 @@ import React, { useState, useCallback, useMemo, memo } from 'react';
 import { shallowArrayEquals } from '../utils';
 import { usePostMessage, useMessageListener, useReadySignal } from '../hooks';
 
-import { VSCodeButton } from './VSCodeButton';
+import { VSCodeButton } from './VsCodeButton';
 
 export interface DataGridAction {
   icon: string;
@@ -48,7 +48,7 @@ function DataGridDashboardInner<T extends DataGridMessage>({
   renderCell,
   onMessage,
   showInTreeCommand = 'showInTree'
-}: DataGridDashboardProps<T>) {
+}: Readonly<DataGridDashboardProps<T>>) {
   const postMessage = usePostMessage();
   const [namespaces, setNamespaces] = useState<string[]>([]);
   const [selectedNamespace, setSelectedNamespace] = useState('All Namespaces');

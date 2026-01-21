@@ -256,51 +256,66 @@ export class ResourceStatusService extends CoreService {
 
     const kind = resource.kind;
 
-      switch (kind) {
-        case 'Pod':
-          return resource.status?.phase || '';
-
-        case 'Deployment': {
-          const ready = resource.status?.readyReplicas || 0;
-          const desired = resource.spec?.replicas || 0;
-          return `${ready}/${desired}`;
-        }
-
-        case 'Service':
-          return resource.spec?.type || 'ClusterIP';
-
-        case 'ConfigMap': {
-          const dataCount = Object.keys(resource.data || {}).length;
-          return `${dataCount} items`;
-        }
-
-        case 'Secret':
-          return resource.type || 'Opaque';
-      }
-
-    // For custom resources
-    if (resource.status) {
-      let desc = '';
-
-      // Common status fields for EDA resources
-      if (resource.status.operationalState) {
-        desc += `State: ${resource.status.operationalState}`;
-      }
-
-      if (resource.status.health !== undefined) {
-        desc += (desc ? ', ' : '') + `Health: ${resource.status.health}%`;
-      }
-
-      if (resource.status.state) {
-        desc += (desc ? ', ' : '') + `State: ${resource.status.state}`;
-      }
-
-
-
-      return desc;
+    // Try standard K8s resource description first
+    const standardDesc = this.getStandardK8sStatusDescription(kind, resource);
+    if (standardDesc !== null) {
+      return standardDesc;
     }
 
-    return '';
+    // For custom resources
+    return this.getCustomResourceStatusDescription(resource.status);
+  }
+
+  /** Get status description for standard K8s resources */
+  private getStandardK8sStatusDescription(kind: string, resource: any): string | null {
+    switch (kind) {
+      case 'Pod':
+        return resource.status?.phase || '';
+      case 'Deployment':
+        return this.getDeploymentStatusDescription(resource);
+      case 'Service':
+        return resource.spec?.type || 'ClusterIP';
+      case 'ConfigMap':
+        return this.getConfigMapStatusDescription(resource);
+      case 'Secret':
+        return resource.type || 'Opaque';
+      default:
+        return null;
+    }
+  }
+
+  /** Get status description for Deployment resources */
+  private getDeploymentStatusDescription(resource: any): string {
+    const ready = resource.status?.readyReplicas || 0;
+    const desired = resource.spec?.replicas || 0;
+    return `${ready}/${desired}`;
+  }
+
+  /** Get status description for ConfigMap resources */
+  private getConfigMapStatusDescription(resource: any): string {
+    const dataCount = Object.keys(resource.data || {}).length;
+    return `${dataCount} items`;
+  }
+
+  /** Get status description for custom resources */
+  private getCustomResourceStatusDescription(status: any): string {
+    if (!status) return '';
+
+    const parts: string[] = [];
+
+    if (status.operationalState) {
+      parts.push(`State: ${status.operationalState}`);
+    }
+
+    if (status.health !== undefined) {
+      parts.push(`Health: ${status.health}%`);
+    }
+
+    if (status.state) {
+      parts.push(`State: ${status.state}`);
+    }
+
+    return parts.join(', ');
   }
 
   /**
@@ -350,87 +365,165 @@ export class ResourceStatusService extends CoreService {
    * Extract relevant status fields based on resource kind and schema
    */
   private extractStatusFields(status: any, kind: string): { label: string, value: string }[] {
-    const fields: { label: string, value: string }[] = [];
-    if (!status) return fields;
+    if (!status) {
+      return [];
+    }
 
-    // Handle standard resource kinds as before
     switch (kind) {
       case 'Pod':
-        if (status.phase) fields.push({ label: 'Phase', value: status.phase });
-        if (status.podIP) fields.push({ label: 'Pod IP', value: status.podIP });
-        if (status.hostIP) fields.push({ label: 'Host IP', value: status.hostIP });
-        if (status.startTime) fields.push({ label: 'Started', value: status.startTime });
-        if (status.containerStatuses && Array.isArray(status.containerStatuses)) {
-          for (const container of status.containerStatuses) {
-            const ready = container.ready ? 'Ready' : 'Not Ready';
-            const restartCount = container.restartCount || 0;
-            fields.push({
-              label: `Container ${container.name}`,
-              value: `${ready}, Restarts: ${restartCount}`
-            });
-          }
-        }
-        break;
-
+        return this.extractPodStatusFields(status);
       case 'Deployment':
-        if (status.replicas !== undefined) fields.push({ label: 'Replicas', value: `${status.replicas}` });
-        if (status.readyReplicas !== undefined) fields.push({ label: 'Ready', value: `${status.readyReplicas}` });
-        if (status.updatedReplicas !== undefined) fields.push({ label: 'Updated', value: `${status.updatedReplicas}` });
-        if (status.availableReplicas !== undefined) fields.push({ label: 'Available', value: `${status.availableReplicas}` });
-        if (status.conditions && Array.isArray(status.conditions)) {
-          for (const condition of status.conditions) {
-            fields.push({
-              label: `Condition ${condition.type}`,
-              value: `${condition.status} - ${condition.message || 'No message'}`
-            });
-          }
-        }
-        break;
-
+        return this.extractDeploymentStatusFields(status);
       case 'Service':
-        if (status.loadBalancer?.ingress && Array.isArray(status.loadBalancer.ingress)) {
-          for (const ingress of status.loadBalancer.ingress) {
-            if (ingress.ip) {
-              fields.push({ label: 'LoadBalancer IP', value: ingress.ip });
-            }
-            if (ingress.hostname) {
-              fields.push({ label: 'LoadBalancer Hostname', value: ingress.hostname });
-            }
-          }
-        }
-        break;
-
+        return this.extractServiceStatusFields(status);
       default:
-        // For custom resources, we extract only the actual status values
-        // We only add fields if the value is a primitive type (or a very simple object)
-        for (const [key, value] of Object.entries(status)) {
-          if (value === undefined || value === null) {
-            continue;
-          }
-          // If the value is a primitive, use it directly
-          if (['string', 'number', 'boolean'].includes(typeof value)) {
-            fields.push({ label: this.formatFieldName(key), value: String(value) });
-          }
-          // If the value is an object, try to extract a simple value
-          else if (typeof value === 'object') {
-            // If it has a 'value' property that is primitive, use that
-            if ('value' in value && ['string', 'number', 'boolean'].includes(typeof value.value)) {
-              fields.push({ label: this.formatFieldName(key), value: String(value.value) });
-            }
-            // Otherwise, if the object has only one key, use that single property
-            else if (Object.keys(value).length === 1) {
-              const innerKey = Object.keys(value)[0];
-              const innerVal = (value as Record<string, any>)[innerKey];
-              if (['string', 'number', 'boolean'].includes(typeof innerVal)) {
-                fields.push({ label: this.formatFieldName(key), value: String(innerVal) });
-              }
-            }
-            // Otherwise, skip complex objects
-          }
-        }
-        break;
+        return this.extractCustomResourceStatusFields(status);
     }
+  }
+
+  /** Extract status fields for Pod resources */
+  private extractPodStatusFields(status: any): { label: string, value: string }[] {
+    const fields: { label: string, value: string }[] = [];
+
+    if (status.phase) {
+      fields.push({ label: 'Phase', value: status.phase });
+    }
+    if (status.podIP) {
+      fields.push({ label: 'Pod IP', value: status.podIP });
+    }
+    if (status.hostIP) {
+      fields.push({ label: 'Host IP', value: status.hostIP });
+    }
+    if (status.startTime) {
+      fields.push({ label: 'Started', value: status.startTime });
+    }
+
+    this.extractContainerStatusFields(status, fields);
     return fields;
+  }
+
+  /** Extract container status fields from Pod status */
+  private extractContainerStatusFields(status: any, fields: { label: string, value: string }[]): void {
+    if (!status.containerStatuses || !Array.isArray(status.containerStatuses)) {
+      return;
+    }
+
+    for (const container of status.containerStatuses) {
+      const ready = container.ready ? 'Ready' : 'Not Ready';
+      const restartCount = container.restartCount || 0;
+      fields.push({
+        label: `Container ${container.name}`,
+        value: `${ready}, Restarts: ${restartCount}`
+      });
+    }
+  }
+
+  /** Extract status fields for Deployment resources */
+  private extractDeploymentStatusFields(status: any): { label: string, value: string }[] {
+    const fields: { label: string, value: string }[] = [];
+
+    if (status.replicas !== undefined) {
+      fields.push({ label: 'Replicas', value: `${status.replicas}` });
+    }
+    if (status.readyReplicas !== undefined) {
+      fields.push({ label: 'Ready', value: `${status.readyReplicas}` });
+    }
+    if (status.updatedReplicas !== undefined) {
+      fields.push({ label: 'Updated', value: `${status.updatedReplicas}` });
+    }
+    if (status.availableReplicas !== undefined) {
+      fields.push({ label: 'Available', value: `${status.availableReplicas}` });
+    }
+
+    this.extractConditionFields(status, fields);
+    return fields;
+  }
+
+  /** Extract condition fields from resource status */
+  private extractConditionFields(status: any, fields: { label: string, value: string }[]): void {
+    if (!status.conditions || !Array.isArray(status.conditions)) {
+      return;
+    }
+
+    for (const condition of status.conditions) {
+      fields.push({
+        label: `Condition ${condition.type}`,
+        value: `${condition.status} - ${condition.message || 'No message'}`
+      });
+    }
+  }
+
+  /** Extract status fields for Service resources */
+  private extractServiceStatusFields(status: any): { label: string, value: string }[] {
+    const fields: { label: string, value: string }[] = [];
+
+    if (!status.loadBalancer?.ingress || !Array.isArray(status.loadBalancer.ingress)) {
+      return fields;
+    }
+
+    for (const ingress of status.loadBalancer.ingress) {
+      if (ingress.ip) {
+        fields.push({ label: 'LoadBalancer IP', value: ingress.ip });
+      }
+      if (ingress.hostname) {
+        fields.push({ label: 'LoadBalancer Hostname', value: ingress.hostname });
+      }
+    }
+
+    return fields;
+  }
+
+  /** Extract status fields for custom resources */
+  private extractCustomResourceStatusFields(status: any): { label: string, value: string }[] {
+    const fields: { label: string, value: string }[] = [];
+
+    for (const [key, value] of Object.entries(status)) {
+      const fieldValue = this.extractFieldValue(key, value);
+      if (fieldValue) {
+        fields.push(fieldValue);
+      }
+    }
+
+    return fields;
+  }
+
+  /** Extract a single field value from a status entry */
+  private extractFieldValue(key: string, value: unknown): { label: string, value: string } | null {
+    if (value === undefined || value === null) {
+      return null;
+    }
+
+    // If the value is a primitive, use it directly
+    if (['string', 'number', 'boolean'].includes(typeof value)) {
+      return { label: this.formatFieldName(key), value: String(value) };
+    }
+
+    // If the value is an object, try to extract a simple value
+    if (typeof value === 'object') {
+      return this.extractObjectFieldValue(key, value as Record<string, unknown>);
+    }
+
+    return null;
+  }
+
+  /** Extract field value from an object */
+  private extractObjectFieldValue(key: string, obj: Record<string, unknown>): { label: string, value: string } | null {
+    // If it has a 'value' property that is primitive, use that
+    if ('value' in obj && ['string', 'number', 'boolean'].includes(typeof obj.value)) {
+      return { label: this.formatFieldName(key), value: String(obj.value) };
+    }
+
+    // Otherwise, if the object has only one key, use that single property
+    const keys = Object.keys(obj);
+    if (keys.length === 1) {
+      const innerVal = obj[keys[0]];
+      if (['string', 'number', 'boolean'].includes(typeof innerVal)) {
+        return { label: this.formatFieldName(key), value: String(innerVal) };
+      }
+    }
+
+    // Skip complex objects
+    return null;
   }
 
   /**
@@ -475,137 +568,239 @@ export class ResourceStatusService extends CoreService {
     if (!status) return 'gray';
 
     switch (kind) {
-      case 'Pod': {
-        const phase = status.phase?.toLowerCase();
-        if (phase === 'running') return 'green';
-        if (phase === 'pending') return 'yellow';
-        if (['failed', 'unknown', 'error'].includes(phase)) return 'red';
-        break;
-      }
-
-      case 'Deployment': {
-        const desired = resource.spec?.replicas || 0;
-        const ready = status.readyReplicas || 0;
-
-        if (desired === 0) return 'gray';
-        if (ready === desired) return 'green';
-        if (ready > 0) return 'yellow';
-        return 'red';
-      }
-
+      case 'Pod':
+        return this.getPodStatusIndicator(status);
+      case 'Deployment':
+        return this.getDeploymentStatusIndicator(resource.spec, status);
       case 'Service':
-        // Services are typically always "green" if they exist
-        return 'green';
-
-      case 'Node': {
-        // Check node conditions
-        const conditions = status.conditions || [];
-        const readyCondition = conditions.find((c: any) => c.type === 'Ready');
-
-        if (readyCondition && readyCondition.status === 'True') return 'green';
-        return 'red';
-      }
-
       case 'ConfigMap':
       case 'Secret':
-        // Always green for these types
         return 'green';
+      case 'Node':
+        return this.getNodeStatusIndicator(status);
+      default:
+        return 'gray';
     }
+  }
 
+  /** Get status indicator for Pod resources */
+  private getPodStatusIndicator(status: any): string {
+    const phase = status.phase?.toLowerCase();
+    if (phase === 'running') return 'green';
+    if (phase === 'pending') return 'yellow';
+    if (['failed', 'unknown', 'error'].includes(phase)) return 'red';
     return 'gray';
+  }
+
+  /** Get status indicator for Deployment resources */
+  private getDeploymentStatusIndicator(spec: any, status: any): string {
+    const desired = spec?.replicas || 0;
+    const ready = status.readyReplicas || 0;
+
+    if (desired === 0) return 'gray';
+    if (ready === desired) return 'green';
+    if (ready > 0) return 'yellow';
+    return 'red';
+  }
+
+  /** Get status indicator for Node resources */
+  private getNodeStatusIndicator(status: any): string {
+    const conditions = status.conditions || [];
+    const readyCondition = conditions.find((c: any) => c.type === 'Ready');
+
+    if (readyCondition && readyCondition.status === 'True') return 'green';
+    return 'red';
   }
 
   /**
    * Get status indicator for custom resources
    */
   private getCustomResourceStatus(resource: any): string {
-    if (!resource || !resource.status) return 'gray';
-
-    // Explicit checks for common operational indicators
-    if (resource.status.operational === true) {
-      return 'green';
-    }
-    if (resource.status.operational === false) {
-      return 'red';
-    }
-    if (resource.status.error === "" && resource.status.reachable === true) {
-      return 'green';
+    if (!resource || !resource.status) {
+      return 'gray';
     }
 
-    // Check common status fields
-    if (resource.status.operationalState) {
-      const state = resource.status.operationalState.toLowerCase();
-      if (['up', 'running', 'active'].includes(state)) return 'green';
-      if (['down', 'failed', 'error'].includes(state)) return 'red';
-      if (['degraded', 'warning'].includes(state)) return 'yellow';
+    const status = resource.status;
+
+    // Check explicit operational indicators first
+    const operationalResult = this.checkOperationalIndicators(status);
+    if (operationalResult) {
+      return operationalResult;
     }
 
-    if (resource.status.health !== undefined) {
-      const health = Number(resource.status.health);
-      if (health > 90) return 'green';
-      if (health > 50) return 'yellow';
-      return 'red';
+    // Check common status fields in priority order
+    const fieldResult = this.checkCommonStatusFields(status);
+    if (fieldResult) {
+      return fieldResult;
     }
-
-    if (resource.status.state) {
-      const state = resource.status.state.toLowerCase();
-      if (['up', 'running', 'active', 'ready'].includes(state)) return 'green';
-      if (['down', 'failed', 'error'].includes(state)) return 'red';
-      if (['degraded', 'warning', 'pending'].includes(state)) return 'yellow';
-    }
-
-    if (resource.status.phase) {
-      const phase = resource.status.phase.toLowerCase();
-      if (['active', 'succeeded', 'ready', 'running', 'available'].includes(phase)) return 'green';
-      if (['pending', 'initializing', 'provisioning'].includes(phase)) return 'yellow';
-      if (['failed', 'error', 'terminating'].includes(phase)) return 'red';
-    }
-
-    if (resource.status.ready === true) return 'green';
-    if (resource.status.ready === false) return 'red';
 
     // Check conditions array if present
-    if (resource.status.conditions && Array.isArray(resource.status.conditions)) {
-      const readyCondition = resource.status.conditions.find((c: any) =>
-        c.type === 'Ready' || c.type === 'Available' || c.type === 'Healthy'
-      );
-      if (readyCondition) {
-        if (readyCondition.status === 'True') return 'green';
-        if (readyCondition.status === 'False') return 'red';
-        return 'yellow';
-      }
-      const errorCondition = resource.status.conditions.find((c: any) =>
-        (c.type === 'Error' || c.type === 'Failed') && c.status === 'True'
-      );
-      if (errorCondition) return 'red';
+    const conditionResult = this.checkStatusConditions(status);
+    if (conditionResult) {
+      return conditionResult;
     }
 
     // Generic check: scan for keys containing "status" or "state"
-    const genericIndicators: string[] = [];
-    for (const key in resource.status) {
-      const keyLower = key.toLowerCase();
-      if (
-        (keyLower.includes("status") || keyLower.includes("state")) &&
-        !keyLower.includes("details") &&
-        typeof resource.status[key] === "string"
-      ) {
-        genericIndicators.push(this.mapStatusTextToIndicator(resource.status[key]));
-      }
-    }
-
-    if (genericIndicators.length > 0) {
-      // Prioritize explicit failures or warnings
-      if (genericIndicators.includes('red')) {
-        return 'red';
-      } else if (genericIndicators.includes('yellow')) {
-        return 'yellow';
-      } else {
-        // If no bad indicators, default to green
-        return 'green';
-      }
+    const genericResult = this.checkGenericStatusKeys(status);
+    if (genericResult) {
+      return genericResult;
     }
 
     // If a status exists but none of the keys provided an indicator, default to green
+    return 'green';
+  }
+
+  /** Check explicit operational indicators (operational, reachable, error) */
+  private checkOperationalIndicators(status: any): string | null {
+    if (status.operational === true) {
+      return 'green';
+    }
+    if (status.operational === false) {
+      return 'red';
+    }
+    if (status.error === "" && status.reachable === true) {
+      return 'green';
+    }
+    return null;
+  }
+
+  /** Check common status fields: operationalState, health, state, phase, ready */
+  private checkCommonStatusFields(status: any): string | null {
+    const operationalStateResult = this.mapStateToIndicator(status.operationalState);
+    if (operationalStateResult) {
+      return operationalStateResult;
+    }
+
+    if (status.health !== undefined) {
+      return this.mapHealthToIndicator(Number(status.health));
+    }
+
+    const stateResult = this.mapStateToIndicator(status.state, true);
+    if (stateResult) {
+      return stateResult;
+    }
+
+    const phaseResult = this.mapPhaseToIndicator(status.phase);
+    if (phaseResult) {
+      return phaseResult;
+    }
+
+    if (status.ready === true) {
+      return 'green';
+    }
+    if (status.ready === false) {
+      return 'red';
+    }
+
+    return null;
+  }
+
+  /** Map operationalState or state field to indicator */
+  private mapStateToIndicator(state: string | undefined, includeReady = false): string | null {
+    if (!state) {
+      return null;
+    }
+    const s = state.toLowerCase();
+    const greenStates = includeReady ? ['up', 'running', 'active', 'ready'] : ['up', 'running', 'active'];
+    const redStates = ['down', 'failed', 'error'];
+    const yellowStates = includeReady ? ['degraded', 'warning', 'pending'] : ['degraded', 'warning'];
+
+    if (greenStates.includes(s)) {
+      return 'green';
+    }
+    if (redStates.includes(s)) {
+      return 'red';
+    }
+    if (yellowStates.includes(s)) {
+      return 'yellow';
+    }
+    return null;
+  }
+
+  /** Map health percentage to indicator */
+  private mapHealthToIndicator(health: number): string {
+    if (health > 90) {
+      return 'green';
+    }
+    if (health > 50) {
+      return 'yellow';
+    }
+    return 'red';
+  }
+
+  /** Map phase field to indicator */
+  private mapPhaseToIndicator(phase: string | undefined): string | null {
+    if (!phase) {
+      return null;
+    }
+    const p = phase.toLowerCase();
+    if (['active', 'succeeded', 'ready', 'running', 'available'].includes(p)) {
+      return 'green';
+    }
+    if (['pending', 'initializing', 'provisioning'].includes(p)) {
+      return 'yellow';
+    }
+    if (['failed', 'error', 'terminating'].includes(p)) {
+      return 'red';
+    }
+    return null;
+  }
+
+  /** Check conditions array for ready/error conditions */
+  private checkStatusConditions(status: any): string | null {
+    if (!status.conditions || !Array.isArray(status.conditions)) {
+      return null;
+    }
+
+    const readyCondition = status.conditions.find((c: any) =>
+      c.type === 'Ready' || c.type === 'Available' || c.type === 'Healthy'
+    );
+    if (readyCondition) {
+      if (readyCondition.status === 'True') {
+        return 'green';
+      }
+      if (readyCondition.status === 'False') {
+        return 'red';
+      }
+      return 'yellow';
+    }
+
+    const errorCondition = status.conditions.find((c: any) =>
+      (c.type === 'Error' || c.type === 'Failed') && c.status === 'True'
+    );
+    if (errorCondition) {
+      return 'red';
+    }
+
+    return null;
+  }
+
+  /** Scan generic keys containing "status" or "state" */
+  private checkGenericStatusKeys(status: any): string | null {
+    const genericIndicators: string[] = [];
+
+    for (const key of Object.keys(status)) {
+      const keyLower = key.toLowerCase();
+      const isStatusOrStateKey = keyLower.includes("status") || keyLower.includes("state");
+      const isNotDetails = !keyLower.includes("details");
+      const isStringValue = typeof status[key] === "string";
+
+      if (isStatusOrStateKey && isNotDetails && isStringValue) {
+        genericIndicators.push(this.mapStatusTextToIndicator(status[key]));
+      }
+    }
+
+    if (genericIndicators.length === 0) {
+      return null;
+    }
+
+    // Prioritize explicit failures or warnings
+    if (genericIndicators.includes('red')) {
+      return 'red';
+    }
+    if (genericIndicators.includes('yellow')) {
+      return 'yellow';
+    }
     return 'green';
   }
 

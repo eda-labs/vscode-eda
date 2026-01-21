@@ -66,7 +66,7 @@ export function toMarkdownTable(cols: string[], rows: unknown[][]): string {
   const lines = rows.map(r =>
     '| ' +
     cols.map((_, i) =>
-      formatValue(r[i]).replace(/[|]/g, '\\|').replace(/\n/g, '<br/>')
+      formatValue(r[i]).replace(/\|/g, '\\|').replace(/\n/g, '<br/>')
     ).join(' | ') +
     ' |'
   );

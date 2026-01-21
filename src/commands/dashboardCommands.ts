@@ -20,7 +20,9 @@ export function registerDashboardCommands(context: vscode.ExtensionContext): voi
     } else if (name === 'Resource Browser') {
       ResourceBrowserPanel.show(context, name);
     } else {
-      FabricDashboardPanel.show(context, name || 'Fabric');
+      FabricDashboardPanel.show(context, name || 'Fabric').catch((error: unknown) => {
+        console.error('Failed to show Fabric Dashboard:', error);
+      });
     }
   });
   context.subscriptions.push(cmd);

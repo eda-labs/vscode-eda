@@ -1,4 +1,4 @@
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
 
 import { BasePanel } from '../basePanel';
 import { serviceManager } from '../../services/serviceManager';
@@ -81,36 +81,37 @@ export class TransactionDiffsPanel extends BasePanel {
   }
 
 
+  /** Extract names array from CR object */
+  private static extractNames(cr: any): string[] {
+    if (Array.isArray(cr.names)) return cr.names;
+    if (cr.name) return [cr.name];
+    return [];
+  }
+
+  /** Convert CR to ResourceRef array */
+  private static crToResourceRefs(cr: any): ResourceRef[] {
+    const group = cr.gvk?.group || '';
+    const version = cr.gvk?.version || '';
+    const kind = cr.gvk?.kind || '';
+    const namespace = cr.namespace || 'default';
+    const names = TransactionDiffsPanel.extractNames(cr);
+    return names.map(n => ({ group, version, kind, namespace, name: n }));
+  }
+
+  /** Convert node to NodeRef if valid */
+  private static nodeToRef(node: any): NodeRef | null {
+    if (!node?.name) return null;
+    return { name: node.name, namespace: node.namespace || 'default' };
+  }
+
   static show(
     context: vscode.ExtensionContext,
     transactionId: string | number,
     crs: any[],
     nodes: any[]
   ): TransactionDiffsPanel {
-    const diffs: ResourceRef[] = [];
-    for (const cr of crs) {
-      const group = cr.gvk?.group || '';
-      const version = cr.gvk?.version || '';
-      const kind = cr.gvk?.kind || '';
-      const namespace = cr.namespace || 'default';
-      let names: string[];
-      if (Array.isArray(cr.names)) {
-        names = cr.names;
-      } else if (cr.name) {
-        names = [cr.name];
-      } else {
-        names = [];
-      }
-      for (const n of names) {
-        diffs.push({ group, version, kind, namespace, name: n });
-      }
-    }
-    const nodeRefs: NodeRef[] = [];
-    for (const node of nodes) {
-      if (node?.name) {
-        nodeRefs.push({ name: node.name, namespace: node.namespace || 'default' });
-      }
-    }
+    const diffs = crs.flatMap(cr => TransactionDiffsPanel.crToResourceRefs(cr));
+    const nodeRefs = nodes.map(n => TransactionDiffsPanel.nodeToRef(n)).filter((r): r is NodeRef => r !== null);
     return new TransactionDiffsPanel(context, transactionId, diffs, nodeRefs);
   }
 }

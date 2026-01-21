@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 
-export type VSCodeTheme = 'vscode-light' | 'vscode-dark' | 'vscode-high-contrast' | 'vscode-high-contrast-light';
+const THEME_HIGH_CONTRAST = 'vscode-high-contrast' as const;
+
+export type VSCodeTheme = 'vscode-light' | 'vscode-dark' | typeof THEME_HIGH_CONTRAST | 'vscode-high-contrast-light';
 
 function getCurrentTheme(): VSCodeTheme {
   const body = document.body;
   if (body.classList.contains('vscode-light')) return 'vscode-light';
-  if (body.classList.contains('vscode-high-contrast')) return 'vscode-high-contrast';
+  if (body.classList.contains(THEME_HIGH_CONTRAST)) return THEME_HIGH_CONTRAST;
   if (body.classList.contains('vscode-high-contrast-light')) return 'vscode-high-contrast-light';
   return 'vscode-dark';
 }
@@ -26,7 +28,7 @@ export function useTheme(): { theme: VSCodeTheme; isDark: boolean } {
     return () => observer.disconnect();
   }, []);
 
-  const isDark = theme === 'vscode-dark' || theme === 'vscode-high-contrast';
+  const isDark = theme === 'vscode-dark' || theme === THEME_HIGH_CONTRAST;
 
   return { theme, isDark };
 }

@@ -1,4 +1,4 @@
-export { useVSCodeApi, getVSCodeApi } from './useVSCodeApi';
+export { useVSCodeApi, getVSCodeApi } from './useVsCodeApi';
 export { usePostMessage } from './usePostMessage';
 export { useMessageListener } from './useMessageListener';
 export type { WebviewMessage } from './useMessageListener';

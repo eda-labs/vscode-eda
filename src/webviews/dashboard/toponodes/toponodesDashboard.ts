@@ -15,7 +15,7 @@ export class ToponodesDashboardPanel extends BasePanel {
   private columnSet: Set<string> = new Set();
   private selectedNamespace = ALL_NAMESPACES;
 
-  constructor(context: vscode.ExtensionContext, title: string) {
+  private constructor(context: vscode.ExtensionContext, title: string) {
     super(context, 'toponodesDashboard', title, undefined, BasePanel.getEdaIconPath(context));
 
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
@@ -25,39 +25,49 @@ export class ToponodesDashboardPanel extends BasePanel {
         this.handleTopoNodeStream(msg);
       }
     });
-    void this.edaClient.streamTopoNodes();
 
     this.panel.onDidDispose(() => {
       this.edaClient.closeTopoNodeStream();
     });
 
     this.panel.webview.onDidReceiveMessage(async msg => {
-      if (msg.command === 'ready') {
+      await this.handleWebviewMessage(msg);
+    });
+
+    this.panel.webview.html = this.buildHtml();
+  }
+
+  private async initialize(): Promise<void> {
+    await this.edaClient.streamTopoNodes();
+  }
+
+  private async handleWebviewMessage(msg: any): Promise<void> {
+    switch (msg.command) {
+      case 'ready':
         this.sendNamespaces();
         await this.loadInitial(ALL_NAMESPACES);
-      } else if (msg.command === 'setNamespace') {
+        break;
+      case 'setNamespace':
         await this.loadInitial(msg.namespace as string);
-      } else if (msg.command === 'showInTree') {
-        await vscode.commands.executeCommand(
-          'vscode-eda.filterTree',
-          'toponodes'
-        );
+        break;
+      case 'showInTree':
+        await vscode.commands.executeCommand('vscode-eda.filterTree', 'toponodes');
         await vscode.commands.executeCommand('vscode-eda.expandAllNamespaces');
-      } else if (msg.command === 'viewNodeConfig') {
+        break;
+      case 'viewNodeConfig':
         await vscode.commands.executeCommand('vscode-eda.viewNodeConfig', {
           name: msg.name,
           namespace: msg.namespace,
         });
-      } else if (msg.command === 'sshTopoNode') {
+        break;
+      case 'sshTopoNode':
         await vscode.commands.executeCommand('vscode-eda.sshTopoNode', {
           name: msg.name,
           namespace: msg.namespace,
           nodeDetails: msg.nodeDetails,
         });
-      }
-    });
-
-    this.panel.webview.html = this.buildHtml();
+        break;
+    }
   }
 
   protected getScriptTags(nonce: string): string {
@@ -202,39 +212,52 @@ export class ToponodesDashboardPanel extends BasePanel {
     }
   }
 
+  private extractUpdateIdentifiers(up: any): { name: string | undefined; namespace: string | undefined } {
+    let name: string | undefined = up.data?.metadata?.name;
+    let namespace: string | undefined = up.data?.metadata?.namespace;
+    if ((!name || !namespace) && up.key) {
+      const parsed = parseUpdateKey(String(up.key));
+      if (!name) name = parsed.name;
+      if (!namespace) namespace = parsed.namespace;
+    }
+    return { name, namespace };
+  }
+
+  private getOrCreateNamespaceMap(namespace: string): Map<string, Record<string, any>> {
+    let map = this.rowMap.get(namespace);
+    if (!map) {
+      map = new Map();
+      this.rowMap.set(namespace, map);
+    }
+    return map;
+  }
+
+  private processUpdate(up: any, map: Map<string, Record<string, any>>, name: string): boolean {
+    if (up.data === null) {
+      return map.delete(name);
+    }
+    const flat = this.flatten(up.data);
+    this.ensureColumns(flat);
+    map.set(name, flat);
+    return true;
+  }
+
   private handleTopoNodeStream(msg: any): void {
     const updates = getUpdates(msg.msg);
     if (updates.length === 0) {
       return;
     }
+
     let changed = false;
+    const coreNs = this.edaClient.getCoreNamespace();
+
     for (const up of updates) {
-      let name: string | undefined = up.data?.metadata?.name;
-      let namespace: string | undefined = up.data?.metadata?.namespace;
-      if ((!name || !namespace) && up.key) {
-        const parsed = parseUpdateKey(String(up.key));
-        if (!name) name = parsed.name;
-        if (!namespace) namespace = parsed.namespace;
-      }
-      if (!namespace || !name) {
+      const { name, namespace } = this.extractUpdateIdentifiers(up);
+      if (!namespace || !name || namespace === coreNs) {
         continue;
       }
-      if (namespace === this.edaClient.getCoreNamespace()) {
-        continue;
-      }
-      let map = this.rowMap.get(namespace);
-      if (!map) {
-        map = new Map();
-        this.rowMap.set(namespace, map);
-      }
-      if (up.data === null) {
-        changed = map.delete(name) || changed;
-      } else {
-        const flat = this.flatten(up.data);
-        this.ensureColumns(flat);
-        map.set(name, flat);
-        changed = true;
-      }
+      const map = this.getOrCreateNamespaceMap(namespace);
+      changed = this.processUpdate(up, map, name) || changed;
     }
 
     if (changed) {
@@ -243,6 +266,8 @@ export class ToponodesDashboardPanel extends BasePanel {
   }
 
   static show(context: vscode.ExtensionContext, title: string): ToponodesDashboardPanel {
-    return new ToponodesDashboardPanel(context, title);
+    const panel = new ToponodesDashboardPanel(context, title);
+    void panel.initialize();
+    return panel;
   }
 }

@@ -58,10 +58,7 @@ export class ResourceViewDocumentProvider extends BaseDocumentProvider {
   /**
    * Override writeFile to explicitly throw NoPermissions
    */
-  writeFile(uri: vscode.Uri, content: Uint8Array, options: { create: boolean; overwrite: boolean }): void {
-    void uri;
-    void content;
-    void options;
+  writeFile(_uri: vscode.Uri, _content: Uint8Array, _options: { create: boolean; overwrite: boolean }): void {
     throw vscode.FileSystemError.NoPermissions("This document is read-only. Use 'Switch to Edit' to modify.");
   }
 }

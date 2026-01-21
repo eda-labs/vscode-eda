@@ -23,8 +23,22 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     super();
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
-    void this.loadBasket();
-    void this.edaClient.streamUserStorageFile('Transactions');
+    this.setupStreamListener();
+
+    // Emit initial count
+    this._onBasketCountChanged.fire(this.count);
+  }
+
+  /**
+   * Initialize async operations. Call this after construction.
+   */
+  public async initialize(): Promise<void> {
+    await this.loadBasket();
+    await this.edaClient.streamUserStorageFile('Transactions');
+  }
+
+  /** Set up the stream message listener for basket updates */
+  private setupStreamListener(): void {
     this.edaClient.onStreamMessage((stream, msg) => {
       if (stream === 'file') {
         const fileName = (msg['file-name'] ?? msg.msg?.['file-name'])?.replace(/^\//, '');
@@ -33,9 +47,6 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
         }
       }
     });
-
-    // Emit initial count
-    this._onBasketCountChanged.fire(this.count);
   }
 
   public dispose(): void {
@@ -166,23 +177,41 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     return item;
   }
 
+  /** Extract the value object from a CR type (create, replace, modify, update, or patch) */
+  private extractCrValue(cr: any): any {
+    const type = cr.type;
+    if (!type) {
+      return undefined;
+    }
+    return type.create?.value ?? type.replace?.value ?? type.modify?.value ?? type.update?.value ?? type.patch?.value;
+  }
+
+  /** Extract the kind from a CR, falling back through value, delete gvk, basketInfo, or default */
+  private extractCrKind(cr: any, value: any): string {
+    if (value?.kind) {
+      return value.kind;
+    }
+    if (cr.type?.delete?.gvk?.kind) {
+      return cr.type.delete.gvk.kind;
+    }
+    if (cr.basketInfo?.model?.modelName) {
+      return cr.basketInfo.model.modelName;
+    }
+    return 'resource';
+  }
+
+  /** Extract the name from a CR value or delete operation */
+  private extractCrName(cr: any, value: any): string | undefined {
+    return value?.metadata?.name ?? cr.type?.delete?.name;
+  }
+
   private createCrItem(cr: any, idx: number): TransactionBasketItem {
-    const value =
-      cr.type?.create?.value ||
-      cr.type?.replace?.value ||
-      cr.type?.modify?.value ||
-      cr.type?.update?.value ||
-      cr.type?.patch?.value;
-
-    const kind =
-      value?.kind ||
-      cr.type?.delete?.gvk?.kind ||
-      cr.basketInfo?.model?.modelName ||
-      'resource';
-
-    const name = value?.metadata?.name || cr.type?.delete?.name;
+    const value = this.extractCrValue(cr);
+    const kind = this.extractCrKind(cr, value);
+    const name = this.extractCrName(cr, value);
     const label = name ? `${kind}/${name}` : kind;
     const op = Object.keys(cr.type || {})[0] || '';
+
     const item = new TransactionBasketItem(
       label,
       vscode.TreeItemCollapsibleState.None,

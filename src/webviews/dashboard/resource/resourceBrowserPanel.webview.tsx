@@ -31,7 +31,7 @@ interface SchemaNode {
   required?: string[];
 }
 
-function SchemaProp({ name, node, isRequired }: { name: string; node: SchemaNode; isRequired: boolean }) {
+function SchemaProp({ name, node, isRequired }: Readonly<{ name: string; node: SchemaNode; isRequired: boolean }>) {
   const expandTrigger = useContext(ExpandContext);
   const [isOpen, setIsOpen] = useState(false);
   const type = node.type || (node.properties ? 'object' : '');
@@ -65,7 +65,7 @@ function SchemaProp({ name, node, isRequired }: { name: string; node: SchemaNode
   );
 }
 
-function SchemaProps({ node }: { node: SchemaNode }) {
+function SchemaProps({ node }: Readonly<{ node: SchemaNode }>) {
   const required = node.required || [];
   const props = node.properties || {};
   return (
@@ -77,7 +77,7 @@ function SchemaProps({ node }: { node: SchemaNode }) {
   );
 }
 
-function SchemaSection({ name, node }: { name: string; node: SchemaNode }) {
+function SchemaSection({ name, node }: Readonly<{ name: string; node: SchemaNode }>) {
   const expandTrigger = useContext(ExpandContext);
   const [isOpen, setIsOpen] = useState(true);
   const type = node.type || (node.properties ? 'object' : '');

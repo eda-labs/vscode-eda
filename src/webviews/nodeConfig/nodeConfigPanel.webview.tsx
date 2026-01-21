@@ -43,26 +43,38 @@ interface ContextState {
   level: number;
 }
 
+// VSCode CSS color variables
+const CSS_COLORS = {
+  purple: 'var(--vscode-charts-purple)',
+  blue: 'var(--vscode-charts-blue)',
+  green: 'var(--vscode-charts-green)',
+  yellow: 'var(--vscode-charts-yellow)',
+  red: 'var(--vscode-charts-red)',
+  orange: 'var(--vscode-charts-orange)',
+  foreground: 'var(--vscode-editor-foreground)',
+  description: 'var(--vscode-descriptionForeground)',
+} as const;
+
 // Syntax highlighting colors mapped to VSCode CSS variables
 const COLORS = {
-  sectionKeyword: 'var(--vscode-charts-purple)',
-  interfaceType: 'var(--vscode-charts-purple)',
-  property: 'var(--vscode-charts-blue)',
-  interfaceName: 'var(--vscode-charts-green)',
-  bracket: 'var(--vscode-editor-foreground)',
-  value: 'var(--vscode-charts-yellow)',
-  boolean: 'var(--vscode-charts-purple)',
-  number: 'var(--vscode-charts-red)',
-  string: 'var(--vscode-charts-yellow)',
-  ipAddress: 'var(--vscode-charts-orange)',
-  parameter: 'var(--vscode-charts-blue)',
-  networkKeyword: 'var(--vscode-charts-purple)',
-  vlan: 'var(--vscode-charts-purple)',
-  protocol: 'var(--vscode-charts-green)',
-  bgp: 'var(--vscode-charts-red)',
-  route: 'var(--vscode-charts-orange)',
-  comment: 'var(--vscode-descriptionForeground)',
-  foreground: 'var(--vscode-editor-foreground)',
+  sectionKeyword: CSS_COLORS.purple,
+  interfaceType: CSS_COLORS.purple,
+  property: CSS_COLORS.blue,
+  interfaceName: CSS_COLORS.green,
+  bracket: CSS_COLORS.foreground,
+  value: CSS_COLORS.yellow,
+  boolean: CSS_COLORS.purple,
+  number: CSS_COLORS.red,
+  string: CSS_COLORS.yellow,
+  ipAddress: CSS_COLORS.orange,
+  parameter: CSS_COLORS.blue,
+  networkKeyword: CSS_COLORS.purple,
+  vlan: CSS_COLORS.purple,
+  protocol: CSS_COLORS.green,
+  bgp: CSS_COLORS.red,
+  route: CSS_COLORS.orange,
+  comment: CSS_COLORS.description,
+  foreground: CSS_COLORS.foreground,
 };
 
 // Colors affected by "less" mode (become foreground)
@@ -99,7 +111,7 @@ function updateContext(line: string, context: ContextState): void {
   const indentLevel = line.search(/\S|$/);
   context.level = Math.floor(indentLevel / 4);
 
-  if (context.level === 0 && trimmedLine.match(/^\w+.*\{$/)) {
+  if (context.level === 0 && /^\w/.test(trimmedLine) && trimmedLine.endsWith('{')) {
     context.section = trimmedLine.split(' ')[0];
     context.interface = '';
     context.subBlock = '';
@@ -120,136 +132,239 @@ function updateContext(line: string, context: ContextState): void {
   }
 }
 
+// Helper to determine the color key for a block keyword based on section
+function getBlockKeywordColor(section: string): keyof typeof COLORS {
+  return section === 'network-instance' ? 'networkKeyword' : 'property';
+}
+
+// Helper to determine the value color for keyword-value block patterns
+function getKeywordValueColor(keyword: string): keyof typeof COLORS {
+  return keyword === 'address' ? 'ipAddress' : 'value';
+}
+
+// Helper to determine property color based on context and property name
+function getPropertyColor(
+  property: string,
+  context: ContextState
+): keyof typeof COLORS {
+  if (context.section === 'bfd' || property === 'admin-state') return 'parameter';
+  if (property.includes('vlan')) return 'vlan';
+  if (context.section === 'network-instance' && context.subBlock === 'protocols') return 'protocol';
+  if (property.includes('bgp')) return 'bgp';
+  if (property.includes('route')) return 'route';
+  return 'property';
+}
+
+// Helper to determine value color based on value content and property
+function getValueColor(
+  value: string,
+  property: string,
+  context: ContextState
+): { colorKey: keyof typeof COLORS; bold: boolean } {
+  const BOOLEAN_VALUES = new Set(['true', 'false', 'enable', 'disable', 'up', 'down']);
+
+  if (BOOLEAN_VALUES.has(value)) {
+    return { colorKey: 'boolean', bold: true };
+  }
+  if (/^\d+$/.test(value)) {
+    return { colorKey: 'number', bold: false };
+  }
+  if (/^"[^"]*"$/.test(value)) {
+    return { colorKey: 'string', bold: false };
+  }
+  if (/^\d+\.\d+\.\d+\.\d+\/\d+$/.test(value)) {
+    return { colorKey: 'ipAddress', bold: false };
+  }
+  if (property === 'description') {
+    return { colorKey: 'string', bold: false };
+  }
+  // Check if property has special coloring (bfd, vlan, protocol, bgp, route)
+  const propColor = getPropertyColor(property, context);
+  if (propColor !== 'property') {
+    return { colorKey: 'value', bold: false };
+  }
+  return { colorKey: 'value', bold: false };
+}
+
+// Helper to highlight standalone values (in arrays or simple lines)
+function highlightStandaloneValue(trimmed: string): keyof typeof COLORS {
+  const BOOLEAN_VALUES = new Set(['enable', 'disable', 'up', 'down']);
+
+  if (/^\d+$/.test(trimmed)) return 'number';
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(trimmed)) return 'ipAddress';
+  if (BOOLEAN_VALUES.has(trimmed)) return 'boolean';
+  return 'value';
+}
+
+// Regex patterns used for syntax highlighting
+const PATTERNS = {
+  // Level 0 patterns
+  sectionWithName: /^(\s*)(\w+)\s+([\w/-]+)\s*\{/,
+  sectionWithNameReplace: /^(\s*)(\w+)\s+([\w./-]+)\s*\{/,
+  sectionOnly: /^(\s*)(\w+)\s*\{/,
+  // Level > 0 patterns
+  blockKeyword: /^(\s*)(\w[\w-]+)\s*\{/,
+  keywordValueBlock: /^(\s*)(\w[\w./-]+)\s+(\S[^\s]*(?:\s+[^\s{]+)*)\s*\{$/,
+  propertyValue: /^(\s*)(\w[\w-]+)\s+(\S.*)$/,
+  openBracket: /^(\s*)\[$/,
+  closeBracket: /^(\s*)\]$/,
+  standaloneValue: /^(\s*)(\w.*)$/,
+  closeBrace: /^(\s*)\}$/,
+} as const;
+
+function highlightTopLevel(processedLine: string, colorMode: ColorMode): string {
+  if (PATTERNS.sectionWithName.test(processedLine)) {
+    return processedLine.replace(
+      PATTERNS.sectionWithNameReplace,
+      (_m, space, keyword, name) => (
+        space +
+        makeSpan(keyword, 'sectionKeyword', colorMode, true) + ' ' +
+        makeSpan(name, 'interfaceName', colorMode, true) + ' ' +
+        makeSpan('{', 'bracket', colorMode)
+      )
+    );
+  }
+  if (PATTERNS.sectionOnly.test(processedLine)) {
+    return processedLine.replace(
+      PATTERNS.sectionOnly,
+      (_m, space, keyword) => space + makeSpan(keyword, 'sectionKeyword', colorMode, true) + ' ' + makeSpan('{', 'bracket', colorMode)
+    );
+  }
+  return processedLine;
+}
+
+function highlightNestedBlock(processedLine: string, context: ContextState, colorMode: ColorMode): string {
+  // Block keyword only: "ethernet {"
+  if (PATTERNS.blockKeyword.test(processedLine)) {
+    const colorKey = getBlockKeywordColor(context.section);
+    return processedLine.replace(
+      PATTERNS.blockKeyword,
+      (_m, space, kw) => space + makeSpan(kw, colorKey, colorMode) + ' ' + makeSpan('{', 'bracket', colorMode)
+    );
+  }
+
+  // Keyword with value and block: "subinterface 0 {" or "address 192.168.1.1/24 {"
+  if (PATTERNS.keywordValueBlock.test(processedLine)) {
+    return processedLine.replace(
+      PATTERNS.keywordValueBlock,
+      (_m, space, keyword, rest) => {
+        const valueColorKey = getKeywordValueColor(keyword);
+        return (
+          space +
+          makeSpan(keyword, 'property', colorMode) + ' ' +
+          makeSpan(rest.replace(/\{$/, ''), valueColorKey, colorMode) + ' ' +
+          makeSpan('{', 'bracket', colorMode)
+        );
+      }
+    );
+  }
+
+  // Property-value pair: "admin-state enable"
+  if (PATTERNS.propertyValue.test(processedLine)) {
+    return processedLine.replace(
+      PATTERNS.propertyValue,
+      (_m, space, property, value) => {
+        const propColorKey = getPropertyColor(property, context);
+        const { colorKey: valColorKey, bold } = getValueColor(value, property, context);
+        return space + makeSpan(property, propColorKey, colorMode) + ' ' + makeSpan(value, valColorKey, colorMode, bold);
+      }
+    );
+  }
+
+  // Brackets
+  if (PATTERNS.openBracket.test(processedLine)) {
+    return processedLine.replace(PATTERNS.openBracket, (_m, space) => space + makeSpan('[', 'bracket', colorMode));
+  }
+  if (PATTERNS.closeBracket.test(processedLine)) {
+    return processedLine.replace(PATTERNS.closeBracket, (_m, space) => space + makeSpan(']', 'bracket', colorMode));
+  }
+
+  // Standalone value (in arrays)
+  if (PATTERNS.standaloneValue.test(processedLine)) {
+    const trimmed = processedLine.trim();
+    const colorKey = highlightStandaloneValue(trimmed);
+    const bold = colorKey === 'boolean';
+    return processedLine.replace(PATTERNS.standaloneValue, (_m, space, val) => space + makeSpan(val, colorKey, colorMode, bold));
+  }
+
+  return processedLine;
+}
+
 function applySyntaxHighlighting(line: string, context: ContextState, colorMode: ColorMode): string {
   if (line.trim() === '') return '';
 
   let processedLine = escapeHtml(line);
 
+  // Comments
   if (processedLine.trim().startsWith('#')) {
     return makeSpan(processedLine, 'comment', colorMode);
   }
 
+  // Apply highlighting based on indentation level
   if (context.level === 0) {
-    if (processedLine.match(/^(\s*)(\w+)\s+([\w/-]+)\s*\{/)) {
-      processedLine = processedLine.replace(
-        /^(\s*)(\w+)\s+([\w./-]+)\s*\{/,
-        (_m, space, keyword, name) => {
-          return (
-            space +
-            makeSpan(keyword, 'sectionKeyword', colorMode, true) + ' ' +
-            makeSpan(name, 'interfaceName', colorMode, true) + ' ' +
-            makeSpan('{', 'bracket', colorMode)
-          );
-        }
-      );
-    } else if (processedLine.match(/^(\s*)(\w+)\s*\{/)) {
-      processedLine = processedLine.replace(
-        /^(\s*)(\w+)\s*\{/,
-        (_m, space, keyword) => {
-          return space + makeSpan(keyword, 'sectionKeyword', colorMode, true) + ' ' + makeSpan('{', 'bracket', colorMode);
-        }
-      );
-    }
+    processedLine = highlightTopLevel(processedLine, colorMode);
   } else {
-    if (processedLine.match(/^(\s*)(\w[\w-]+)\s*\{/)) {
-      if (context.section === 'interface' || context.section === 'bfd') {
-        processedLine = processedLine.replace(
-          /^(\s*)(\w[\w-]+)\s*\{/,
-          (_m, space, prop) => space + makeSpan(prop, 'property', colorMode) + ' ' + makeSpan('{', 'bracket', colorMode)
-        );
-      } else if (context.section === 'network-instance') {
-        processedLine = processedLine.replace(
-          /^(\s*)(\w[\w-]+)\s*\{/,
-          (_m, space, kw) => space + makeSpan(kw, 'networkKeyword', colorMode) + ' ' + makeSpan('{', 'bracket', colorMode)
-        );
-      } else {
-        processedLine = processedLine.replace(
-          /^(\s*)(\w[\w-]+)\s*\{/,
-          (_m, space, prop) => space + makeSpan(prop, 'property', colorMode) + ' ' + makeSpan('{', 'bracket', colorMode)
-        );
-      }
-    } else if (processedLine.match(/^(\s*)(\w[\w./-]+)\s+(.+)\s*\{/)) {
-      processedLine = processedLine.replace(
-        /^(\s*)(\w[\w./-]+)\s+(.+)\s*\{/,
-        (_m, space, keyword, rest) => {
-          if (keyword === 'subinterface') {
-            return (
-              space +
-              makeSpan(keyword, 'property', colorMode) + ' ' +
-              makeSpan(rest.replace(/\{$/, ''), 'value', colorMode) + ' ' +
-              makeSpan('{', 'bracket', colorMode)
-            );
-          } else if (keyword === 'address') {
-            return (
-              space +
-              makeSpan(keyword, 'property', colorMode) + ' ' +
-              makeSpan(rest.replace(/\{$/, ''), 'ipAddress', colorMode) + ' ' +
-              makeSpan('{', 'bracket', colorMode)
-            );
-          } else {
-            return (
-              space +
-              makeSpan(keyword, 'property', colorMode) + ' ' +
-              makeSpan(rest.replace(/\{$/, ''), 'value', colorMode) + ' ' +
-              makeSpan('{', 'bracket', colorMode)
-            );
-          }
-        }
-      );
-    } else if (processedLine.match(/^(\s*)(\w[\w-]+)\s+(.+)$/)) {
-      processedLine = processedLine.replace(
-        /^(\s*)(\w[\w-]+)\s+(.+)$/,
-        (_m, space, property, value) => {
-          if (value === 'true' || value === 'false') {
-            return space + makeSpan(property, 'property', colorMode) + ' ' + makeSpan(value, 'boolean', colorMode, true);
-          } else if (value === 'enable' || value === 'disable' || value === 'up' || value === 'down') {
-            return space + makeSpan(property, 'property', colorMode) + ' ' + makeSpan(value, 'boolean', colorMode, true);
-          } else if (value.match(/^\d+$/)) {
-            return space + makeSpan(property, 'property', colorMode) + ' ' + makeSpan(value, 'number', colorMode);
-          } else if (value.match(/^".*"$/)) {
-            return space + makeSpan(property, 'property', colorMode) + ' ' + makeSpan(value, 'string', colorMode);
-          } else if (value.match(/^\d+\.\d+\.\d+\.\d+\/\d+$/)) {
-            return space + makeSpan(property, 'property', colorMode) + ' ' + makeSpan(value, 'ipAddress', colorMode);
-          } else if (context.section === 'bfd' || property === 'admin-state') {
-            return space + makeSpan(property, 'parameter', colorMode) + ' ' + makeSpan(value, 'value', colorMode);
-          } else if (property === 'description') {
-            return space + makeSpan(property, 'property', colorMode) + ' ' + makeSpan(value, 'string', colorMode);
-          } else if (property.includes('vlan')) {
-            return space + makeSpan(property, 'vlan', colorMode) + ' ' + makeSpan(value, 'value', colorMode);
-          } else if (context.section === 'network-instance' && context.subBlock === 'protocols') {
-            return space + makeSpan(property, 'protocol', colorMode) + ' ' + makeSpan(value, 'value', colorMode);
-          } else if (property.includes('bgp')) {
-            return space + makeSpan(property, 'bgp', colorMode) + ' ' + makeSpan(value, 'value', colorMode);
-          } else if (property.includes('route')) {
-            return space + makeSpan(property, 'route', colorMode) + ' ' + makeSpan(value, 'value', colorMode);
-          } else {
-            return space + makeSpan(property, 'property', colorMode) + ' ' + makeSpan(value, 'value', colorMode);
-          }
-        }
-      );
-    } else if (processedLine.match(/^(\s*)\[$/)) {
-      processedLine = processedLine.replace(/^(\s*)\[$/, (_m, space) => space + makeSpan('[', 'bracket', colorMode));
-    } else if (processedLine.match(/^(\s*)\]$/)) {
-      processedLine = processedLine.replace(/^(\s*)\]$/, (_m, space) => space + makeSpan(']', 'bracket', colorMode));
-    } else if (processedLine.match(/^(\s*)(\w.*)$/)) {
-      const trimmed = processedLine.trim();
-      if (trimmed.match(/^\d+$/)) {
-        processedLine = processedLine.replace(/^(\s*)(\w.*)$/, (_m, space, val) => space + makeSpan(val, 'number', colorMode));
-      } else if (trimmed.match(/^\d+\.\d+\.\d+\.\d+$/)) {
-        processedLine = processedLine.replace(/^(\s*)(\w.*)$/, (_m, space, val) => space + makeSpan(val, 'ipAddress', colorMode));
-      } else if (trimmed === 'enable' || trimmed === 'disable' || trimmed === 'up' || trimmed === 'down') {
-        processedLine = processedLine.replace(/^(\s*)(\w.*)$/, (_m, space, val) => space + makeSpan(val, 'boolean', colorMode, true));
-      } else {
-        processedLine = processedLine.replace(/^(\s*)(\w.*)$/, (_m, space, val) => space + makeSpan(val, 'value', colorMode));
-      }
-    }
+    processedLine = highlightNestedBlock(processedLine, context, colorMode);
   }
 
+  // Handle closing brace
   if (processedLine.trim() === '}') {
-    processedLine = processedLine.replace(/^(\s*)\}$/, (_m, space) => space + makeSpan('}', 'bracket', colorMode));
+    processedLine = processedLine.replace(PATTERNS.closeBrace, (_m, space) => space + makeSpan('}', 'bracket', colorMode));
   }
 
   return processedLine;
+}
+
+// Extract annotation info from an annotation object
+function extractAnnotationInfo(ann: Annotation): { label: string; info: AnnotationInfo } {
+  const label = ann.cr?.name || 'unknown';
+  return {
+    label,
+    info: {
+      name: label,
+      group: ann.cr?.gvk?.group || '',
+      version: ann.cr?.gvk?.version || '',
+      kind: ann.cr?.gvk?.kind || ''
+    }
+  };
+}
+
+// Normalize a line range, handling undefined values and swapping if needed
+function normalizeLineRange(range: LineRange): { start: number; end: number } | null {
+  let start = range.startLine;
+  let end = range.endLine;
+
+  if (start === undefined && end !== undefined) {
+    start = 0;
+  }
+  if (end === undefined && start !== undefined) {
+    end = start;
+  }
+  if (start === undefined || end === undefined) {
+    return null;
+  }
+  if (start > end) {
+    [start, end] = [end, start];
+  }
+  return { start, end };
+}
+
+// Apply a line range to the annotation maps
+function applyLineRange(
+  range: { start: number; end: number },
+  numLines: number,
+  label: string,
+  annMap: Set<string>[],
+  annotationLineMap: Map<string, Set<number>>
+): void {
+  const { start, end } = range;
+  const clampedStart = Math.max(0, start);
+  const clampedEnd = Math.min(numLines - 1, end);
+
+  for (let i = clampedStart; i <= clampedEnd; i++) {
+    annMap[i].add(label);
+    annotationLineMap.get(label)?.add(i + 1);
+  }
 }
 
 function buildAnnotationMap(
@@ -263,13 +378,7 @@ function buildAnnotationMap(
   annotationInfoMap.clear();
 
   for (const ann of annotations) {
-    const label = ann.cr?.name || 'unknown';
-    const info: AnnotationInfo = {
-      name: ann.cr?.name || 'unknown',
-      group: ann.cr?.gvk?.group || '',
-      version: ann.cr?.gvk?.version || '',
-      kind: ann.cr?.gvk?.kind || ''
-    };
+    const { label, info } = extractAnnotationInfo(ann);
 
     if (!annotationLineMap.has(label)) {
       annotationLineMap.set(label, new Set<number>());
@@ -277,30 +386,13 @@ function buildAnnotationMap(
     }
 
     for (const range of ann.lines) {
-      let start = range.startLine;
-      let end = range.endLine;
-
-      if (start === undefined && end !== undefined) {
-        start = 0;
-      }
-      if (end === undefined && start !== undefined) {
-        end = start;
-      }
-      if (start === undefined || end === undefined) {
-        continue;
-      }
-      if (start > end) {
-        const tmp = start;
-        start = end;
-        end = tmp;
-      }
-
-      for (let i = Math.max(0, start); i <= Math.min(numLines - 1, end); i++) {
-        annMap[i].add(label);
-        annotationLineMap.get(label)?.add(i + 1);
+      const normalized = normalizeLineRange(range);
+      if (normalized) {
+        applyLineRange(normalized, numLines, label, annMap, annotationLineMap);
       }
     }
   }
+
   return annMap.map(set => Array.from(set));
 }
 
@@ -393,7 +485,7 @@ function NodeConfigPanel() {
     navigator.clipboard.writeText(configText).then(() => {
       setShowToast(true);
       setTimeout(() => setShowToast(false), 3000);
-    });
+    }).catch(() => {});
   }, [configText]);
 
   const handleColorModeChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -407,8 +499,8 @@ function NodeConfigPanel() {
     setHighlightedAnnotation(annotationKey);
   }, [isAnnotationsVisible]);
 
-  const isHighlighted = useCallback((annotationKey: string) => {
-    return highlightedAnnotation && annotationKey === highlightedAnnotation;
+  const isHighlighted = useCallback((annotationKey: string): boolean => {
+    return highlightedAnnotation !== null && annotationKey === highlightedAnnotation;
   }, [highlightedAnnotation]);
 
   return (

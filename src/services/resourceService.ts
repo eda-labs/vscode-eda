@@ -38,11 +38,11 @@ export class ResourceService extends CoreService {
 
     // Subscribe to resource changes from the K8s client
     this.k8sClient.onResourceChanged(() => {
-      void this.refreshCachedResources();
+      this.refreshCachedResources();
     });
 
     // Schedule initialization outside of the constructor to avoid async in constructor
-    setTimeout(() => void this.initializeResources(), 0);
+    setTimeout(() => this.initializeResources(), 0);
   }
 
   /**

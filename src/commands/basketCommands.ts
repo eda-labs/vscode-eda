@@ -169,11 +169,36 @@ async function editBasketItem(item: unknown): Promise<vscode.Disposable | undefi
 export function registerBasketCommands(context: vscode.ExtensionContext): void {
   const edaClient = serviceManager.getClient<EdaClient>('eda');
 
-  const discardCmd = vscode.commands.registerCommand('vscode-eda.discardBasket', discardBasket);
-  const commitCmd = vscode.commands.registerCommand('vscode-eda.commitBasket', () => runBasket(edaClient, false));
-  const dryRunCmd = vscode.commands.registerCommand('vscode-eda.dryRunBasket', () => runBasket(edaClient, true));
-  const removeItemCmd = vscode.commands.registerCommand('vscode-eda.removeBasketItem', removeBasketItem);
-  const editItemCmd = vscode.commands.registerCommand('vscode-eda.editBasketItem', editBasketItem);
+  const discardCmd = vscode.commands.registerCommand('vscode-eda.discardBasket', () => {
+    discardBasket().catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      log(`Failed to discard basket: ${message}`, LogLevel.ERROR, true);
+    });
+  });
+  const commitCmd = vscode.commands.registerCommand('vscode-eda.commitBasket', () => {
+    runBasket(edaClient, false).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      log(`Failed to commit basket: ${message}`, LogLevel.ERROR, true);
+    });
+  });
+  const dryRunCmd = vscode.commands.registerCommand('vscode-eda.dryRunBasket', () => {
+    runBasket(edaClient, true).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      log(`Failed to dry run basket: ${message}`, LogLevel.ERROR, true);
+    });
+  });
+  const removeItemCmd = vscode.commands.registerCommand('vscode-eda.removeBasketItem', (item: unknown) => {
+    removeBasketItem(item).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      log(`Failed to remove basket item: ${message}`, LogLevel.ERROR, true);
+    });
+  });
+  const editItemCmd = vscode.commands.registerCommand('vscode-eda.editBasketItem', (item: unknown) => {
+    editBasketItem(item).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      log(`Failed to edit basket item: ${message}`, LogLevel.ERROR, true);
+    });
+  });
 
   context.subscriptions.push(discardCmd, commitCmd, dryRunCmd, removeItemCmd, editItemCmd);
 }

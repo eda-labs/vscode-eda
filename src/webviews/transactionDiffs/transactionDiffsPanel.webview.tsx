@@ -3,6 +3,8 @@ import { useState, useCallback, useMemo } from 'react';
 import { usePostMessage, useMessageListener, useReadySignal } from '../shared/hooks';
 import { mountWebview } from '../shared/utils';
 
+const NODE_CONFIG_LABEL = 'Node Config';
+
 interface ResourceRef {
   group?: string;
   version?: string;
@@ -64,64 +66,126 @@ function computeLCS(arr1: string[], arr2: string[]): string[] {
   return lcs;
 }
 
+function areArraysEqual(arr1: string[], arr2: string[]): boolean {
+  return arr1.length === arr2.length && arr1.every((line, idx) => line === arr2[idx]);
+}
+
+function isLcsMatch(line: string, lcs: string[], lcsIdx: number): boolean {
+  return lcsIdx < lcs.length && line === lcs[lcsIdx];
+}
+
+function isNotLcsMatch(line: string, lcs: string[], lcsIdx: number): boolean {
+  return lcsIdx >= lcs.length || line !== lcs[lcsIdx];
+}
+
+function createContextLine(line: string, lineNum: number): DiffLine {
+  return { line, type: 'context', lineNum: lineNum + 1 };
+}
+
+function createRemovedLine(line: string, lineNum: number): DiffLine {
+  return { line, type: 'removed', lineNum: lineNum + 1 };
+}
+
+function createAddedLine(line: string, lineNum: number): DiffLine {
+  return { line, type: 'added', lineNum: lineNum + 1 };
+}
+
+function createBlankLine(): DiffLine {
+  return { line: '', type: 'blank', lineNum: '' };
+}
+
+interface DiffState {
+  beforeLines: string[];
+  afterLines: string[];
+  lcs: string[];
+  beforeDiff: DiffLine[];
+  afterDiff: DiffLine[];
+  beforeIdx: number;
+  afterIdx: number;
+  lcsIdx: number;
+}
+
+function handleContextMatch(state: DiffState): void {
+  state.beforeDiff.push(createContextLine(state.beforeLines[state.beforeIdx], state.beforeIdx));
+  state.afterDiff.push(createContextLine(state.afterLines[state.afterIdx], state.afterIdx));
+  state.beforeIdx++;
+  state.afterIdx++;
+  state.lcsIdx++;
+}
+
+function handleBothModified(state: DiffState): void {
+  state.beforeDiff.push(createRemovedLine(state.beforeLines[state.beforeIdx], state.beforeIdx));
+  state.afterDiff.push(createAddedLine(state.afterLines[state.afterIdx], state.afterIdx));
+  state.beforeIdx++;
+  state.afterIdx++;
+}
+
+function handleBeforeRemoved(state: DiffState): void {
+  state.beforeDiff.push(createRemovedLine(state.beforeLines[state.beforeIdx], state.beforeIdx));
+  state.afterDiff.push(createBlankLine());
+  state.beforeIdx++;
+}
+
+function handleAfterAdded(state: DiffState): void {
+  state.beforeDiff.push(createBlankLine());
+  state.afterDiff.push(createAddedLine(state.afterLines[state.afterIdx], state.afterIdx));
+  state.afterIdx++;
+}
+
+function handleFallthrough(state: DiffState): void {
+  state.beforeIdx++;
+  state.afterIdx++;
+  state.lcsIdx++;
+}
+
+function processDiffIteration(state: DiffState): void {
+  const beforeInBounds = state.beforeIdx < state.beforeLines.length;
+  const afterInBounds = state.afterIdx < state.afterLines.length;
+  const beforeMatchesLcs = beforeInBounds && isLcsMatch(state.beforeLines[state.beforeIdx], state.lcs, state.lcsIdx);
+  const afterMatchesLcs = afterInBounds && isLcsMatch(state.afterLines[state.afterIdx], state.lcs, state.lcsIdx);
+  const beforeNotLcs = beforeInBounds && isNotLcsMatch(state.beforeLines[state.beforeIdx], state.lcs, state.lcsIdx);
+  const afterNotLcs = afterInBounds && isNotLcsMatch(state.afterLines[state.afterIdx], state.lcs, state.lcsIdx);
+
+  if (beforeMatchesLcs && afterMatchesLcs) {
+    handleContextMatch(state);
+  } else if (beforeNotLcs && afterNotLcs) {
+    handleBothModified(state);
+  } else if (beforeNotLcs) {
+    handleBeforeRemoved(state);
+  } else if (afterNotLcs) {
+    handleAfterAdded(state);
+  } else {
+    handleFallthrough(state);
+  }
+}
+
 function generateDiff(beforeContent: string, afterContent: string): { beforeDiff: DiffLine[]; afterDiff: DiffLine[] } {
   const beforeLines = beforeContent ? beforeContent.split('\n') : [];
   const afterLines = afterContent ? afterContent.split('\n') : [];
 
-  if (beforeLines.length === afterLines.length && beforeLines.every((line, idx) => line === afterLines[idx])) {
+  if (areArraysEqual(beforeLines, afterLines)) {
     return { beforeDiff: [], afterDiff: [] };
   }
 
-  const lcs = computeLCS(beforeLines, afterLines);
-  const beforeDiff: DiffLine[] = [];
-  const afterDiff: DiffLine[] = [];
+  const state: DiffState = {
+    beforeLines,
+    afterLines,
+    lcs: computeLCS(beforeLines, afterLines),
+    beforeDiff: [],
+    afterDiff: [],
+    beforeIdx: 0,
+    afterIdx: 0,
+    lcsIdx: 0,
+  };
 
-  let beforeIdx = 0;
-  let afterIdx = 0;
-  let lcsIdx = 0;
-
-  while (beforeIdx < beforeLines.length || afterIdx < afterLines.length) {
-    if (
-      lcsIdx < lcs.length &&
-      beforeIdx < beforeLines.length &&
-      afterIdx < afterLines.length &&
-      beforeLines[beforeIdx] === lcs[lcsIdx] &&
-      afterLines[afterIdx] === lcs[lcsIdx]
-    ) {
-      beforeDiff.push({ line: beforeLines[beforeIdx], type: 'context', lineNum: beforeIdx + 1 });
-      afterDiff.push({ line: afterLines[afterIdx], type: 'context', lineNum: afterIdx + 1 });
-      beforeIdx++;
-      afterIdx++;
-      lcsIdx++;
-    } else if (
-      beforeIdx < beforeLines.length &&
-      afterIdx < afterLines.length &&
-      (lcsIdx >= lcs.length || beforeLines[beforeIdx] !== lcs[lcsIdx]) &&
-      (lcsIdx >= lcs.length || afterLines[afterIdx] !== lcs[lcsIdx])
-    ) {
-      beforeDiff.push({ line: beforeLines[beforeIdx], type: 'removed', lineNum: beforeIdx + 1 });
-      afterDiff.push({ line: afterLines[afterIdx], type: 'added', lineNum: afterIdx + 1 });
-      beforeIdx++;
-      afterIdx++;
-    } else if (beforeIdx < beforeLines.length && (lcsIdx >= lcs.length || beforeLines[beforeIdx] !== lcs[lcsIdx])) {
-      beforeDiff.push({ line: beforeLines[beforeIdx], type: 'removed', lineNum: beforeIdx + 1 });
-      afterDiff.push({ line: '', type: 'blank', lineNum: '' });
-      beforeIdx++;
-    } else if (afterIdx < afterLines.length && (lcsIdx >= lcs.length || afterLines[afterIdx] !== lcs[lcsIdx])) {
-      beforeDiff.push({ line: '', type: 'blank', lineNum: '' });
-      afterDiff.push({ line: afterLines[afterIdx], type: 'added', lineNum: afterIdx + 1 });
-      afterIdx++;
-    } else {
-      beforeIdx++;
-      afterIdx++;
-      lcsIdx++;
-    }
+  while (state.beforeIdx < beforeLines.length || state.afterIdx < afterLines.length) {
+    processDiffIteration(state);
   }
 
-  return { beforeDiff, afterDiff };
+  return { beforeDiff: state.beforeDiff, afterDiff: state.afterDiff };
 }
 
-function DiffLineComponent({ item }: { item: DiffLine }) {
+function DiffLineComponent({ item }: Readonly<{ item: DiffLine }>) {
   const bgColors = {
     context: '',
     added: 'bg-green-500/20',
@@ -139,8 +203,8 @@ function DiffLineComponent({ item }: { item: DiffLine }) {
   );
 }
 
-function ResourceItem({ resource, isSelected, onClick }: { resource: ResourceRef; isSelected: boolean; onClick: () => void }) {
-  const kind = resource.type === 'node' ? 'Node Config' : resource.kind;
+function ResourceItem({ resource, isSelected, onClick }: Readonly<{ resource: ResourceRef; isSelected: boolean; onClick: () => void }>) {
+  const kind = resource.type === 'node' ? NODE_CONFIG_LABEL : resource.kind;
 
   return (
     <button
@@ -197,7 +261,7 @@ function TransactionDiffsPanel() {
     if (searchQuery) {
       const lower = searchQuery.toLowerCase();
       filtered = filtered.filter(r => {
-        const kind = r.type === 'node' ? 'Node Config' : r.kind;
+        const kind = r.type === 'node' ? NODE_CONFIG_LABEL : r.kind;
         return r.name.toLowerCase().includes(lower) || (kind || '').toLowerCase().includes(lower);
       });
     }
@@ -218,7 +282,7 @@ function TransactionDiffsPanel() {
     return { added, removed, total };
   }, [beforeDiff, afterDiff]);
 
-  const titleKind = selectedResource?.type === 'node' ? 'Node Config' : selectedResource?.kind;
+  const titleKind = selectedResource?.type === 'node' ? NODE_CONFIG_LABEL : selectedResource?.kind;
 
   return (
     <div className="flex h-screen">
@@ -233,7 +297,7 @@ function TransactionDiffsPanel() {
           >
             <option value="all">All</option>
             <option value="resource">Resource</option>
-            <option value="node">Node Config</option>
+            <option value="node">{NODE_CONFIG_LABEL}</option>
           </select>
           <input
             type="text"

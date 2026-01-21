@@ -44,8 +44,6 @@ export class TopologyDashboardPanel extends BasePanel {
         this.handleTopoLinkStream(msg);
       }
     });
-    void this.edaClient.streamTopoNodes();
-    void this.edaClient.streamTopoLinks();
 
     this.panel.onDidDispose(() => {
       this.edaClient.closeTopoNodeStream();
@@ -74,6 +72,12 @@ export class TopologyDashboardPanel extends BasePanel {
     });
 
     this.panel.webview.html = this.buildHtml();
+    this.initializeStreams();
+  }
+
+  private initializeStreams(): void {
+    void this.edaClient.streamTopoNodes();
+    void this.edaClient.streamTopoLinks();
   }
 
   protected getCustomStyles(): string {
@@ -204,137 +208,169 @@ export class TopologyDashboardPanel extends BasePanel {
     return name.replace(/ethernet-/gi, 'e-');
   }
 
-  private postGraph(): void {
+  private getTargetNamespaces(): string[] {
     const coreNs = this.edaClient.getCoreNamespace();
-    const namespaces =
-      this.selectedNamespace === ALL_NAMESPACES
-        ? Array.from(this.nodeMap.keys()).filter(n => n !== coreNs)
-        : [this.selectedNamespace];
+    return this.selectedNamespace === ALL_NAMESPACES
+      ? Array.from(this.nodeMap.keys()).filter(n => n !== coreNs)
+      : [this.selectedNamespace];
+  }
+
+  private buildNodesForNamespace(
+    ns: string
+  ): { id: string; label: string; tier: number; raw: any }[] {
+    const nodes: { id: string; label: string; tier: number; raw: any }[] = [];
+    const nm = this.nodeMap.get(ns);
+    if (!nm) return nodes;
+
+    for (const node of nm.values()) {
+      const name = node.metadata?.name as string | undefined;
+      if (!name) continue;
+      const labels = node.metadata?.labels || {};
+      const tier = this.getTier(labels);
+      nodes.push({ id: `${ns}/${name}`, label: name, tier, raw: node });
+    }
+    return nodes;
+  }
+
+  private buildEdgeData(ns: string, link: any, linkSpec: any, members: any[]): EdgeData | null {
+    const src = linkSpec.local?.node;
+    const dst = linkSpec.remote?.node;
+    if (!src || !dst) return null;
+
+    const edgeData: EdgeData = {
+      source: `${ns}/${src}`,
+      target: `${ns}/${dst}`,
+      raw: linkSpec,
+      rawResource: link,
+      state: link.status?.operationalState ?? link.status?.operationalstate ?? ''
+    };
+
+    this.populateInterfaceData(edgeData, linkSpec, members);
+    return edgeData;
+  }
+
+  private populateInterfaceData(edgeData: EdgeData, linkSpec: any, members: any[]): void {
+    if (linkSpec.local?.interface) {
+      edgeData.sourceInterface = this.shortenInterfaceName(linkSpec.local.interface);
+      const ms = members.find(
+        (m: any) => m.node === linkSpec.local?.node && m.interface === linkSpec.local?.interface
+      );
+      if (ms) edgeData.sourceState = ms.operationalState;
+    }
+    if (linkSpec.remote?.interface) {
+      edgeData.targetInterface = this.shortenInterfaceName(linkSpec.remote.interface);
+      const ms = members.find(
+        (m: any) => m.node === linkSpec.remote?.node && m.interface === linkSpec.remote?.interface
+      );
+      if (ms) edgeData.targetState = ms.operationalState;
+    }
+  }
+
+  private buildEdgesForNamespace(ns: string): EdgeData[] {
+    const edges: EdgeData[] = [];
+    const lm = this.linkMap.get(ns);
+    if (!lm) return edges;
+
+    for (const link of lm) {
+      const role = link.metadata?.labels?.['eda.nokia.com/role'];
+      if (role === 'edge') continue;
+
+      const arr = Array.isArray(link.spec?.links) ? link.spec.links : [];
+      const members: any[] = Array.isArray(link.status?.members) ? link.status.members : [];
+
+      for (const l of arr) {
+        const edgeData = this.buildEdgeData(ns, link, l, members);
+        if (edgeData) edges.push(edgeData);
+      }
+    }
+    return edges;
+  }
+
+  private postGraph(): void {
+    const namespaces = this.getTargetNamespaces();
     const nodes: { id: string; label: string; tier: number; raw: any }[] = [];
     const edges: EdgeData[] = [];
 
     for (const ns of namespaces) {
-      const nm = this.nodeMap.get(ns);
-      if (nm) {
-        for (const node of nm.values()) {
-          const name = node.metadata?.name as string | undefined;
-          if (!name) continue;
-          const labels = node.metadata?.labels || {};
-          const tier = this.getTier(labels);
-          nodes.push({ id: `${ns}/${name}`, label: name, tier, raw: node });
-        }
-      }
-      const lm = this.linkMap.get(ns);
-      if (lm) {
-        for (const link of lm) {
-          const role = link.metadata?.labels?.['eda.nokia.com/role'];
-          if (role === 'edge') continue;
-          const arr = Array.isArray(link.spec?.links) ? link.spec.links : [];
-          const members: any[] = Array.isArray(link.status?.members)
-            ? link.status.members
-            : [];
-          for (const l of arr) {
-            const src = l.local?.node;
-            const dst = l.remote?.node;
-            if (src && dst) {
-              const edgeData: EdgeData = {
-                source: `${ns}/${src}`,
-                target: `${ns}/${dst}`,
-                raw: l,
-                rawResource: link,
-                state:
-                  link.status?.operationalState ??
-                  link.status?.operationalstate ??
-                  ''
-              };
-
-              // Extract and shorten interface information
-              if (l.local?.interface) {
-                edgeData.sourceInterface = this.shortenInterfaceName(l.local.interface);
-                const ms = members.find(
-                  (m: any) =>
-                    m.node === l.local?.node &&
-                    m.interface === l.local?.interface
-                );
-                if (ms) edgeData.sourceState = ms.operationalState;
-              }
-              if (l.remote?.interface) {
-                edgeData.targetInterface = this.shortenInterfaceName(l.remote.interface);
-                const ms = members.find(
-                  (m: any) =>
-                    m.node === l.remote?.node &&
-                    m.interface === l.remote?.interface
-                );
-                if (ms) edgeData.targetState = ms.operationalState;
-              }
-
-              edges.push(edgeData);
-            }
-          }
-        }
-      }
+      nodes.push(...this.buildNodesForNamespace(ns));
+      edges.push(...this.buildEdgesForNamespace(ns));
     }
+
     this.panel.webview.postMessage({ command: 'data', nodes, edges });
+  }
+
+  private parseUpdateIdentifiers(up: any): { name: string; ns: string } | null {
+    let name: string | undefined = up.data?.metadata?.name;
+    let ns: string | undefined = up.data?.metadata?.namespace;
+    if ((!name || !ns) && up.key) {
+      const parsed = parseUpdateKey(String(up.key));
+      if (!name) name = parsed.name;
+      if (!ns) ns = parsed.namespace;
+    }
+    if (!name || !ns) return null;
+    if (ns === this.edaClient.getCoreNamespace()) return null;
+    return { name, ns };
+  }
+
+  private processNodeUpdate(up: any, name: string, ns: string): void {
+    let map = this.nodeMap.get(ns);
+    if (!map) {
+      map = new Map();
+      this.nodeMap.set(ns, map);
+    }
+    if (up.data === null) {
+      map.delete(name);
+    } else {
+      map.set(name, up.data);
+    }
   }
 
   private handleTopoNodeStream(msg: any): void {
     const updates = getUpdates(msg.msg);
     if (updates.length === 0) return;
+
     for (const up of updates) {
-      let name: string | undefined = up.data?.metadata?.name;
-      let ns: string | undefined = up.data?.metadata?.namespace;
-      if ((!name || !ns) && up.key) {
-        const parsed = parseUpdateKey(String(up.key));
-        if (!name) name = parsed.name;
-        if (!ns) ns = parsed.namespace;
-      }
-      if (!name || !ns) continue;
-      if (ns === this.edaClient.getCoreNamespace()) continue;
-      let map = this.nodeMap.get(ns);
-      if (!map) {
-        map = new Map();
-        this.nodeMap.set(ns, map);
-      }
-      if (up.data === null) {
-        map.delete(name);
-      } else {
-        map.set(name, up.data);
-      }
+      const ids = this.parseUpdateIdentifiers(up);
+      if (!ids) continue;
+      this.processNodeUpdate(up, ids.name, ids.ns);
     }
     this.postGraph();
+  }
+
+  private processLinkUpdate(up: any, name: string, ns: string): void {
+    let list = this.linkMap.get(ns);
+    if (!list) {
+      list = [];
+      this.linkMap.set(ns, list);
+    }
+    const idx = list.findIndex(l => l.metadata?.name === name);
+
+    if (up.data === null) {
+      if (idx >= 0) list.splice(idx, 1);
+      return;
+    }
+
+    const role = up.data?.metadata?.labels?.['eda.nokia.com/role'];
+    if (role === 'edge') {
+      if (idx >= 0) list.splice(idx, 1);
+      return;
+    }
+
+    if (idx >= 0) {
+      list[idx] = up.data;
+    } else {
+      list.push(up.data);
+    }
   }
 
   private handleTopoLinkStream(msg: any): void {
     const updates = getUpdates(msg.msg);
     if (updates.length === 0) return;
+
     for (const up of updates) {
-      let name: string | undefined = up.data?.metadata?.name;
-      let ns: string | undefined = up.data?.metadata?.namespace;
-      if ((!name || !ns) && up.key) {
-        const parsed = parseUpdateKey(String(up.key));
-        if (!name) name = parsed.name;
-        if (!ns) ns = parsed.namespace;
-      }
-      if (!name || !ns) continue;
-      if (ns === this.edaClient.getCoreNamespace()) continue;
-      let list = this.linkMap.get(ns);
-      if (!list) {
-        list = [];
-        this.linkMap.set(ns, list);
-      }
-      if (up.data === null) {
-        const idx = list.findIndex(l => l.metadata?.name === name);
-        if (idx >= 0) list.splice(idx, 1);
-      } else {
-        const idx = list.findIndex(l => l.metadata?.name === name);
-        const role = up.data?.metadata?.labels?.['eda.nokia.com/role'];
-        if (role === 'edge') {
-          if (idx >= 0) list.splice(idx, 1);
-          continue;
-        }
-        if (idx >= 0) list[idx] = up.data;
-        else list.push(up.data);
-      }
+      const ids = this.parseUpdateIdentifiers(up);
+      if (!ids) continue;
+      this.processLinkUpdate(up, ids.name, ids.ns);
     }
     this.postGraph();
   }

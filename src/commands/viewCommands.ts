@@ -15,6 +15,64 @@ import { AlarmDetailsPanel } from '../webviews/alarmDetails/alarmDetailsPanel';
 
 const Diff: any = require('diff');
 
+/**
+ * Extracts deviation name and namespace from the deviation object.
+ */
+function extractDeviationIdentity(deviation: any): { name: string; namespace: string } {
+  const name = deviation.name || deviation.metadata?.name;
+  const namespace = deviation["namespace.name"] || deviation.namespace || deviation.metadata?.namespace;
+  return { name, namespace };
+}
+
+/**
+ * Computes a diff between intended and running values.
+ * Returns the diff string starting from the @@ markers, or undefined if no diff.
+ */
+function computeValuesDiff(deviation: any): string | undefined {
+  try {
+    const intended = deviation.spec?.intendedValues
+      ? JSON.parse(deviation.spec.intendedValues as string)
+      : {};
+    const running = deviation.spec?.runningValues
+      ? JSON.parse(deviation.spec.runningValues as string)
+      : {};
+
+    let intendedYaml = yaml.dump(intended, { indent: 2 });
+    let runningYaml = yaml.dump(running, { indent: 2 });
+    if (intendedYaml.trim() === '{}') {
+      intendedYaml = '';
+    }
+    if (runningYaml.trim() === '{}') {
+      runningYaml = '';
+    }
+    const patch = Diff.createPatch('values', intendedYaml, runningYaml);
+    const lines = patch.split('\n');
+    const start = lines.findIndex((l: string) => l.startsWith('@@'));
+    if (start !== -1) {
+      return lines.slice(start).join('\n').trim();
+    }
+  } catch (err) {
+    console.error('Failed to compute deviation diff', err);
+  }
+  return undefined;
+}
+
+/**
+ * Fetches resource YAML for a deviation from the EDA API.
+ */
+async function fetchDeviationYaml(
+  edaClient: EdaClient,
+  name: string,
+  namespace: string
+): Promise<{ yaml?: string; error?: string }> {
+  try {
+    const resourceYaml = await edaClient.getEdaResourceYaml('deviation', name, namespace);
+    return { yaml: resourceYaml };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 export function registerViewCommands(
   context: vscode.ExtensionContext,
   crdFsProvider: CrdDefinitionFileSystemProvider,
@@ -173,9 +231,7 @@ export function registerViewCommands(
     }
 
     try {
-      const name = deviation.name || deviation.metadata?.name;
-      const namespace =
-        deviation["namespace.name"] || deviation.namespace || deviation.metadata?.namespace;
+      const { name, namespace } = extractDeviationIdentity(deviation);
       const edaClient = serviceManager.getClient<EdaClient>('eda');
 
       // Prepare base template variables
@@ -187,39 +243,17 @@ export function registerViewCommands(
       };
 
       // Compute diff between intended and running values if present
-      try {
-        const intended = deviation.spec?.intendedValues
-          ? JSON.parse(deviation.spec.intendedValues as string)
-          : {};
-        const running = deviation.spec?.runningValues
-          ? JSON.parse(deviation.spec.runningValues as string)
-          : {};
-
-        let intendedYaml = yaml.dump(intended, { indent: 2 });
-        let runningYaml = yaml.dump(running, { indent: 2 });
-        if (intendedYaml.trim() === '{}') {
-          intendedYaml = '';
-        }
-        if (runningYaml.trim() === '{}') {
-          runningYaml = '';
-        }
-        const patch = Diff.createPatch('values', intendedYaml, runningYaml);
-        const lines = patch.split('\n');
-        const start = lines.findIndex((l: string) => l.startsWith('@@'));
-        if (start !== -1) {
-          templateVars.valueDiff = lines.slice(start).join('\n').trim();
-        }
-      } catch (err) {
-        console.error('Failed to compute deviation diff', err);
+      const valueDiff = computeValuesDiff(deviation);
+      if (valueDiff) {
+        templateVars.valueDiff = valueDiff;
       }
 
-      try {
-        // Fetch the YAML for the deviation
-        const resourceYaml = await edaClient.getEdaResourceYaml('deviation', name, namespace);
-        templateVars.resourceYaml = resourceYaml;
-      } catch (error) {
-        // Add error message if we couldn't get the YAML
-        templateVars.errorMessage = error instanceof Error ? error.message : String(error);
+      // Fetch the YAML for the deviation
+      const yamlResult = await fetchDeviationYaml(edaClient, name, namespace);
+      if (yamlResult.yaml) {
+        templateVars.resourceYaml = yamlResult.yaml;
+      } else if (yamlResult.error) {
+        templateVars.errorMessage = yamlResult.error;
       }
 
       // Load and process the template using Handlebars

@@ -34,7 +34,9 @@ export function registerCredentialCommands(context: vscode.ExtensionContext) {
 
     vscode.window.showInformationMessage('Credentials updated. Reload window to apply.', 'Reload').then(value => {
       if (value === 'Reload') {
-        void vscode.commands.executeCommand('workbench.action.reloadWindow');
+        Promise.resolve(vscode.commands.executeCommand('workbench.action.reloadWindow')).catch((error: unknown) => {
+          console.error('Failed to reload window:', error);
+        });
       }
     });
   });
@@ -72,7 +74,9 @@ export function registerCredentialCommands(context: vscode.ExtensionContext) {
 
     vscode.window.showInformationMessage('Credentials updated. Reload window to apply.', 'Reload').then(value => {
       if (value === 'Reload') {
-        void vscode.commands.executeCommand('workbench.action.reloadWindow');
+        Promise.resolve(vscode.commands.executeCommand('workbench.action.reloadWindow')).catch((error: unknown) => {
+          console.error('Failed to reload window:', error);
+        });
       }
     });
   });

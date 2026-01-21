@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import React, { useCallback } from 'react';
 
 import type { DataGridContext, DataGridMessage } from '../../shared/components';
 import { DataGridDashboard } from '../../shared/components';
@@ -52,12 +52,9 @@ function SimnodesDashboard() {
     );
   }, []);
 
-  const renderCell = useCallback((value: string, column: string) => {
-    if (column === 'pod-status') {
-      const statusClass = getStatusClassName(value);
-      return <span className={statusClass}>{value}</span>;
-    }
-    return value;
+  const renderCell = useCallback((value: string, column: string): React.ReactElement => {
+    const statusClass = column === 'pod-status' ? getStatusClassName(value) : '';
+    return <span className={statusClass}>{value}</span>;
   }, []);
 
   return (

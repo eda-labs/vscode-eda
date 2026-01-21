@@ -46,7 +46,7 @@ function getSeverityColor(severity: string | undefined): string {
   }
 }
 
-function SummaryItem({ label, value, className = '' }: { label: string; value: string; className?: string }) {
+function SummaryItem({ label, value, className = '' }: Readonly<{ label: string; value: string; className?: string }>) {
   return (
     <div className={`flex flex-col gap-1 ${className}`}>
       <div className="text-xs text-vscode-text-secondary uppercase tracking-wide">{label}</div>
@@ -55,7 +55,7 @@ function SummaryItem({ label, value, className = '' }: { label: string; value: s
   );
 }
 
-function Section({ icon, title, children }: { icon: string; title: string; children: React.ReactNode }) {
+function Section({ icon, title, children }: Readonly<{ icon: string; title: string; children: React.ReactNode }>) {
   return (
     <div className="mb-6 p-4 bg-vscode-bg-secondary rounded-lg border border-vscode-border">
       <h2 className="text-lg font-semibold mb-2 flex items-center gap-2">
@@ -82,7 +82,7 @@ function AlarmDetailsPanel() {
   const handleCopy = useCallback(() => {
     if (data?.rawJson) {
       postMessage({ command: 'copy', text: data.rawJson });
-      copyToClipboard(data.rawJson);
+      copyToClipboard(data.rawJson).catch(() => {});
     }
   }, [data, postMessage, copyToClipboard]);
 

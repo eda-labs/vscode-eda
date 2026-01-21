@@ -424,6 +424,143 @@ export class KubernetesClient {
     }
   }
 
+  /** Build watch stream identifier for logging */
+  private getWatchStreamId(defName: string, namespace?: string): string {
+    return namespace ? `${defName}/${namespace}` : defName;
+  }
+
+  /** Build headers for watch request */
+  private buildWatchHeaders(): Record<string, string> {
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+    return headers;
+  }
+
+  /** Update namespaced cache with event */
+  private updateNamespacedCache(cacheName: string, namespace: string, evt: any, obj: any): void {
+    const map = (this as any)[cacheName] as Map<string, any[]>;
+    const arr = map.get(namespace) || [];
+    if (evt.type === 'DELETED') {
+      map.set(namespace, arr.filter(r =>
+        r.metadata?.uid !== obj.metadata?.uid && r.metadata?.name !== obj.metadata?.name
+      ));
+    } else {
+      const idx = arr.findIndex(r => r.metadata?.uid === obj.metadata?.uid);
+      if (idx >= 0) { arr[idx] = obj; } else { arr.push(obj); }
+      map.set(namespace, arr);
+    }
+  }
+
+  /** Update non-namespaced cache with event */
+  private updateNonNamespacedCache(cacheName: string, evt: any, obj: any): void {
+    const arr = (this as any)[cacheName] as any[];
+    if (evt.type === 'DELETED') {
+      (this as any)[cacheName] = arr.filter((r: any) =>
+        r.metadata?.uid !== obj.metadata?.uid && r.metadata?.name !== obj.metadata?.name
+      );
+    } else {
+      const idx = arr.findIndex((r: any) => r.metadata?.uid === obj.metadata?.uid);
+      if (idx >= 0) { arr[idx] = obj; } else { arr.push(obj); }
+    }
+  }
+
+  /** Log change if enough time has passed since last log */
+  private logChangeIfNeeded(origin: string, namespace: string | undefined, obj: any, evtType: string): void {
+    const nsInfo = namespace ? ` (namespace: ${namespace})` : '';
+    const objName = obj.metadata?.name ? ` ${obj.metadata.name}` : '';
+    const now = Date.now();
+    const last = this.lastChangeLogTime.get(origin) || 0;
+    if (now - last > 1000) {
+      log(`Change detected from stream ${origin}${nsInfo}:${objName} ${evtType}`, LogLevel.DEBUG);
+      this.lastChangeLogTime.set(origin, now);
+    }
+  }
+
+  /** Process a single watch event, returns new resourceVersion or null on error */
+  private processWatchEvent(
+    evt: any,
+    def: { name: string; namespaced: boolean },
+    namespace: string | undefined,
+    currentResourceVersion: string
+  ): string | null {
+    if (evt.type === 'ERROR') {
+      const streamId = this.getWatchStreamId(def.name, namespace);
+      const errMsg = evt.object?.message || '';
+      log(`Watch stream for ${streamId} returned error ${errMsg}; reconnecting`, LogLevel.INFO);
+      return null; // Signal to break and reconnect
+    }
+
+    const obj = evt.object;
+    const newResourceVersion = obj?.metadata?.resourceVersion || currentResourceVersion;
+
+    if (!obj?.metadata?.name) {
+      const snippet = JSON.stringify(obj).slice(0, 200);
+      log(`Received ${def.name} event without name: ${snippet}`, LogLevel.DEBUG);
+    }
+
+    const cacheName = `${def.name}Cache`;
+    if (def.namespaced && namespace) {
+      this.updateNamespacedCache(cacheName, namespace, evt, obj);
+    } else {
+      this.updateNonNamespacedCache(cacheName, evt, obj);
+    }
+
+    const origin = this.getWatchStreamId(def.name, namespace);
+    this.logChangeIfNeeded(origin, namespace, obj, evt.type);
+    this._onResourceChanged.fire();
+
+    return newResourceVersion;
+  }
+
+  /** Read and process stream data, returns false if should break outer loop */
+  private async processStreamChunk(
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    decoder: TextDecoder,
+    buffer: { value: string },
+    def: { name: string; namespaced: boolean },
+    namespace: string | undefined,
+    resourceVersion: { value: string }
+  ): Promise<boolean> {
+    const { done, value } = await reader.read();
+    if (done) {
+      const streamId = this.getWatchStreamId(def.name, namespace);
+      log(`Watch stream for ${streamId} ended; reconnecting`, LogLevel.INFO);
+      return false;
+    }
+
+    buffer.value += decoder.decode(value, { stream: true });
+    const parts = buffer.value.split('\n');
+    buffer.value = parts.pop() || '';
+
+    for (const part of parts) {
+      if (!part.trim()) continue;
+      try {
+        const evt = JSON.parse(part);
+        const newVersion = this.processWatchEvent(evt, def, namespace, resourceVersion.value);
+        if (newVersion === null) {
+          resourceVersion.value = '';
+          return false; // Error event, break to reconnect
+        }
+        resourceVersion.value = newVersion;
+      } catch (err) {
+        log(`Error processing ${def.name} watch event: ${err}`, LogLevel.ERROR);
+      }
+    }
+    return true;
+  }
+
+  /** Handle watch connection error */
+  private handleWatchError(err: unknown, def: { name: string }, namespace: string | undefined): void {
+    const msg = `${err}`;
+    const streamId = this.getWatchStreamId(def.name, namespace);
+    if (msg.includes('terminated')) {
+      log(`Watch stream for ${streamId} terminated; reconnecting`, LogLevel.INFO);
+    } else {
+      log(`Watch failed for ${def.name}: ${err}`, LogLevel.ERROR);
+    }
+  }
 
   private watchApiResource(def: { name: string; group: string; version: string; plural: string; namespaced: boolean }, namespace?: string): void {
     const controller = new AbortController();
@@ -432,24 +569,19 @@ export class KubernetesClient {
     this.watchControllers.push(controller);
 
     const base = def.group ? `/apis/${def.group}/${def.version}` : `/api/${def.version}`;
-    const path = namespace ? `${base}/namespaces/${namespace}/${def.plural}` : `${base}/${def.plural}`;
+    const watchPath = namespace ? `${base}/namespaces/${namespace}/${def.plural}` : `${base}/${def.plural}`;
 
     const run = async () => {
-      let resourceVersion = '';
+      const resourceVersion = { value: '' };
       while (!controller.signal.aborted) {
         try {
-          let url = `${this.server}${path}?watch=true&allowWatchBookmarks=true&timeoutSeconds=0`;
-          if (resourceVersion) {
-            url += `&resourceVersion=${resourceVersion}`;
-          }
-
-          const headers: Record<string, string> = { Accept: 'application/json' };
-          if (this.token) {
-            headers['Authorization'] = `Bearer ${this.token}`;
+          let url = `${this.server}${watchPath}?watch=true&allowWatchBookmarks=true&timeoutSeconds=0`;
+          if (resourceVersion.value) {
+            url += `&resourceVersion=${resourceVersion.value}`;
           }
 
           const res = await fetch(url, {
-            headers,
+            headers: this.buildWatchHeaders(),
             dispatcher: this.agent,
             signal: controller.signal,
             headersTimeout: 0,
@@ -462,102 +594,17 @@ export class KubernetesClient {
 
           const reader = res.body.getReader();
           const decoder = new TextDecoder();
-          let buffer = '';
+          const buffer = { value: '' };
 
-          readLoop: while (!controller.signal.aborted) {
-            const { done, value } = await reader.read();
-            if (done) {
-              log(
-                `Watch stream for ${def.name}${namespace ? `/${namespace}` : ''} ended; reconnecting`,
-                LogLevel.INFO
-              );
-              break;
-            }
-            buffer += decoder.decode(value, { stream: true });
-            const parts = buffer.split('\n');
-            buffer = parts.pop() || '';
-            for (const part of parts) {
-              if (!part.trim()) continue;
-              try {
-                const evt = JSON.parse(part);
-                if (evt.type === 'ERROR') {
-                  log(
-                    `Watch stream for ${def.name}${namespace ? `/${namespace}` : ''} returned error ${evt.object?.message || ''}; reconnecting`,
-                    LogLevel.INFO
-                  );
-                  resourceVersion = '';
-                  break readLoop;
-                }
-                resourceVersion = evt.object?.metadata?.resourceVersion || resourceVersion;
-                const obj = evt.object;
-                if (!obj?.metadata?.name) {
-                  const snippet = JSON.stringify(obj).slice(0, 200);
-                  log(
-                    `Received ${def.name} event without name: ${snippet}`,
-                    LogLevel.DEBUG
-                  );
-                }
-                const cacheName = `${def.name}Cache` as keyof this;
-                if (def.namespaced) {
-                  const map = (this as any)[cacheName] as Map<string, any[]>;
-                  const arr = map.get(namespace!) || [];
-                  if (evt.type === 'DELETED') {
-                    map.set(
-                      namespace!,
-                      arr.filter(
-                        r =>
-                          r.metadata?.uid !== obj.metadata?.uid &&
-                          r.metadata?.name !== obj.metadata?.name
-                      )
-                    );
-                  } else {
-                    const idx = arr.findIndex(r => r.metadata?.uid === obj.metadata?.uid);
-                    if (idx >= 0) arr[idx] = obj; else arr.push(obj);
-                    map.set(namespace!, arr);
-                  }
-                } else {
-                  const arr = (this as any)[cacheName] as any[];
-                  if (evt.type === 'DELETED') {
-                    (this as any)[cacheName] = arr.filter(
-                      (r: any) =>
-                        r.metadata?.uid !== obj.metadata?.uid &&
-                        r.metadata?.name !== obj.metadata?.name
-                    );
-                  } else {
-                    const idx = arr.findIndex((r: any) => r.metadata?.uid === obj.metadata?.uid);
-                    if (idx >= 0) arr[idx] = obj; else arr.push(obj);
-                    (this as any)[cacheName] = arr;
-                  }
-                }
-                const origin = namespace ? `${def.name}/${namespace}` : def.name;
-                const nsInfo = namespace ? ` (namespace: ${namespace})` : '';
-                const objName = obj.metadata?.name ? ` ${obj.metadata?.name}` : '';
-                const now = Date.now();
-                const last = this.lastChangeLogTime.get(origin) || 0;
-                if (now - last > 1000) {
-                  log(
-                    `Change detected from stream ${origin}${nsInfo}:${objName} ${evt.type}`,
-                    LogLevel.DEBUG
-                  );
-                  this.lastChangeLogTime.set(origin, now);
-                }
-                this._onResourceChanged.fire();
-              } catch (err) {
-                log(`Error processing ${def.name} watch event: ${err}`, LogLevel.ERROR);
-              }
-            }
+          while (!controller.signal.aborted) {
+            const shouldContinue = await this.processStreamChunk(
+              reader, decoder, buffer, def, namespace, resourceVersion
+            );
+            if (!shouldContinue) break;
           }
         } catch (err) {
           if (!controller.signal.aborted) {
-            const msg = `${err}`;
-            if (msg.includes('terminated')) {
-              log(
-                `Watch stream for ${def.name}${namespace ? `/${namespace}` : ''} terminated; reconnecting`,
-                LogLevel.INFO
-              );
-            } else {
-              log(`Watch failed for ${def.name}: ${err}`, LogLevel.ERROR);
-            }
+            this.handleWatchError(err, def, namespace);
             await new Promise(res => setTimeout(res, this.pollInterval));
           }
         }

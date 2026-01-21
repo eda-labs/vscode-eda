@@ -37,18 +37,34 @@ export class SchemaProviderService extends CoreService {
     }
   }
 
+  /**
+   * Calculate the priority of a schema based on whether it has metadata/spec properties.
+   * Schemas with these properties are considered more complete.
+   */
+  private getSchemaQualityPriority(schema: any): number {
+    return schema?.properties?.metadata || schema?.properties?.spec ? 1 : 0;
+  }
+
+  /**
+   * Read the priority of an existing cached schema file.
+   * Returns -1 if the file doesn't exist.
+   */
+  private async getExistingSchemaPriority(schemaPath: string): Promise<number> {
+    if (!fs.existsSync(schemaPath)) {
+      return -1;
+    }
+    try {
+      const existing = JSON.parse(await fs.promises.readFile(schemaPath, UTF8));
+      return this.getSchemaQualityPriority(existing);
+    } catch {
+      return 0;
+    }
+  }
+
   private async cacheSchema(kind: string, schema: any): Promise<void> {
     const schemaPath = path.join(this.schemaCacheDir, `${kind.toLowerCase()}.json`);
-    let existingPriority = -1;
-    if (fs.existsSync(schemaPath)) {
-      try {
-        const existing = JSON.parse(await fs.promises.readFile(schemaPath, UTF8));
-        existingPriority = existing?.properties?.metadata || existing?.properties?.spec ? 1 : 0;
-      } catch {
-        existingPriority = 0;
-      }
-    }
-    const newPriority = schema?.properties?.metadata || schema?.properties?.spec ? 1 : 0;
+    const existingPriority = await this.getExistingSchemaPriority(schemaPath);
+    const newPriority = this.getSchemaQualityPriority(schema);
     if (newPriority >= existingPriority) {
       await fs.promises.writeFile(schemaPath, JSON.stringify(schema, null, 2));
       this.schemaCache.set(kind, schemaPath);
@@ -61,13 +77,13 @@ export class SchemaProviderService extends CoreService {
         await this.loadSchemas();
         vscode.workspace.textDocuments.forEach(d => this.handleDocument(d));
       }),
-      vscode.workspace.onDidOpenTextDocument(doc => void this.handleDocument(doc)),
-      vscode.workspace.onDidSaveTextDocument(doc => void this.handleDocument(doc))
+      vscode.workspace.onDidOpenTextDocument(doc => this.handleDocument(doc)),
+      vscode.workspace.onDidSaveTextDocument(doc => this.handleDocument(doc))
     );
 
     await this.loadSchemas();
     await this.activateYamlExtension();
-    vscode.workspace.textDocuments.forEach(d => void this.handleDocument(d));
+    vscode.workspace.textDocuments.forEach(d => this.handleDocument(d));
     context.subscriptions.push(...this.disposables);
     log('Registered schema provider for YAML validation', LogLevel.INFO, true);
   }
@@ -292,21 +308,51 @@ export class SchemaProviderService extends CoreService {
     return results;
   }
 
+  /**
+   * Get the active version object from a CRD spec.
+   * Prefers the storage version, falls back to first version.
+   */
+  private getCrdVersionObject(crd: any): any | undefined {
+    const versions = crd?.spec?.versions;
+    if (!Array.isArray(versions)) {
+      return undefined;
+    }
+    return versions.find((v: any) => v.storage) || versions[0];
+  }
+
+  /**
+   * Extract the version string from a CRD spec.
+   * Checks versioned spec first, then falls back to legacy spec.version.
+   */
+  private getCrdVersion(crd: any, versionObj: any): string | undefined {
+    return versionObj?.name || (crd?.spec?.version as string | undefined);
+  }
+
+  /**
+   * Extract core naming fields from a CRD spec.
+   */
+  private getCrdNamingFields(crd: any): { kind?: string; group?: string; plural?: string } {
+    return {
+      kind: crd?.spec?.names?.kind as string | undefined,
+      group: crd?.spec?.group as string | undefined,
+      plural: crd?.spec?.names?.plural as string | undefined,
+    };
+  }
+
   /** Extract CRD metadata from a Kubernetes CRD object */
   private extractCrdFromK8s(crd: any): (EdaCrd & { schema?: any }) | null {
-    const kind = crd?.spec?.names?.kind as string | undefined;
-    const group = crd?.spec?.group as string | undefined;
-    const versionObj =
-      crd?.spec?.versions?.find((v: any) => v.storage) ||
-      crd?.spec?.versions?.[0];
-    const version = versionObj?.name || (crd?.spec?.version as string | undefined);
-    const plural = crd?.spec?.names?.plural as string | undefined;
+    const { kind, group, plural } = this.getCrdNamingFields(crd);
+    const versionObj = this.getCrdVersionObject(crd);
+    const version = this.getCrdVersion(crd, versionObj);
+
     if (!kind || !group || !version || !plural) {
       return null;
     }
+
     const namespaced = crd?.spec?.scope === 'Namespaced';
     const schema = versionObj?.schema?.openAPIV3Schema;
     const description = schema?.description as string | undefined;
+
     return { kind, group, version, plural, namespaced, description, schema };
   }
 

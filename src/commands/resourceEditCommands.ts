@@ -451,6 +451,213 @@ async function refreshExistingDocument(editUri: vscode.Uri, sanitizedYaml: strin
 }
 
 /**
+ * Stores origin information for a resource in both view and resource stores.
+ */
+function storeOriginInfo(
+  viewDocumentUri: vscode.Uri,
+  resourceInfo: ResourceInfo,
+  edaOrigin: boolean
+): void {
+  setViewIsEda(viewDocumentUri, edaOrigin);
+  setResourceOrigin(resourceInfo.namespace, resourceInfo.kind, resourceInfo.name, edaOrigin);
+  const originLabel = edaOrigin ? 'eda' : 'k8s';
+  log(`switchToEditResource: final origin=${originLabel}`, LogLevel.DEBUG);
+}
+
+/**
+ * Prepares edit document content and stores it in the provider.
+ */
+function prepareEditDocumentContent(
+  resourceEditProvider: ResourceEditDocumentProvider,
+  editUri: vscode.Uri,
+  resourceObject: any
+): string {
+  const sanitizedForEdit = sanitizeResourceForEdit(resourceObject);
+  const sanitizedYaml = yaml.dump(sanitizedForEdit, { indent: 2 });
+  resourceEditProvider.setOriginalResource(editUri, sanitizedForEdit);
+  resourceEditProvider.setResourceContent(editUri, sanitizedYaml);
+  return sanitizedYaml;
+}
+
+/**
+ * Opens and displays an edit document with proper language mode.
+ */
+async function openEditDocument(editUri: vscode.Uri): Promise<vscode.TextDocument> {
+  const editDoc = await vscode.workspace.openTextDocument(editUri);
+  await vscode.languages.setTextDocumentLanguage(editDoc, 'yaml');
+  await vscode.window.showTextDocument(editDoc, { preserveFocus: false, preview: false });
+  return editDoc;
+}
+
+/**
+ * Opens and displays a view document with proper language mode.
+ */
+async function openViewDocument(viewUri: vscode.Uri): Promise<vscode.TextDocument> {
+  const viewDoc = await vscode.workspace.openTextDocument(viewUri);
+  await vscode.languages.setTextDocumentLanguage(viewDoc, 'yaml');
+  await vscode.window.showTextDocument(viewDoc, { preserveFocus: false, preview: false });
+  return viewDoc;
+}
+
+/**
+ * Gets edit document URI from active editor or throws if not available.
+ */
+function getEditDocumentUri(editDocumentUri: vscode.Uri | undefined): vscode.Uri {
+  if (editDocumentUri) {
+    return editDocumentUri;
+  }
+
+  const activeEditor = vscode.window.activeTextEditor;
+  if (!activeEditor || activeEditor.document.uri.scheme !== SCHEME_K8S) {
+    throw new Error('No Kubernetes resource edit document is active');
+  }
+  return activeEditor.document.uri;
+}
+
+/**
+ * Validates that a URI is a k8s edit scheme.
+ */
+function validateEditScheme(uri: vscode.Uri): void {
+  if (uri.scheme !== SCHEME_K8S) {
+    throw new Error('Not a Kubernetes resource edit view');
+  }
+}
+
+/**
+ * Prompts user about unsaved changes and handles their choice.
+ * Returns true if should continue with view switch, false to cancel.
+ */
+async function handleUnsavedChanges(
+  editDocumentUri: vscode.Uri,
+  kind: string,
+  name: string
+): Promise<boolean> {
+  const promptText = `${kind}/${name}`;
+  const answer = await vscode.window.showWarningMessage(
+    `Save changes to ${promptText}?`,
+    'Save', 'Discard', BTN_CANCEL
+  );
+
+  if (answer === BTN_CANCEL) {
+    return false;
+  }
+
+  if (answer === 'Save') {
+    await vscode.commands.executeCommand(
+      CMD_APPLY_CHANGES,
+      editDocumentUri,
+      { skipPrompt: true }
+    );
+  }
+
+  return true;
+}
+
+/**
+ * Syncs view document content from edit document if not dirty.
+ */
+function syncViewDocumentContent(
+  editDoc: vscode.TextDocument,
+  resourceViewProvider: ResourceViewDocumentProvider,
+  viewUri: vscode.Uri
+): void {
+  if (!editDoc.isDirty) {
+    const editYaml = editDoc.getText();
+    resourceViewProvider.setResourceContent(viewUri, editYaml);
+  }
+}
+
+/**
+ * Executes the switch to edit command logic.
+ */
+async function executeSwitchToEdit(
+  arg: any,
+  edaClient: EdaClient,
+  resourceEditProvider: ResourceEditDocumentProvider,
+  context: vscode.ExtensionContext
+): Promise<void> {
+  // Resolve view document URI from argument
+  const viewDocumentUri = await resolveAndValidateViewUri(arg);
+
+  // Parse resource info from the validated URI
+  const parsedInfo = ResourceViewDocumentProvider.parseUri(viewDocumentUri);
+  const apiVersion = await extractApiVersion(viewDocumentUri, arg);
+  const resourceInfo: ResourceInfo = { ...parsedInfo, apiVersion };
+  const resourceKey = getResourceKey(resourceInfo.namespace, resourceInfo.kind, resourceInfo.name);
+
+  // Determine EDA origin
+  const edaOrigin = determineEdaOrigin(viewDocumentUri, resourceInfo, arg);
+  if (arg && !edaOrigin) {
+    setResourceOrigin(resourceInfo.namespace, resourceInfo.kind, resourceInfo.name, edaOrigin);
+  }
+
+  // Fetch and parse resource YAML
+  const yamlText = await fetchResourceYaml(edaClient, resourceInfo, edaOrigin);
+  const resourceObject = parseAndSanitizeResource(yamlText);
+
+  // Update origin stores
+  storeOriginInfo(viewDocumentUri, resourceInfo, edaOrigin);
+
+  // Create or update edit URI
+  const { editUri } = getOrCreateEditUri(
+    resourceKey, viewDocumentUri, resourceObject, edaOrigin, resourceInfo
+  );
+
+  // Store resource content in provider
+  const sanitizedYaml = prepareEditDocumentContent(resourceEditProvider, editUri, resourceObject);
+
+  // Refresh existing document if open
+  await refreshExistingDocument(editUri, sanitizedYaml);
+
+  // Open and display the edit document
+  await openEditDocument(editUri);
+
+  // Add status bar item for mode switching
+  createModeStatusBarItem(context, editUri, 'view');
+}
+
+/**
+ * Executes the switch to view command logic.
+ */
+async function executeSwitchToView(
+  editDocumentUri: vscode.Uri | undefined,
+  resourceViewProvider: ResourceViewDocumentProvider,
+  context: vscode.ExtensionContext
+): Promise<void> {
+  // Get and validate the edit document URI
+  const validatedUri = getEditDocumentUri(editDocumentUri);
+  validateEditScheme(validatedUri);
+
+  // Parse the edit URI to get resource info
+  const { namespace, kind, name } = ResourceEditDocumentProvider.parseUri(validatedUri);
+  const resourceKey = getResourceKey(namespace, kind, name);
+
+  // Get the corresponding view URI
+  const pair = resourcePairs.get(resourceKey);
+  if (!pair) {
+    throw new Error(`No view document found for ${resourceKey}`);
+  }
+
+  // Handle unsaved changes if present
+  const editDoc = await vscode.workspace.openTextDocument(validatedUri);
+  if (editDoc.isDirty) {
+    const shouldContinue = await handleUnsavedChanges(validatedUri, kind, name);
+    if (!shouldContinue) {
+      return;
+    }
+  }
+
+  // Sync view document content from edit document
+  syncViewDocumentContent(editDoc, resourceViewProvider, pair.viewUri);
+
+  // Open the view document
+  await openViewDocument(pair.viewUri);
+
+  // Add status bar item for mode switching
+  createModeStatusBarItem(context, pair.viewUri, 'edit');
+}
+
+/**
  * Prepares a resource for apply by validating and parsing the document.
  */
 async function prepareResourceForApply(
@@ -679,52 +886,7 @@ export function registerResourceEditCommands(
     CMD_SWITCH_TO_EDIT,
     async (arg: any) => {
       try {
-        // Resolve view document URI from argument
-        const viewDocumentUri = await resolveAndValidateViewUri(arg);
-
-        // Parse resource info from the validated URI
-        const parsedInfo = ResourceViewDocumentProvider.parseUri(viewDocumentUri);
-        const apiVersion = await extractApiVersion(viewDocumentUri, arg);
-        const resourceInfo: ResourceInfo = { ...parsedInfo, apiVersion };
-        const resourceKey = getResourceKey(resourceInfo.namespace, resourceInfo.kind, resourceInfo.name);
-
-        // Determine EDA origin
-        const edaOrigin = determineEdaOrigin(viewDocumentUri, resourceInfo, arg);
-        if (arg && !edaOrigin) {
-          setResourceOrigin(resourceInfo.namespace, resourceInfo.kind, resourceInfo.name, edaOrigin);
-        }
-
-        // Fetch and parse resource YAML
-        const yamlText = await fetchResourceYaml(edaClient, resourceInfo, edaOrigin);
-        const resourceObject = parseAndSanitizeResource(yamlText);
-
-        // Update origin stores
-        setViewIsEda(viewDocumentUri, edaOrigin);
-        setResourceOrigin(resourceInfo.namespace, resourceInfo.kind, resourceInfo.name, edaOrigin);
-        log(`switchToEditResource: final origin=${edaOrigin ? 'eda' : 'k8s'}`, LogLevel.DEBUG);
-
-        // Create or update edit URI
-        const { editUri } = getOrCreateEditUri(
-          resourceKey, viewDocumentUri, resourceObject, edaOrigin, resourceInfo
-        );
-
-        // Store resource content in provider
-        const sanitizedForEdit = sanitizeResourceForEdit(resourceObject);
-        const sanitizedYaml = yaml.dump(sanitizedForEdit, { indent: 2 });
-        resourceEditProvider.setOriginalResource(editUri, sanitizedForEdit);
-        resourceEditProvider.setResourceContent(editUri, sanitizedYaml);
-
-        // Refresh existing document if open
-        await refreshExistingDocument(editUri, sanitizedYaml);
-
-        // Open and display the edit document
-        const editDoc = await vscode.workspace.openTextDocument(editUri);
-        await vscode.languages.setTextDocumentLanguage(editDoc, 'yaml');
-        await vscode.window.showTextDocument(editDoc, { preserveFocus: false, preview: false });
-
-        // Add status bar item for mode switching
-        createModeStatusBarItem(context, editUri, 'view');
-
+        await executeSwitchToEdit(arg, edaClient, resourceEditProvider, context);
       } catch (error) {
         vscode.window.showErrorMessage(`Failed to switch to edit mode: ${error}`);
         log(`Error in switchToEditResource: ${error}`, LogLevel.ERROR, true);
@@ -737,65 +899,7 @@ export function registerResourceEditCommands(
     CMD_SWITCH_TO_VIEW,
     async (editDocumentUri: vscode.Uri) => {
       try {
-        // If no URI is provided, use the active editor
-        if (!editDocumentUri) {
-          const activeEditor = vscode.window.activeTextEditor;
-          if (!activeEditor || activeEditor.document.uri.scheme !== SCHEME_K8S) {
-            throw new Error('No Kubernetes resource edit document is active');
-          }
-          editDocumentUri = activeEditor.document.uri;
-        }
-
-        // Ensure this is a k8s document
-        if (editDocumentUri.scheme !== SCHEME_K8S) {
-          throw new Error('Not a Kubernetes resource edit view');
-        }
-
-        // Parse the edit URI to get resource info
-        const { namespace, kind, name } = ResourceEditDocumentProvider.parseUri(editDocumentUri);
-        const resourceKey = getResourceKey(namespace, kind, name);
-
-        // Get the corresponding view URI
-        const pair = resourcePairs.get(resourceKey);
-        if (!pair) {
-          throw new Error(`No view document found for ${resourceKey}`);
-        }
-
-        // If the edit document has unsaved changes, ask if user wants to save
-        const editDoc = await vscode.workspace.openTextDocument(editDocumentUri);
-        if (editDoc.isDirty) {
-          const answer = await vscode.window.showWarningMessage(
-            `Save changes to ${kind}/${name}?`,
-            'Save', 'Discard', BTN_CANCEL
-          );
-
-          if (answer === BTN_CANCEL) {
-            return;
-          }
-
-          if (answer === 'Save') {
-            await vscode.commands.executeCommand(
-              CMD_APPLY_CHANGES,
-              editDocumentUri,
-              { skipPrompt: true }
-            );
-          }
-        }
-
-        // Update the view document content if changes were discarded
-        if (!editDoc.isDirty) {
-          const editYaml = editDoc.getText();
-          resourceViewProvider.setResourceContent(pair.viewUri, editYaml);
-        }
-
-        // Open the view document
-        const viewDoc = await vscode.workspace.openTextDocument(pair.viewUri);
-        await vscode.languages.setTextDocumentLanguage(viewDoc, 'yaml');
-        await vscode.window.showTextDocument(viewDoc, { preserveFocus: false, preview: false });
-
-        // Add status bar item for mode switching
-        createModeStatusBarItem(context, pair.viewUri, 'edit');
-
+        await executeSwitchToView(editDocumentUri, resourceViewProvider, context);
       } catch (error) {
         vscode.window.showErrorMessage(`Failed to switch to view mode: ${error}`);
         log(`Error in switchToViewResource: ${error}`, LogLevel.ERROR, true);
@@ -956,6 +1060,65 @@ async function promptForNextAction(resource: any, currentStep: string, isEda: bo
   return chosen?.id;
 }
 
+/**
+ * Shows validation success message and returns user's chosen action.
+ */
+async function showValidationSuccessPrompt(
+  resourceKind: string,
+  resourceName: string
+): Promise<string | undefined> {
+  const message = `Validation successful for ${resourceKind} "${resourceName}"`;
+  return vscode.window.showInformationMessage(
+    message,
+    BTN_APPLY_CHANGES, BTN_VIEW_DETAILS, BTN_CANCEL
+  );
+}
+
+/**
+ * Handles the apply action after successful validation.
+ */
+async function handlePostValidationApply(
+  edaClient: EdaClient,
+  resourceEditProvider: ResourceEditDocumentProvider,
+  resourceViewProvider: ResourceViewDocumentProvider,
+  documentUri: vscode.Uri,
+  resource: any
+): Promise<void> {
+  const applyResult = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
+  if (applyResult) {
+    const resourceKey = getResourceKey(
+      resource.metadata.namespace || 'default',
+      resource.kind,
+      resource.metadata.name
+    );
+    updateProvidersAfterApply(resourceEditProvider, resourceViewProvider, documentUri, resource, resourceKey);
+    showApplySuccessMessage(resource);
+  }
+}
+
+/**
+ * Handles the user's action choice after validation success.
+ */
+async function handleValidationAction(
+  validationAction: string | undefined,
+  edaClient: EdaClient,
+  resourceEditProvider: ResourceEditDocumentProvider,
+  resourceViewProvider: ResourceViewDocumentProvider,
+  documentUri: vscode.Uri,
+  resource: any
+): Promise<void> {
+  if (validationAction === BTN_APPLY_CHANGES) {
+    await handlePostValidationApply(
+      edaClient, resourceEditProvider, resourceViewProvider, documentUri, resource
+    );
+    return;
+  }
+
+  if (validationAction === BTN_VIEW_DETAILS) {
+    edaOutputChannel.show();
+  }
+}
+
 // Validate and then prompt for apply
 async function validateAndPromptForApply(
   edaClient: EdaClient,
@@ -978,30 +1141,15 @@ async function validateAndPromptForApply(
 
   // Perform validation (dry run)
   const validationResult = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: true });
-
-  if (validationResult) {
-    // Show success message for validation
-    const validationAction = await vscode.window.showInformationMessage(
-      `Validation successful for ${resource.kind} "${resource.metadata?.name}"`,
-      BTN_APPLY_CHANGES, BTN_VIEW_DETAILS, BTN_CANCEL
-    );
-
-    if (validationAction === BTN_APPLY_CHANGES) {
-      // Now apply the changes
-      const applyResult = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
-      if (applyResult) {
-        const resourceKey = getResourceKey(
-          resource.metadata.namespace || 'default',
-          resource.kind,
-          resource.metadata.name
-        );
-        updateProvidersAfterApply(resourceEditProvider, resourceViewProvider, documentUri, resource, resourceKey);
-        showApplySuccessMessage(resource);
-      }
-    } else if (validationAction === BTN_VIEW_DETAILS) {
-      edaOutputChannel.show();
-    }
+  if (!validationResult) {
+    return;
   }
+
+  // Show success message and handle user's choice
+  const validationAction = await showValidationSuccessPrompt(resource.kind, resource.metadata?.name);
+  await handleValidationAction(
+    validationAction, edaClient, resourceEditProvider, resourceViewProvider, documentUri, resource
+  );
 }
 
 // Validate the resource for basic errors
@@ -1062,6 +1210,129 @@ function validateResource(
   return { valid: true };
 }
 
+/**
+ * Gets the original resource from the provider or returns null with error message.
+ */
+function getOriginalResourceForDiff(
+  resourceProvider: ResourceEditDocumentProvider,
+  documentUri: vscode.Uri
+): any | null {
+  const originalResource = resourceProvider.getOriginalResource(documentUri);
+  if (!originalResource) {
+    vscode.window.showErrorMessage('Could not find original resource to compare');
+    return null;
+  }
+  return originalResource;
+}
+
+/**
+ * Parses the current document text and returns the updated resource.
+ */
+async function parseUpdatedResource(documentUri: vscode.Uri): Promise<any> {
+  const document = await vscode.workspace.openTextDocument(documentUri);
+  const currentText = document.getText();
+  return yaml.load(currentText);
+}
+
+/**
+ * Creates diff URIs with a unique timestamp to avoid caching issues.
+ */
+function createDiffUris(
+  resourceKind: string,
+  resourceName: string,
+  timestamp: number
+): { originalUri: vscode.Uri; modifiedUri: vscode.Uri; title: string } {
+  const title = `${resourceKind}-${resourceName}`;
+  const originalUri = vscode.Uri.parse(`k8s-diff:/original/${title}-${timestamp}`);
+  const modifiedUri = vscode.Uri.parse(`k8s-diff:/modified/${title}-${timestamp}`);
+  return { originalUri, modifiedUri, title };
+}
+
+/**
+ * Creates a temporary file system provider for diff viewing.
+ */
+function createDiffFileSystemProvider(
+  originalYaml: string,
+  updatedYaml: string,
+  timestamp: number
+): vscode.Disposable {
+  return vscode.workspace.registerFileSystemProvider('k8s-diff', {
+    onDidChangeFile: new vscode.EventEmitter<vscode.FileChangeEvent[]>().event,
+    watch: () => ({ dispose: () => {} }),
+    stat: () => ({ type: vscode.FileType.File, ctime: timestamp, mtime: timestamp, size: 0 }),
+    readDirectory: () => [],
+    createDirectory: () => {},
+    readFile: (uri) => {
+      if (uri.path.startsWith('/original/')) {
+        return Buffer.from(originalYaml);
+      }
+      return Buffer.from(updatedYaml);
+    },
+    writeFile: () => {},
+    delete: () => {},
+    rename: () => {}
+  }, { isCaseSensitive: true });
+}
+
+/**
+ * Shows the VS Code diff view.
+ */
+async function showDiffView(
+  originalUri: vscode.Uri,
+  modifiedUri: vscode.Uri,
+  title: string
+): Promise<void> {
+  const diffTitle = `Diff: ${title}`;
+  await vscode.commands.executeCommand('vscode.diff',
+    originalUri,
+    modifiedUri,
+    diffTitle,
+    { preview: true }
+  );
+}
+
+/**
+ * Schedules cleanup of the diff provider after a delay.
+ */
+function scheduleDiffProviderCleanup(diffProvider: vscode.Disposable): void {
+  setTimeout(() => {
+    diffProvider.dispose();
+  }, 5000);
+}
+
+/**
+ * Gets the prompt message based on confirm label.
+ */
+function getDiffConfirmMessage(confirmLabel: string): string {
+  if (confirmLabel === 'Continue') {
+    return 'Continue with the operation?';
+  }
+  return 'Apply changes to the resource?';
+}
+
+/**
+ * Shows confirmation dialog and returns whether user confirmed.
+ */
+async function showDiffConfirmation(confirmLabel: string): Promise<boolean> {
+  const promptMessage = getDiffConfirmMessage(confirmLabel);
+  const action = await vscode.window.showWarningMessage(
+    promptMessage,
+    { modal: true },
+    confirmLabel,
+    'Cancel'
+  );
+  return action === confirmLabel;
+}
+
+/**
+ * Handles diff error by showing message and logging.
+ */
+function handleDiffError(error: unknown): void {
+  vscode.window.showErrorMessage(`Error showing diff: ${error}`);
+  log(`Error in showResourceDiff: ${error}`, LogLevel.ERROR, true);
+  edaOutputChannel.show();
+}
+
 // Show a unified diff view of the changes
 async function showResourceDiff(
   resourceProvider: ResourceEditDocumentProvider,
@@ -1070,16 +1341,13 @@ async function showResourceDiff(
 ): Promise<boolean> {
   try {
     // Get the original resource
-    const originalResource = resourceProvider.getOriginalResource(documentUri);
+    const originalResource = getOriginalResourceForDiff(resourceProvider, documentUri);
     if (!originalResource) {
-      vscode.window.showErrorMessage('Could not find original resource to compare');
       return false;
     }
 
-    // Get the current document text and parse it
-    const document = await vscode.workspace.openTextDocument(documentUri);
-    const currentText = document.getText();
-    const updatedResource = yaml.load(currentText);
+    // Get the updated resource from document
+    const updatedResource = await parseUpdatedResource(documentUri);
 
     // Convert both resources to formatted YAML for comparison
     const originalYaml = yaml.dump(originalResource, { indent: 2 });
@@ -1088,67 +1356,30 @@ async function showResourceDiff(
     // If no differences, inform the user and return
     if (originalYaml === updatedYaml) {
       vscode.window.showInformationMessage('No changes detected in the resource');
-      return true; // Continue with apply even though there are no changes
+      return true;
     }
 
-    // Create URIs for the diff editor - use a timestamp to avoid caching issues
+    // Create diff URIs and provider
     const timestamp = Date.now();
-    const title = `${originalResource.kind}-${originalResource.metadata.name}`;
-    const originalUri = vscode.Uri.parse(`k8s-diff:/original/${title}-${timestamp}`);
-    const modifiedUri = vscode.Uri.parse(`k8s-diff:/modified/${title}-${timestamp}`);
-
-    // Create one-time file system provider for the diff
-    const diffProvider = vscode.workspace.registerFileSystemProvider('k8s-diff', {
-      onDidChangeFile: new vscode.EventEmitter<vscode.FileChangeEvent[]>().event,
-      watch: () => ({ dispose: () => {} }),
-      stat: () => ({ type: vscode.FileType.File, ctime: timestamp, mtime: timestamp, size: 0 }),
-      readDirectory: () => [],
-      createDirectory: () => {},
-      readFile: (uri) => {
-        if (uri.path.startsWith('/original/')) {
-          return Buffer.from(originalYaml);
-        } else {
-          return Buffer.from(updatedYaml);
-        }
-      },
-      writeFile: () => {},
-      delete: () => {},
-      rename: () => {}
-    }, { isCaseSensitive: true });
-
-    // Show the diff
-    await vscode.commands.executeCommand('vscode.diff',
-      originalUri,
-      modifiedUri,
-      `Diff: ${title}`,
-      { preview: true }
+    const { originalUri, modifiedUri, title } = createDiffUris(
+      originalResource.kind,
+      originalResource.metadata.name,
+      timestamp
     );
+    const diffProvider = createDiffFileSystemProvider(originalYaml, updatedYaml, timestamp);
 
-    // Clean up provider after a delay
-    setTimeout(() => {
-      diffProvider.dispose();
-    }, 5000);
+    // Show the diff view
+    await showDiffView(originalUri, modifiedUri, title);
 
+    // Schedule cleanup
+    scheduleDiffProviderCleanup(diffProvider);
+
+    // Show confirmation and return result
     const confirmLabel = options.confirmActionLabel ?? 'Continue';
-    const promptMessage = confirmLabel === 'Continue'
-      ? 'Continue with the operation?'
-      : 'Apply changes to the resource?';
-
-    // Show a modal message so keyboard focus defaults to the confirm button
-    const action = await vscode.window.showWarningMessage(
-      promptMessage,
-      { modal: true },
-      confirmLabel,
-      'Cancel'
-    );
-
-    // Return whether the user wants to proceed
-    return action === confirmLabel;
+    return showDiffConfirmation(confirmLabel);
 
   } catch (error) {
-    vscode.window.showErrorMessage(`Error showing diff: ${error}`);
-    log(`Error in showResourceDiff: ${error}`, LogLevel.ERROR, true);
-    edaOutputChannel.show();
+    handleDiffError(error);
     return false;
   }
 }

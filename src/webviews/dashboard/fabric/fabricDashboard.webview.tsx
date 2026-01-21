@@ -50,7 +50,7 @@ interface FabricStats {
   superspines: { count: number; health: number };
 }
 
-function StatCard({ label, value, healthIndicator }: { label: string; value: string | number; healthIndicator?: number }) {
+function StatCard({ label, value, healthIndicator }: Readonly<{ label: string; value: string | number; healthIndicator?: number }>) {
   const getHealthColor = (h: number | undefined) => {
     if (h === undefined) return 'bg-status-info';
     if (h >= 90) return 'bg-status-success';
@@ -80,6 +80,87 @@ const initialFabricStats: FabricStats = {
   borderleafs: { count: 0, health: 0 },
   superspines: { count: 0, health: 0 }
 };
+
+// Helper functions to extract stats from messages
+function extractNodeStats(stats: FabricMessage['stats']): NodeStats {
+  return {
+    total: stats?.total ?? 0,
+    synced: stats?.synced ?? 0,
+    notSynced: stats?.notSynced ?? 0
+  };
+}
+
+function extractInterfaceStats(stats: FabricMessage['stats']): InterfaceStats {
+  return {
+    total: stats?.total ?? 0,
+    up: stats?.up ?? 0,
+    down: stats?.down ?? 0
+  };
+}
+
+function extractFabricNodeStats(stats: FabricMessage['stats']): { count: number; health: number } {
+  return { count: stats?.count ?? 0, health: stats?.health ?? 0 };
+}
+
+type FabricNodeType = 'spines' | 'leafs' | 'borderleafs' | 'superspines';
+
+function updateFabricNodeStats(
+  nodeType: FabricNodeType,
+  stats: FabricMessage['stats'],
+  setFabricStats: React.Dispatch<React.SetStateAction<FabricStats>>
+): void {
+  if (stats) {
+    setFabricStats(prev => ({
+      ...prev,
+      [nodeType]: extractFabricNodeStats(stats)
+    }));
+  }
+}
+
+// Map fabric node commands to their node types
+const fabricNodeCommands: Record<string, FabricNodeType> = {
+  fabricSpineStats: 'spines',
+  fabricLeafStats: 'leafs',
+  fabricBorderLeafStats: 'borderleafs',
+  fabricSuperSpineStats: 'superspines'
+};
+
+interface MessageHandlers {
+  setNamespaces: React.Dispatch<React.SetStateAction<string[]>>;
+  setSelectedNamespace: React.Dispatch<React.SetStateAction<string>>;
+  setNodeStats: React.Dispatch<React.SetStateAction<NodeStats>>;
+  setInterfaceStats: React.Dispatch<React.SetStateAction<InterfaceStats>>;
+  setFabricStats: React.Dispatch<React.SetStateAction<FabricStats>>;
+  updateTrafficChart: (inVal: number, outVal: number) => void;
+  clearTrafficChart: () => void;
+}
+
+function handleInitMessage(msg: FabricMessage, handlers: MessageHandlers): void {
+  handlers.setNamespaces(msg.namespaces || []);
+  handlers.setSelectedNamespace(msg.selected || (msg.namespaces?.[0] || ''));
+}
+
+function handleTopoNodeStatsMessage(msg: FabricMessage, handlers: MessageHandlers): void {
+  if (msg.stats) {
+    handlers.setNodeStats(extractNodeStats(msg.stats));
+  }
+}
+
+function handleInterfaceStatsMessage(msg: FabricMessage, handlers: MessageHandlers): void {
+  if (msg.stats) {
+    handlers.setInterfaceStats(extractInterfaceStats(msg.stats));
+  }
+}
+
+function handleTrafficStatsMessage(msg: FabricMessage, handlers: MessageHandlers): void {
+  if (msg.stats) {
+    handlers.updateTrafficChart(msg.stats.in ?? 0, msg.stats.out ?? 0);
+  }
+}
+
+function handleFabricHealthMessage(msg: FabricMessage, handlers: MessageHandlers): void {
+  handlers.setFabricStats(prev => ({ ...prev, health: msg.health ?? 0 }));
+}
 
 function FabricDashboard() {
   const postMessage = usePostMessage();
@@ -243,73 +324,33 @@ function FabricDashboard() {
   }, []);
 
   const handleMessage = useCallback((msg: FabricMessage) => {
-    switch (msg.command) {
-      case 'init':
-        setNamespaces(msg.namespaces || []);
-        setSelectedNamespace(msg.selected || (msg.namespaces?.[0] || ''));
-        break;
-      case 'topoNodeStats':
-        if (msg.stats) {
-          setNodeStats({
-            total: msg.stats.total ?? 0,
-            synced: msg.stats.synced ?? 0,
-            notSynced: msg.stats.notSynced ?? 0
-          });
-        }
-        break;
-      case 'interfaceStats':
-        if (msg.stats) {
-          setInterfaceStats({
-            total: msg.stats.total ?? 0,
-            up: msg.stats.up ?? 0,
-            down: msg.stats.down ?? 0
-          });
-        }
-        break;
-      case 'trafficStats':
-        if (msg.stats) {
-          updateTrafficChart(msg.stats.in ?? 0, msg.stats.out ?? 0);
-        }
-        break;
-      case 'clearTrafficData':
-        clearTrafficChart();
-        break;
-      case 'fabricSpineStats':
-        if (msg.stats) {
-          setFabricStats(prev => ({
-            ...prev,
-            spines: { count: msg.stats!.count ?? 0, health: msg.stats!.health ?? 0 }
-          }));
-        }
-        break;
-      case 'fabricLeafStats':
-        if (msg.stats) {
-          setFabricStats(prev => ({
-            ...prev,
-            leafs: { count: msg.stats!.count ?? 0, health: msg.stats!.health ?? 0 }
-          }));
-        }
-        break;
-      case 'fabricBorderLeafStats':
-        if (msg.stats) {
-          setFabricStats(prev => ({
-            ...prev,
-            borderleafs: { count: msg.stats!.count ?? 0, health: msg.stats!.health ?? 0 }
-          }));
-        }
-        break;
-      case 'fabricSuperSpineStats':
-        if (msg.stats) {
-          setFabricStats(prev => ({
-            ...prev,
-            superspines: { count: msg.stats!.count ?? 0, health: msg.stats!.health ?? 0 }
-          }));
-        }
-        break;
-      case 'fabricHealth':
-        setFabricStats(prev => ({ ...prev, health: msg.health ?? 0 }));
-        break;
+    const handlers: MessageHandlers = {
+      setNamespaces,
+      setSelectedNamespace,
+      setNodeStats,
+      setInterfaceStats,
+      setFabricStats,
+      updateTrafficChart,
+      clearTrafficChart
+    };
+
+    // Handle fabric node stats commands
+    if (msg.command in fabricNodeCommands) {
+      updateFabricNodeStats(fabricNodeCommands[msg.command], msg.stats, setFabricStats);
+      return;
     }
+
+    // Handle other commands using extracted helper functions
+    const commandHandlers: Record<string, (m: FabricMessage, h: MessageHandlers) => void> = {
+      init: handleInitMessage,
+      topoNodeStats: handleTopoNodeStatsMessage,
+      interfaceStats: handleInterfaceStatsMessage,
+      trafficStats: handleTrafficStatsMessage,
+      clearTrafficData: () => handlers.clearTrafficChart(),
+      fabricHealth: handleFabricHealthMessage
+    };
+
+    commandHandlers[msg.command]?.(msg, handlers);
   }, [updateTrafficChart, clearTrafficChart]);
 
   useMessageListener<FabricMessage>(handleMessage);

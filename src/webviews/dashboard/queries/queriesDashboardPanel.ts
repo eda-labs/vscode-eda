@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 
-import * as vscode from 'vscode';
+import type * as vscode from 'vscode';
 
 import { BasePanel } from '../../basePanel';
 import { ALL_NAMESPACES } from '../../constants';
@@ -222,34 +222,11 @@ export class QueriesDashboardPanel extends BasePanel {
     return result;
   }
 
-  private handleQueryStream(msg: any): void {
-    // Debug logging to understand all message structures
-    log(`Received stream message: ${JSON.stringify(msg, null, 2)}`, LogLevel.DEBUG);
-
-    // Check if this is an NQL stream with conversion details
-    // The details could be at msg.details or msg.message.details based on the SSE processing
-    const details = msg.details || msg.message?.details;
-    const streamName = msg.stream || msg.message?.stream;
-
-    log(`Stream name: ${streamName}`, LogLevel.DEBUG);
-    log(`Details: ${details}`, LogLevel.DEBUG);
-
-    // For NQL streams, only show the converted query from the SSE response details
-    // Do NOT reconstruct from schema fields as that creates incorrect queries
-    if (streamName?.startsWith('nql') && !this.nqlConversionShown && details) {
-      log(`Sending convertedQuery message with details: ${details}`, LogLevel.DEBUG);
-      this.panel.webview.postMessage({
-        command: 'convertedQuery',
-        originalQuery: '', // We don't have the original query here
-        eqlQuery: details,
-        queryType: 'nql',
-        description: 'Natural Query Language converted to EQL query'
-      });
-      this.nqlConversionShown = true;
-    }
-
-    // Try to extract operations from various possible locations in the message structure
-    // Uses case-insensitive helpers for API inconsistencies
+  /**
+   * Extract operations from various possible locations in the message structure.
+   * Uses case-insensitive helpers for API inconsistencies.
+   */
+  private extractOperations(msg: any): any[] {
     let ops = getOps(msg.msg);
     if (ops.length === 0) {
       ops = getOps(msg);
@@ -263,69 +240,116 @@ export class QueriesDashboardPanel extends BasePanel {
         ops = [msg.msg];
       }
     }
+    return ops;
+  }
 
-    log(`Operations array length: ${ops.length}`, LogLevel.DEBUG);
-
-    if (ops.length === 0) {
-      // Check if we have schema but no data yet
-      if (msg.msg?.schema?.fields && msg.state === 'synced') {
-        log('Stream synced with schema but no data operations', LogLevel.DEBUG);
-        if (this.rows.length === 0) {
-          this.panel.webview.postMessage({
-            command: 'results',
-            columns: [],
-            rows: [],
-            status: 'Query completed - no matching results found'
-          });
-        }
-      }
-      return;
+  /**
+   * Handle NQL conversion details from stream message.
+   * Returns true if conversion was shown.
+   */
+  private handleNqlConversion(streamName: string | undefined, details: string | undefined): void {
+    if (streamName?.startsWith('nql') && !this.nqlConversionShown && details) {
+      log(`Sending convertedQuery message with details: ${details}`, LogLevel.DEBUG);
+      this.panel.webview.postMessage({
+        command: 'convertedQuery',
+        originalQuery: '', // We don't have the original query here
+        eqlQuery: details,
+        queryType: 'nql',
+        description: 'Natural Query Language converted to EQL query'
+      });
+      this.nqlConversionShown = true;
     }
-    for (const op of ops) {
-      const deleteOp = getDelete(op);
-      const deleteIds = getDeleteIds(deleteOp);
-      for (const id of deleteIds) {
-        this.rowMap.delete(String(id));
-      }
+  }
 
-      const insertOrModify = getInsertOrModify(op);
-      const rows = getRows(insertOrModify);
-      if (rows.length === 0) continue;
+  /**
+   * Process delete operations from a single operation object.
+   */
+  private processDeleteOperation(op: any): void {
+    const deleteOp = getDelete(op);
+    const deleteIds = getDeleteIds(deleteOp);
+    for (const id of deleteIds) {
+      this.rowMap.delete(String(id));
+    }
+  }
 
-      for (const r of rows) {
-        const data = r.data || r;
-        const flat = this.flattenData(data);
-
-        // Update columns if we encounter new fields
-        const dataKeys = Object.keys(flat);
-        let columnsChanged = false;
-        for (const key of dataKeys) {
-          if (!this.columns.includes(key)) {
-            this.columns.push(key);
-            columnsChanged = true;
-          }
-        }
-
-        // If columns changed, we need to update all existing rows to have placeholders for new columns
-        if (columnsChanged) {
-          const currentRows = Array.from(this.rowMap.entries());
-          this.rowMap.clear();
-          for (const [key, oldRow] of currentRows) {
-            // Create a new row with the updated column structure
-            const newRow = this.columns.map((_, idx) => {
-              // Keep existing data if the column index is within the old row
-              return idx < oldRow.length ? oldRow[idx] : undefined;
-            });
-            this.rowMap.set(key, newRow);
-          }
-        }
-
-        const row = this.columns.map(c => flat[c]);
-        const key = r.id !== undefined ? String(r.id) : randomUUID();
-        this.rowMap.set(key, row);
+  /**
+   * Update columns array with new keys from data.
+   * Returns true if columns were changed.
+   */
+  private updateColumns(dataKeys: string[]): boolean {
+    let columnsChanged = false;
+    for (const key of dataKeys) {
+      if (!this.columns.includes(key)) {
+        this.columns.push(key);
+        columnsChanged = true;
       }
     }
+    return columnsChanged;
+  }
 
+  /**
+   * Rebuild all existing rows to accommodate new columns.
+   */
+  private rebuildRowsForNewColumns(): void {
+    const currentRows = Array.from(this.rowMap.entries());
+    this.rowMap.clear();
+    for (const [key, oldRow] of currentRows) {
+      // Create a new row with the updated column structure
+      const newRow = this.columns.map((_, idx) => {
+        // Keep existing data if the column index is within the old row
+        return idx < oldRow.length ? oldRow[idx] : undefined;
+      });
+      this.rowMap.set(key, newRow);
+    }
+  }
+
+  /**
+   * Process insert or modify operations from a single operation object.
+   */
+  private processInsertOrModifyOperation(op: any): void {
+    const insertOrModify = getInsertOrModify(op);
+    const rows = getRows(insertOrModify);
+    if (rows.length === 0) return;
+
+    for (const r of rows) {
+      const data = r.data || r;
+      const flat = this.flattenData(data);
+
+      // Update columns if we encounter new fields
+      const columnsChanged = this.updateColumns(Object.keys(flat));
+
+      // If columns changed, we need to update all existing rows to have placeholders for new columns
+      if (columnsChanged) {
+        this.rebuildRowsForNewColumns();
+      }
+
+      const row = this.columns.map(c => flat[c]);
+      const key = r.id !== undefined ? String(r.id) : randomUUID();
+      this.rowMap.set(key, row);
+    }
+  }
+
+  /**
+   * Send empty results when stream is synced with schema but no data.
+   */
+  private handleEmptyResults(msg: any): void {
+    if (msg.msg?.schema?.fields && msg.state === 'synced') {
+      log('Stream synced with schema but no data operations', LogLevel.DEBUG);
+      if (this.rows.length === 0) {
+        this.panel.webview.postMessage({
+          command: 'results',
+          columns: [],
+          rows: [],
+          status: 'Query completed - no matching results found'
+        });
+      }
+    }
+  }
+
+  /**
+   * Send current results to webview.
+   */
+  private sendResults(): void {
     this.rows = Array.from(this.rowMap.values());
     this.panel.webview.postMessage({
       command: 'results',
@@ -333,6 +357,34 @@ export class QueriesDashboardPanel extends BasePanel {
       rows: this.rows,
       status: `Count: ${this.rows.length}`
     });
+  }
+
+  private handleQueryStream(msg: any): void {
+    log(`Received stream message: ${JSON.stringify(msg, null, 2)}`, LogLevel.DEBUG);
+
+    // Check if this is an NQL stream with conversion details
+    const details = msg.details || msg.message?.details;
+    const streamName = msg.stream || msg.message?.stream;
+
+    log(`Stream name: ${streamName}`, LogLevel.DEBUG);
+    log(`Details: ${details}`, LogLevel.DEBUG);
+
+    this.handleNqlConversion(streamName, details);
+
+    const ops = this.extractOperations(msg);
+    log(`Operations array length: ${ops.length}`, LogLevel.DEBUG);
+
+    if (ops.length === 0) {
+      this.handleEmptyResults(msg);
+      return;
+    }
+
+    for (const op of ops) {
+      this.processDeleteOperation(op);
+      this.processInsertOrModifyOperation(op);
+    }
+
+    this.sendResults();
   }
 
   static show(context: vscode.ExtensionContext, title: string): QueriesDashboardPanel {

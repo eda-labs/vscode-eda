@@ -24,7 +24,7 @@ export class SimnodesDashboardPanel extends BasePanel {
     // Listen for resource changes to refresh data
     this.disposables.push(
       this.kubernetesClient.onResourceChanged(() => {
-        void this.refreshData();
+        this.refreshData();
       })
     );
 
@@ -34,22 +34,22 @@ export class SimnodesDashboardPanel extends BasePanel {
       }
     });
 
-    this.panel.webview.onDidReceiveMessage(async msg => {
+    this.panel.webview.onDidReceiveMessage((msg: { command: string; namespace?: string; name?: string; operatingSystem?: string }) => {
       if (msg.command === 'ready') {
         this.sendNamespaces();
-        await this.loadInitial(ALL_NAMESPACES);
+        this.loadInitial(ALL_NAMESPACES);
       } else if (msg.command === 'setNamespace') {
-        await this.loadInitial(msg.namespace as string);
+        this.loadInitial(msg.namespace ?? ALL_NAMESPACES);
       } else if (msg.command === 'showInTree') {
-        await vscode.commands.executeCommand(
+        void vscode.commands.executeCommand(
           'vscode-eda.filterTree',
           'simnodes'
         );
-        await vscode.commands.executeCommand('vscode-eda.expandAllNamespaces');
+        void vscode.commands.executeCommand('vscode-eda.expandAllNamespaces');
       } else if (msg.command === 'viewSimnodeYaml') {
-        await this.viewSimnodeYaml(msg.name, msg.namespace);
+        void this.viewSimnodeYaml(msg.name ?? '', msg.namespace ?? '');
       } else if (msg.command === 'sshSimnode') {
-        await this.sshSimnode(msg.name, msg.namespace, msg.operatingSystem);
+        this.sshSimnode(msg.name ?? '', msg.namespace ?? '', msg.operatingSystem);
       }
     });
 

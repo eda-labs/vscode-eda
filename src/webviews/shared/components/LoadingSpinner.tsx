@@ -1,20 +1,22 @@
+const SIZE_MD = 'md' as const;
+
 interface LoadingSpinnerProps {
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | typeof SIZE_MD | 'lg';
   message?: string;
   className?: string;
 }
 
 const sizeClasses = {
   sm: 'size-4',
-  md: 'size-6',
+  [SIZE_MD]: 'size-6',
   lg: 'size-8'
 };
 
 export function LoadingSpinner({
-  size = 'md',
+  size = SIZE_MD,
   message,
   className = ''
-}: LoadingSpinnerProps) {
+}: Readonly<LoadingSpinnerProps>) {
   return (
     <div className={`flex items-center justify-center gap-2 ${className}`}>
       <div
@@ -31,7 +33,7 @@ interface LoadingOverlayProps {
   message?: string;
 }
 
-export function LoadingOverlay({ message = 'Loading...' }: LoadingOverlayProps) {
+export function LoadingOverlay({ message = 'Loading...' }: Readonly<LoadingOverlayProps>) {
   return (
     <div className="flex flex-col items-center justify-center h-full min-h-50">
       <LoadingSpinner size="lg" message={message} />

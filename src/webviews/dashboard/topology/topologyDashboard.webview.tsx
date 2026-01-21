@@ -9,8 +9,22 @@ import { usePostMessage, useMessageListener } from '../../shared/hooks';
 
 declare module 'cytoscape' {
   interface Core {
-    svg(options?: any): string;
+    svg(options?: unknown): string;
   }
+}
+
+// Constants to avoid duplicate strings
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+const STYLE_BORDER_WIDTH = 'border-width';
+
+// Helper to load a script dynamically
+function loadScript(src: string): Promise<void> {
+  return new Promise(resolve => {
+    const script = document.createElement('script');
+    script.src = src;
+    script.onload = () => resolve();
+    document.head.appendChild(script);
+  });
 }
 
 interface TopologyNode {
@@ -62,6 +76,127 @@ function shortenInterfaceName(name: string | undefined): string {
   return name.replace(/ethernet-/gi, 'e-');
 }
 
+// Helper type for node/link data
+interface NodeData {
+  metadata?: { name?: string; labels?: Record<string, string> };
+  status?: Record<string, unknown>;
+  spec?: Record<string, unknown>;
+}
+
+interface LinkData {
+  local?: { node?: string; interface?: string };
+  remote?: { node?: string; interface?: string };
+  type?: string;
+  state?: string;
+  sourceState?: string;
+  targetState?: string;
+}
+
+// Helper to build info table row
+function buildInfoRow(label: string, value: string | undefined): string {
+  return value ? `<tr><td>${label}</td><td>${value}</td></tr>` : '';
+}
+
+// Helper to build section header
+function buildSectionRow(title: string): string {
+  return `<tr class="section"><td colspan="2">${title}</td></tr>`;
+}
+
+// Helper to safely get nested property with fallback
+function getNestedProp(
+  obj: Record<string, unknown> | undefined,
+  ...keys: string[]
+): string | undefined {
+  for (const key of keys) {
+    const val = obj?.[key];
+    if (val !== undefined) return String(val);
+  }
+  return undefined;
+}
+
+// Helper to get property from spec or status
+function getSpecOrStatus(
+  spec: Record<string, unknown> | undefined,
+  status: Record<string, unknown> | undefined,
+  key: string
+): string {
+  return (spec?.[key] ?? status?.[key] ?? '') as string;
+}
+
+// Extract node metadata for display
+function extractNodeMetadata(data: NodeData): { name: string; labels: string } {
+  const name = data?.metadata?.name ?? '';
+  const labelsObj = data?.metadata?.labels ?? {};
+  const labels = Object.keys(labelsObj)
+    .map(k => `${k}: ${String(labelsObj[k])}`)
+    .join('<br>');
+  return { name, labels };
+}
+
+// Extract node status fields
+function extractNodeStatusFields(
+  status: Record<string, unknown> | undefined,
+  spec: Record<string, unknown> | undefined
+): Record<string, string | undefined> {
+  const productionAddr = spec?.productionAddress as Record<string, unknown> | undefined;
+  return {
+    statusVal: getNestedProp(status, 'status'),
+    sync: getNestedProp(status, 'sync'),
+    nodeDetails: getNestedProp(status, 'node-details') ?? getNestedProp(productionAddr, 'ipv4'),
+    nodeState: getNestedProp(status, 'node-state', 'nodeState'),
+    nppState: getNestedProp(status, 'npp-state', 'nppState'),
+    os: getSpecOrStatus(spec, status, 'operatingSystem'),
+    platform: getSpecOrStatus(spec, status, 'platform'),
+    version: getSpecOrStatus(spec, status, 'version')
+  };
+}
+
+// Extract node info for display
+function extractNodeInfo(data: NodeData): string {
+  const { name, labels } = extractNodeMetadata(data);
+  const status = data?.status as Record<string, unknown> | undefined;
+  const spec = data?.spec as Record<string, unknown> | undefined;
+  const fields = extractNodeStatusFields(status, spec);
+
+  return `
+    <h3><span class="codicon codicon-server-environment"></span> <a href="#" class="node-link">${name}</a></h3>
+    <table class="info-table">
+      ${buildInfoRow('Labels', labels)}
+      ${buildInfoRow('Status', fields.statusVal)}
+      ${buildInfoRow('Sync', fields.sync)}
+      ${buildInfoRow('Node Details', fields.nodeDetails)}
+      ${buildInfoRow('Node State', fields.nodeState)}
+      ${buildInfoRow('NPP State', fields.nppState)}
+      ${buildInfoRow('Operating System', fields.os)}
+      ${buildInfoRow('Platform', fields.platform)}
+      ${buildInfoRow('Version', fields.version)}
+    </table>
+  `;
+}
+
+// No-op function for ignored promise rejections
+const noop = () => { /* ignore */ };
+
+// Extract link info for display
+function extractLinkInfo(data: LinkData): string {
+  const local = data?.local;
+  const remote = data?.remote;
+
+  return `
+    <h3><span class="codicon codicon-plug"></span> <a href="#" class="link-resource">${local?.node ?? ''} \u2192 ${remote?.node ?? ''}</a></h3>
+    <table class="info-table">
+      ${buildInfoRow('Type', data?.type)}
+      ${buildInfoRow('State', data?.state)}
+      ${buildSectionRow('Local Endpoint')}
+      ${buildInfoRow('State', data?.sourceState)}
+      ${buildInfoRow('Interface', local?.interface)}
+      ${buildSectionRow('Remote Endpoint')}
+      ${buildInfoRow('State', data?.targetState)}
+      ${buildInfoRow('Interface', remote?.interface)}
+    </table>
+  `;
+}
+
 function TopologyDashboard() {
   const postMessage = usePostMessage();
   const [namespaces, setNamespaces] = useState<string[]>([]);
@@ -93,24 +228,17 @@ function TopologyDashboard() {
     const cytoscapeSvgUri = bodyEl.dataset.cytoscapeSvgUri ?? '';
     nodeIconRef.current = bodyEl.dataset.nodeIcon ?? '';
 
-    const loadScript = (src: string): Promise<void> => {
-      return new Promise(resolve => {
-        const script = document.createElement('script');
-        script.src = src;
-        script.onload = () => resolve();
-        document.head.appendChild(script);
-      });
+    const initCytoscape = async () => {
+      await loadScript(cytoscapeUri);
+      await loadScript(cytoscapeSvgUri);
+      const win = window as unknown as { cytoscape: ((ext: unknown) => void) | undefined };
+      if (win.cytoscape) {
+        win.cytoscape(cytoscapePopper(tippyFactory));
+      }
+      postMessage({ command: 'ready' });
     };
 
-    loadScript(cytoscapeUri)
-      .then(() => loadScript(cytoscapeSvgUri))
-      .then(() => {
-        const win = window as unknown as { cytoscape: any };
-        if (win.cytoscape) {
-          win.cytoscape.use(cytoscapePopper(tippyFactory));
-        }
-        postMessage({ command: 'ready' });
-      });
+    void initCytoscape();
 
     const currentTippies = edgeTippiesRef.current;
     const currentCy = cyRef.current;
@@ -183,12 +311,7 @@ function TopologyDashboard() {
     if (!cy) return;
     cy.edges().forEach(edge => {
       const tips = edgeTippiesRef.current.get(edge.id());
-      let show = false;
-      if (labelMode === 'show') {
-        show = true;
-      } else if (labelMode === 'select' && edge.hasClass('highlight')) {
-        show = true;
-      }
+      const show = labelMode === 'show' || (labelMode === 'select' && edge.hasClass('highlight'));
       if (tips) {
         tips.source && (show ? tips.source.tip.show() : tips.source.tip.hide());
         tips.target && (show ? tips.target.tip.show() : tips.target.tip.hide());
@@ -197,7 +320,7 @@ function TopologyDashboard() {
         'text-opacity': 0,
         'source-text-background-opacity': 0,
         'target-text-background-opacity': 0
-      } as any);
+      } as cytoscape.Css.Edge);
     });
   }, [labelMode]);
 
@@ -314,61 +437,11 @@ function TopologyDashboard() {
     return { x: ax + nx * offset, y: ay + ny * offset };
   }, [tAtArcRatio]);
 
-  const displayInfo = useCallback((title: 'Node' | 'Link', data: any) => {
-    const row = (label: string, value: string | undefined) =>
-      value ? `<tr><td>${label}</td><td>${value}</td></tr>` : '';
-
+  const displayInfo = useCallback((title: 'Node' | 'Link', data: NodeData | LinkData) => {
     if (title === 'Node') {
-      const name = data?.metadata?.name ?? '';
-      const labelsObj = data?.metadata?.labels ?? {};
-      const labels = Object.keys(labelsObj)
-        .map(k => `${k}: ${labelsObj[k]}`)
-        .join('<br>');
-      const status = data?.status?.status;
-      const sync = data?.status?.sync;
-      const nodeDetails = data?.status?.['node-details'] ?? data?.spec?.productionAddress?.ipv4;
-      const nodeState = data?.status?.['node-state'] ?? data?.status?.nodeState;
-      const nppState = data?.status?.['npp-state'] ?? data?.status?.nppState;
-      const os = data?.spec?.operatingSystem ?? data?.status?.operatingSystem ?? '';
-      const platform = data?.spec?.platform ?? data?.status?.platform ?? '';
-      const version = data?.spec?.version ?? data?.status?.version ?? '';
-      setInfoCardContent(`
-        <h3><span class="codicon codicon-server-environment"></span> <a href="#" class="node-link">${name}</a></h3>
-        <table class="info-table">
-          ${row('Labels', labels)}
-          ${row('Status', status)}
-          ${row('Sync', sync)}
-          ${row('Node Details', nodeDetails)}
-          ${row('Node State', nodeState)}
-          ${row('NPP State', nppState)}
-          ${row('Operating System', os)}
-          ${row('Platform', platform)}
-          ${row('Version', version)}
-        </table>
-      `);
+      setInfoCardContent(extractNodeInfo(data as NodeData));
     } else {
-      const localNode = data?.local?.node ?? '';
-      const localIf = data?.local?.interface ?? '';
-      const remoteNode = data?.remote?.node ?? '';
-      const remoteIf = data?.remote?.interface ?? '';
-      const type = data?.type ?? '';
-      const state = data?.state ?? '';
-      const sourceState = data?.sourceState ?? '';
-      const targetState = data?.targetState ?? '';
-      const section = (title: string) => `<tr class="section"><td colspan="2">${title}</td></tr>`;
-      setInfoCardContent(`
-        <h3><span class="codicon codicon-plug"></span> <a href="#" class="link-resource">${localNode} \u2192 ${remoteNode}</a></h3>
-        <table class="info-table">
-          ${row('Type', type)}
-          ${row('State', state)}
-          ${section('Local Endpoint')}
-          ${row('State', sourceState)}
-          ${row('Interface', localIf)}
-          ${section('Remote Endpoint')}
-          ${row('State', targetState)}
-          ${row('Interface', remoteIf)}
-        </table>
-      `);
+      setInfoCardContent(extractLinkInfo(data as LinkData));
     }
   }, []);
 
@@ -426,8 +499,8 @@ function TopologyDashboard() {
       tippyUpdateRegisteredRef.current = true;
       const update = () => {
         edgeTippiesRef.current.forEach(tips => {
-          tips.source?.tip.popperInstance?.update();
-          tips.target?.tip.popperInstance?.update();
+          tips.source?.tip.popperInstance?.update().catch(noop);
+          tips.target?.tip.popperInstance?.update().catch(noop);
         });
       };
       cy.on('pan zoom resize', update);
@@ -713,8 +786,8 @@ function TopologyDashboard() {
               'text-background-opacity': 0,
               'width': 100,
               'height': 100,
-              'border-width': 0
-            } as any
+              [STYLE_BORDER_WIDTH]: 0
+            } as cytoscape.Css.Node
           },
           {
             selector: 'edge',
@@ -731,9 +804,9 @@ function TopologyDashboard() {
           {
             selector: 'node.highlight',
             style: {
-              'border-width': 2,
+              [STYLE_BORDER_WIDTH]: 2,
               'border-color': '#ffa500'
-            } as any
+            } as cytoscape.Css.Node
           },
           {
             selector: 'edge.highlight',
@@ -826,11 +899,11 @@ function TopologyDashboard() {
     nodes.forEach(n => {
       prevNodeLabels.push(n.style('label'));
       prevNodeColors.push(n.style('color'));
-      prevBorders.push(n.style('border-width'));
+      prevBorders.push(n.style(STYLE_BORDER_WIDTH));
       if (!exportIncludeLabels) {
         n.style('label', '');
       }
-      n.style('border-width', 0);
+      n.style(STYLE_BORDER_WIDTH, 0);
       n.style('color', exportFontColor);
     });
 
@@ -869,8 +942,8 @@ function TopologyDashboard() {
         const width = ctx.measureText(text).width + paddingX * 2;
         const height = fontSize + paddingY * 2;
 
-        const g = doc.createElementNS('http://www.w3.org/2000/svg', 'g');
-        const rect = doc.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        const g = doc.createElementNS(SVG_NAMESPACE, 'g');
+        const rect = doc.createElementNS(SVG_NAMESPACE, 'rect');
         rect.setAttribute('x', String(x - width / 2));
         rect.setAttribute('y', String(y - height / 2));
         rect.setAttribute('width', String(width));
@@ -881,7 +954,7 @@ function TopologyDashboard() {
         rect.setAttribute('ry', '3');
         g.appendChild(rect);
 
-        const textEl = doc.createElementNS('http://www.w3.org/2000/svg', 'text');
+        const textEl = doc.createElementNS(SVG_NAMESPACE, 'text');
         textEl.setAttribute('x', String(x));
         textEl.setAttribute('y', String(y + fontSize / 2 - 1));
         textEl.setAttribute('text-anchor', 'middle');
@@ -927,7 +1000,7 @@ function TopologyDashboard() {
     nodes.forEach((n, idx) => {
       n.style('label', prevNodeLabels[idx]);
       n.style('color', prevNodeColors[idx]);
-      n.style('border-width', prevBorders[idx]);
+      n.style(STYLE_BORDER_WIDTH, prevBorders[idx]);
     });
     edges.forEach((e, idx) => {
       e.style('color', prevEdgeColors[idx]);

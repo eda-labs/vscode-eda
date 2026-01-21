@@ -68,6 +68,7 @@ export function runKubectl(
     const cmdLine = `${kubectlPath} ${finalArgs.join(' ')}`;
     log(`Running kubectl: ${cmdLine}`, LogLevel.DEBUG);
 
+    // eslint-disable-next-line sonarjs/os-command -- Intentional: kubectl execution is the purpose of this utility
     const cmdOutput = execSync(cmdLine, {
       encoding: 'utf-8',
       timeout: 30000, // 30 seconds timeout

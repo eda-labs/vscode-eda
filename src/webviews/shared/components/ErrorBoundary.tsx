@@ -29,16 +29,20 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     console.error('ErrorBoundary caught an error:', error, errorInfo);
   }
 
-  render(): ReactNode {
-    if (this.state.hasError) {
-      if (this.props.fallback) {
-        return this.props.fallback;
-      }
+  render(): React.JSX.Element {
+    if (!this.state.hasError) {
+      return <>{this.props.children}</>;
+    }
 
-      return (
+    if (this.props.fallback) {
+      return <>{this.props.fallback}</>;
+    }
+
+    return (
+      <>
         <div className="p-6 text-center">
           <div className="mb-4">
-            <span className="text-4xl">⚠️</span>
+            <span className="text-4xl">Warning</span>
           </div>
           <h2 className="text-lg font-semibold mb-2 text-status-error">
             Something went wrong
@@ -66,9 +70,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             Try again
           </button>
         </div>
-      );
-    }
-
-    return this.props.children;
+      </>
+    );
   }
 }
