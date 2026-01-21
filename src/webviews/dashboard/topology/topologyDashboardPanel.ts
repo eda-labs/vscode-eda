@@ -77,16 +77,8 @@ export class TopologyDashboardPanel extends BasePanel {
     this.panel.webview.html = this.buildHtml();
   }
 
-  protected getHtml(): string {
-    return '<div id="root"></div>';
-  }
-
   protected getCustomStyles(): string {
     return this.readWebviewFile('dashboard', 'topology', 'topologyDashboard.css');
-  }
-
-  protected getScripts(): string {
-    return '';
   }
 
   protected getScriptTags(nonce: string): string {
@@ -116,7 +108,7 @@ export class TopologyDashboardPanel extends BasePanel {
   <style>${styles}</style>
 </head>
 <body data-cytoscape-uri="${cytoscapeUri}" data-cytoscape-svg-uri="${cytoscapeSvgUri}" data-node-icon="${nodeIcon}">
-  ${this.getHtml()}
+  <div id="root"></div>
   ${scriptTags}
 </body>
 </html>`;

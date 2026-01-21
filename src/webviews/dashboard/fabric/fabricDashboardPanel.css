@@ -1,9 +1,0 @@
-/* Fabric Dashboard Panel - Unique styles only
-   Common styles (body, :root, status-indicator) are in tailwind-input.css */
-
-.status-indicator {
-  width: 12px;
-  height: 12px;
-  flex-shrink: 0;
-  position: relative;
-}

@@ -225,11 +225,23 @@
   .top-1\/2 {
     top: calc(1/2 * 100%);
   }
+  .top-full {
+    top: 100%;
+  }
+  .right-0 {
+    right: calc(var(--spacing) * 0);
+  }
   .right-2 {
     right: calc(var(--spacing) * 2);
   }
+  .left-0 {
+    left: calc(var(--spacing) * 0);
+  }
   .isolate {
     isolation: isolate;
+  }
+  .z-10 {
+    z-index: 10;
   }
   .col-span-2 {
     grid-column: span 2 / span 2;
@@ -252,11 +264,23 @@
       max-width: 96rem;
     }
   }
+  .m-0 {
+    margin: calc(var(--spacing) * 0);
+  }
   .m-1 {
     margin: calc(var(--spacing) * 1);
   }
   .mx-auto {
     margin-inline: auto;
+  }
+  .my-1 {
+    margin-block: calc(var(--spacing) * 1);
+  }
+  .my-2 {
+    margin-block: calc(var(--spacing) * 2);
+  }
+  .mt-0\.5 {
+    margin-top: calc(var(--spacing) * 0.5);
   }
   .mt-1 {
     margin-top: calc(var(--spacing) * 1);
@@ -269,6 +293,9 @@
   }
   .mr-1 {
     margin-right: calc(var(--spacing) * 1);
+  }
+  .mr-2 {
+    margin-right: calc(var(--spacing) * 2);
   }
   .mb-1 {
     margin-bottom: calc(var(--spacing) * 1);
@@ -327,6 +354,9 @@
   .h-2 {
     height: calc(var(--spacing) * 2);
   }
+  .h-3 {
+    height: calc(var(--spacing) * 3);
+  }
   .h-4 {
     height: calc(var(--spacing) * 4);
   }
@@ -360,6 +390,9 @@
   .max-h-\[85vh\] {
     max-height: 85vh;
   }
+  .max-h-\[200px\] {
+    max-height: 200px;
+  }
   .min-h-0 {
     min-height: calc(var(--spacing) * 0);
   }
@@ -368,6 +401,9 @@
   }
   .w-2 {
     width: calc(var(--spacing) * 2);
+  }
+  .w-3 {
+    width: calc(var(--spacing) * 3);
   }
   .w-4 {
     width: calc(var(--spacing) * 4);
@@ -396,8 +432,14 @@
   .w-full {
     width: 100%;
   }
+  .w-max {
+    width: max-content;
+  }
   .max-w-\[500px\] {
     max-width: 500px;
+  }
+  .max-w-\[600px\] {
+    max-width: 600px;
   }
   .max-w-\[1200px\] {
     max-width: 1200px;
@@ -414,6 +456,12 @@
   .min-w-0 {
     min-width: calc(var(--spacing) * 0);
   }
+  .min-w-\[60px\] {
+    min-width: 60px;
+  }
+  .min-w-full {
+    min-width: 100%;
+  }
   .flex-1 {
     flex: 1;
   }
@@ -423,12 +471,18 @@
   .flex-shrink-0 {
     flex-shrink: 0;
   }
+  .shrink-0 {
+    flex-shrink: 0;
+  }
   .border-collapse {
     border-collapse: collapse;
   }
   .-translate-y-1\/2 {
     --tw-translate-y: calc(calc(1/2 * 100%) * -1);
     translate: var(--tw-translate-x) var(--tw-translate-y);
+  }
+  .rotate-180 {
+    rotate: 180deg;
   }
   .transform {
     transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
@@ -444,6 +498,9 @@
   }
   .resize-y {
     resize: vertical;
+  }
+  .list-none {
+    list-style-type: none;
   }
   .\[grid-template-columns\:repeat\(5\,1fr\)\] {
     grid-template-columns: repeat(5,1fr);
@@ -471,6 +528,9 @@
   }
   .justify-end {
     justify-content: flex-end;
+  }
+  .gap-0\.5 {
+    gap: calc(var(--spacing) * 0.5);
   }
   .gap-1 {
     gap: calc(var(--spacing) * 1);
@@ -555,6 +615,10 @@
     border-top-style: var(--tw-border-style);
     border-top-width: 1px;
   }
+  .border-t-0 {
+    border-top-style: var(--tw-border-style);
+    border-top-width: 0px;
+  }
   .border-r {
     border-right-style: var(--tw-border-style);
     border-right-width: 1px;
@@ -577,6 +641,9 @@
   .border-\[var\(--vscode-dropdown-border\)\] {
     border-color: var(--vscode-dropdown-border);
   }
+  .border-\[var\(--vscode-editorHoverWidget-border\)\] {
+    border-color: var(--vscode-editorHoverWidget-border);
+  }
   .border-\[var\(--vscode-foreground\)\] {
     border-color: var(--vscode-foreground);
   }
@@ -585,6 +652,9 @@
   }
   .border-\[var\(--vscode-inputValidation-errorBorder\)\] {
     border-color: var(--vscode-inputValidation-errorBorder);
+  }
+  .border-\[var\(--vscode-notifications-border\)\] {
+    border-color: var(--vscode-notifications-border);
   }
   .border-\[var\(--vscode-panel-border\)\] {
     border-color: var(--vscode-panel-border);
@@ -604,6 +674,9 @@
   .bg-\[var\(--bg-secondary\)\] {
     background-color: var(--bg-secondary);
   }
+  .bg-\[var\(--info\)\] {
+    background-color: var(--info);
+  }
   .bg-\[var\(--vscode-badge-background\)\] {
     background-color: var(--vscode-badge-background);
   }
@@ -613,6 +686,9 @@
   .bg-\[var\(--vscode-button-secondaryBackground\)\] {
     background-color: var(--vscode-button-secondaryBackground);
   }
+  .bg-\[var\(--vscode-debugConsole-infoForeground\)\] {
+    background-color: var(--vscode-debugConsole-infoForeground);
+  }
   .bg-\[var\(--vscode-dropdown-background\)\] {
     background-color: var(--vscode-dropdown-background);
   }
@@ -621,6 +697,9 @@
   }
   .bg-\[var\(--vscode-editorGroupHeader-tabsBackground\)\] {
     background-color: var(--vscode-editorGroupHeader-tabsBackground);
+  }
+  .bg-\[var\(--vscode-editorHoverWidget-background\)\] {
+    background-color: var(--vscode-editorHoverWidget-background);
   }
   .bg-\[var\(--vscode-editorWidget-background\)\] {
     background-color: var(--vscode-editorWidget-background);
@@ -634,11 +713,17 @@
   .bg-\[var\(--vscode-list-activeSelectionBackground\)\] {
     background-color: var(--vscode-list-activeSelectionBackground);
   }
+  .bg-\[var\(--vscode-notifications-background\)\] {
+    background-color: var(--vscode-notifications-background);
+  }
   .bg-\[var\(--vscode-panel-background\)\] {
     background-color: var(--vscode-panel-background);
   }
   .bg-\[var\(--vscode-sideBar-background\)\] {
     background-color: var(--vscode-sideBar-background);
+  }
+  .bg-\[var\(--vscode-textBlockQuote-background\)\] {
+    background-color: var(--vscode-textBlockQuote-background);
   }
   .bg-\[var\(--vscode-textCodeBlock-background\)\] {
     background-color: var(--vscode-textCodeBlock-background);
@@ -681,6 +766,9 @@
   }
   .bg-transparent {
     background-color: transparent;
+  }
+  .bg-yellow-500 {
+    background-color: var(--color-yellow-500);
   }
   .bg-gradient-to-r {
     --tw-gradient-position: to right in oklab;
@@ -727,11 +815,17 @@
   .px-2 {
     padding-inline: calc(var(--spacing) * 2);
   }
+  .px-2\.5 {
+    padding-inline: calc(var(--spacing) * 2.5);
+  }
   .px-3 {
     padding-inline: calc(var(--spacing) * 3);
   }
   .px-4 {
     padding-inline: calc(var(--spacing) * 4);
+  }
+  .py-0 {
+    padding-block: calc(var(--spacing) * 0);
   }
   .py-0\.5 {
     padding-block: calc(var(--spacing) * 0.5);
@@ -760,11 +854,20 @@
   .pt-4 {
     padding-top: calc(var(--spacing) * 4);
   }
+  .pr-0 {
+    padding-right: calc(var(--spacing) * 0);
+  }
   .pr-2 {
     padding-right: calc(var(--spacing) * 2);
   }
   .pr-8 {
     padding-right: calc(var(--spacing) * 8);
+  }
+  .pb-3 {
+    padding-bottom: calc(var(--spacing) * 3);
+  }
+  .pl-1 {
+    padding-left: calc(var(--spacing) * 1);
   }
   .pl-2 {
     padding-left: calc(var(--spacing) * 2);
@@ -777,6 +880,9 @@
   }
   .text-right {
     text-align: right;
+  }
+  .align-top {
+    vertical-align: top;
   }
   .font-mono {
     font-family: var(--font-mono);
@@ -811,6 +917,9 @@
   }
   .text-\[0\.7rem\] {
     font-size: 0.7rem;
+  }
+  .text-\[11px\] {
+    font-size: 11px;
   }
   .font-bold {
     --tw-font-weight: var(--font-weight-bold);
@@ -876,6 +985,12 @@
   .text-\[var\(--vscode-list-activeSelectionForeground\)\] {
     color: var(--vscode-list-activeSelectionForeground);
   }
+  .text-\[var\(--vscode-notifications-foreground\)\] {
+    color: var(--vscode-notifications-foreground);
+  }
+  .text-\[var\(--vscode-notificationsInfoIcon-foreground\)\] {
+    color: var(--vscode-notificationsInfoIcon-foreground);
+  }
   .text-\[var\(--vscode-symbolIcon-propertyForeground\)\] {
     color: var(--vscode-symbolIcon-propertyForeground);
   }
@@ -931,6 +1046,9 @@
   .opacity-50 {
     opacity: 50%;
   }
+  .opacity-70 {
+    opacity: 70%;
+  }
   .shadow {
     --tw-shadow: 0 1px 3px 0 var(--tw-shadow-color, rgb(0 0 0 / 0.1)), 0 1px 2px -1px var(--tw-shadow-color, rgb(0 0 0 / 0.1));
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
@@ -958,6 +1076,11 @@
   }
   .transition-colors {
     transition-property: color, background-color, border-color, outline-color, text-decoration-color, fill, stroke, --tw-gradient-from, --tw-gradient-via, --tw-gradient-to;
+    transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
+    transition-duration: var(--tw-duration, var(--default-transition-duration));
+  }
+  .transition-transform {
+    transition-property: transform, translate, scale, rotate;
     transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
     transition-duration: var(--tw-duration, var(--default-transition-duration));
   }
@@ -1029,6 +1152,13 @@
     &:hover {
       @media (hover: hover) {
         opacity: 90%;
+      }
+    }
+  }
+  .hover\:opacity-100 {
+    &:hover {
+      @media (hover: hover) {
+        opacity: 100%;
       }
     }
   }

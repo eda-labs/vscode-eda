@@ -51,18 +51,6 @@ export class TransactionDetailsPanel extends BasePanel {
     this.sendData();
   }
 
-  protected getHtml(): string {
-    return '<div id="root"></div>';
-  }
-
-  protected getCustomStyles(): string {
-    return this.readWebviewFile('transactionDetails', 'transactionDetailsPanel.css');
-  }
-
-  protected getScripts(): string {
-    return '';
-  }
-
   protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'transactionDetailsPanel.js');
     return `<script nonce="${nonce}" src="${scriptUri}"></script>`;

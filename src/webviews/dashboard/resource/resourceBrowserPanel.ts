@@ -37,18 +37,6 @@ export class ResourceBrowserPanel extends BasePanel {
     this.panel.webview.html = this.buildHtml();
   }
 
-  protected getHtml(): string {
-    return '<div id="root"></div>';
-  }
-
-  protected getCustomStyles(): string {
-    return this.readWebviewFile('dashboard', 'resource', 'resourceBrowserPanel.css');
-  }
-
-  protected getScripts(): string {
-    return '';
-  }
-
   protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'resourceBrowserPanel.js');
     return `<script nonce="${nonce}" src="${scriptUri}"></script>`;

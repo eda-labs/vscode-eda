@@ -43,18 +43,6 @@ export class AlarmDetailsPanel extends BasePanel {
     this.sendData();
   }
 
-  protected getHtml(): string {
-    return '<div id="root"></div>';
-  }
-
-  protected getCustomStyles(): string {
-    return this.readWebviewFile('alarmDetails', 'alarmDetailsPanel.css');
-  }
-
-  protected getScripts(): string {
-    return '';
-  }
-
   protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'alarmDetailsPanel.js');
     return `<script nonce="${nonce}" src="${scriptUri}"></script>`;

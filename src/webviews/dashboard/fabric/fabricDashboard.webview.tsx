@@ -51,11 +51,11 @@ interface FabricStats {
 }
 
 function StatCard({ label, value, healthIndicator }: { label: string; value: string | number; healthIndicator?: number }) {
-  const getHealthClass = (h: number | undefined) => {
-    if (h === undefined) return '';
-    if (h >= 90) return 'active';
-    if (h >= 50) return 'warning';
-    return 'error';
+  const getHealthColor = (h: number | undefined) => {
+    if (h === undefined) return 'bg-[var(--info)]';
+    if (h >= 90) return 'bg-green-500';
+    if (h >= 50) return 'bg-yellow-500';
+    return 'bg-red-500';
   };
 
   return (
@@ -64,7 +64,7 @@ function StatCard({ label, value, healthIndicator }: { label: string; value: str
       <div className="flex items-center gap-2">
         <div className="text-2xl font-bold mb-1">{value}</div>
         {healthIndicator !== undefined && (
-          <div className={`status-indicator ${getHealthClass(healthIndicator)}`}></div>
+          <div className={`w-3 h-3 rounded-full shrink-0 ${getHealthColor(healthIndicator)}`}></div>
         )}
       </div>
     </div>

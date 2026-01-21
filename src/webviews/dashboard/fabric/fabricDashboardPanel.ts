@@ -142,18 +142,6 @@ export class FabricDashboardPanel extends BasePanel {
     return true;
   }
 
-  protected getHtml(): string {
-    return '<div id="root"></div>';
-  }
-
-  protected getCustomStyles(): string {
-    return this.readWebviewFile('dashboard', 'fabric', 'fabricDashboardPanel.css');
-  }
-
-  protected getScripts(): string {
-    return '';
-  }
-
   protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'fabricDashboard.js');
     const echartsUri = this.getResourceUri('resources', 'echarts.min.js');
