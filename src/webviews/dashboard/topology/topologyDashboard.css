@@ -1,24 +1,9 @@
+/* Topology Dashboard - Unique styles only
+   Common styles (body, :root, select) are in tailwind-input.css */
+
 :root {
-  --bg-primary: var(--vscode-editor-background);
-  --bg-secondary: var(--vscode-panel-background);
-  --border: var(--vscode-panel-border);
-  --text-primary: var(--vscode-editor-foreground);
-  --text-secondary: var(--vscode-descriptionForeground);
-  --accent: var(--vscode-button-background);
-  --accent-hover: var(--vscode-button-hoverBackground);
   --edge-label-bg: var(--vscode-editor-background);
   --edge-label-border: var(--vscode-panel-border);
-  --success: #4ade80;
-  --error: #f87171;
-}
-
-body {
-  margin: 0;
-  padding: 0;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-family: var(--vscode-font-family);
-  font-size: var(--vscode-font-size);
 }
 
 .dashboard {
@@ -32,18 +17,7 @@ body {
 }
 
 .header {
-  display: flex;
-  align-items: center;
   justify-content: flex-end;
-  margin-bottom: 16px;
-}
-
-.select {
-  background-color: var(--vscode-input-background);
-  color: var(--vscode-input-foreground);
-  border: 1px solid var(--vscode-input-border);
-  border-radius: 4px;
-  padding: 4px 8px;
 }
 
 .label-select {
@@ -124,8 +98,8 @@ body {
   text-decoration: underline;
 }
 
-.node-icon,                  /* the <img> tag */
-.react-flow__node svg {      /* or inline fallback */
+.node-icon,
+.react-flow__node svg {
   overflow: visible;
 }
 

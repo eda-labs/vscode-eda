@@ -763,8 +763,8 @@
     "test": "mocha -r ts-node/register -r ./test/setup.ts test/**/*.test.ts",
     "stream:namespaces": "ts-node namespace-stream.ts",
     "compile-webpack": "npm run check-types && webpack --mode production",
-    "build:tailwind": "tailwindcss --content './src/webviews/**/*.{ts,tsx,html}' --content './src/styles/**/*.{css,ts}' -o ./resources/tailwind.css",
-    "package": "rm -rf dist && npm run lint && npm run compile && vsce package"
+    "build:tailwind": "tailwindcss -i ./src/styles/tailwind-input.css -o ./resources/tailwind.css",
+    "package": "rm -rf dist && npm run lint && npm run build:tailwind && npm run compile && vsce package"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.1.18",

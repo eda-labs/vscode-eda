@@ -1,16 +1,8 @@
+/* Transaction Diffs Panel - Unique styles only
+   Common styles (body, :root, resource-list, resource-item, empty-state)
+   are in tailwind-input.css */
+
 :root {
-  --bg-primary: var(--vscode-editor-background);
-  --bg-secondary: var(--vscode-panel-background);
-  --bg-hover: var(--vscode-list-hoverBackground);
-  --text-primary: var(--vscode-editor-foreground);
-  --text-secondary: var(--vscode-descriptionForeground);
-  --border: var(--vscode-panel-border);
-  --accent: var(--vscode-button-background);
-  --accent-hover: var(--vscode-button-hoverBackground);
-  --success: var(--vscode-charts-green);
-  --warning: var(--vscode-charts-yellow);
-  --error: var(--vscode-charts-red);
-  --info: var(--vscode-charts-blue);
   --diff-add: var(--vscode-diffEditor-insertedTextBorder, var(--vscode-charts-green));
   --diff-add-bg: var(--vscode-diffEditor-insertedTextBackground);
   --diff-add-line-bg: var(--vscode-diffEditor-insertedLineBackground, var(--vscode-diffEditor-insertedTextBackground));
@@ -21,12 +13,6 @@
 }
 
 body {
-  margin: 0;
-  padding: 0;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-family: var(--vscode-font-family);
-  font-size: var(--vscode-font-size);
   height: 100vh;
   overflow: hidden;
 }
@@ -110,22 +96,15 @@ body {
 .resource-item {
   display: block;
   width: 100%;
-  padding: 12px 16px;
   margin-bottom: 8px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
   text-align: left;
   cursor: pointer;
-  transition: all 0.2s ease;
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);
   color: var(--text-primary);
 }
 
 .resource-item:hover {
-  background: var(--bg-hover);
-  transform: translateX(4px);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
@@ -343,7 +322,6 @@ body {
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--text-secondary);
   padding: 40px;
   text-align: center;
 }

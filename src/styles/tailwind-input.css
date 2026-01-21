@@ -1,3 +1,561 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+/* =============================================================================
+   Tailwind v4 CSS-first Configuration for VSCode EDA Extension
+   ============================================================================= */
+
+@theme {
+  /* VSCode semantic color mappings */
+  --color-vscode-bg-primary: var(--vscode-editor-background);
+  --color-vscode-bg-secondary: var(--vscode-panel-background);
+  --color-vscode-bg-hover: var(--vscode-list-hoverBackground);
+  --color-vscode-bg-widget: var(--vscode-editorWidget-background);
+  --color-vscode-text-primary: var(--vscode-editor-foreground);
+  --color-vscode-text-secondary: var(--vscode-descriptionForeground);
+  --color-vscode-border: var(--vscode-panel-border);
+  --color-vscode-accent: var(--vscode-button-background);
+  --color-vscode-accent-hover: var(--vscode-button-hoverBackground);
+  --color-vscode-input-bg: var(--vscode-input-background);
+  --color-vscode-input-fg: var(--vscode-input-foreground);
+  --color-vscode-input-border: var(--vscode-input-border);
+  --color-vscode-button-fg: var(--vscode-button-foreground);
+  --color-vscode-code-bg: var(--vscode-textCodeBlock-background);
+  --color-vscode-link: var(--vscode-textLink-foreground);
+
+  /* Status colors */
+  --color-success: #4ade80;
+  --color-warning: #fbbf24;
+  --color-error: #f87171;
+  --color-info: #60a5fa;
+}
+
+/* =============================================================================
+   Base Layer - Element defaults and resets
+   ============================================================================= */
+
+@layer base {
+  :root {
+    /* Legacy CSS variable support for existing panel styles */
+    --bg-primary: var(--vscode-editor-background);
+    --bg-secondary: var(--vscode-panel-background);
+    --bg-hover: var(--vscode-list-hoverBackground);
+    --text-primary: var(--vscode-editor-foreground);
+    --text-secondary: var(--vscode-descriptionForeground);
+    --border: var(--vscode-panel-border);
+    --accent: var(--vscode-button-background);
+    --accent-hover: var(--vscode-button-hoverBackground);
+    --success: #4ade80;
+    --warning: #fbbf24;
+    --error: #f87171;
+    --info: #60a5fa;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--vscode-font-family);
+    font-size: var(--vscode-font-size);
+    overflow-x: hidden;
+  }
+
+  pre,
+  code {
+    font-family: var(--vscode-editor-font-family, monospace);
+  }
+
+  pre {
+    background: var(--vscode-textCodeBlock-background);
+    padding: 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 0;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+
+  code {
+    background: var(--vscode-textCodeBlock-background);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.85em;
+    word-break: break-all;
+  }
+}
+
+/* =============================================================================
+   Components Layer - Shared component styles
+   ============================================================================= */
+
+@layer components {
+  /* ---------------------------------------------------------------------------
+     Layout Components
+     --------------------------------------------------------------------------- */
+
+  .dashboard {
+    padding: 24px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+
+  .section {
+    background: var(--bg-secondary);
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+  }
+
+  .section h2 {
+    margin: 0 0 16px 0;
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .section-icon {
+    color: var(--accent);
+    font-size: 1.25rem;
+  }
+
+  /* ---------------------------------------------------------------------------
+     Form Components
+     --------------------------------------------------------------------------- */
+
+  .select {
+    background-color: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 4px;
+    padding: 4px 8px;
+  }
+
+  .filter {
+    background-color: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 4px;
+    padding: 4px 8px;
+  }
+
+  /* ---------------------------------------------------------------------------
+     Button Components
+     --------------------------------------------------------------------------- */
+
+  .btn {
+    padding: 4px 12px;
+    border: none;
+    background-color: var(--accent);
+    color: var(--vscode-button-foreground);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .btn:hover {
+    background-color: var(--accent-hover);
+  }
+
+  .copy-button {
+    background: var(--accent);
+    color: var(--vscode-button-foreground);
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .copy-button:hover {
+    background: var(--accent-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  .copy-button:active {
+    transform: translateY(0);
+  }
+
+  .diff-button {
+    background: var(--accent);
+    color: var(--vscode-button-foreground);
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .diff-button:hover {
+    background: var(--accent-hover);
+  }
+
+  .icon-btn {
+    margin-right: 4px;
+    padding: 4px;
+    border: none;
+    background-color: var(--accent);
+    color: var(--vscode-button-foreground);
+    border-radius: 4px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
+
+  .icon-btn:hover {
+    background-color: var(--accent-hover);
+  }
+
+  .icon-btn:disabled,
+  .icon-btn:disabled:hover {
+    background-color: var(--accent);
+    color: var(--vscode-disabledForeground);
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* ---------------------------------------------------------------------------
+     Status Components
+     --------------------------------------------------------------------------- */
+
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 16px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+  }
+
+  .status-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--info);
+  }
+
+  .status-indicator.success {
+    background: var(--success);
+  }
+
+  .status-indicator.warning {
+    background: var(--warning);
+  }
+
+  .status-indicator.error {
+    background: var(--error);
+  }
+
+  .status-indicator.active {
+    background: var(--success);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0% {
+      box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.7);
+    }
+    70% {
+      box-shadow: 0 0 0 8px rgba(74, 222, 128, 0);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgba(74, 222, 128, 0);
+    }
+  }
+
+  /* ---------------------------------------------------------------------------
+     Resource List Components
+     --------------------------------------------------------------------------- */
+
+  .resource-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .resource-item {
+    background: var(--bg-primary);
+    padding: 12px 16px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.875rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s ease;
+  }
+
+  .resource-item:hover {
+    background: var(--bg-hover);
+    transform: translateX(4px);
+  }
+
+  .resource-path {
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  .resource-name {
+    color: var(--text-secondary);
+    margin-left: 8px;
+  }
+
+  .resource-name:not(:empty)::before {
+    content: '\2022';
+    margin: 0 8px;
+    color: var(--text-secondary);
+  }
+
+  .delete-badge {
+    background: var(--error);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-left: auto;
+  }
+
+  /* ---------------------------------------------------------------------------
+     Table Components
+     --------------------------------------------------------------------------- */
+
+  .results-container {
+    overflow: auto;
+    max-height: 85vh;
+  }
+
+  .results-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .results-table th,
+  .results-table td {
+    border: 1px solid var(--border);
+    padding: 4px 8px;
+    white-space: pre;
+  }
+
+  .results-table th {
+    background-color: var(--bg-secondary);
+    cursor: pointer;
+    position: relative;
+    user-select: none;
+  }
+
+  .results-table tbody tr:hover {
+    background-color: var(--vscode-list-hoverBackground);
+  }
+
+  .filters td {
+    border: 1px solid var(--border);
+    padding: 0;
+    background-color: var(--vscode-editorWidget-background);
+  }
+
+  .filters input {
+    width: 100%;
+    padding: 2px 4px;
+    background-color: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 2px;
+    box-sizing: border-box;
+  }
+
+  .status-bar {
+    padding: 4px 0;
+    border-top: 1px solid var(--border);
+    margin-top: 8px;
+  }
+
+  /* ---------------------------------------------------------------------------
+     Summary Components
+     --------------------------------------------------------------------------- */
+
+  .summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 16px;
+  }
+
+  .summary-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .summary-label {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .summary-value {
+    font-size: 1rem;
+    font-weight: 500;
+  }
+
+  /* ---------------------------------------------------------------------------
+     Error Components
+     --------------------------------------------------------------------------- */
+
+  .error-section {
+    background: rgba(248, 113, 113, 0.1);
+    border: 1px solid rgba(248, 113, 113, 0.3);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+
+  .error-section h2 {
+    color: var(--error);
+    margin: 0 0 12px 0;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  .error-content {
+    background: var(--bg-primary);
+    padding: 12px;
+    border-radius: 4px;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 0.875rem;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  /* ---------------------------------------------------------------------------
+     Empty State Components
+     --------------------------------------------------------------------------- */
+
+  .empty-state {
+    color: var(--text-secondary);
+    font-style: italic;
+    padding: 12px;
+    text-align: center;
+  }
+
+  /* ---------------------------------------------------------------------------
+     Raw JSON Section
+     --------------------------------------------------------------------------- */
+
+  .raw-json-section {
+    background: var(--bg-secondary);
+    padding: 20px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+  }
+
+  .raw-json-section h2 {
+    margin: 0 0 16px 0;
+    font-size: 1.125rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  /* ---------------------------------------------------------------------------
+     Node Components
+     --------------------------------------------------------------------------- */
+
+  .node-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 12px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .node-item {
+    background: var(--bg-primary);
+    padding: 12px 16px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: all 0.2s ease;
+  }
+
+  .node-item:hover {
+    background: var(--bg-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  }
+
+  .node-name {
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .node-namespace {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+  }
+
+  .node-errors {
+    font-size: 0.875rem;
+    color: var(--error);
+    margin-top: 4px;
+  }
+}
+
+/* =============================================================================
+   Custom Utilities
+   ============================================================================= */
+
+@utility text-vscode-primary {
+  color: var(--vscode-editor-foreground);
+}
+
+@utility text-vscode-secondary {
+  color: var(--vscode-descriptionForeground);
+}
+
+@utility bg-vscode-primary {
+  background-color: var(--vscode-editor-background);
+}
+
+@utility bg-vscode-secondary {
+  background-color: var(--vscode-panel-background);
+}
+
+@utility border-vscode {
+  border-color: var(--vscode-panel-border);
+}

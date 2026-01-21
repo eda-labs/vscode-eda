@@ -1,27 +1,9 @@
-:root {
-  --bg-primary: var(--vscode-editor-background);
-  --bg-secondary: var(--vscode-panel-background);
-  --bg-hover: var(--vscode-list-hoverBackground);
-  --text-primary: var(--vscode-editor-foreground);
-  --text-secondary: var(--vscode-descriptionForeground);
-  --border: var(--vscode-panel-border);
-  --accent: var(--vscode-button-background);
-  --accent-hover: var(--vscode-button-hoverBackground);
-  --success: #4ade80;
-  --warning: #fbbf24;
-  --error: #f87171;
-  --info: #60a5fa;
-}
-
-body {
-  margin: 0;
-  padding: 0;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-family: var(--vscode-font-family);
-  font-size: var(--vscode-font-size);
-  overflow-x: hidden;
-}
+/* Transaction Details Panel - Unique styles only
+   Common styles (body, :root, section, status-badge, status-indicator,
+   resource-list, resource-item, copy-button, diff-button, pre, empty-state,
+   node-list, node-item, node-name, node-namespace, error-section, error-content,
+   summary, summary-item, summary-label, summary-value, raw-json-section)
+   are in tailwind-input.css */
 
 .transaction-details {
   padding: 24px;
@@ -159,203 +141,23 @@ body {
   color: white;
 }
 
-.summary {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 16px;
-}
-
-.summary-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.summary-label {
-  color: var(--text-secondary);
-  font-size: 0.875rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.summary-value {
-  font-size: 1rem;
-  font-weight: 500;
-}
-
-.status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  border-radius: 16px;
-  font-size: 0.875rem;
-  font-weight: 500;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-}
-
-.status-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--info);
-}
-
-.status-indicator.success {
-  background: var(--success);
-}
-
-.status-indicator.error {
-  background: var(--error);
-}
-
-.section {
-  background: var(--bg-secondary);
-  padding: 20px;
-  border-radius: 8px;
-  margin-bottom: 16px;
-  border: 1px solid var(--border);
-}
-
-.section h2 {
-  margin: 0 0 16px 0;
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.section-icon {
-  color: var(--accent);
-  font-size: 1.25rem;
-}
-
-.resource-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.resource-item {
-  background: var(--bg-primary);
-  padding: 12px 16px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 0.875rem;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  transition: all 0.2s ease;
-}
-
-.resource-item:hover {
-  background: var(--bg-hover);
-  transform: translateX(4px);
-}
-
-.resource-path {
-  color: var(--text-primary);
-  font-weight: 500;
-}
-
-.resource-name {
-  color: var(--text-secondary);
-  margin-left: 8px;
-}
-
-.resource-name:not(:empty)::before {
-  content: '•';
-  margin: 0 8px;
-  color: var(--text-secondary);
-}
-
-.delete-badge {
-  background: var(--error);
-  color: white;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  margin-left: auto;
-}
-
-.error-section {
-  background: rgba(248, 113, 113, 0.1);
-  border: 1px solid rgba(248, 113, 113, 0.3);
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 16px;
-}
-
-.error-section h2 {
-  color: var(--error);
-  margin: 0 0 12px 0;
-  font-size: 1rem;
-  font-weight: 600;
-}
-
-.error-content {
-  background: var(--bg-primary);
-  padding: 12px;
-  border-radius: 4px;
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 0.875rem;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 .node-list {
-  display: grid;
   grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
-  gap: 12px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
 }
 
 .node-item {
-  background: var(--bg-primary);
   padding: 16px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
   gap: 8px;
-  transition: all 0.2s ease;
 }
 
 .node-item.has-errors {
   border-color: rgba(248, 113, 113, 0.3);
 }
 
-.node-item:hover {
-  background: var(--bg-hover);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-}
-
 .node-header {
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-
-.node-name {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.node-namespace {
-  font-size: 0.875rem;
-  color: var(--text-secondary);
 }
 
 .node-errors {
@@ -422,86 +224,6 @@ body {
   line-height: 1.4;
 }
 
-code {
-  background: var(--vscode-textCodeBlock-background);
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 0.85em;
-  word-break: break-all;
-}
-
-.raw-json-section {
-  background: var(--bg-secondary);
-  padding: 20px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-}
-
-.raw-json-section h2 {
-  margin: 0 0 16px 0;
-  font-size: 1.125rem;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.copy-button {
-  background: var(--accent);
-  color: var(--vscode-button-foreground);
-  border: none;
-  padding: 6px 12px;
-  border-radius: 4px;
-  font-size: 0.875rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .diff-button {
-  background: var(--accent);
-  color: var(--vscode-button-foreground);
-  border: none;
-  padding: 6px 12px;
-  border-radius: 4px;
-  font-size: 0.875rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
   margin-left: 16px;
-}
-.diff-button:hover {
-  background: var(--accent-hover);
-}
-
-.copy-button:hover {
-  background: var(--accent-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-}
-
-.copy-button:active {
-  transform: translateY(0);
-}
-
-pre {
-  background: var(--vscode-textCodeBlock-background);
-  padding: 16px;
-  border-radius: 6px;
-  overflow-x: auto;
-  margin: 0;
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 0.875rem;
-  line-height: 1.5;
-  max-height: 400px;
-  overflow-y: auto;
-}
-
-.empty-state {
-  color: var(--text-secondary);
-  font-style: italic;
-  padding: 12px;
-  text-align: center;
 }
