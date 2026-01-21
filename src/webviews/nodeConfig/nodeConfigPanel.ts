@@ -61,10 +61,6 @@ export class NodeConfigPanel extends BasePanel {
     });
   }
 
-  protected getCustomStyles(): string {
-    return this.readWebviewFile('nodeConfig', 'nodeConfigPanel.css');
-  }
-
   protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'nodeConfigPanel.js');
     return `<script nonce="${nonce}" src="${scriptUri}"></script>`;

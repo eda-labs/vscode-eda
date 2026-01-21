@@ -198,6 +198,9 @@
   }
 }
 @layer utilities {
+  .pointer-events-none {
+    pointer-events: none;
+  }
   .collapse {
     visibility: collapse;
   }
@@ -234,6 +237,12 @@
   .right-2 {
     right: calc(var(--spacing) * 2);
   }
+  .right-5 {
+    right: calc(var(--spacing) * 5);
+  }
+  .bottom-5 {
+    bottom: calc(var(--spacing) * 5);
+  }
   .left-0 {
     left: calc(var(--spacing) * 0);
   }
@@ -243,8 +252,17 @@
   .z-10 {
     z-index: 10;
   }
+  .z-\[1\] {
+    z-index: 1;
+  }
+  .z-\[9999\] {
+    z-index: 9999;
+  }
   .col-span-2 {
     grid-column: span 2 / span 2;
+  }
+  .col-span-full {
+    grid-column: 1 / -1;
   }
   .container {
     width: 100%;
@@ -278,6 +296,9 @@
   }
   .my-2 {
     margin-block: calc(var(--spacing) * 2);
+  }
+  .my-2\.5 {
+    margin-block: calc(var(--spacing) * 2.5);
   }
   .mt-0\.5 {
     margin-top: calc(var(--spacing) * 0.5);
@@ -481,6 +502,14 @@
     --tw-translate-y: calc(calc(1/2 * 100%) * -1);
     translate: var(--tw-translate-x) var(--tw-translate-y);
   }
+  .translate-y-0 {
+    --tw-translate-y: calc(var(--spacing) * 0);
+    translate: var(--tw-translate-x) var(--tw-translate-y);
+  }
+  .translate-y-5 {
+    --tw-translate-y: calc(var(--spacing) * 5);
+    translate: var(--tw-translate-x) var(--tw-translate-y);
+  }
   .rotate-180 {
     rotate: 180deg;
   }
@@ -489,6 +518,9 @@
   }
   .animate-spin {
     animation: var(--animate-spin);
+  }
+  .cursor-default {
+    cursor: default;
   }
   .cursor-pointer {
     cursor: pointer;
@@ -502,6 +534,12 @@
   .list-none {
     list-style-type: none;
   }
+  .\[grid-template-columns\:auto_1fr\] {
+    grid-template-columns: auto 1fr;
+  }
+  .\[grid-template-columns\:max-content_auto_1fr\] {
+    grid-template-columns: max-content auto 1fr;
+  }
   .\[grid-template-columns\:repeat\(5\,1fr\)\] {
     grid-template-columns: repeat(5,1fr);
   }
@@ -510,6 +548,9 @@
   }
   .grid-cols-2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .grid-rows-\[auto_1fr\] {
+    grid-template-rows: auto 1fr;
   }
   .flex-col {
     flex-direction: column;
@@ -535,8 +576,14 @@
   .gap-1 {
     gap: calc(var(--spacing) * 1);
   }
+  .gap-1\.5 {
+    gap: calc(var(--spacing) * 1.5);
+  }
   .gap-2 {
     gap: calc(var(--spacing) * 2);
+  }
+  .gap-2\.5 {
+    gap: calc(var(--spacing) * 2.5);
   }
   .gap-3 {
     gap: calc(var(--spacing) * 3);
@@ -638,6 +685,9 @@
   .border-\[var\(--border\)\] {
     border-color: var(--border);
   }
+  .border-\[var\(--vscode-button-border\,transparent\)\] {
+    border-color: var(--vscode-button-border,transparent);
+  }
   .border-\[var\(--vscode-dropdown-border\)\] {
     border-color: var(--vscode-dropdown-border);
   }
@@ -658,6 +708,12 @@
   }
   .border-\[var\(--vscode-panel-border\)\] {
     border-color: var(--vscode-panel-border);
+  }
+  .border-\[var\(--vscode-sideBar-border\)\] {
+    border-color: var(--vscode-sideBar-border);
+  }
+  .border-\[var\(--vscode-textSeparator-foreground\)\] {
+    border-color: var(--vscode-textSeparator-foreground);
   }
   .border-\[var\(--vscode-widget-border\)\] {
     border-color: var(--vscode-widget-border);
@@ -695,6 +751,9 @@
   .bg-\[var\(--vscode-editor-background\)\] {
     background-color: var(--vscode-editor-background);
   }
+  .bg-\[var\(--vscode-editor-selectionBackground\)\] {
+    background-color: var(--vscode-editor-selectionBackground);
+  }
   .bg-\[var\(--vscode-editorGroupHeader-tabsBackground\)\] {
     background-color: var(--vscode-editorGroupHeader-tabsBackground);
   }
@@ -712,6 +771,9 @@
   }
   .bg-\[var\(--vscode-list-activeSelectionBackground\)\] {
     background-color: var(--vscode-list-activeSelectionBackground);
+  }
+  .bg-\[var\(--vscode-notificationToast-background\)\] {
+    background-color: var(--vscode-notificationToast-background);
   }
   .bg-\[var\(--vscode-notifications-background\)\] {
     background-color: var(--vscode-notifications-background);
@@ -839,6 +901,9 @@
   .py-2 {
     padding-block: calc(var(--spacing) * 2);
   }
+  .py-2\.5 {
+    padding-block: calc(var(--spacing) * 2.5);
+  }
   .py-3 {
     padding-block: calc(var(--spacing) * 3);
   }
@@ -918,8 +983,18 @@
   .text-\[0\.7rem\] {
     font-size: 0.7rem;
   }
+  .text-\[0\.8em\] {
+    font-size: 0.8em;
+  }
   .text-\[11px\] {
     font-size: 11px;
+  }
+  .text-\[length\:var\(--vscode-editor-font-size\)\] {
+    font-size: var(--vscode-editor-font-size);
+  }
+  .leading-none {
+    --tw-leading: 1;
+    line-height: 1;
   }
   .font-bold {
     --tw-font-weight: var(--font-weight-bold);
@@ -970,6 +1045,12 @@
   .text-\[var\(--vscode-editor-background\)\] {
     color: var(--vscode-editor-background);
   }
+  .text-\[var\(--vscode-editor-foreground\)\] {
+    color: var(--vscode-editor-foreground);
+  }
+  .text-\[var\(--vscode-editorLineNumber-foreground\)\] {
+    color: var(--vscode-editorLineNumber-foreground);
+  }
   .text-\[var\(--vscode-errorForeground\)\] {
     color: var(--vscode-errorForeground);
   }
@@ -984,6 +1065,9 @@
   }
   .text-\[var\(--vscode-list-activeSelectionForeground\)\] {
     color: var(--vscode-list-activeSelectionForeground);
+  }
+  .text-\[var\(--vscode-notificationToast-foreground\)\] {
+    color: var(--vscode-notificationToast-foreground);
   }
   .text-\[var\(--vscode-notifications-foreground\)\] {
     color: var(--vscode-notifications-foreground);
@@ -1043,13 +1127,27 @@
   .underline {
     text-decoration-line: underline;
   }
+  .opacity-0 {
+    opacity: 0%;
+  }
   .opacity-50 {
     opacity: 50%;
   }
   .opacity-70 {
     opacity: 70%;
   }
+  .opacity-100 {
+    opacity: 100%;
+  }
   .shadow {
+    --tw-shadow: 0 1px 3px 0 var(--tw-shadow-color, rgb(0 0 0 / 0.1)), 0 1px 2px -1px var(--tw-shadow-color, rgb(0 0 0 / 0.1));
+    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+  }
+  .shadow-lg {
+    --tw-shadow: 0 10px 15px -3px var(--tw-shadow-color, rgb(0 0 0 / 0.1)), 0 4px 6px -4px var(--tw-shadow-color, rgb(0 0 0 / 0.1));
+    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+  }
+  .shadow-sm {
     --tw-shadow: 0 1px 3px 0 var(--tw-shadow-color, rgb(0 0 0 / 0.1)), 0 1px 2px -1px var(--tw-shadow-color, rgb(0 0 0 / 0.1));
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
   }
@@ -1069,6 +1167,11 @@
     transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
     transition-duration: var(--tw-duration, var(--default-transition-duration));
   }
+  .transition-\[grid-template-columns\] {
+    transition-property: grid-template-columns;
+    transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
+    transition-duration: var(--tw-duration, var(--default-transition-duration));
+  }
   .transition-all {
     transition-property: all;
     transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
@@ -1083,6 +1186,14 @@
     transition-property: transform, translate, scale, rotate;
     transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
     transition-duration: var(--tw-duration, var(--default-transition-duration));
+  }
+  .duration-200 {
+    --tw-duration: 200ms;
+    transition-duration: 200ms;
+  }
+  .duration-300 {
+    --tw-duration: 300ms;
+    transition-duration: 300ms;
   }
   .ease-in {
     --tw-ease: var(--ease-in);
@@ -1109,6 +1220,14 @@
     &:hover {
       @media (hover: hover) {
         --tw-translate-y: calc(var(--spacing) * -1);
+        translate: var(--tw-translate-x) var(--tw-translate-y);
+      }
+    }
+  }
+  .hover\:-translate-y-px {
+    &:hover {
+      @media (hover: hover) {
+        --tw-translate-y: -1px;
         translate: var(--tw-translate-x) var(--tw-translate-y);
       }
     }
@@ -1145,6 +1264,13 @@
     &:hover {
       @media (hover: hover) {
         background-color: var(--vscode-toolbar-hoverBackground);
+      }
+    }
+  }
+  .hover\:text-\[var\(--vscode-list-hoverForeground\)\] {
+    &:hover {
+      @media (hover: hover) {
+        color: var(--vscode-list-hoverForeground);
       }
     }
   }
@@ -1744,6 +1870,10 @@
   inherits: false;
   initial-value: 100%;
 }
+@property --tw-leading {
+  syntax: "*";
+  inherits: false;
+}
 @property --tw-font-weight {
   syntax: "*";
   inherits: false;
@@ -1890,6 +2020,10 @@
   syntax: "*";
   inherits: false;
 }
+@property --tw-duration {
+  syntax: "*";
+  inherits: false;
+}
 @property --tw-ease {
   syntax: "*";
   inherits: false;
@@ -1926,6 +2060,7 @@
       --tw-gradient-from-position: 0%;
       --tw-gradient-via-position: 50%;
       --tw-gradient-to-position: 100%;
+      --tw-leading: initial;
       --tw-font-weight: initial;
       --tw-tracking: initial;
       --tw-ordinal: initial;
@@ -1960,6 +2095,7 @@
       --tw-drop-shadow-color: initial;
       --tw-drop-shadow-alpha: 100%;
       --tw-drop-shadow-size: initial;
+      --tw-duration: initial;
       --tw-ease: initial;
     }
   }

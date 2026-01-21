@@ -4,6 +4,8 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { usePostMessage, useMessageListener } from '../shared/hooks';
 import { VSCodeProvider } from '../shared/context';
 
+type ColorMode = 'full' | 'less' | 'none';
+
 interface LineRange {
   startLine?: number;
   endLine?: number;
@@ -32,7 +34,7 @@ interface NodeConfigMessage {
   command: string;
   config?: string;
   annotations?: Annotation[];
-  colorMode?: 'full' | 'less' | 'none';
+  colorMode?: ColorMode;
 }
 
 interface ContextState {
@@ -40,6 +42,48 @@ interface ContextState {
   interface: string;
   subBlock: string;
   level: number;
+}
+
+// Syntax highlighting colors mapped to VSCode CSS variables
+const COLORS = {
+  sectionKeyword: 'var(--vscode-charts-purple)',
+  interfaceType: 'var(--vscode-charts-purple)',
+  property: 'var(--vscode-charts-blue)',
+  interfaceName: 'var(--vscode-charts-green)',
+  bracket: 'var(--vscode-editor-foreground)',
+  value: 'var(--vscode-charts-yellow)',
+  boolean: 'var(--vscode-charts-purple)',
+  number: 'var(--vscode-charts-red)',
+  string: 'var(--vscode-charts-yellow)',
+  ipAddress: 'var(--vscode-charts-orange)',
+  parameter: 'var(--vscode-charts-blue)',
+  networkKeyword: 'var(--vscode-charts-purple)',
+  vlan: 'var(--vscode-charts-purple)',
+  protocol: 'var(--vscode-charts-green)',
+  bgp: 'var(--vscode-charts-red)',
+  route: 'var(--vscode-charts-orange)',
+  comment: 'var(--vscode-descriptionForeground)',
+  foreground: 'var(--vscode-editor-foreground)',
+};
+
+// Colors affected by "less" mode (become foreground)
+const LESS_MODE_AFFECTED = new Set([
+  'sectionKeyword', 'interfaceType', 'property', 'interfaceName',
+  'value', 'string', 'ipAddress', 'parameter', 'networkKeyword',
+  'vlan', 'protocol', 'bgp', 'route'
+]);
+
+function getColor(colorKey: keyof typeof COLORS, colorMode: ColorMode): string {
+  if (colorMode === 'none') return COLORS.foreground;
+  if (colorMode === 'less' && LESS_MODE_AFFECTED.has(colorKey)) return COLORS.foreground;
+  return COLORS[colorKey];
+}
+
+function makeSpan(text: string, colorKey: keyof typeof COLORS, colorMode: ColorMode, bold = false): string {
+  const color = getColor(colorKey, colorMode);
+  const fontWeight = bold ? '; font-weight: bold' : '';
+  const fontStyle = colorKey === 'comment' ? '; font-style: italic' : '';
+  return `<span style="color: ${color}${fontWeight}${fontStyle}">${text}</span>`;
 }
 
 function escapeHtml(text: string): string {
@@ -77,13 +121,13 @@ function updateContext(line: string, context: ContextState): void {
   }
 }
 
-function applySyntaxHighlighting(line: string, context: ContextState): string {
+function applySyntaxHighlighting(line: string, context: ContextState, colorMode: ColorMode): string {
   if (line.trim() === '') return '';
 
   let processedLine = escapeHtml(line);
 
   if (processedLine.trim().startsWith('#')) {
-    return '<span class="comment">' + processedLine + '</span>';
+    return makeSpan(processedLine, 'comment', colorMode);
   }
 
   if (context.level === 0) {
@@ -93,16 +137,18 @@ function applySyntaxHighlighting(line: string, context: ContextState): string {
         (_m, space, keyword, name) => {
           return (
             space +
-            '<span class="section-keyword">' + keyword + '</span> ' +
-            '<span class="interface-name">' + name + '</span> ' +
-            '<span class="bracket">{</span>'
+            makeSpan(keyword, 'sectionKeyword', colorMode, true) + ' ' +
+            makeSpan(name, 'interfaceName', colorMode, true) + ' ' +
+            makeSpan('{', 'bracket', colorMode)
           );
         }
       );
     } else if (processedLine.match(/^(\s*)(\w+)\s*\{/)) {
       processedLine = processedLine.replace(
         /^(\s*)(\w+)\s*\{/,
-        '$1<span class="section-keyword">$2</span> <span class="bracket">{</span>'
+        (_m, space, keyword) => {
+          return space + makeSpan(keyword, 'sectionKeyword', colorMode, true) + ' ' + makeSpan('{', 'bracket', colorMode);
+        }
       );
     }
   } else {
@@ -110,17 +156,17 @@ function applySyntaxHighlighting(line: string, context: ContextState): string {
       if (context.section === 'interface' || context.section === 'bfd') {
         processedLine = processedLine.replace(
           /^(\s*)(\w[\w-]+)\s*\{/,
-          '$1<span class="property">$2</span> <span class="bracket">{</span>'
+          (_m, space, prop) => space + makeSpan(prop, 'property', colorMode) + ' ' + makeSpan('{', 'bracket', colorMode)
         );
       } else if (context.section === 'network-instance') {
         processedLine = processedLine.replace(
           /^(\s*)(\w[\w-]+)\s*\{/,
-          '$1<span class="network-keyword">$2</span> <span class="bracket">{</span>'
+          (_m, space, kw) => space + makeSpan(kw, 'networkKeyword', colorMode) + ' ' + makeSpan('{', 'bracket', colorMode)
         );
       } else {
         processedLine = processedLine.replace(
           /^(\s*)(\w[\w-]+)\s*\{/,
-          '$1<span class="property">$2</span> <span class="bracket">{</span>'
+          (_m, space, prop) => space + makeSpan(prop, 'property', colorMode) + ' ' + makeSpan('{', 'bracket', colorMode)
         );
       }
     } else if (processedLine.match(/^(\s*)(\w[\w./-]+)\s+(.+)\s*\{/)) {
@@ -130,23 +176,23 @@ function applySyntaxHighlighting(line: string, context: ContextState): string {
           if (keyword === 'subinterface') {
             return (
               space +
-              '<span class="property">' + keyword + '</span> ' +
-              '<span class="value">' + rest.replace(/\{$/, '') + '</span> ' +
-              '<span class="bracket">{</span>'
+              makeSpan(keyword, 'property', colorMode) + ' ' +
+              makeSpan(rest.replace(/\{$/, ''), 'value', colorMode) + ' ' +
+              makeSpan('{', 'bracket', colorMode)
             );
           } else if (keyword === 'address') {
             return (
               space +
-              '<span class="property">' + keyword + '</span> ' +
-              '<span class="ip-address">' + rest.replace(/\{$/, '') + '</span> ' +
-              '<span class="bracket">{</span>'
+              makeSpan(keyword, 'property', colorMode) + ' ' +
+              makeSpan(rest.replace(/\{$/, ''), 'ipAddress', colorMode) + ' ' +
+              makeSpan('{', 'bracket', colorMode)
             );
           } else {
             return (
               space +
-              '<span class="property">' + keyword + '</span> ' +
-              '<span class="value">' + rest.replace(/\{$/, '') + '</span> ' +
-              '<span class="bracket">{</span>'
+              makeSpan(keyword, 'property', colorMode) + ' ' +
+              makeSpan(rest.replace(/\{$/, ''), 'value', colorMode) + ' ' +
+              makeSpan('{', 'bracket', colorMode)
             );
           }
         }
@@ -156,52 +202,52 @@ function applySyntaxHighlighting(line: string, context: ContextState): string {
         /^(\s*)(\w[\w-]+)\s+(.+)$/,
         (_m, space, property, value) => {
           if (value === 'true' || value === 'false') {
-            return space + '<span class="property">' + property + '</span> <span class="boolean">' + value + '</span>';
+            return space + makeSpan(property, 'property', colorMode) + ' ' + makeSpan(value, 'boolean', colorMode, true);
           } else if (value === 'enable' || value === 'disable' || value === 'up' || value === 'down') {
-            return space + '<span class="property">' + property + '</span> <span class="boolean">' + value + '</span>';
+            return space + makeSpan(property, 'property', colorMode) + ' ' + makeSpan(value, 'boolean', colorMode, true);
           } else if (value.match(/^\d+$/)) {
-            return space + '<span class="property">' + property + '</span> <span class="number">' + value + '</span>';
+            return space + makeSpan(property, 'property', colorMode) + ' ' + makeSpan(value, 'number', colorMode);
           } else if (value.match(/^".*"$/)) {
-            return space + '<span class="property">' + property + '</span> <span class="string">' + value + '</span>';
+            return space + makeSpan(property, 'property', colorMode) + ' ' + makeSpan(value, 'string', colorMode);
           } else if (value.match(/^\d+\.\d+\.\d+\.\d+\/\d+$/)) {
-            return space + '<span class="property">' + property + '</span> <span class="ip-address">' + value + '</span>';
+            return space + makeSpan(property, 'property', colorMode) + ' ' + makeSpan(value, 'ipAddress', colorMode);
           } else if (context.section === 'bfd' || property === 'admin-state') {
-            return space + '<span class="parameter">' + property + '</span> <span class="value">' + value + '</span>';
+            return space + makeSpan(property, 'parameter', colorMode) + ' ' + makeSpan(value, 'value', colorMode);
           } else if (property === 'description') {
-            return space + '<span class="property">' + property + '</span> <span class="string">' + value + '</span>';
+            return space + makeSpan(property, 'property', colorMode) + ' ' + makeSpan(value, 'string', colorMode);
           } else if (property.includes('vlan')) {
-            return space + '<span class="vlan">' + property + '</span> <span class="value">' + value + '</span>';
+            return space + makeSpan(property, 'vlan', colorMode) + ' ' + makeSpan(value, 'value', colorMode);
           } else if (context.section === 'network-instance' && context.subBlock === 'protocols') {
-            return space + '<span class="protocol">' + property + '</span> <span class="value">' + value + '</span>';
+            return space + makeSpan(property, 'protocol', colorMode) + ' ' + makeSpan(value, 'value', colorMode);
           } else if (property.includes('bgp')) {
-            return space + '<span class="bgp">' + property + '</span> <span class="value">' + value + '</span>';
+            return space + makeSpan(property, 'bgp', colorMode) + ' ' + makeSpan(value, 'value', colorMode);
           } else if (property.includes('route')) {
-            return space + '<span class="route">' + property + '</span> <span class="value">' + value + '</span>';
+            return space + makeSpan(property, 'route', colorMode) + ' ' + makeSpan(value, 'value', colorMode);
           } else {
-            return space + '<span class="property">' + property + '</span> <span class="value">' + value + '</span>';
+            return space + makeSpan(property, 'property', colorMode) + ' ' + makeSpan(value, 'value', colorMode);
           }
         }
       );
     } else if (processedLine.match(/^(\s*)\[$/)) {
-      processedLine = processedLine.replace(/^(\s*)\[$/, '$1<span class="bracket">[</span>');
+      processedLine = processedLine.replace(/^(\s*)\[$/, (_m, space) => space + makeSpan('[', 'bracket', colorMode));
     } else if (processedLine.match(/^(\s*)\]$/)) {
-      processedLine = processedLine.replace(/^(\s*)\]$/, '$1<span class="bracket">]</span>');
+      processedLine = processedLine.replace(/^(\s*)\]$/, (_m, space) => space + makeSpan(']', 'bracket', colorMode));
     } else if (processedLine.match(/^(\s*)(\w.*)$/)) {
       const trimmed = processedLine.trim();
       if (trimmed.match(/^\d+$/)) {
-        processedLine = processedLine.replace(/^(\s*)(\w.*)$/, '$1<span class="number">$2</span>');
+        processedLine = processedLine.replace(/^(\s*)(\w.*)$/, (_m, space, val) => space + makeSpan(val, 'number', colorMode));
       } else if (trimmed.match(/^\d+\.\d+\.\d+\.\d+$/)) {
-        processedLine = processedLine.replace(/^(\s*)(\w.*)$/, '$1<span class="ip-address">$2</span>');
+        processedLine = processedLine.replace(/^(\s*)(\w.*)$/, (_m, space, val) => space + makeSpan(val, 'ipAddress', colorMode));
       } else if (trimmed === 'enable' || trimmed === 'disable' || trimmed === 'up' || trimmed === 'down') {
-        processedLine = processedLine.replace(/^(\s*)(\w.*)$/, '$1<span class="boolean">$2</span>');
+        processedLine = processedLine.replace(/^(\s*)(\w.*)$/, (_m, space, val) => space + makeSpan(val, 'boolean', colorMode, true));
       } else {
-        processedLine = processedLine.replace(/^(\s*)(\w.*)$/, '$1<span class="value">$2</span>');
+        processedLine = processedLine.replace(/^(\s*)(\w.*)$/, (_m, space, val) => space + makeSpan(val, 'value', colorMode));
       }
     }
   }
 
   if (processedLine.trim() === '}') {
-    processedLine = processedLine.replace(/^(\s*)\}$/, '$1<span class="bracket">}</span>');
+    processedLine = processedLine.replace(/^(\s*)\}$/, (_m, space) => space + makeSpan('}', 'bracket', colorMode));
   }
 
   return processedLine;
@@ -317,7 +363,7 @@ function NodeConfigPanel() {
       const showDivider = annotationKey !== '' && annotationKey !== previousAnnotation && lastAnnotation !== '';
 
       updateContext(lines[index], context);
-      const highlightedContent = applySyntaxHighlighting(lines[index], context);
+      const highlightedContent = applySyntaxHighlighting(lines[index], context, colorMode);
 
       const firstAnnotation = annotationNames.length > 0 && annotationKey !== previousAnnotation ? annotationNames[0] : undefined;
       const annotationInfo = firstAnnotation ? annotationInfoMapRef.current.get(firstAnnotation) : undefined;
@@ -339,7 +385,7 @@ function NodeConfigPanel() {
     }
 
     return result;
-  }, [configText, annotations]);
+  }, [configText, annotations, colorMode]);
 
   const handleToggleAnnotations = useCallback(() => {
     setIsAnnotationsVisible(prev => !prev);
@@ -364,59 +410,107 @@ function NodeConfigPanel() {
     setHighlightedAnnotation(annotationKey);
   }, [isAnnotationsVisible]);
 
+  const isHighlighted = useCallback((annotationKey: string) => {
+    return highlightedAnnotation && annotationKey === highlightedAnnotation;
+  }, [highlightedAnnotation]);
+
   return (
-    <div className={`container color-mode-${colorMode}`}>
-      <div className="toolbar">
-        <button className="button" onClick={handleToggleAnnotations}>
-          <span className="button-icon">{'\u229E'}</span>
+    <div className="grid grid-rows-[auto_1fr] h-screen overflow-hidden font-mono text-[length:var(--vscode-editor-font-size)]">
+      {/* Toolbar */}
+      <div className="p-3 bg-[var(--vscode-sideBar-background)] border-b border-[var(--vscode-sideBar-border)] flex items-center gap-2.5">
+        <button
+          className="bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] border border-[var(--vscode-button-border,transparent)] rounded px-3 py-1.5 text-xs font-medium flex items-center gap-1.5 shadow-sm transition-all hover:bg-[var(--vscode-button-hoverBackground)] hover:-translate-y-px cursor-pointer"
+          onClick={handleToggleAnnotations}
+        >
+          <span className="text-sm leading-none">{'\u229E'}</span>
           <span>{isAnnotationsVisible ? 'Hide Annotations' : 'Show Annotations'}</span>
         </button>
-        <button className="button" onClick={handleCopyConfig}>
-          <span className="button-icon">{'\u29C9'}</span>
+        <button
+          className="bg-[var(--vscode-button-background)] text-[var(--vscode-button-foreground)] border border-[var(--vscode-button-border,transparent)] rounded px-3 py-1.5 text-xs font-medium flex items-center gap-1.5 shadow-sm transition-all hover:bg-[var(--vscode-button-hoverBackground)] hover:-translate-y-px cursor-pointer"
+          onClick={handleCopyConfig}
+        >
+          <span className="text-sm leading-none">{'\u29C9'}</span>
           <span>Copy Config</span>
         </button>
-        <select className="select" value={colorMode} onChange={handleColorModeChange}>
+        <select
+          className="bg-[var(--vscode-dropdown-background)] text-[var(--vscode-dropdown-foreground)] border border-[var(--vscode-dropdown-border)] rounded px-2 py-1.5 text-xs cursor-pointer"
+          value={colorMode}
+          onChange={handleColorModeChange}
+        >
           <option value="full">Full Color</option>
           <option value="less">Less Color</option>
           <option value="none">No Color</option>
         </select>
       </div>
 
-      <div className={`config-view ${isAnnotationsVisible ? 'annotations-visible' : 'annotations-hidden'}`}>
+      {/* Config View */}
+      <div className={`grid overflow-y-auto font-mono transition-[grid-template-columns] duration-300 ${
+        isAnnotationsVisible
+          ? '[grid-template-columns:max-content_auto_1fr]'
+          : '[grid-template-columns:auto_1fr]'
+      }`}>
         {lineData.map((line, idx) => (
-          <div key={idx}>
-            {line.showDivider && <div className="divider" style={{ gridColumn: '1 / -1' }} />}
+          <div key={idx} className="contents">
+            {line.showDivider && isAnnotationsVisible && (
+              <div className="col-span-full border-b border-[var(--vscode-textSeparator-foreground)] my-2.5" />
+            )}
             <div
-              className={`line ${highlightedAnnotation && line.annotationKey === highlightedAnnotation ? 'line-highlight' : ''}`}
+              className="contents"
               data-line={line.lineNum}
               data-annotation={line.annotationKey}
               onMouseEnter={() => handleLineHover(line.annotationKey || null)}
               onMouseLeave={() => handleLineHover(null)}
             >
-              <div className="line-annotation" data-annotation={line.annotationKey}>
-                {line.annotationLabel && (
-                  <>
-                    {line.annotationLabel}
-                    {line.annotationInfo && line.annotationInfo.group && line.annotationInfo.version && line.annotationInfo.kind && (
-                      <>
-                        <br />
-                        <span className="annotation-info">
-                          {line.annotationInfo.group}/{line.annotationInfo.version} {line.annotationInfo.kind}
-                        </span>
-                      </>
-                    )}
-                  </>
-                )}
+              {/* Annotation column */}
+              {isAnnotationsVisible && (
+                <div
+                  className={`py-0.5 px-2.5 whitespace-pre text-right cursor-default select-none border-r border-[var(--vscode-sideBar-border)] transition-colors duration-200 ${
+                    isHighlighted(line.annotationKey)
+                      ? 'text-[var(--vscode-list-activeSelectionForeground)] bg-[var(--vscode-list-activeSelectionBackground)] font-bold'
+                      : 'text-[var(--vscode-descriptionForeground)] bg-[var(--vscode-editorWidget-background)] hover:text-[var(--vscode-list-hoverForeground)] hover:bg-[var(--vscode-list-hoverBackground)]'
+                  }`}
+                  data-annotation={line.annotationKey}
+                >
+                  {line.annotationLabel && (
+                    <>
+                      {line.annotationLabel}
+                      {line.annotationInfo && line.annotationInfo.group && line.annotationInfo.version && line.annotationInfo.kind && (
+                        <>
+                          <br />
+                          <span className="text-[0.8em] text-[var(--vscode-editor-foreground)]">
+                            {line.annotationInfo.group}/{line.annotationInfo.version} {line.annotationInfo.kind}
+                          </span>
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+              {/* Line number column */}
+              <div className="py-0.5 px-2.5 whitespace-pre text-right text-[var(--vscode-editorLineNumber-foreground)] bg-[var(--vscode-editor-background)] select-none">
+                {line.lineNum}
               </div>
-              <div className="line-num">{line.lineNum}</div>
-              <div className="line-code" dangerouslySetInnerHTML={{ __html: line.content || ' ' }} />
+              {/* Code column */}
+              <div
+                className={`py-0.5 px-2.5 whitespace-pre transition-colors duration-200 relative z-[1] ${
+                  isHighlighted(line.annotationKey)
+                    ? 'bg-[var(--vscode-editor-selectionBackground)]'
+                    : 'bg-[var(--vscode-editor-background)]'
+                }`}
+                dangerouslySetInnerHTML={{ __html: line.content || ' ' }}
+              />
             </div>
           </div>
         ))}
       </div>
 
-      <div className={`toast ${showToast ? 'show' : ''}`}>
-        <span className="button-icon">{'\u2713'}</span>
+      {/* Toast notification */}
+      <div className={`fixed bottom-5 right-5 bg-[var(--vscode-notificationToast-background)] text-[var(--vscode-notificationToast-foreground)] py-2.5 px-4 rounded shadow-lg z-[9999] flex items-center gap-2 transition-all duration-300 ${
+        showToast
+          ? 'opacity-100 translate-y-0'
+          : 'opacity-0 translate-y-5 pointer-events-none'
+      }`}>
+        <span className="text-sm leading-none">{'\u2713'}</span>
         <span>Config copied to clipboard</span>
       </div>
     </div>
