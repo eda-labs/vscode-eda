@@ -1,95 +1,157 @@
 import * as vscode from 'vscode';
+import * as yaml from 'js-yaml';
+
 import { log, LogLevel } from '../extension';
 import { serviceManager } from '../services/serviceManager';
-import { KubernetesClient } from '../clients/kubernetesClient';
-import { EdaClient } from '../clients/edaClient';
+import type { KubernetesClient } from '../clients/kubernetesClient';
+import type { EdaClient } from '../clients/edaClient';
 import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
-import * as yaml from 'js-yaml';
 import { stripManagedFieldsFromYaml, sanitizeResource } from '../utils/yamlUtils';
 import { isEdaResource } from '../utils/edaGroupUtils';
 import { setViewIsEda, setResourceOrigin } from '../utils/resourceOriginStore';
+
+/**
+ * Represents a raw Kubernetes resource object with standard metadata
+ */
+interface KubernetesResource {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: {
+    name?: string;
+    namespace?: string;
+    uid?: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+/**
+ * Command argument passed from tree items or webview messages
+ */
+interface CommandArgument {
+  name?: string;
+  namespace?: string;
+  kind?: string;
+  resourceType?: string;
+  label?: string;
+  streamGroup?: string;
+  raw?: KubernetesResource;
+  rawResource?: KubernetesResource;
+  resource?: {
+    raw?: KubernetesResource;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+interface ResourceInfo {
+  namespace: string;
+  kind: string;
+  name: string;
+  useEda: boolean;
+  apiVersion?: string;
+}
+
+/** Extracts namespace from raw resource or arg with fallback to 'default'. */
+function getNamespace(arg: CommandArgument | undefined, raw: KubernetesResource | undefined): string {
+  return raw?.metadata?.namespace ?? arg?.namespace ?? 'default';
+}
+
+/** Extracts kind from raw resource or arg with fallback to 'Resource'. */
+function getKind(arg: CommandArgument | undefined, raw: KubernetesResource | undefined): string {
+  return raw?.kind ?? arg?.kind ?? arg?.resourceType ?? 'Resource';
+}
+
+/** Extracts name from raw resource or arg with fallback to 'unknown'. */
+function getName(arg: CommandArgument | undefined, raw: KubernetesResource | undefined): string {
+  return raw?.metadata?.name ?? arg?.name ?? arg?.label ?? 'unknown';
+}
+
+/**
+ * Extracts resource information from a tree item argument.
+ */
+function extractResourceInfo(arg: CommandArgument | undefined, raw: KubernetesResource | undefined): ResourceInfo {
+  return {
+    namespace: getNamespace(arg, raw),
+    kind: getKind(arg, raw),
+    name: getName(arg, raw),
+    useEda: isEdaResource(arg, raw?.apiVersion),
+    apiVersion: raw?.apiVersion
+  };
+}
+
+/**
+ * Fetches YAML content for a resource from either EDA or Kubernetes API.
+ */
+async function fetchResourceYaml(info: ResourceInfo): Promise<string> {
+  if (info.useEda) {
+    const eda = serviceManager.getClient<EdaClient>('eda');
+    return eda.getEdaResourceYaml(info.kind, info.name, info.namespace, info.apiVersion);
+  }
+  const k8s = serviceManager.getClient<KubernetesClient>('kubernetes');
+  return k8s.getResourceYaml(info.kind, info.name, info.namespace);
+}
+
+/**
+ * Opens a resource document in VS Code with YAML highlighting.
+ */
+async function openResourceDocument(
+  provider: ResourceViewDocumentProvider,
+  info: ResourceInfo,
+  yamlText: string,
+  logPrefix: string
+): Promise<void> {
+  const uri = ResourceViewDocumentProvider.createUri(
+    info.namespace,
+    info.kind,
+    info.name,
+    info.useEda ? 'eda' : 'k8s'
+  );
+  provider.setResourceContent(uri, yamlText);
+  setViewIsEda(uri, info.useEda);
+  setResourceOrigin(info.namespace, info.kind, info.name, info.useEda);
+  log(
+    `${logPrefix}: origin=${info.useEda ? 'eda' : 'k8s'} for ${info.namespace}/${info.kind}/${info.name}`,
+    LogLevel.DEBUG
+  );
+
+  const doc = await vscode.workspace.openTextDocument(uri);
+  await vscode.languages.setTextDocumentLanguage(doc, 'yaml');
+  await vscode.window.showTextDocument(doc, { preview: true });
+}
 
 export function registerResourceViewCommands(
   context: vscode.ExtensionContext,
   provider: ResourceViewDocumentProvider
 ): void {
-  const viewCmd = vscode.commands.registerCommand('vscode-eda.viewResource', async (arg: any) => {
+  const viewCmd = vscode.commands.registerCommand('vscode-eda.viewResource', async (arg: unknown) => {
     try {
-      const raw = arg?.raw || arg?.rawResource || arg?.resource?.raw;
-      const namespace = raw?.metadata?.namespace || arg.namespace || 'default';
-      const kind = raw?.kind || arg.kind || arg.resourceType || 'Resource';
-      const name = raw?.metadata?.name || arg.name || arg.label || 'unknown';
-      const useEda = isEdaResource(arg, raw?.apiVersion);
-
-      let yamlText = '';
-      if (useEda) {
-        const eda = serviceManager.getClient<EdaClient>('eda');
-        yamlText = await eda.getEdaResourceYaml(
-          kind,
-          name,
-          namespace,
-          raw?.apiVersion
-        );
-      } else {
-        const k8s = serviceManager.getClient<KubernetesClient>('kubernetes');
-        yamlText = await k8s.getResourceYaml(kind, name, namespace);
-      }
-
+      const cmdArg = arg as CommandArgument | undefined;
+      const raw: KubernetesResource | undefined = cmdArg?.raw ?? cmdArg?.rawResource ?? cmdArg?.resource?.raw;
+      const info = extractResourceInfo(cmdArg, raw);
+      let yamlText = await fetchResourceYaml(info);
       yamlText = stripManagedFieldsFromYaml(yamlText);
-      const uri = ResourceViewDocumentProvider.createUri(
-        namespace,
-        kind,
-        name,
-        useEda ? 'eda' : 'k8s'
-      );
-      provider.setResourceContent(uri, yamlText);
-      setViewIsEda(uri, useEda);
-      setResourceOrigin(namespace, kind, name, useEda);
-      log(
-        `viewResource: origin=${useEda ? 'eda' : 'k8s'} for ${namespace}/${kind}/${name}`,
-        LogLevel.DEBUG
-      );
-
-      const doc = await vscode.workspace.openTextDocument(uri);
-      await vscode.languages.setTextDocumentLanguage(doc, 'yaml');
-      await vscode.window.showTextDocument(doc, { preview: true });
-    } catch (err: any) {
-      log(`Failed to open resource in YAML view: ${err}`, LogLevel.ERROR, true);
-      vscode.window.showErrorMessage(`Error viewing resource: ${err}`);
+      await openResourceDocument(provider, info, yamlText, 'viewResource');
+    } catch (err: unknown) {
+      log(`Failed to open resource in YAML view: ${String(err)}`, LogLevel.ERROR, true);
+      vscode.window.showErrorMessage(`Error viewing resource: ${String(err)}`);
     }
   });
 
-  const streamCmd = vscode.commands.registerCommand('vscode-eda.viewStreamItem', async (arg: any) => {
+  const streamCmd = vscode.commands.registerCommand('vscode-eda.viewStreamItem', async (arg: unknown) => {
     try {
-      const resource = arg?.raw || arg?.rawResource || arg?.resource?.raw;
+      const cmdArg = arg as CommandArgument | undefined;
+      const resource: KubernetesResource | undefined = cmdArg?.raw ?? cmdArg?.rawResource ?? cmdArg?.resource?.raw;
       if (!resource) {
         vscode.window.showErrorMessage('No data available for this item');
         return;
       }
-      const namespace = resource.metadata?.namespace || arg.namespace || 'default';
-      const kind = resource.kind || arg.resourceType || arg.kind || 'Resource';
-      const name = resource.metadata?.name || arg.name || arg.label || 'unknown';
+      const info = extractResourceInfo(cmdArg, resource);
       const yamlText = yaml.dump(sanitizeResource(resource), { indent: 2 });
-      const eda = isEdaResource(arg, resource.apiVersion);
-      const uri = ResourceViewDocumentProvider.createUri(
-        namespace,
-        kind,
-        name,
-        eda ? 'eda' : 'k8s'
-      );
-      provider.setResourceContent(uri, yamlText);
-      setViewIsEda(uri, eda);
-      setResourceOrigin(namespace, kind, name, eda);
-      log(
-        `viewStreamItem: origin=${eda ? 'eda' : 'k8s'} for ${namespace}/${kind}/${name}`,
-        LogLevel.DEBUG
-      );
-      const doc = await vscode.workspace.openTextDocument(uri);
-      await vscode.languages.setTextDocumentLanguage(doc, 'yaml');
-      await vscode.window.showTextDocument(doc, { preview: true });
-    } catch (err: any) {
-      log(`Failed to open stream item: ${err}`, LogLevel.ERROR, true);
-      vscode.window.showErrorMessage(`Error viewing stream item: ${err}`);
+      await openResourceDocument(provider, info, yamlText, 'viewStreamItem');
+    } catch (err: unknown) {
+      log(`Failed to open stream item: ${String(err)}`, LogLevel.ERROR, true);
+      vscode.window.showErrorMessage(`Error viewing stream item: ${String(err)}`);
     }
   });
 

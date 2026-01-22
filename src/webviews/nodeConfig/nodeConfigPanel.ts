@@ -1,5 +1,11 @@
 import * as vscode from 'vscode';
+
 import { BasePanel } from '../basePanel';
+
+interface WebviewMessage {
+  command: string;
+  colorMode?: ColorMode;
+}
 
 export interface LineRange {
   startLine?: number;
@@ -18,8 +24,10 @@ export interface Annotation {
   lines: LineRange[];
 }
 
+export type ColorMode = 'full' | 'less' | 'none';
+
 export class NodeConfigPanel extends BasePanel {
-  private static colorMode: 'full' | 'less' | 'none' = 'full';
+  private static colorMode: ColorMode = 'full';
   private config: string;
   private annotations: Annotation[];
 
@@ -29,54 +37,38 @@ export class NodeConfigPanel extends BasePanel {
     annotations: Annotation[],
     title: string
   ) {
-    super(context, 'nodeConfig', `Node Config: ${title}`, { enableFindWidget: true }, {
-      light: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-black.svg'),
-      dark: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-white.svg')
-    });
+    super(context, 'nodeConfig', `Node Config: ${title}`, { enableFindWidget: true }, BasePanel.getEdaIconPath(context));
 
     this.config = config;
     this.annotations = annotations;
 
-    NodeConfigPanel.colorMode = context.globalState.get<'full' | 'less' | 'none'>(
+    NodeConfigPanel.colorMode = context.globalState.get<ColorMode>(
       'nodeConfigColorMode',
       vscode.workspace
         .getConfiguration('vscode-eda')
-        .get<'full' | 'less' | 'none'>('nodeConfigColorMode', 'full')
+        .get<ColorMode>('nodeConfigColorMode', 'full')
     );
 
     this.panel.webview.html = this.buildHtml();
 
-    this.panel.webview.onDidReceiveMessage((message) => {
-      if (message.command === 'saveColorMode') {
-        NodeConfigPanel.colorMode = message.colorMode;
+    this.panel.webview.onDidReceiveMessage((message: WebviewMessage) => {
+      if (message.command === 'ready') {
+        this.panel.webview.postMessage({
+          command: 'loadData',
+          config: this.config,
+          annotations: this.annotations,
+          colorMode: NodeConfigPanel.colorMode,
+        });
+      } else if (message.command === 'saveColorMode') {
+        NodeConfigPanel.colorMode = message.colorMode ?? 'full';
         this.context.globalState.update('nodeConfigColorMode', NodeConfigPanel.colorMode);
       }
     });
-
-    // Now reading from the fields so they're actually used:
-    this.panel.webview.postMessage({
-      command: 'loadData',
-      config: this.config,
-      annotations: this.annotations,
-      colorMode: NodeConfigPanel.colorMode,
-    });
-  }
-
-  protected getHtml(): string {
-    return this.readWebviewFile('nodeConfig', 'nodeConfigPanel.html');
-  }
-
-  protected getCustomStyles(): string {
-    return this.readWebviewFile('nodeConfig', 'nodeConfigPanel.css');
-  }
-
-  protected getScripts(): string {
-    return '';
   }
 
   protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'nodeConfigPanel.js');
-    return `<script nonce="${nonce}" data-color-mode="${NodeConfigPanel.colorMode}" src="${scriptUri}"></script>`;
+    return `<script nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
   static show(
@@ -84,7 +76,7 @@ export class NodeConfigPanel extends BasePanel {
     config: string,
     annotations: Annotation[],
     node: string
-  ): void {
-    new NodeConfigPanel(context, config, annotations, node);
+  ): NodeConfigPanel {
+    return new NodeConfigPanel(context, config, annotations, node);
   }
 }

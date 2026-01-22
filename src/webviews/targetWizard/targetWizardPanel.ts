@@ -1,7 +1,72 @@
 import * as vscode from 'vscode';
-import { BasePanel } from '../basePanel';
-import { KubernetesClient } from '../../clients/kubernetesClient';
 import { fetch, Agent } from 'undici';
+
+import { BasePanel } from '../basePanel';
+import { EXTENSION_CONFIG_SECTION } from '../constants';
+import { KubernetesClient } from '../../clients/kubernetesClient';
+
+// Helper to extract host from URL, falling back to the URL string if invalid
+function extractHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+interface TargetConfig {
+  url: string;
+  context?: string;
+  edaUsername?: string;
+  edaPassword?: string;
+  clientSecret?: string;
+  skipTlsVerify?: boolean;
+  coreNamespace?: string;
+}
+
+// Helper to build target object from config value
+function buildTargetFromConfig(
+  url: string,
+  val: unknown,
+  edaPassword: string | undefined,
+  clientSecret: string | undefined
+): TargetConfig {
+  // Handle legacy string format and new object format
+  if (typeof val === 'string' || val === null) {
+    return {
+      url,
+      context: (val as string) || undefined,
+      edaPassword: edaPassword || undefined,
+      clientSecret: clientSecret || undefined
+    };
+  }
+
+  const config = val as Record<string, unknown>;
+  return {
+    url,
+    context: (config.context as string) || undefined,
+    edaUsername: (config.edaUsername as string) || undefined,
+    edaPassword: edaPassword || undefined,
+    clientSecret: clientSecret || undefined,
+    skipTlsVerify: (config.skipTlsVerify as boolean) || undefined,
+    coreNamespace: (config.coreNamespace as string) || undefined
+  };
+}
+
+// Helper to load targets from configuration with their secrets
+async function loadTargetsFromConfig(
+  context: vscode.ExtensionContext,
+  targetsMap: Record<string, unknown>
+): Promise<TargetConfig[]> {
+  return Promise.all(
+    Object.entries(targetsMap).map(async ([url, val]) => {
+      const host = extractHost(url);
+      const edaPassword = await context.secrets.get(`edaPassword:${host}`);
+      const clientSecret = await context.secrets.get(`clientSecret:${host}`);
+      return buildTargetFromConfig(url, val, edaPassword, clientSecret);
+    })
+  );
+}
 
 export interface TargetWizardResult {
   url: string;
@@ -46,72 +111,58 @@ export class TargetWizardPanel extends BasePanel {
     this.selected = selected;
     this.panel.webview.html = this.buildHtml();
 
-    this.panel.webview.onDidReceiveMessage(async (msg: any) => {
-      switch (msg.command) {
-        case 'save':
-          await this.saveConfiguration(msg, true);
-          break;
-        case 'add':
-          await this.saveConfiguration(msg, false);
-          break;
-        case 'delete':
-          await this.deleteTarget(msg.url);
-          break;
-        case 'confirmDelete':
-          await this.confirmDelete(msg.index, msg.url);
-          break;
-        case 'commit':
-          await this.commitTargets(msg.targets);
-          break;
-        case 'select':
-          await this.context.globalState.update('selectedEdaTarget', msg.index);
-          break;
-        case 'close':
-          this.showReload();
-          break;
-        case 'retrieveClientSecret':
-          await this.retrieveClientSecret(msg.url);
-          break;
-      }
-    });
+    this.panel.webview.onDidReceiveMessage((msg: unknown) => this.handleMessage(msg));
   }
 
-  protected getHtml(): string {
-    const html = this.readWebviewFile('targetWizard', 'targetWizardPanel.html');
-    if (!html) {
-      return '';
+  private async handleMessage(msg: unknown): Promise<void> {
+    const message = msg as { command: string; [key: string]: unknown };
+    const handlers: Record<string, () => PromiseLike<void> | void> = {
+      ready: () => this.sendInitialData(),
+      save: () => this.saveConfiguration(message, true),
+      add: () => this.saveConfiguration(message, false),
+      delete: () => this.deleteTarget(message.url as string),
+      confirmDelete: () => this.confirmDelete(message.index as number, message.url as string),
+      commit: () => this.commitTargets(message.targets as unknown[]),
+      select: () => this.context.globalState.update('selectedEdaTarget', message.index),
+      close: () => this.showReload(),
+      retrieveClientSecret: () => this.retrieveClientSecret(message.url as string)
+    };
+
+    const handler = handlers[message.command];
+    if (handler) {
+      await handler();
     }
+  }
+
+  private sendInitialData(): void {
     const logoUri = this.getResourceUri('resources', 'eda.png');
-    const options = this.contexts.map(c => `<option value="${c}">${c}</option>`).join('');
-    return html.replace('${logo}', logoUri.toString()).replace('${options}', options);
-  }
-
-  protected getCustomStyles(): string {
-    return this.readWebviewFile('targetWizard', 'targetWizardPanel.css');
-  }
-
-  protected getScripts(): string {
-    return '';
+    this.panel.webview.postMessage({
+      command: 'init',
+      targets: this.targets,
+      selected: this.selected,
+      contexts: this.contexts,
+      logoUri: logoUri.toString()
+    });
   }
 
   protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'targetWizardPanel.js');
-    const data = { targets: this.targets, selected: this.selected };
-    const dataJson = JSON.stringify(data).replace(/</g, '\\u003c');
-    return `<script id="initialData" type="application/json">${dataJson}</script>\n<script nonce="${nonce}" src="${scriptUri}"></script>`;
+    return `<script nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
-  private async saveConfiguration(msg: any, close: boolean): Promise<void> {
-    const config = vscode.workspace.getConfiguration('vscode-eda');
-    const current = config.get<Record<string, any>>('edaTargets') || {};
+  private async saveConfiguration(msg: { command: string; [key: string]: unknown }, close: boolean): Promise<void> {
+    const config = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
+    const current = config.get<Record<string, unknown>>('edaTargets') || {};
+    const url = msg.url as string;
+    const originalUrl = msg.originalUrl as string | undefined;
 
     // Handle URL changes (remove old entry if URL changed)
-    if (msg.originalUrl && msg.originalUrl !== msg.url) {
-      delete current[msg.originalUrl];
+    if (originalUrl && originalUrl !== url) {
+      delete current[originalUrl];
     }
 
     // Save new/updated configuration (excluding secrets)
-    current[msg.url] = {
+    current[url] = {
       context: msg.context || undefined,
       edaUsername: msg.edaUsername || undefined,
       skipTlsVerify: msg.skipTlsVerify || undefined,
@@ -121,31 +172,19 @@ export class TargetWizardPanel extends BasePanel {
     await config.update('edaTargets', current, vscode.ConfigurationTarget.Global);
 
     // Extract host for password storage
-    const host = (() => {
-      try {
-        return new URL(msg.url).host;
-      } catch {
-        return msg.url;
-      }
-    })();
+    const host = extractHost(url);
 
     // Store passwords securely
     if (msg.edaPassword) {
-      await this.context.secrets.store(`edaPassword:${host}`, msg.edaPassword);
+      await this.context.secrets.store(`edaPassword:${host}`, msg.edaPassword as string);
     }
     if (msg.clientSecret) {
-      await this.context.secrets.store(`clientSecret:${host}`, msg.clientSecret);
+      await this.context.secrets.store(`clientSecret:${host}`, msg.clientSecret as string);
     }
 
     // Clean up old passwords if URL changed
-    if (msg.originalUrl && msg.originalUrl !== msg.url) {
-      try {
-        const oldHost = new URL(msg.originalUrl).host;
-        await this.context.secrets.delete(`edaPassword:${oldHost}`);
-        await this.context.secrets.delete(`clientSecret:${oldHost}`);
-      } catch {
-        // ignore invalid url
-      }
+    if (originalUrl && originalUrl !== url) {
+      await this.cleanupSecrets(originalUrl);
     }
 
     if (close) {
@@ -153,13 +192,7 @@ export class TargetWizardPanel extends BasePanel {
     }
   }
 
-  private async deleteTarget(url: string): Promise<void> {
-    const config = vscode.workspace.getConfiguration('vscode-eda');
-    const current = config.get<Record<string, any>>('edaTargets') || {};
-    delete current[url];
-    await config.update('edaTargets', current, vscode.ConfigurationTarget.Global);
-
-    // Clean up stored passwords
+  private async cleanupSecrets(url: string): Promise<void> {
     try {
       const host = new URL(url).host;
       await this.context.secrets.delete(`edaPassword:${host}`);
@@ -167,6 +200,14 @@ export class TargetWizardPanel extends BasePanel {
     } catch {
       // ignore invalid url
     }
+  }
+
+  private async deleteTarget(url: string): Promise<void> {
+    const config = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
+    const current = config.get<Record<string, unknown>>('edaTargets') || {};
+    delete current[url];
+    await config.update('edaTargets', current, vscode.ConfigurationTarget.Global);
+    await this.cleanupSecrets(url);
   }
 
   private async confirmDelete(index: number, url: string): Promise<void> {
@@ -180,13 +221,13 @@ export class TargetWizardPanel extends BasePanel {
     }
   }
 
-  private async commitTargets(targets: any[]): Promise<void> {
-    const config = vscode.workspace.getConfiguration('vscode-eda');
-    const previous = config.get<Record<string, any>>('edaTargets') || {};
-    const updated: Record<string, any> = {};
+  private async commitTargets(targets: unknown[]): Promise<void> {
+    const config = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
+    const previous = config.get<Record<string, unknown>>('edaTargets') || {};
+    const updated: Record<string, unknown> = {};
 
     // Build new configuration from targets array (excluding secrets)
-    for (const target of targets) {
+    for (const target of targets as Array<{ url: string; context?: string; edaUsername?: string; skipTlsVerify?: boolean; coreNamespace?: string }>) {
       updated[target.url] = {
         context: target.context || undefined,
         edaUsername: target.edaUsername || undefined,
@@ -198,17 +239,10 @@ export class TargetWizardPanel extends BasePanel {
     await config.update('edaTargets', updated, vscode.ConfigurationTarget.Global);
 
     // Clean up passwords for removed targets
-    for (const url of Object.keys(previous)) {
-      if (!updated[url]) {
-        try {
-          const host = new URL(url).host;
-          await this.context.secrets.delete(`edaPassword:${host}`);
-      await this.context.secrets.delete(`clientSecret:${host}`);
-        } catch {
-          // ignore invalid url
-        }
-      }
-    }
+    const cleanupPromises = Object.keys(previous)
+      .filter(url => !updated[url])
+      .map(url => this.cleanupSecrets(url));
+    await Promise.all(cleanupPromises);
   }
 
   private showReload(): void {
@@ -294,9 +328,10 @@ export class TargetWizardPanel extends BasePanel {
       });
 
       vscode.window.showInformationMessage('Client secret retrieved successfully');
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Full error:', error);
-      vscode.window.showErrorMessage(`Failed to retrieve client secret: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      vscode.window.showErrorMessage(`Failed to retrieve client secret: ${message}`);
     }
   }
 
@@ -307,49 +342,27 @@ export class TargetWizardPanel extends BasePanel {
   static async show(context: vscode.ExtensionContext): Promise<void> {
     const k8sClient = new KubernetesClient();
     const contexts = k8sClient.getAvailableContexts();
-    const config = vscode.workspace.getConfiguration('vscode-eda');
-    const targetsMap = config.get<Record<string, any>>('edaTargets') || {};
+    const config = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
+    const targetsMap = config.get<Record<string, unknown>>('edaTargets') || {};
 
-    // Load targets with their stored passwords
-    const targets = await Promise.all(
-      Object.entries(targetsMap).map(async ([url, val]) => {
-        const host = (() => {
-          try {
-            return new URL(url).host;
-          } catch {
-            return url;
-          }
-        })();
-
-        const edaPassword = await context.secrets.get(`edaPassword:${host}`);
-        const clientSecret = await context.secrets.get(`clientSecret:${host}`);
-
-        // Handle legacy string format and new object format
-        if (typeof val === 'string' || val === null) {
-          return {
-            url,
-            context: val || undefined,
-            edaPassword: edaPassword || undefined,
-            clientSecret: clientSecret || undefined
-          };
-        }
-
-        return {
-          url,
-          context: val.context || undefined,
-          edaUsername: val.edaUsername || undefined,
-          edaPassword: edaPassword || undefined,
-          clientSecret: clientSecret || undefined,
-          skipTlsVerify: val.skipTlsVerify || undefined,
-          coreNamespace: val.coreNamespace || undefined
-        };
-      })
-    );
-
+    const targets = await loadTargetsFromConfig(context, targetsMap);
     const selected = context.globalState.get<number>('selectedEdaTarget', 0) ?? 0;
     const panel = new TargetWizardPanel(context, contexts, targets, selected);
     return panel.waitForClose();
   }
+}
+
+interface TokenResponse {
+  access_token: string;
+}
+
+interface KeycloakClient {
+  id: string;
+  clientId: string;
+}
+
+interface ClientSecretResponse {
+  value?: string;
 }
 
 export async function fetchClientSecretDirectly(
@@ -384,7 +397,7 @@ export async function fetchClientSecretDirectly(
     );
   }
 
-  const adminTokenData = (await adminTokenRes.json()) as any;
+  const adminTokenData = (await adminTokenRes.json()) as TokenResponse;
   const adminToken = adminTokenData.access_token;
 
   // Step 2: List clients to find EDA client
@@ -401,8 +414,8 @@ export async function fetchClientSecretDirectly(
     throw new Error(`Failed to list clients: ${clientsRes.status}`);
   }
 
-  const clients = (await clientsRes.json()) as any[];
-  const edaClient = clients.find((c: any) => c.clientId === 'eda');
+  const clients = (await clientsRes.json()) as KeycloakClient[];
+  const edaClient = clients.find((c) => c.clientId === 'eda');
 
   if (!edaClient) {
     throw new Error('EDA client not found in Keycloak');
@@ -422,7 +435,7 @@ export async function fetchClientSecretDirectly(
     throw new Error(`Failed to fetch client secret: ${secretRes.status}`);
   }
 
-  const secretData = (await secretRes.json()) as any;
+  const secretData = (await secretRes.json()) as ClientSecretResponse;
   return secretData.value || '';
 }
 

@@ -1,6 +1,10 @@
-import * as vscode from 'vscode';
+import { randomBytes } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+
+import * as vscode from 'vscode';
+
+import { RESOURCES_DIR, ICON_LIGHT, ICON_DARK } from './constants';
 
 export abstract class BasePanel {
   protected panel: vscode.WebviewPanel;
@@ -32,7 +36,7 @@ export abstract class BasePanel {
 
     if (!BasePanel.tailwind) {
       try {
-        const filePath = path.join(this.context.extensionPath, 'resources', 'tailwind.css');
+        const filePath = path.join(this.context.extensionPath, RESOURCES_DIR, 'tailwind.css');
         BasePanel.tailwind = fs.readFileSync(filePath, 'utf8');
       } catch (err) {
         BasePanel.tailwind = '';
@@ -42,8 +46,17 @@ export abstract class BasePanel {
   }
 
   protected getNonce(): string {
-    const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    return Array.from({ length: 32 }, () => possible.charAt(Math.floor(Math.random() * possible.length))).join('');
+    return randomBytes(16).toString('hex');
+  }
+
+  /**
+   * Helper to get the standard EDA icon path for webview panels
+   */
+  protected static getEdaIconPath(context: vscode.ExtensionContext): { light: vscode.Uri; dark: vscode.Uri } {
+    return {
+      light: vscode.Uri.joinPath(context.extensionUri, RESOURCES_DIR, ICON_LIGHT),
+      dark: vscode.Uri.joinPath(context.extensionUri, RESOURCES_DIR, ICON_DARK)
+    };
   }
 
   protected getResourceUri(...pathSegments: string[]): vscode.Uri {
@@ -64,30 +77,20 @@ export abstract class BasePanel {
     }
   }
 
-  protected abstract getHtml(): string;
+  protected getCustomStyles(): string {
+    return '';
+  }
 
-  protected abstract getCustomStyles(): string;
-
-  protected abstract getScripts(): string;
-
-  /**
-   * Return the script tags for this panel.
-   * Subclasses can override this to inject external scripts or
-   * additional data elements. By default the return value of
-   * {@link getScripts} is wrapped in a single script tag with the
-   * provided nonce.
-   */
-  protected getScriptTags(nonce: string): string {
-    const scripts = this.getScripts();
-    return `<script nonce="${nonce}">${scripts}</script>`;
+  protected getScriptTags(_nonce: string): string {
+    return '';
   }
 
   protected buildHtml(): string {
     const nonce = this.getNonce();
     const csp = this.panel.webview.cspSource;
-    const codiconUri = this.getResourceUri('resources', 'codicon.css');
-    const styles = `${BasePanel.tailwind ?? ''}\n${this.getCustomStyles()}`;
-
+    const codiconUri = this.getResourceUri(RESOURCES_DIR, 'codicon.css');
+    const customStyles = this.getCustomStyles();
+    const styles = customStyles ? `${BasePanel.tailwind ?? ''}\n${customStyles}` : BasePanel.tailwind ?? '';
     const scriptTags = this.getScriptTags(nonce);
 
     return `<!DOCTYPE html>
@@ -100,7 +103,7 @@ export abstract class BasePanel {
   <style>${styles}</style>
 </head>
 <body>
-  ${this.getHtml()}
+  <div id="root"></div>
   ${scriptTags}
 </body>
 </html>`;

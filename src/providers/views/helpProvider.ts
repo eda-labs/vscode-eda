@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+
 import { TreeItemBase } from './treeItem';
 import { FilteredTreeProvider } from './filteredTreeProvider';
 
@@ -20,7 +21,7 @@ export class HelpProvider extends FilteredTreeProvider<TreeItemBase> {
     return element;
   }
 
-  async getChildren(element?: TreeItemBase): Promise<TreeItemBase[]> {
+  getChildren(element?: TreeItemBase): TreeItemBase[] {
     if (element) {
       return [];
     }

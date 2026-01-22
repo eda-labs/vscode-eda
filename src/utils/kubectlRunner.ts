@@ -1,8 +1,10 @@
 // src/utils/kubectlRunner.ts
-import { execSync, ExecSyncOptions } from 'child_process';
+import type { ExecSyncOptions } from 'child_process';
+import { execSync } from 'child_process';
+
 import { LogLevel, log } from '../extension';
 import { serviceManager } from '../services/serviceManager';
-import { KubernetesClient } from '../clients/kubernetesClient';
+import type { KubernetesClient } from '../clients/kubernetesClient';
 
 /**
  * Interface for kubectl execution options
@@ -66,6 +68,7 @@ export function runKubectl(
     const cmdLine = `${kubectlPath} ${finalArgs.join(' ')}`;
     log(`Running kubectl: ${cmdLine}`, LogLevel.DEBUG);
 
+    // eslint-disable-next-line sonarjs/os-command -- Intentional: kubectl execution is the purpose of this utility
     const cmdOutput = execSync(cmdLine, {
       encoding: 'utf-8',
       timeout: 30000, // 30 seconds timeout
@@ -73,10 +76,11 @@ export function runKubectl(
     });
 
     return typeof cmdOutput === 'string' ? cmdOutput : cmdOutput.toString();
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Handle special case where command returns non-zero but still has output
-    if (error.stdout && options.ignoreErrors) {
-      return error.stdout;
+    const execError = error as { stdout?: string };
+    if (execError.stdout && options.ignoreErrors) {
+      return execError.stdout;
     }
 
     log(`Error executing kubectl command: ${error}`, LogLevel.ERROR);

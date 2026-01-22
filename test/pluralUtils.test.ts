@@ -1,4 +1,5 @@
 import { expect } from 'chai';
+
 import { kindToPlural } from '../src/utils/pluralUtils';
 
 describe('kindToPlural', () => {

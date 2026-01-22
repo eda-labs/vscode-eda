@@ -1,11 +1,183 @@
 import { LogLevel, log } from '../extension';
-import { EdaAuthClient, EdaAuthOptions } from './edaAuthClient';
+
+import type { EdaAuthOptions } from './edaAuthClient';
+import { EdaAuthClient } from './edaAuthClient';
 import { EdaApiClient } from './edaApiClient';
-import { EdaStreamClient, StreamMessage } from './edaStreamClient';
+import type { StreamMessage } from './edaStreamClient';
+import { EdaStreamClient } from './edaStreamClient';
 import { EdaSpecManager } from './edaSpecManager';
 
-// Re-export types for backward compatibility
-export type { NamespaceCallback, DeviationCallback, TransactionCallback, AlarmCallback } from './types';
+// Constants for stream names
+const STREAM_SUMMARY = 'summary';
+
+// ============================================================================
+// Type definitions for EDA API resources
+// ============================================================================
+
+/** Standard Kubernetes object metadata */
+export interface K8sMetadata {
+  name?: string;
+  namespace?: string;
+  uid?: string;
+  resourceVersion?: string;
+  labels?: Record<string, string>;
+  annotations?: Record<string, string>;
+  [key: string]: unknown;
+}
+
+/** Base Kubernetes resource structure */
+export interface K8sResource {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: K8sMetadata;
+  spec?: Record<string, unknown>;
+  status?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/** Transaction summary returned from the API */
+export interface TransactionSummary {
+  id: number | string;
+  username?: string;
+  state?: string;
+  success?: boolean;
+  dryRun?: boolean;
+  description?: string;
+  lastChangeTimestamp?: string;
+  [key: string]: unknown;
+}
+
+/** Transaction details including execution and input resources */
+export interface TransactionDetails extends TransactionSummary {
+  execution?: Record<string, unknown>;
+  inputResources?: K8sResource[];
+  [key: string]: unknown;
+}
+
+/** Deviation action request body */
+export interface DeviationAction {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: K8sMetadata;
+  spec?: {
+    actions?: Array<{
+      action: string;
+      path?: string;
+      recurse?: boolean;
+    }>;
+    nodeEndpoint?: string;
+  };
+  [key: string]: unknown;
+}
+
+/** Transaction request body */
+export interface TransactionRequest {
+  description?: string;
+  dryRun?: boolean;
+  retain?: boolean;
+  resultType?: string;
+  crs?: Array<Record<string, unknown>>;
+  [key: string]: unknown;
+}
+
+/** API operation result (generic for restore/revert operations) */
+export interface ApiOperationResult {
+  success?: boolean;
+  message?: string;
+  [key: string]: unknown;
+}
+
+/** Resource diff returned from transaction diff API */
+export interface ResourceDiff {
+  diff?: string;
+  before?: string;
+  after?: string;
+  [key: string]: unknown;
+}
+
+/** Node configuration diff */
+export interface NodeConfigDiff {
+  diff?: string;
+  before?: string;
+  after?: string;
+  [key: string]: unknown;
+}
+
+/** TopoNode resource */
+export interface TopoNode extends K8sResource {
+  spec?: {
+    platform?: string;
+    [key: string]: unknown;
+  };
+  status?: {
+    'node-details'?: string;
+    [key: string]: unknown;
+  };
+}
+
+/** TopoLink resource */
+export interface TopoLink extends K8sResource {
+  spec?: {
+    endpoints?: Array<{
+      node?: string;
+      interface?: string;
+      [key: string]: unknown;
+    }>;
+    [key: string]: unknown;
+  };
+}
+
+/** Interface resource */
+export interface InterfaceResource extends K8sResource {
+  spec?: {
+    node?: string;
+    name?: string;
+    [key: string]: unknown;
+  };
+}
+
+/** NodeUser resource */
+export interface NodeUser extends K8sResource {
+  spec?: {
+    username?: string;
+    groupBindings?: Array<{
+      nodes?: string[];
+      nodeSelector?: string[];
+    }>;
+    [key: string]: unknown;
+  };
+}
+
+/** Topology resource */
+export interface Topology {
+  name?: string;
+  namespace?: string;
+  [key: string]: unknown;
+}
+
+/** Topology grouping resource */
+export interface TopologyGrouping extends K8sResource {
+  spec?: {
+    topology?: string;
+    [key: string]: unknown;
+  };
+}
+
+/** Node configuration */
+export interface NodeConfig {
+  config?: string;
+  [key: string]: unknown;
+}
+
+/** EQL query result */
+export interface EqlQueryResult {
+  results?: unknown[];
+  [key: string]: unknown;
+}
+
+/** Stream message callback type */
+export type StreamMessageCallback = (stream: string, message: unknown) => void;
+
 export interface EdaClientOptions extends EdaAuthOptions {
   coreNamespace?: string;
 }
@@ -19,7 +191,7 @@ export class EdaClient {
   private apiClient: EdaApiClient;
   private streamClient: EdaStreamClient;
   private specManager: EdaSpecManager;
-  private initPromise: Promise<void>;
+  private initPromise: Promise<void> = Promise.resolve();
 
   constructor(baseUrl: string, opts: EdaClientOptions) {
     log('Initializing EdaClient with new architecture', LogLevel.DEBUG);
@@ -34,19 +206,24 @@ export class EdaClient {
     // Connect components
     this.streamClient.setAuthClient(this.authClient);
 
-    // Initialize specs and set up streaming
-    this.initPromise = this.initializeAsync();
+    // Start async initialization
+    this.startInitialization();
   }
 
-  private async initializeAsync(): Promise<void> {
-    await this.specManager.waitForInit();
-    this.streamClient.setStreamEndpoints(this.specManager.getStreamEndpoints());
+  /**
+   * Start async initialization. Separated from constructor to satisfy sonarjs/no-async-constructor.
+   */
+  private startInitialization(): void {
+    this.specManager.startInitialization();
+    this.initPromise = this.specManager.waitForInit().then(() => {
+      this.streamClient.setStreamEndpoints(this.specManager.getStreamEndpoints());
+    });
   }
 
   // Stream event forwarding
-  public onStreamMessage(cb: (stream: string, msg: any) => void): void {
+  public onStreamMessage(cb: StreamMessageCallback): void {
     this.streamClient.onStreamMessage((event: StreamMessage) => {
-      cb(event.stream, event.message);
+      cb(event.stream, event.message as unknown);
     });
   }
 
@@ -125,8 +302,8 @@ export class EdaClient {
   public async streamEdaTransactions(size = 50): Promise<void> {
     await this.initPromise;
     this.streamClient.setTransactionSummarySize(size);
-    if (!this.streamClient.isSubscribed('summary')) {
-      this.streamClient.subscribeToStream('summary');
+    if (!this.streamClient.isSubscribed(STREAM_SUMMARY)) {
+      this.streamClient.subscribeToStream(STREAM_SUMMARY);
     }
     if (!this.streamClient.isConnected()) {
       await this.streamClient.connect();
@@ -156,7 +333,7 @@ export class EdaClient {
   }
 
   public closeTransactionStream(): void {
-    this.streamClient.unsubscribeFromStream('summary');
+    this.streamClient.unsubscribeFromStream(STREAM_SUMMARY);
   }
 
   // API methods (delegated)
@@ -169,19 +346,19 @@ export class EdaClient {
     return this.apiClient.getEdaResourceYaml(kind, name, namespace, apiVersion);
   }
 
-  public async createDeviationAction(namespace: string, action: any): Promise<any> {
-    return this.apiClient.createDeviationAction(namespace, action);
+  public async createDeviationAction(namespace: string, action: DeviationAction): Promise<K8sResource> {
+    return this.apiClient.createDeviationAction(namespace, action) as Promise<K8sResource>;
   }
 
-  public async restoreTransaction(transactionId: string | number): Promise<any> {
-    return this.apiClient.restoreTransaction(transactionId);
+  public async restoreTransaction(transactionId: string | number): Promise<ApiOperationResult> {
+    return this.apiClient.restoreTransaction(transactionId) as Promise<ApiOperationResult>;
   }
 
-  public async revertTransaction(transactionId: string | number): Promise<any> {
-    return this.apiClient.revertTransaction(transactionId);
+  public async revertTransaction(transactionId: string | number): Promise<ApiOperationResult> {
+    return this.apiClient.revertTransaction(transactionId) as Promise<ApiOperationResult>;
   }
 
-  public async runTransaction(transaction: any): Promise<number> {
+  public async runTransaction(transaction: TransactionRequest): Promise<number> {
     return this.apiClient.runTransaction(transaction);
   }
 
@@ -190,11 +367,11 @@ export class EdaClient {
     version: string,
     namespace: string | undefined,
     plural: string,
-    body: any,
+    body: K8sResource,
     namespaced = true,
     dryRun = false
-  ): Promise<any> {
-    return this.apiClient.createCustomResource(group, version, namespace, plural, body, namespaced, dryRun);
+  ): Promise<K8sResource> {
+    return this.apiClient.createCustomResource(group, version, namespace, plural, body, namespaced, dryRun) as Promise<K8sResource>;
   }
 
   public async updateCustomResource(
@@ -203,11 +380,11 @@ export class EdaClient {
     namespace: string | undefined,
     plural: string,
     name: string,
-    body: any,
+    body: K8sResource,
     namespaced = true,
     dryRun = false
-  ): Promise<any> {
-    return this.apiClient.updateCustomResource(group, version, namespace, plural, name, body, namespaced, dryRun);
+  ): Promise<K8sResource> {
+    return this.apiClient.updateCustomResource(group, version, namespace, plural, name, body, namespaced, dryRun) as Promise<K8sResource>;
   }
 
   public async deleteCustomResource(
@@ -217,29 +394,29 @@ export class EdaClient {
     plural: string,
     name: string,
     namespaced = true
-  ): Promise<any> {
-    return this.apiClient.deleteCustomResource(group, version, namespace, plural, name, namespaced);
+  ): Promise<ApiOperationResult> {
+    return this.apiClient.deleteCustomResource(group, version, namespace, plural, name, namespaced) as Promise<ApiOperationResult>;
   }
 
-  public async validateCustomResources(resources: any[]): Promise<void> {
+  public async validateCustomResources(resources: K8sResource[]): Promise<void> {
     return this.apiClient.validateCustomResources(resources);
   }
 
-  public async getEdaTransactions(size = 50): Promise<any[]> {
+  public async getEdaTransactions(size = 50): Promise<TransactionSummary[]> {
     await this.initPromise;
-    return this.apiClient.getEdaTransactions(size);
+    return this.apiClient.getEdaTransactions(size) as Promise<TransactionSummary[]>;
   }
 
-  public async getTransactionSummary(transactionId: string | number): Promise<any> {
-    return this.apiClient.getTransactionSummary(transactionId);
+  public async getTransactionSummary(transactionId: string | number): Promise<TransactionSummary> {
+    return this.apiClient.getTransactionSummary(transactionId) as Promise<TransactionSummary>;
   }
 
   public async getTransactionDetails(
     transactionId: string | number,
     waitForComplete = false,
     failOnErrors = false
-  ): Promise<any> {
-    return this.apiClient.getTransactionDetails(transactionId, waitForComplete, failOnErrors);
+  ): Promise<TransactionDetails> {
+    return this.apiClient.getTransactionDetails(transactionId, waitForComplete, failOnErrors) as Promise<TransactionDetails>;
   }
 
   public async getResourceDiff(
@@ -249,16 +426,16 @@ export class EdaClient {
     kind: string,
     name: string,
     namespace: string
-  ): Promise<any> {
-    return this.apiClient.getResourceDiff(transactionId, group, version, kind, name, namespace);
+  ): Promise<ResourceDiff> {
+    return this.apiClient.getResourceDiff(transactionId, group, version, kind, name, namespace) as Promise<ResourceDiff>;
   }
 
   public async getNodeConfigDiff(
     transactionId: string | number,
     node: string,
     namespace: string
-  ): Promise<any> {
-    return this.apiClient.getNodeConfigDiff(transactionId, node, namespace);
+  ): Promise<NodeConfigDiff> {
+    return this.apiClient.getNodeConfigDiff(transactionId, node, namespace) as Promise<NodeConfigDiff>;
   }
 
   public async getUserStorageFile(path: string): Promise<string | undefined> {
@@ -274,48 +451,48 @@ export class EdaClient {
     await this.streamClient.streamUserStorageFile(path);
   }
 
-  public async getNodeConfig(namespace: string, node: string): Promise<any> {
-    return this.apiClient.getNodeConfig(namespace, node);
+  public async getNodeConfig(namespace: string, node: string): Promise<NodeConfig> {
+    return this.apiClient.getNodeConfig(namespace, node) as Promise<NodeConfig>;
   }
 
-  public async getTopoNode(namespace: string, name: string): Promise<any> {
+  public async getTopoNode(namespace: string, name: string): Promise<TopoNode> {
     await this.initPromise;
-    return this.apiClient.getTopoNode(namespace, name);
+    return this.apiClient.getTopoNode(namespace, name) as Promise<TopoNode>;
   }
 
-  public async listTopoNodes(namespace: string): Promise<any[]> {
+  public async listTopoNodes(namespace: string): Promise<TopoNode[]> {
     await this.initPromise;
-    return this.apiClient.listTopoNodes(namespace);
+    return this.apiClient.listTopoNodes(namespace) as Promise<TopoNode[]>;
   }
 
-  public async listNodeUsers(namespace: string): Promise<any[]> {
+  public async listNodeUsers(namespace: string): Promise<NodeUser[]> {
     await this.initPromise;
-    return this.apiClient.listNodeUsers(namespace);
+    return this.apiClient.listNodeUsers(namespace) as Promise<NodeUser[]>;
   }
 
-  public async listInterfaces(namespace: string): Promise<any[]> {
+  public async listInterfaces(namespace: string): Promise<InterfaceResource[]> {
     await this.initPromise;
-    return this.apiClient.listInterfaces(namespace);
+    return this.apiClient.listInterfaces(namespace) as Promise<InterfaceResource[]>;
   }
 
-  public async listTopoLinks(namespace: string): Promise<any[]> {
+  public async listTopoLinks(namespace: string): Promise<TopoLink[]> {
     await this.initPromise;
-    return this.apiClient.listTopoLinks(namespace);
+    return this.apiClient.listTopoLinks(namespace) as Promise<TopoLink[]>;
   }
 
-  public async listTopologies(): Promise<any[]> {
+  public async listTopologies(): Promise<Topology[]> {
     await this.initPromise;
-    return this.apiClient.listTopologies();
+    return this.apiClient.listTopologies() as Promise<Topology[]>;
   }
 
-  public async listTopologyGroupings(topologyName: string): Promise<any[]> {
+  public async listTopologyGroupings(topologyName: string): Promise<TopologyGrouping[]> {
     await this.initPromise;
-    return this.apiClient.listTopologyGroupings(topologyName);
+    return this.apiClient.listTopologyGroupings(topologyName) as Promise<TopologyGrouping[]>;
   }
 
-  public async queryEql(query: string, namespaces?: string): Promise<any> {
+  public async queryEql(query: string, namespaces?: string): Promise<EqlQueryResult> {
     await this.initPromise;
-    return this.apiClient.queryEql(query, namespaces);
+    return this.apiClient.queryEql(query, namespaces) as Promise<EqlQueryResult>;
   }
 
   public async autocompleteEql(
@@ -351,7 +528,8 @@ export class EdaClient {
 
   // Compatibility method
   public async executeEdactl(command: string): Promise<string> {
-    const getMatch = command.match(/^get\s+deviation\s+(\S+)\s+-n\s+(\S+)\s+-o\s+yaml$/);
+    const regex = /^get\s+deviation\s+(\S+)\s+-n\s+(\S+)\s+-o\s+yaml$/;
+    const getMatch = regex.exec(command);
     if (getMatch) {
       const [, name, ns] = getMatch;
       return this.getEdaResourceYaml('deviation', name, ns);

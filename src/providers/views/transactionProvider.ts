@@ -1,24 +1,48 @@
 import * as vscode from 'vscode';
-import { TreeItemBase } from './treeItem';
-import { FilteredTreeProvider } from './filteredTreeProvider';
+
 import { serviceManager } from '../../services/serviceManager';
-import { EdaClient } from '../../clients/edaClient';
-import { ResourceStatusService } from '../../services/resourceStatusService';
+import type { EdaClient } from '../../clients/edaClient';
+import type { ResourceStatusService } from '../../services/resourceStatusService';
 import { log, LogLevel } from '../../extension';
 import { getResults } from '../../utils/streamMessageUtils';
+
+import { FilteredTreeProvider } from './filteredTreeProvider';
+import { TreeItemBase } from './treeItem';
+
+/** Represents transaction data from the EDA stream */
+interface Transaction {
+  id?: string | number;
+  username?: string;
+  state?: string;
+  description?: string;
+  lastChangeTimestamp?: string;
+  dryRun?: boolean;
+  success?: boolean;
+  [key: string]: unknown;
+}
+
+/** Stream message envelope */
+interface StreamMessageEnvelope {
+  msg?: {
+    results?: Transaction[];
+    Results?: Transaction[];
+  };
+  results?: Transaction[];
+  Results?: Transaction[];
+}
 
 export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTreeItem> {
   private edaClient: EdaClient;
   private statusService: ResourceStatusService;
-  private cachedTransactions: any[] = [];
+  private cachedTransactions: Transaction[] = [];
   private transactionLimit = 50;
 
   /**
    * Merge new transaction updates into the cached list while
    * maintaining at most 50 entries.
    */
-  private mergeTransactions(txs: any[]): void {
-    const byId = new Map<string, any>();
+  private mergeTransactions(txs: Transaction[]): void {
+    const byId = new Map<string, Transaction>();
     for (const tx of this.cachedTransactions) {
       if (tx && tx.id !== undefined) {
         byId.set(String(tx.id), tx);
@@ -45,12 +69,18 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
     super();
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
-    void this.edaClient.streamEdaTransactions(this.transactionLimit);
     this.edaClient.onStreamMessage((stream, msg) => {
       if (stream === 'summary') {
-        this.processTransactionMessage(msg);
+        this.processTransactionMessage(msg as StreamMessageEnvelope);
       }
     });
+  }
+
+  /**
+   * Initialize the transaction stream. Call this after construction.
+   */
+  public async initialize(): Promise<void> {
+    await this.edaClient.streamEdaTransactions(this.transactionLimit);
   }
 
   public getTransactionLimit(): number {
@@ -76,14 +106,14 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
     return element;
   }
 
-  async getChildren(element?: TransactionTreeItem): Promise<TransactionTreeItem[]> {
+  getChildren(element?: TransactionTreeItem): TransactionTreeItem[] {
     if (element) {
       return [];
     }
     return this.getTransactionItems();
   }
 
-  private async getTransactionItems(): Promise<TransactionTreeItem[]> {
+  private getTransactionItems(): TransactionTreeItem[] {
     log(`Loading transactions for the transaction tree...`, LogLevel.DEBUG);
     if (this.cachedTransactions.length === 0) {
       return [this.noTransactionsItem()];
@@ -155,10 +185,10 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
   }
 
   /** Process transaction summary stream updates */
-  private processTransactionMessage(msg: any): void {
-    let results = getResults(msg);
+  private processTransactionMessage(msg: StreamMessageEnvelope): void {
+    let results = getResults(msg) as Transaction[];
     if (results.length === 0) {
-      results = getResults(msg.msg);
+      results = getResults(msg.msg) as Transaction[];
     }
     if (results.length > 0) {
       this.mergeTransactions(results);
@@ -172,7 +202,7 @@ export class TransactionTreeItem extends TreeItemBase {
     label: string,
     collapsibleState: vscode.TreeItemCollapsibleState,
     contextValue: string,
-    resource?: any
+    resource?: Transaction
   ) {
     super(label, collapsibleState, contextValue, resource);
   }

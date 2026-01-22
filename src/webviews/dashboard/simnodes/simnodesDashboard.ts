@@ -1,23 +1,52 @@
 import * as vscode from 'vscode';
+
 import { BasePanel } from '../../basePanel';
+import { ALL_NAMESPACES } from '../../constants';
 import { serviceManager } from '../../../services/serviceManager';
-import { KubernetesClient } from '../../../clients/kubernetesClient';
-import { EdaClient } from '../../../clients/edaClient';
+import type { KubernetesClient } from '../../../clients/kubernetesClient';
+import type { EdaClient } from '../../../clients/edaClient';
+
+/** Kubernetes resource metadata */
+interface K8sMetadata {
+  name?: string;
+  namespace?: string;
+  labels?: Record<string, string>;
+}
+
+/** Kubernetes resource data structure */
+interface K8sResourceData {
+  metadata?: K8sMetadata;
+  spec?: Record<string, unknown>;
+  status?: Record<string, unknown>;
+}
+
+/** Pod resource with status information */
+interface PodResource extends K8sResourceData {
+  status?: {
+    phase?: string;
+    containerStatuses?: ContainerStatus[];
+  };
+}
+
+/** Container status in a pod */
+interface ContainerStatus {
+  ready?: boolean;
+}
+
+/** Flattened row data for display */
+type FlattenedRow = Record<string, unknown>;
 
 export class SimnodesDashboardPanel extends BasePanel {
   private kubernetesClient: KubernetesClient;
   private edaClient: EdaClient;
-  private rowMap: Map<string, Map<string, Record<string, any>>> = new Map();
+  private rowMap: Map<string, Map<string, FlattenedRow>> = new Map();
   private columns: string[] = [];
   private columnSet: Set<string> = new Set();
-  private selectedNamespace = 'All Namespaces';
+  private selectedNamespace = ALL_NAMESPACES;
   private disposables: vscode.Disposable[] = [];
 
   constructor(context: vscode.ExtensionContext, title: string) {
-    super(context, 'simnodesDashboard', title, undefined, {
-      light: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-black.svg'),
-      dark: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-white.svg')
-    });
+    super(context, 'simnodesDashboard', title, undefined, BasePanel.getEdaIconPath(context));
 
     this.kubernetesClient = serviceManager.getClient<KubernetesClient>('kubernetes');
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
@@ -25,7 +54,7 @@ export class SimnodesDashboardPanel extends BasePanel {
     // Listen for resource changes to refresh data
     this.disposables.push(
       this.kubernetesClient.onResourceChanged(() => {
-        void this.refreshData();
+        this.refreshData();
       })
     );
 
@@ -35,38 +64,26 @@ export class SimnodesDashboardPanel extends BasePanel {
       }
     });
 
-    this.panel.webview.onDidReceiveMessage(async msg => {
+    this.panel.webview.onDidReceiveMessage((msg: { command: string; namespace?: string; name?: string; operatingSystem?: string }) => {
       if (msg.command === 'ready') {
-        await this.sendNamespaces();
-        await this.loadInitial('All Namespaces');
+        this.sendNamespaces();
+        this.loadInitial(ALL_NAMESPACES);
       } else if (msg.command === 'setNamespace') {
-        await this.loadInitial(msg.namespace as string);
+        this.loadInitial(msg.namespace ?? ALL_NAMESPACES);
       } else if (msg.command === 'showInTree') {
-        await vscode.commands.executeCommand(
+        void vscode.commands.executeCommand(
           'vscode-eda.filterTree',
           'simnodes'
         );
-        await vscode.commands.executeCommand('vscode-eda.expandAllNamespaces');
+        void vscode.commands.executeCommand('vscode-eda.expandAllNamespaces');
       } else if (msg.command === 'viewSimnodeYaml') {
-        await this.viewSimnodeYaml(msg.name, msg.namespace);
+        void this.viewSimnodeYaml(msg.name ?? '', msg.namespace ?? '');
       } else if (msg.command === 'sshSimnode') {
-        await this.sshSimnode(msg.name, msg.namespace, msg.operatingSystem);
+        this.sshSimnode(msg.name ?? '', msg.namespace ?? '', msg.operatingSystem);
       }
     });
 
     this.panel.webview.html = this.buildHtml();
-  }
-
-  protected getHtml(): string {
-    return this.readWebviewFile('dashboard', 'simnodes', 'simnodesDashboard.html');
-  }
-
-  protected getCustomStyles(): string {
-    return this.readWebviewFile('dashboard', 'simnodes', 'simnodesDashboard.css');
-  }
-
-  protected getScripts(): string {
-    return '';
   }
 
   protected getScriptTags(nonce: string): string {
@@ -74,12 +91,12 @@ export class SimnodesDashboardPanel extends BasePanel {
     return `<script nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
-  private async sendNamespaces(): Promise<void> {
+  private sendNamespaces(): void {
     const coreNs = this.edaClient.getCoreNamespace();
     const namespaces = this.edaClient
       .getCachedNamespaces()
       .filter(ns => ns !== coreNs);
-    namespaces.unshift('All Namespaces');
+    namespaces.unshift(ALL_NAMESPACES);
     this.panel.webview.postMessage({
       command: 'init',
       namespaces,
@@ -88,15 +105,15 @@ export class SimnodesDashboardPanel extends BasePanel {
     });
   }
 
-  private flattenObject(obj: any, prefix = ''): Record<string, any> {
-    const result: Record<string, any> = {};
+  private flattenObject(obj: Record<string, unknown>, prefix = ''): FlattenedRow {
+    const result: FlattenedRow = {};
     if (!obj || typeof obj !== 'object') {
       return result;
     }
     for (const [k, v] of Object.entries(obj)) {
       const key = prefix ? `${prefix}.${k}` : k;
       if (v && typeof v === 'object' && !Array.isArray(v)) {
-        Object.assign(result, this.flattenObject(v, key));
+        Object.assign(result, this.flattenObject(v as Record<string, unknown>, key));
       } else {
         result[key] = v;
       }
@@ -104,12 +121,12 @@ export class SimnodesDashboardPanel extends BasePanel {
     return result;
   }
 
-  private flatten(item: any, podStatus?: string): Record<string, any> {
-    const result: Record<string, any> = {};
+  private flatten(item: K8sResourceData, podStatus?: string): FlattenedRow {
+    const result: FlattenedRow = {};
     if (!item || typeof item !== 'object') {
       return result;
     }
-    const meta = item.metadata || {};
+    const meta = item.metadata ?? {};
     if (meta.name) result.name = meta.name;
     if (meta.namespace) result.namespace = meta.namespace;
     if (meta.labels && typeof meta.labels === 'object') {
@@ -131,7 +148,7 @@ export class SimnodesDashboardPanel extends BasePanel {
     return result;
   }
 
-  private ensureColumns(data: Record<string, any>): boolean {
+  private ensureColumns(data: FlattenedRow): boolean {
     let added = false;
     for (const key of Object.keys(data)) {
       if (!this.columnSet.has(key)) {
@@ -148,11 +165,11 @@ export class SimnodesDashboardPanel extends BasePanel {
   private getPodStatusForSimnode(name: string, namespace: string): string {
     // Pods are in eda-system with naming pattern: cx-{namespace}--{name}-sim-*
     const coreNs = this.edaClient.getCoreNamespace();
-    const pods = this.kubernetesClient.getCachedPods(coreNs);
+    const pods = this.kubernetesClient.getCachedPods(coreNs) as PodResource[];
 
     // Find pod matching this simnode
-    const matchingPod = pods.find((pod: any) => {
-      const labels = pod.metadata?.labels || {};
+    const matchingPod = pods.find((pod: PodResource) => {
+      const labels = pod.metadata?.labels ?? {};
       return labels['cx-pod-name'] === name && labels['cx-node-namespace'] === namespace;
     });
 
@@ -160,9 +177,9 @@ export class SimnodesDashboardPanel extends BasePanel {
       return 'No Pod';
     }
 
-    const phase = matchingPod.status?.phase || 'Unknown';
-    const containerStatuses = matchingPod.status?.containerStatuses || [];
-    const ready = containerStatuses.every((c: any) => c.ready);
+    const phase = matchingPod.status?.phase ?? 'Unknown';
+    const containerStatuses = matchingPod.status?.containerStatuses ?? [];
+    const ready = containerStatuses.every((c: ContainerStatus) => c.ready);
 
     if (phase === 'Running' && ready) {
       return 'Running';
@@ -172,11 +189,11 @@ export class SimnodesDashboardPanel extends BasePanel {
     return phase;
   }
 
-  private async loadInitial(ns: string): Promise<void> {
+  private loadInitial(ns: string): void {
     this.selectedNamespace = ns;
     const coreNs = this.edaClient.getCoreNamespace();
     const targetNamespaces =
-      ns === 'All Namespaces'
+      ns === ALL_NAMESPACES
         ? this.edaClient
             .getCachedNamespaces()
             .filter(n => n !== coreNs)
@@ -189,7 +206,7 @@ export class SimnodesDashboardPanel extends BasePanel {
 
     for (const n of targetNamespaces) {
       try {
-        const simnodes = this.kubernetesClient.getCachedSimnodes(n);
+        const simnodes = this.kubernetesClient.getCachedSimnodes(n) as K8sResourceData[];
         let map = this.rowMap.get(n);
         if (!map) {
           map = new Map();
@@ -197,7 +214,7 @@ export class SimnodesDashboardPanel extends BasePanel {
         }
         map.clear();
         for (const item of simnodes) {
-          const name = item.metadata?.name as string | undefined;
+          const name = item.metadata?.name;
           if (!name) continue;
           const podStatus = this.getPodStatusForSimnode(name, n);
           const flat = this.flatten(item, podStatus);
@@ -211,22 +228,22 @@ export class SimnodesDashboardPanel extends BasePanel {
     this.postResults();
   }
 
-  private async refreshData(): Promise<void> {
+  private refreshData(): void {
     // Only refresh if panel is visible
     if (!this.panel.visible) {
       return;
     }
-    await this.loadInitial(this.selectedNamespace);
+    this.loadInitial(this.selectedNamespace);
   }
 
   private postResults(): void {
     const coreNs = this.edaClient.getCoreNamespace();
     const namespaces =
-      this.selectedNamespace === 'All Namespaces'
+      this.selectedNamespace === ALL_NAMESPACES
         ? Array.from(this.rowMap.keys()).filter(n => n !== coreNs)
         : [this.selectedNamespace];
 
-    const rows: any[][] = [];
+    const rows: unknown[][] = [];
     for (const ns of namespaces) {
       const map = this.rowMap.get(ns);
       if (!map) continue;
@@ -277,13 +294,13 @@ export class SimnodesDashboardPanel extends BasePanel {
     }
   }
 
-  private async sshSimnode(name: string, namespace: string, operatingSystem?: string): Promise<void> {
+  private sshSimnode(name: string, namespace: string, operatingSystem?: string): void {
     // Find the pod for this simnode
     const coreNs = this.edaClient.getCoreNamespace();
-    const pods = this.kubernetesClient.getCachedPods(coreNs);
+    const pods = this.kubernetesClient.getCachedPods(coreNs) as PodResource[];
 
-    const matchingPod = pods.find((pod: any) => {
-      const labels = pod.metadata?.labels || {};
+    const matchingPod = pods.find((pod: PodResource) => {
+      const labels = pod.metadata?.labels ?? {};
       return labels['cx-pod-name'] === name && labels['cx-node-namespace'] === namespace;
     });
 
@@ -304,7 +321,7 @@ export class SimnodesDashboardPanel extends BasePanel {
     terminal.sendText(`kubectl exec -it -n ${coreNs} ${podName} -c ${containerName} -- ${shellCmd}`);
   }
 
-  static show(context: vscode.ExtensionContext, title: string): void {
-    new SimnodesDashboardPanel(context, title);
+  static show(context: vscode.ExtensionContext, title: string): SimnodesDashboardPanel {
+    return new SimnodesDashboardPanel(context, title);
   }
 }

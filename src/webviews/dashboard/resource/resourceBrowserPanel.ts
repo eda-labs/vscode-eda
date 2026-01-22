@@ -1,9 +1,15 @@
 import * as vscode from 'vscode';
+import * as yaml from 'js-yaml';
+
 import { BasePanel } from '../../basePanel';
 import { serviceManager } from '../../../services/serviceManager';
-import { SchemaProviderService } from '../../../services/schemaProviderService';
-import { EdaCrd } from '../../../types';
-import * as yaml from 'js-yaml';
+import type { SchemaProviderService } from '../../../services/schemaProviderService';
+import type { EdaCrd } from '../../../types';
+
+interface WebviewMessage {
+  command: string;
+  name?: string;
+}
 
 export class ResourceBrowserPanel extends BasePanel {
   private schemaProvider: SchemaProviderService;
@@ -15,38 +21,23 @@ export class ResourceBrowserPanel extends BasePanel {
     title: string,
     target?: { group: string; kind: string }
   ) {
-    super(context, 'resourceBrowser', title, { enableFindWidget: true }, {
-      light: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-black.svg'),
-      dark: vscode.Uri.joinPath(context.extensionUri, 'resources', 'eda-icon-white.svg')
-    });
+    super(context, 'resourceBrowser', title, { enableFindWidget: true }, BasePanel.getEdaIconPath(context));
 
     this.target = target;
 
     this.schemaProvider = serviceManager.getService<SchemaProviderService>('schema-provider');
 
-    this.panel.webview.onDidReceiveMessage(async msg => {
+    this.panel.webview.onDidReceiveMessage(async (msg: WebviewMessage) => {
       if (msg.command === 'ready') {
         await this.loadResources();
-      } else if (msg.command === 'showResource') {
-        await this.showResource(msg.name as string);
-      } else if (msg.command === 'viewYaml') {
-        await this.openResourceYaml(msg.name as string);
+      } else if (msg.command === 'showResource' && msg.name) {
+        await this.showResource(msg.name);
+      } else if (msg.command === 'viewYaml' && msg.name) {
+        await this.openResourceYaml(msg.name);
       }
     });
 
     this.panel.webview.html = this.buildHtml();
-  }
-
-  protected getHtml(): string {
-    return this.readWebviewFile('dashboard', 'resource', 'resourceBrowserPanel.html');
-  }
-
-  protected getCustomStyles(): string {
-    return this.readWebviewFile('dashboard', 'resource', 'resourceBrowserPanel.css');
-  }
-
-  protected getScripts(): string {
-    return '';
   }
 
   protected getScriptTags(nonce: string): string {
@@ -69,7 +60,7 @@ export class ResourceBrowserPanel extends BasePanel {
         selected = match ? `${match.plural}.${match.group}` : undefined;
       }
       this.panel.webview.postMessage({ command: 'resources', list, selected });
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.panel.webview.postMessage({ command: 'error', message: String(err) });
     }
   }
@@ -107,7 +98,7 @@ export class ResourceBrowserPanel extends BasePanel {
     context: vscode.ExtensionContext,
     title: string,
     target?: { group: string; kind: string }
-  ): void {
-    new ResourceBrowserPanel(context, title, target);
+  ): ResourceBrowserPanel {
+    return new ResourceBrowserPanel(context, title, target);
   }
 }

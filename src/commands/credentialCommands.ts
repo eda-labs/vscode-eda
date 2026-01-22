@@ -6,7 +6,7 @@ export function registerCredentialCommands(context: vscode.ExtensionContext) {
     async () => {
       const config = vscode.workspace.getConfiguration('vscode-eda');
       let edaUrl = 'https://eda-api';
-      const edaTargetsCfg = config.get<Record<string, any>>('edaTargets');
+      const edaTargetsCfg = config.get<Record<string, unknown>>('edaTargets');
       const targetEntries = edaTargetsCfg ? Object.entries(edaTargetsCfg) : [];
       if (targetEntries.length > 0) {
         const idx =
@@ -34,14 +34,16 @@ export function registerCredentialCommands(context: vscode.ExtensionContext) {
 
     vscode.window.showInformationMessage('Credentials updated. Reload window to apply.', 'Reload').then(value => {
       if (value === 'Reload') {
-        void vscode.commands.executeCommand('workbench.action.reloadWindow');
+        Promise.resolve(vscode.commands.executeCommand('workbench.action.reloadWindow')).catch((error: unknown) => {
+          console.error('Failed to reload window:', error);
+        });
       }
     });
   });
 
   const updateTargetCredsCmd = vscode.commands.registerCommand('vscode-eda.updateTargetCredentials', async () => {
     const config = vscode.workspace.getConfiguration('vscode-eda');
-    const targetsMap = config.get<Record<string, any>>('edaTargets') || {};
+    const targetsMap = config.get<Record<string, unknown>>('edaTargets') ?? {};
     const entries = Object.entries(targetsMap);
     if (entries.length === 0) {
       vscode.window.showInformationMessage('No EDA targets configured.');
@@ -72,7 +74,9 @@ export function registerCredentialCommands(context: vscode.ExtensionContext) {
 
     vscode.window.showInformationMessage('Credentials updated. Reload window to apply.', 'Reload').then(value => {
       if (value === 'Reload') {
-        void vscode.commands.executeCommand('workbench.action.reloadWindow');
+        Promise.resolve(vscode.commands.executeCommand('workbench.action.reloadWindow')).catch((error: unknown) => {
+          console.error('Failed to reload window:', error);
+        });
       }
     });
   });

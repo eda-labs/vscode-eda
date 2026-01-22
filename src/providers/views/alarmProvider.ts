@@ -1,15 +1,47 @@
 import * as vscode from 'vscode';
-import { TreeItemBase } from './treeItem';
-import { FilteredTreeProvider } from './filteredTreeProvider';
+
 import { serviceManager } from '../../services/serviceManager';
-import { EdaClient } from '../../clients/edaClient';
-import { ResourceStatusService } from '../../services/resourceStatusService';
-import { getOps, getDelete, getDeleteIds, getInsertOrModify, getRows } from '../../utils/streamMessageUtils';
+import type { EdaClient } from '../../clients/edaClient';
+import type { ResourceStatusService } from '../../services/resourceStatusService';
+import {
+  getOps,
+  getDelete,
+  getDeleteIds,
+  getInsertOrModify,
+  getRows,
+  type OperationWithInsertOrModify,
+  type OperationWithDelete,
+  type InsertOrModifyWithRows,
+  type DeleteOperationWithIds
+} from '../../utils/streamMessageUtils';
+
+import { FilteredTreeProvider } from './filteredTreeProvider';
+import { TreeItemBase } from './treeItem';
+
+/** Represents an EDA alarm from the stream API */
+export interface EdaAlarm {
+  name: string;
+  type?: string;
+  severity?: string;
+  description?: string;
+  resource?: string;
+  namespace?: string;
+  '.namespace.name'?: string;
+  'namespace.name'?: string;
+  lastChanged?: string;
+  [key: string]: unknown;
+}
+
+/** Row structure containing alarm data */
+interface AlarmRow {
+  id?: string | number;
+  data?: EdaAlarm;
+}
 
 export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
   private edaClient: EdaClient;
   private statusService: ResourceStatusService;
-  private alarms: Map<string, any> = new Map();
+  private alarms: Map<string, EdaAlarm> = new Map();
   private _onAlarmCountChanged = new vscode.EventEmitter<number>();
   readonly onAlarmCountChanged = this._onAlarmCountChanged.event;
 
@@ -22,7 +54,6 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
 
-    void this.edaClient.streamEdaAlarms();
     this.edaClient.onStreamMessage((stream, msg) => {
       if (stream === 'current-alarms') {
         this.processAlarmMessage(msg);
@@ -33,12 +64,19 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
     this._onAlarmCountChanged.fire(this.count);
   }
 
+  /**
+   * Initialize the alarm stream. Call this after construction.
+   */
+  public async initialize(): Promise<void> {
+    await this.edaClient.streamEdaAlarms();
+  }
+
 
   getTreeItem(element: TreeItemBase): vscode.TreeItem {
     return element;
   }
 
-  async getChildren(element?: TreeItemBase): Promise<TreeItemBase[]> {
+  getChildren(element?: TreeItemBase): TreeItemBase[] {
     if (element) {
       return [];
     }
@@ -62,8 +100,8 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
     return list.map(a => this.createAlarmItem(a));
   }
 
-  private createAlarmItem(alarm: any): TreeItemBase {
-    const label = `${(alarm.severity || 'info').toUpperCase()} - ${alarm.type}`;
+  private createAlarmItem(alarm: EdaAlarm): TreeItemBase {
+    const label = `${(alarm.severity || 'info').toUpperCase()} - ${alarm.type ?? 'unknown'}`;
     const item = new TreeItemBase(label, vscode.TreeItemCollapsibleState.None, 'eda-alarm', { metadata: { name: alarm.name } });
     const ns =
       alarm['.namespace.name'] ||
@@ -75,7 +113,7 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
       `Name: ${alarm.name}`,
       `Description: ${alarm.description || 'No description'}`,
       `Resource: ${alarm.resource || 'Unknown'}`,
-      `Severity: ${alarm.severity}`
+      `Severity: ${alarm.severity ?? 'unknown'}`
     ].join('\n');
     item.iconPath = this.statusService.getAlarmThemeIcon(alarm.severity || 'INFO');
     item.command = {
@@ -87,26 +125,28 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
   }
 
   /** Process alarm stream updates */
-  private processAlarmMessage(msg: any): void {
-    const ops = getOps(msg.msg);
+  private processAlarmMessage(msg: unknown): void {
+    const envelope = msg as { msg?: unknown };
+    const ops = getOps(envelope.msg as { op?: unknown[]; Op?: unknown[] });
     if (ops.length === 0) {
       return;
     }
     let changed = false;
     for (const op of ops) {
-      const deleteOp = getDelete(op);
-      const deleteIds = getDeleteIds(deleteOp);
+      const typedOp = op as OperationWithDelete & OperationWithInsertOrModify;
+      const deleteOp = getDelete(typedOp) as DeleteOperationWithIds | undefined;
+      const deleteIds = getDeleteIds(deleteOp) as (string | number)[];
       for (const id of deleteIds) {
         if (this.alarms.delete(String(id))) {
           changed = true;
         }
       }
 
-      const insertOrModify = getInsertOrModify(op);
-      const rows = getRows(insertOrModify);
+      const insertOrModify = getInsertOrModify(typedOp) as InsertOrModifyWithRows | undefined;
+      const rows = getRows(insertOrModify) as AlarmRow[];
       for (const row of rows) {
         if (row && row.id !== undefined) {
-          const data = row.data || row;
+          const data: EdaAlarm = row.data ?? (row as unknown as EdaAlarm);
           this.alarms.set(String(row.id), data);
           changed = true;
         }

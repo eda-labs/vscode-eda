@@ -4,8 +4,23 @@ import * as os from 'os';
 import { spawn } from 'child_process';
 import { createWriteStream } from 'fs';
 import { pipeline } from 'stream/promises';
+
 import { fetch, EnvHttpProxyAgent } from 'undici';
+
 import { log, LogLevel } from '../extension';
+
+// Constants for platform identifiers
+const PLATFORM_WIN32 = 'win32';
+const PLATFORM_DARWIN = 'darwin';
+const PLATFORM_LINUX = 'linux';
+const ARCH_ARM64 = 'arm64';
+
+// Constants for binary paths (absolute paths to avoid PATH-based command execution)
+const TAR_BINARY = '/usr/bin/tar';
+const POWERSHELL_BINARY = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+
+// Base URL for embedding search releases
+const RELEASE_BASE_URL = 'https://github.com/FloSch62/eda-embeddingsearch/releases/latest/download';
 
 export interface EmbeddingSearchResult {
   topMatch: {
@@ -46,7 +61,7 @@ export class EmbeddingSearchService {
     private constructor() {
         this.edaPath = path.join(os.homedir(), '.eda', 'vscode');
         const platform = os.platform();
-        const binaryName = platform === 'win32' ? 'embeddingsearch.exe' : 'embeddingsearch';
+        const binaryName = platform === PLATFORM_WIN32 ? 'embeddingsearch.exe' : 'embeddingsearch';
         this.binaryPath = path.join(this.edaPath, binaryName);
     }
 
@@ -87,46 +102,45 @@ export class EmbeddingSearchService {
         }
     }
 
+    private getDownloadUrl(platform: string, arch: string): string {
+        const archSuffix = arch === ARCH_ARM64 ? 'arm64' : 'amd64';
+
+        if (platform === PLATFORM_DARWIN) {
+            return `${RELEASE_BASE_URL}/embeddingsearch-darwin-${archSuffix}.tar.gz`;
+        }
+        if (platform === PLATFORM_LINUX) {
+            return `${RELEASE_BASE_URL}/embeddingsearch-linux-${archSuffix}.tar.gz`;
+        }
+        if (platform === PLATFORM_WIN32) {
+            return `${RELEASE_BASE_URL}/embeddingsearch-windows-amd64.zip`;
+        }
+        throw new Error(`Unsupported platform: ${platform}`);
+    }
+
     private async downloadBinary(): Promise<void> {
         const platform = os.platform();
         const arch = os.arch();
-
-        let downloadUrl: string;
-
-        if (platform === 'darwin') {
-            if (arch === 'arm64') {
-                downloadUrl = 'https://github.com/FloSch62/eda-embeddingsearch/releases/latest/download/embeddingsearch-darwin-arm64.tar.gz';
-            } else {
-                downloadUrl = 'https://github.com/FloSch62/eda-embeddingsearch/releases/latest/download/embeddingsearch-darwin-amd64.tar.gz';
-            }
-        } else if (platform === 'linux') {
-            if (arch === 'arm64') {
-                downloadUrl = 'https://github.com/FloSch62/eda-embeddingsearch/releases/latest/download/embeddingsearch-linux-arm64.tar.gz';
-            } else {
-                downloadUrl = 'https://github.com/FloSch62/eda-embeddingsearch/releases/latest/download/embeddingsearch-linux-amd64.tar.gz';
-            }
-        } else if (platform === 'win32') {
-            downloadUrl = 'https://github.com/FloSch62/eda-embeddingsearch/releases/latest/download/embeddingsearch-windows-amd64.zip';
-        } else {
-            throw new Error(`Unsupported platform: ${platform}`);
-        }
+        const downloadUrl = this.getDownloadUrl(platform, arch);
 
         log(`Downloading embeddingsearch from ${downloadUrl}`, LogLevel.INFO);
 
-        const proxyEnv = process.env.http_proxy || process.env.HTTP_PROXY || process.env.https_proxy || process.env.HTTPS_PROXY;
+        const proxyEnv = process.env.http_proxy ?? process.env.HTTP_PROXY ?? process.env.https_proxy ?? process.env.HTTPS_PROXY;
         const dispatcher = proxyEnv ? new EnvHttpProxyAgent() : undefined;
         const response = await fetch(downloadUrl, { dispatcher });
         if (!response.ok) {
             throw new Error(`Failed to download: ${response.statusText}`);
         }
 
-        const tempFile = path.join(this.edaPath, `embeddingsearch-temp.${platform === 'win32' ? 'zip' : 'tar.gz'}`);
+        const isWindows = platform === PLATFORM_WIN32;
+        const tempFile = path.join(this.edaPath, `embeddingsearch-temp.${isWindows ? 'zip' : 'tar.gz'}`);
         const fileStream = createWriteStream(tempFile);
 
-        await pipeline(response.body as any, fileStream);
+        if (response.body) {
+            await pipeline(response.body, fileStream);
+        }
 
         // Extract the archive
-        if (platform === 'win32') {
+        if (isWindows) {
             await this.extractZip(tempFile, this.edaPath);
         } else {
             await this.extractTarGz(tempFile, this.edaPath);
@@ -135,8 +149,9 @@ export class EmbeddingSearchService {
         // Clean up temp file
         await fs.promises.unlink(tempFile);
 
-        // Make binary executable on Unix-like systems
-        if (platform !== 'win32') {
+        // Make binary executable on Unix-like systems (owner read/write/execute, group/others read/execute)
+        if (!isWindows) {
+            // eslint-disable-next-line sonarjs/file-permissions -- intentional: downloaded binary must be executable
             await fs.promises.chmod(this.binaryPath, 0o755);
         }
     }
@@ -144,7 +159,8 @@ export class EmbeddingSearchService {
     private async extractTarGz(archivePath: string, destPath: string): Promise<void> {
         return new Promise((resolve, reject) => {
             // Extract and rename in one command using --transform
-            const tar = spawn('tar', ['-xzf', archivePath, '-C', destPath, '--transform', 's/embeddingsearch-.*/embeddingsearch/']);
+            // Using absolute path to tar binary to avoid PATH-based command execution
+            const tar = spawn(TAR_BINARY, ['-xzf', archivePath, '-C', destPath, '--transform', 's/embeddingsearch-.*/embeddingsearch/']);
 
             tar.on('error', reject);
             tar.on('exit', (code) => {
@@ -159,8 +175,9 @@ export class EmbeddingSearchService {
 
     private async extractZip(archivePath: string, destPath: string): Promise<void> {
         // For Windows, we'll use PowerShell to extract and rename
+        // Using absolute path to PowerShell binary to avoid PATH-based command execution
         return new Promise((resolve, reject) => {
-            const ps = spawn('powershell', [
+            const ps = spawn(POWERSHELL_BINARY, [
                 '-Command',
                 `Expand-Archive -Path "${archivePath}" -DestinationPath "${destPath}" -Force; Get-ChildItem "${destPath}" -Filter "embeddingsearch-*" | Rename-Item -NewName "embeddingsearch.exe" -Force`
             ]);
@@ -186,22 +203,22 @@ export class EmbeddingSearchService {
 
             let output = '';
 
-            setupProcess.stdout.on('data', (data) => {
+            setupProcess.stdout.on('data', (data: Buffer) => {
                 const text = data.toString();
                 output += text;
                 // Log progress messages
-                const lines = text.split('\n').filter((line: string) => line.trim());
-                lines.forEach((line: string) => {
+                const lines = text.split('\n').filter((line) => line.trim());
+                for (const line of lines) {
                     if (line.includes('Downloading') || line.includes('Downloaded') ||
                         line.includes('Loading') || line.includes('Loaded') ||
                         line.includes('completed')) {
                         log(`Embeddingsearch: ${line}`, LogLevel.INFO);
                     }
-                });
+                }
             });
 
-            setupProcess.stderr.on('data', (data) => {
-                log(`Embeddingsearch setup error: ${data}`, LogLevel.ERROR);
+            setupProcess.stderr.on('data', (data: Buffer) => {
+                log(`Embeddingsearch setup error: ${data.toString()}`, LogLevel.ERROR);
             });
 
             setupProcess.on('error', (error) => {
@@ -233,22 +250,22 @@ export class EmbeddingSearchService {
                 return;
             }
 
-            const process = spawn(this.binaryPath, ['-json', query], {
+            const searchProcess = spawn(this.binaryPath, ['-json', query], {
                 cwd: this.edaPath
             });
 
             let stdout = '';
             let stderr = '';
 
-            process.stdout.on('data', (data) => {
+            searchProcess.stdout.on('data', (data: Buffer) => {
                 stdout += data.toString();
             });
 
-            process.stderr.on('data', (data) => {
+            searchProcess.stderr.on('data', (data: Buffer) => {
                 stderr += data.toString();
             });
 
-            process.on('close', (code) => {
+            searchProcess.on('close', (code) => {
                 if (code !== 0) {
                     reject(new Error(`Embedding search failed: ${stderr}`));
                     return;
@@ -258,11 +275,11 @@ export class EmbeddingSearchService {
                     const result = JSON.parse(stdout) as EmbeddingSearchResult;
                     resolve(result);
                 } catch (error) {
-                    reject(new Error(`Failed to parse embedding search result: ${error}`));
+                    reject(new Error(`Failed to parse embedding search result: ${String(error)}`));
                 }
             });
 
-            process.on('error', (error) => {
+            searchProcess.on('error', (error) => {
                 reject(error);
             });
         });

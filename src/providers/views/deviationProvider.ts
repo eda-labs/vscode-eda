@@ -1,12 +1,14 @@
 import * as vscode from 'vscode';
-import { TreeItemBase } from './treeItem';
-import { FilteredTreeProvider } from './filteredTreeProvider';
+
 import { serviceManager } from '../../services/serviceManager';
-import { EdaClient } from '../../clients/edaClient';
-import { ResourceStatusService } from '../../services/resourceStatusService';
+import type { EdaClient } from '../../clients/edaClient';
+import type { ResourceStatusService } from '../../services/resourceStatusService';
 import { log, LogLevel } from '../../extension';
 import { parseUpdateKey } from '../../utils/parseUpdateKey';
-import { getUpdates } from '../../utils/streamMessageUtils';
+import { getUpdates, type StreamMessageWithUpdates } from '../../utils/streamMessageUtils';
+
+import { FilteredTreeProvider } from './filteredTreeProvider';
+import { TreeItemBase } from './treeItem';
 
 export interface EdaDeviation {
   name?: string;
@@ -15,7 +17,21 @@ export interface EdaDeviation {
   metadata?: { name?: string; namespace?: string };
   kind?: string;
   apiVersion?: string;
-  [key: string]: any;
+  status?: string;
+  [key: string]: unknown;
+}
+
+/** Stream message structure for deviation updates */
+interface DeviationStreamMessage {
+  msg: StreamMessageWithUpdates | null | undefined;
+  stream?: string;
+  items?: EdaDeviation[];
+}
+
+/** Structure for deviation updates from stream */
+interface DeviationUpdate {
+  key?: string;
+  data?: EdaDeviation | null;
 }
 
 function getDeviationName(d: EdaDeviation): string | undefined {
@@ -41,15 +57,21 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
     super();
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
-    void this.edaClient.streamEdaDeviations();
     this.edaClient.onStreamMessage((stream, msg) => {
       if (stream === 'deviations') {
-        this.processDeviationMessage(msg);
+        this.processDeviationMessage(msg as DeviationStreamMessage);
       }
     });
 
     // Emit initial count
     this._onDeviationCountChanged.fire(this.count);
+  }
+
+  /**
+   * Initialize the deviation stream. Call this after construction.
+   */
+  public async initialize(): Promise<void> {
+    await this.edaClient.streamEdaDeviations();
   }
 
   public dispose(): void {
@@ -62,7 +84,7 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
     const key = `${namespace}/${name}`;
     const dev = this.deviations.get(key);
     if (dev) {
-      (dev as any).status = status;
+      dev.status = status;
       this._onDidChangeTreeData.fire();
     }
   }
@@ -86,7 +108,7 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
     return element;
   }
 
-  async getChildren(element?: DeviationTreeItem): Promise<DeviationTreeItem[]> {
+  getChildren(element?: DeviationTreeItem): DeviationTreeItem[] {
     if (element) {
       return [];
     }
@@ -97,14 +119,14 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
     }
   }
 
-  private async getAllDeviationItems(): Promise<DeviationTreeItem[]> {
+  private getAllDeviationItems(): DeviationTreeItem[] {
     if (this.deviations.size === 0) {
       return [this.noDeviationsItem()];
     }
     return Array.from(this.deviations.values()).map(d => this.createDeviationItem(d));
   }
 
-  private async getFilteredDeviationItems(filter: string): Promise<DeviationTreeItem[]> {
+  private getFilteredDeviationItems(filter: string): DeviationTreeItem[] {
     if (this.matchesFilter('deviations')) {
       return this.getAllDeviationItems();
     }
@@ -129,8 +151,8 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
     const ns = getDeviationNamespace(deviation) || 'unknown';
     const item = new DeviationTreeItem(label, vscode.TreeItemCollapsibleState.None, 'eda-deviation', deviation);
     item.description = `ns: ${ns}`;
-    if ((deviation as any).status) {
-      item.description += ` (${(deviation as any).status})`;
+    if (deviation.status) {
+      item.description += ` (${deviation.status})`;
     }
     item.tooltip = [
       `Name: ${label}`,
@@ -154,20 +176,53 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
     return item;
   }
 
+  /** Handle full list of deviations from initial load */
+  private handleFullDeviationList(items: EdaDeviation[]): void {
+    const entries: [string, EdaDeviation][] = [];
+    for (const d of items) {
+      const ns = getDeviationNamespace(d);
+      const name = getDeviationName(d);
+      if (ns && name) {
+        entries.push([`${ns}/${name}`, d]);
+      }
+    }
+    this.deviations = new Map(entries);
+    this.refresh();
+    this._onDeviationCountChanged.fire(this.count);
+  }
+
+  /** Extract name and namespace from an update object */
+  private extractDeviationIdentifiers(up: DeviationUpdate): { name?: string; ns?: string } {
+    let name: string | undefined = up.data?.metadata?.name || up.data?.name;
+    let ns: string | undefined = up.data?.metadata?.namespace;
+    if ((!name || !ns) && up.key) {
+      const parsed = parseUpdateKey(String(up.key));
+      if (!name) name = parsed.name;
+      if (!ns) ns = parsed.namespace;
+    }
+    return { name, ns };
+  }
+
+  /** Process a single deviation update */
+  private processSingleUpdate(up: DeviationUpdate): boolean {
+    const { name, ns } = this.extractDeviationIdentifiers(up);
+    if (!name || !ns) {
+      return false;
+    }
+    const key = `${ns}/${name}`;
+    if (up.data === null) {
+      return this.deviations.delete(key);
+    }
+    if (up.data) {
+      this.deviations.set(key, up.data);
+    }
+    return true;
+  }
+
   /** Process deviation stream updates */
-  private processDeviationMessage(msg: any): void {
+  private processDeviationMessage(msg: DeviationStreamMessage): void {
     if ('items' in msg && Array.isArray(msg.items)) {
-      this.deviations = new Map(
-        msg.items
-          .map((d: any) => {
-            const ns = getDeviationNamespace(d);
-            const name = getDeviationName(d);
-            return ns && name ? [`${ns}/${name}`, d] : undefined;
-          })
-          .filter((v: [string, EdaDeviation] | undefined): v is [string, EdaDeviation] => v !== undefined),
-      );
-      this.refresh();
-      this._onDeviationCountChanged.fire(this.count);
+      this.handleFullDeviationList(msg.items as EdaDeviation[]);
       return;
     }
 
@@ -178,19 +233,7 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
 
     let changed = false;
     for (const up of updates) {
-      let name: string | undefined = up.data?.metadata?.name || up.data?.name;
-      let ns: string | undefined = up.data?.metadata?.namespace;
-      if ((!name || !ns) && up.key) {
-        const parsed = parseUpdateKey(String(up.key));
-        if (!name) name = parsed.name;
-        if (!ns) ns = parsed.namespace;
-      }
-      if (!name || !ns) continue;
-      const key = `${ns}/${name}`;
-      if (up.data === null) {
-        if (this.deviations.delete(key)) changed = true;
-      } else {
-        this.deviations.set(key, up.data);
+      if (this.processSingleUpdate(up as DeviationUpdate)) {
         changed = true;
       }
     }
@@ -201,6 +244,19 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
   }
 }
 
+/** Convert EdaDeviation to a format compatible with TreeItemBase's K8sResource parameter */
+function toTreeItemResource(deviation?: EdaDeviation): { metadata?: { name?: string; namespace?: string }; kind?: string; apiVersion?: string; [key: string]: unknown } | undefined {
+  if (!deviation) return undefined;
+  // Create a copy excluding the string status field which is incompatible with K8sResource's status type
+  const result: { [key: string]: unknown } = {};
+  for (const [key, value] of Object.entries(deviation)) {
+    if (key !== 'status') {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
 export class DeviationTreeItem extends TreeItemBase {
   constructor(
     label: string,
@@ -208,6 +264,6 @@ export class DeviationTreeItem extends TreeItemBase {
     contextValue: string,
     public deviation?: EdaDeviation,
   ) {
-    super(label, collapsibleState, contextValue, deviation);
+    super(label, collapsibleState, contextValue, toTreeItemResource(deviation));
   }
 }

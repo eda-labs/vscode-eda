@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
-import { CoreService } from './coreService';
-import { KubernetesClient } from '../clients/kubernetesClient';
+
+import type { KubernetesClient } from '../clients/kubernetesClient';
 import { log, LogLevel } from '../extension';
+
+import { CoreService } from './coreService';
 
 interface ResourceDefinition {
   namespaced?: boolean;
@@ -14,7 +16,7 @@ interface ResourceDefinition {
 
 interface ResourceResult {
   resource: ResourceDefinition;
-  instances: any[];
+  instances: unknown[];
 }
 
 /**
@@ -39,20 +41,20 @@ export class ResourceService extends CoreService {
       this.refreshCachedResources();
     });
 
-    // Initialize resources
-    this.initializeResources();
+    // Schedule initialization outside of the constructor to avoid async in constructor
+    setTimeout(() => this.initializeResources(), 0);
   }
 
   /**
    * Initialize resources on startup
    */
-  private async initializeResources(): Promise<void> {
+  private initializeResources(): void {
     if (this.resourcesInitialized) {
       return;
     }
 
     try {
-      await this.refreshCachedResources();
+      this.refreshCachedResources();
       this.resourcesInitialized = true;
     } catch (error) {
       log(`Error initializing resources: ${error}`, LogLevel.ERROR);
@@ -62,7 +64,7 @@ export class ResourceService extends CoreService {
   /**
    * Refresh cached resources (called by watchers when resources change)
    */
-  private async refreshCachedResources(): Promise<void> {
+  private refreshCachedResources(): void {
     if (this.isRefreshing) {
       return;
     }
@@ -100,8 +102,8 @@ export class ResourceService extends CoreService {
   /**
    * Manually refresh resources (typically only needed for initial setup)
    */
-  public async forceRefresh(): Promise<void> {
-    await this.refreshCachedResources();
+  public forceRefresh(): void {
+    this.refreshCachedResources();
   }
 
   /**

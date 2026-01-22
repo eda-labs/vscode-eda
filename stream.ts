@@ -1,8 +1,12 @@
-import WebSocket from "ws";
-import { fetch } from "undici";
+/* eslint-disable no-console */
 import { TextDecoder } from "util";
 import { readFileSync } from "fs";
-import { EdaAuthClient, EdaAuthOptions } from "./src/clients/edaAuthClient";
+
+import WebSocket from "ws";
+import { fetch, type Response } from "undici";
+
+import type { EdaAuthOptions } from "./src/clients/edaAuthClient";
+import { EdaAuthClient } from "./src/clients/edaAuthClient";
 
 interface StreamConfig extends EdaAuthOptions {
   edaUrl: string;
@@ -23,6 +27,82 @@ function loadConfig(): StreamConfig {
   }
 }
 
+function logResponseHeaders(res: Response): void {
+  console.log(`[SSE] Response Status: ${res.status} ${res.statusText}`);
+  console.log("[SSE] Response Headers:");
+  for (const [key, value] of res.headers.entries()) {
+    console.log(`  ${key}: ${value}`);
+  }
+}
+
+function logSseData(jsonData: { stream?: string; details?: string }, line: string): void {
+  if (jsonData.stream && jsonData.details) {
+    console.log(`[SSE Stream] ${jsonData.stream}`);
+    console.log(`[SSE Details] ${jsonData.details}`);
+  } else {
+    console.log(`[SSE Data] ${line}`);
+  }
+}
+
+function processLine(line: string, onMessage: () => void): void {
+  if (!line) return;
+
+  try {
+    const jsonData = JSON.parse(line) as { stream?: string; details?: string };
+    logSseData(jsonData, line);
+  } catch {
+    console.log(`[SSE Data] ${line}`);
+  }
+  onMessage();
+}
+
+async function handleNonStreamingResponse(
+  res: Response,
+  onMessage: () => void
+): Promise<void> {
+  const text = await res.text();
+  console.log(`[SSE] Complete response received: ${text}`);
+
+  try {
+    const jsonData = JSON.parse(text) as { stream?: string; details?: string };
+    if (jsonData.stream && jsonData.details) {
+      console.log(`[SSE Stream] ${jsonData.stream}`);
+      console.log(`[SSE Details] ${jsonData.details}`);
+    }
+  } catch {
+    // Not JSON or doesn't have expected fields
+  }
+  onMessage();
+}
+
+async function handleStreamingResponse(
+  res: Response,
+  onMessage: () => void
+): Promise<void> {
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    for (;;) {
+      const result = await reader.read();
+      if (result.done) {
+        console.log("[SSE] Stream ended");
+        break;
+      }
+      buffer += decoder.decode(result.value, { stream: true });
+      let nl;
+      while ((nl = buffer.indexOf("\n")) !== -1) {
+        const line = buffer.slice(0, nl).trim();
+        buffer = buffer.slice(nl + 1);
+        processLine(line, onMessage);
+      }
+    }
+  } catch (error) {
+    console.error("[SSE] Stream error:", error);
+  }
+}
+
 async function streamSse(
   url: string,
   auth: EdaAuthClient,
@@ -33,14 +113,9 @@ async function streamSse(
   const res = await fetch(url, {
     headers: auth.getHeaders(),
     dispatcher: auth.getAgent(),
-  } as any);
+  } as Parameters<typeof fetch>[1]);
 
-  // Log response headers
-  console.log(`[SSE] Response Status: ${res.status} ${res.statusText}`);
-  console.log("[SSE] Response Headers:");
-  for (const [key, value] of res.headers.entries()) {
-    console.log(`  ${key}: ${value}`);
-  }
+  logResponseHeaders(res);
 
   if (!res.ok || !res.body) {
     console.error(`[SSE] Failed to stream: HTTP ${res.status}`);
@@ -49,62 +124,10 @@ async function streamSse(
 
   console.log("\n[SSE] Starting stream...");
 
-  // For non-streaming responses, read the entire body
-  if (res.headers.get('content-length')) {
-    const text = await res.text();
-    console.log(`[SSE] Complete response received: ${text}`);
-
-    // Try to parse the complete response for stream and details
-    try {
-      const jsonData = JSON.parse(text);
-      if (jsonData.stream && jsonData.details) {
-        console.log(`[SSE Stream] ${jsonData.stream}`);
-        console.log(`[SSE Details] ${jsonData.details}`);
-      }
-    } catch {
-      // Not JSON or doesn't have expected fields
-    }
-    onMessage();
-    return;
-  }
-
-  // For streaming responses
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  try {
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) {
-        console.log("[SSE] Stream ended");
-        break;
-      }
-      buffer += decoder.decode(value, { stream: true });
-      let nl;
-      while ((nl = buffer.indexOf("\n")) !== -1) {
-        const line = buffer.slice(0, nl).trim();
-        buffer = buffer.slice(nl + 1);
-        if (!line) continue;
-
-        // Try to parse JSON to extract stream and details
-        try {
-          const jsonData = JSON.parse(line);
-          if (jsonData.stream && jsonData.details) {
-            console.log(`[SSE Stream] ${jsonData.stream}`);
-            console.log(`[SSE Details] ${jsonData.details}`);
-          } else {
-            console.log(`[SSE Data] ${line}`);
-          }
-        } catch {
-          // Not JSON, log as raw data
-          console.log(`[SSE Data] ${line}`);
-        }
-        onMessage();
-      }
-    }
-  } catch (error) {
-    console.error("[SSE] Stream error:", error);
+  if (res.headers.get("content-length")) {
+    await handleNonStreamingResponse(res, onMessage);
+  } else {
+    await handleStreamingResponse(res, onMessage);
   }
 }
 
@@ -170,12 +193,17 @@ async function main(): Promise<void> {
     console.log(`[WS] Connection closed - Code: ${code}, Reason: ${reason.toString()}`);
   });
 
-  ws.on("message", async (data) => {
+  ws.on("message", (data) => {
     const txt = data.toString();
     console.log(`[WS Message] ${txt}`);
 
     try {
-      const msg = JSON.parse(txt);
+      const msg = JSON.parse(txt) as {
+        stream?: string;
+        details?: string;
+        type?: string;
+        msg?: { client?: string };
+      };
 
       // Check for stream and details in WebSocket messages
       if (msg.stream && msg.details) {
@@ -188,7 +216,7 @@ async function main(): Promise<void> {
       }
 
       if (msg.type === "register" && msg.msg?.client) {
-        const client = msg.msg.client as string;
+        const client = msg.msg.client;
         let streamName: string;
         let sseUrl: string;
 
@@ -230,7 +258,7 @@ async function main(): Promise<void> {
         // Start SSE streaming in parallel - don't await it
         streamSse(sseUrl, auth, () => scheduleNext(streamName)).then(() => {
           console.log("[SSE] Stream completed");
-        }).catch((err) => {
+        }).catch((err: unknown) => {
           console.error("[SSE] Stream error:", err);
         });
       }

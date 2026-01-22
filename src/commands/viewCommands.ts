@@ -1,17 +1,219 @@
 // src/commands/viewCommands.ts
 import * as vscode from 'vscode';
-import { serviceManager } from '../services/serviceManager';
-import { EdaClient } from '../clients/edaClient';
 import * as yaml from 'js-yaml';
-const Diff: any = require('diff');
-import { KubernetesClient } from '../clients/kubernetesClient';
+import { createPatch } from 'diff';
+
+import type { EdaClient } from '../clients/edaClient';
+import { serviceManager } from '../services/serviceManager';
+import type { KubernetesClient } from '../clients/kubernetesClient';
 import { edaOutputChannel } from '../extension';
-import { CrdDefinitionFileSystemProvider } from '../providers/documents/crdDefinitionProvider';
-import { DeviationDetailsDocumentProvider } from '../providers/documents/deviationDetailsProvider';
-import { BasketTransactionDocumentProvider } from '../providers/documents/basketTransactionProvider';
+import type { CrdDefinitionFileSystemProvider } from '../providers/documents/crdDefinitionProvider';
+import type { DeviationDetailsDocumentProvider } from '../providers/documents/deviationDetailsProvider';
+import type { BasketTransactionDocumentProvider } from '../providers/documents/basketTransactionProvider';
 import { loadTemplate } from '../utils/templateLoader';
 import { TransactionDetailsPanel } from '../webviews/transactionDetails/transactionDetailsPanel';
 import { AlarmDetailsPanel } from '../webviews/alarmDetails/alarmDetailsPanel';
+
+// ============================================================================
+// Type definitions for EDA API responses
+// ============================================================================
+
+/** Kubernetes-style metadata */
+interface K8sMetadata {
+  name: string;
+  namespace?: string;
+  uid?: string;
+}
+
+/** Resource name with GVK (Group/Version/Kind) */
+interface ResourceName {
+  gvk: {
+    group?: string;
+    version?: string;
+    kind: string;
+  };
+  name: string;
+  namespace: string;
+}
+
+/** Input CR for a transaction */
+interface InputCr {
+  name: ResourceName;
+  isDelete?: boolean;
+}
+
+/** Changed CR in a transaction */
+interface ChangedCr {
+  name?: ResourceName;
+  group?: string;
+  version?: string;
+  kind?: string;
+  namespace?: string;
+}
+
+/** Node with config changes in a transaction */
+interface NodeConfigChange {
+  node?: string;
+  namespace?: string;
+}
+
+/** Intent run in a transaction */
+interface IntentRun {
+  name?: string;
+  status?: string;
+}
+
+/** General error in a transaction */
+interface GeneralError {
+  message?: string;
+  code?: string;
+}
+
+/** Transaction summary response from EDA API */
+interface TransactionSummary {
+  id: string | number;
+  state?: string;
+  username?: string;
+  description?: string;
+  dryRun?: boolean;
+  success?: boolean;
+}
+
+/** Transaction details response from EDA API */
+interface TransactionDetails extends TransactionSummary {
+  inputCrs?: InputCr[];
+  changedCrs?: ChangedCr[];
+  nodesWithConfigChanges?: NodeConfigChange[];
+  intentsRun?: IntentRun[];
+  generalErrors?: GeneralError[];
+}
+
+/** Deviation resource from EDA API */
+interface Deviation {
+  name?: string;
+  kind?: string;
+  apiVersion?: string;
+  namespace?: string;
+  'namespace.name'?: string;
+  metadata?: K8sMetadata;
+  spec?: {
+    intendedValues?: string;
+    runningValues?: string;
+  };
+}
+
+/** Alarm resource from EDA API */
+interface Alarm {
+  name?: string;
+  kind?: string;
+  type?: string;
+  severity?: string;
+  namespace?: string;
+  '.namespace.name'?: string;
+  'namespace.name'?: string;
+  group?: string;
+  sourceGroup?: string;
+  sourceKind?: string;
+  sourceResource?: string;
+  jspath?: string;
+  parentAlarm?: string;
+  probableCause?: string;
+  remedialAction?: string;
+  description?: string;
+  resource?: string;
+  clusterSpecific?: string;
+}
+
+/** Alarm argument (may wrap alarm in .alarm property) */
+interface AlarmArg {
+  alarm?: Alarm;
+}
+
+/** CRD spec.names structure */
+interface CrdNames {
+  kind: string;
+  plural?: string;
+  singular?: string;
+}
+
+/** CRD spec structure */
+interface CrdSpec {
+  names?: CrdNames;
+}
+
+/** Kubernetes CRD resource */
+interface CrdResource {
+  metadata?: K8sMetadata;
+  spec?: CrdSpec;
+}
+
+/** Tree item with resource information */
+interface ResourceTreeItem {
+  resource?: {
+    kind?: string;
+    name?: string;
+    namespace?: string;
+  };
+}
+
+/**
+ * Extracts deviation name and namespace from the deviation object.
+ */
+function extractDeviationIdentity(deviation: Deviation): { name: string; namespace: string } {
+  const name = deviation.name ?? deviation.metadata?.name ?? '';
+  const namespace = deviation["namespace.name"] ?? deviation.namespace ?? deviation.metadata?.namespace ?? '';
+  return { name, namespace };
+}
+
+/**
+ * Computes a diff between intended and running values.
+ * Returns the diff string starting from the @@ markers, or undefined if no diff.
+ */
+function computeValuesDiff(deviation: Deviation): string | undefined {
+  try {
+    const intended: unknown = deviation.spec?.intendedValues
+      ? JSON.parse(deviation.spec.intendedValues)
+      : {};
+    const running: unknown = deviation.spec?.runningValues
+      ? JSON.parse(deviation.spec.runningValues)
+      : {};
+
+    let intendedYaml = yaml.dump(intended, { indent: 2 });
+    let runningYaml = yaml.dump(running, { indent: 2 });
+    if (intendedYaml.trim() === '{}') {
+      intendedYaml = '';
+    }
+    if (runningYaml.trim() === '{}') {
+      runningYaml = '';
+    }
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call -- diff package types not resolving correctly with node10 moduleResolution
+    const patch: string = createPatch('values', intendedYaml, runningYaml);
+    const lines: string[] = patch.split('\n');
+    const start = lines.findIndex((l: string) => l.startsWith('@@'));
+    if (start !== -1) {
+      return lines.slice(start).join('\n').trim();
+    }
+  } catch (err) {
+    console.error('Failed to compute deviation diff', err);
+  }
+  return undefined;
+}
+
+/**
+ * Fetches resource YAML for a deviation from the EDA API.
+ */
+async function fetchDeviationYaml(
+  edaClient: EdaClient,
+  name: string,
+  namespace: string
+): Promise<{ yaml?: string; error?: string }> {
+  try {
+    const resourceYaml = await edaClient.getEdaResourceYaml('deviation', name, namespace);
+    return { yaml: resourceYaml };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+}
 
 export function registerViewCommands(
   context: vscode.ExtensionContext,
@@ -34,28 +236,28 @@ export function registerViewCommands(
 
         // Retrieve transaction details and summary JSON
         const [detailsObj, summaryObj] = await Promise.all([
-          edaClient.getTransactionDetails(transactionId),
-          edaClient.getTransactionSummary(transactionId)
+          edaClient.getTransactionDetails(transactionId) as Promise<TransactionDetails>,
+          edaClient.getTransactionSummary(transactionId) as Promise<TransactionSummary>
         ]);
 
-        const mergedObj = { ...summaryObj, ...detailsObj } as any;
+        const mergedObj: TransactionDetails = { ...summaryObj, ...detailsObj };
 
         const success = mergedObj.success ? 'Yes' : 'No';
         const successColor = mergedObj.success ? '#2ECC71' : '#E74C3C';
 
-        const deletedInputs = Array.isArray(mergedObj.inputCrs)
-          ? mergedObj.inputCrs.filter((cr: any) => cr.isDelete)
+        const deletedInputs: InputCr[] = Array.isArray(mergedObj.inputCrs)
+          ? mergedObj.inputCrs.filter((cr: InputCr) => cr.isDelete)
           : [];
         const deletedSummary = deletedInputs.map(
-          (cr: any) =>
+          (cr: InputCr) =>
             `${cr.name.gvk.kind} ${cr.name.name} (namespace: ${cr.name.namespace})`
         );
 
-        const templateVars: Record<string, any> = {
+        const templateVars: Record<string, unknown> = {
           id: mergedObj.id,
           state: mergedObj.state,
           username: mergedObj.username,
-          description: mergedObj.description || 'N/A',
+          description: mergedObj.description ?? 'N/A',
           deleteResources: deletedSummary,
           dryRun: mergedObj.dryRun ? 'Yes' : 'No',
           success,
@@ -78,8 +280,9 @@ export function registerViewCommands(
 
         // Generate transaction details webview
         TransactionDetailsPanel.show(context, templateVars);
-      } catch (err: any) {
-        const msg = `Failed to load transaction details for ID ${transactionId}: ${err.message}`;
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        const msg = `Failed to load transaction details for ID ${transactionId}: ${errMsg}`;
         vscode.window.showErrorMessage(msg);
         edaOutputChannel.appendLine(msg);
       }
@@ -89,7 +292,7 @@ export function registerViewCommands(
   // Show CRD Definition command
   const showCRDDefinitionCommand = vscode.commands.registerCommand(
     'vscode-eda.showCRDDefinition',
-    async (treeItem: any) => {
+    async (treeItem: ResourceTreeItem) => {
       try {
         if (!treeItem?.resource?.kind) {
           vscode.window.showErrorMessage('No CRD instance or missing kind.');
@@ -99,8 +302,8 @@ export function registerViewCommands(
         const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
 
         // Get CRD YAML
-        const matchingCrds = k8sClient.getCachedCrds()
-          .filter((crd: any) => crd.spec?.names?.kind === kind);
+        const matchingCrds = (k8sClient.getCachedCrds() as CrdResource[])
+          .filter((crd: CrdResource) => crd.spec?.names?.kind === kind);
 
         if (!matchingCrds || matchingCrds.length === 0) {
           vscode.window.showErrorMessage(`Could not find CRD for kind "${kind}"`);
@@ -122,41 +325,43 @@ export function registerViewCommands(
         await vscode.languages.setTextDocumentLanguage(doc, 'yaml');
 
         await vscode.window.showTextDocument(doc, { preview: true });
-      } catch (error: any) {
-        vscode.window.showErrorMessage(`Failed to show CRD definition: ${error.message || error}`);
-        edaOutputChannel.appendLine(`Error showing CRD definition: ${error}`);
+      } catch (error: unknown) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        vscode.window.showErrorMessage(`Failed to show CRD definition: ${errMsg}`);
+        edaOutputChannel.appendLine(`Error showing CRD definition: ${String(error)}`);
       }
     }
   );
 
   // Show alarm details using a webview
-  vscode.commands.registerCommand('vscode-eda.showAlarmDetails', async (arg: any) => {
-    const alarm = arg && arg.alarm ? arg.alarm : arg;
+  vscode.commands.registerCommand('vscode-eda.showAlarmDetails', (arg: Alarm | AlarmArg) => {
+    // arg may be an Alarm directly or an object wrapping it in .alarm
+    const alarm: Alarm | undefined = (arg as AlarmArg).alarm ?? (arg as Alarm);
     if (!alarm) {
       vscode.window.showErrorMessage('No alarm details available.');
       return;
     }
 
-    const data = {
+    const data: Record<string, unknown> = {
       name: alarm.name,
       kind: alarm.kind,
       type: alarm.type,
       severity: alarm.severity,
       namespace:
-        alarm[".namespace.name"] ||
-        alarm["namespace.name"] ||
+        alarm[".namespace.name"] ??
+        alarm["namespace.name"] ??
         alarm.namespace,
       group: alarm.group,
       sourceGroup: alarm.sourceGroup,
       sourceKind: alarm.sourceKind,
       sourceResource: alarm.sourceResource,
       jspath: alarm.jspath,
-      parentAlarm: alarm.parentAlarm || 'N/A',
+      parentAlarm: alarm.parentAlarm ?? 'N/A',
       probableCause: alarm.probableCause,
       remedialAction: alarm.remedialAction,
       description: alarm.description,
       resource: alarm.resource,
-      clusterSpecific: alarm.clusterSpecific || 'N/A',
+      clusterSpecific: alarm.clusterSpecific ?? 'N/A',
       rawJson: JSON.stringify(alarm, null, 2)
     };
 
@@ -164,60 +369,36 @@ export function registerViewCommands(
   });
 
   // Show deviation details using markdown template
-  vscode.commands.registerCommand('vscode-eda.showDeviationDetails', async (deviation: any) => {
+  vscode.commands.registerCommand('vscode-eda.showDeviationDetails', async (deviation: Deviation) => {
     if (!deviation) {
       vscode.window.showErrorMessage('No deviation details available.');
       return;
     }
 
     try {
-      const name = deviation.name || deviation.metadata?.name;
-      const namespace =
-        deviation["namespace.name"] || deviation.namespace || deviation.metadata?.namespace;
+      const { name, namespace } = extractDeviationIdentity(deviation);
       const edaClient = serviceManager.getClient<EdaClient>('eda');
 
       // Prepare base template variables
-      const templateVars: Record<string, any> = {
+      const templateVars: Record<string, unknown> = {
         name,
-        kind: deviation.kind || 'Deviation',
-        apiVersion: deviation.apiVersion || 'v1',
+        kind: deviation.kind ?? 'Deviation',
+        apiVersion: deviation.apiVersion ?? 'v1',
         namespace
       };
 
       // Compute diff between intended and running values if present
-      try {
-        const intended = deviation.spec?.intendedValues
-          ? JSON.parse(deviation.spec.intendedValues as string)
-          : {};
-        const running = deviation.spec?.runningValues
-          ? JSON.parse(deviation.spec.runningValues as string)
-          : {};
-
-        let intendedYaml = yaml.dump(intended, { indent: 2 });
-        let runningYaml = yaml.dump(running, { indent: 2 });
-        if (intendedYaml.trim() === '{}') {
-          intendedYaml = '';
-        }
-        if (runningYaml.trim() === '{}') {
-          runningYaml = '';
-        }
-        const patch = Diff.createPatch('values', intendedYaml, runningYaml);
-        const lines = patch.split('\n');
-        const start = lines.findIndex((l: string) => l.startsWith('@@'));
-        if (start !== -1) {
-          templateVars.valueDiff = lines.slice(start).join('\n').trim();
-        }
-      } catch (err) {
-        console.error('Failed to compute deviation diff', err);
+      const valueDiff = computeValuesDiff(deviation);
+      if (valueDiff) {
+        templateVars.valueDiff = valueDiff;
       }
 
-      try {
-        // Fetch the YAML for the deviation
-        const resourceYaml = await edaClient.getEdaResourceYaml('deviation', name, namespace);
-        templateVars.resourceYaml = resourceYaml;
-      } catch (error) {
-        // Add error message if we couldn't get the YAML
-        templateVars.errorMessage = error instanceof Error ? error.message : String(error);
+      // Fetch the YAML for the deviation
+      const yamlResult = await fetchDeviationYaml(edaClient, name, namespace);
+      if (yamlResult.yaml) {
+        templateVars.resourceYaml = yamlResult.yaml;
+      } else if (yamlResult.error) {
+        templateVars.errorMessage = yamlResult.error;
       }
 
       // Load and process the template using Handlebars
@@ -229,12 +410,13 @@ export function registerViewCommands(
 
       // Open markdown preview
       await vscode.commands.executeCommand("markdown.showPreview", docUri);
-    } catch (error: any) {
-      vscode.window.showErrorMessage(`Failed to load deviation details: ${error.message || error}`);
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      vscode.window.showErrorMessage(`Failed to load deviation details: ${errMsg}`);
     }
   });
 
-  const showBasketTxCommand = vscode.commands.registerCommand('vscode-eda.showBasketTransaction', async (tx: any) => {
+  const showBasketTxCommand = vscode.commands.registerCommand('vscode-eda.showBasketTransaction', async (tx: unknown) => {
     if (!tx) {
       vscode.window.showErrorMessage('No transaction details available.');
       return;

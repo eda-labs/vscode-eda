@@ -1,24 +1,9 @@
+/* Topology Dashboard - Unique styles only
+   Common styles (body, :root, select) are in tailwind-input.css */
+
 :root {
-  --bg-primary: var(--vscode-editor-background);
-  --bg-secondary: var(--vscode-panel-background);
-  --border: var(--vscode-panel-border);
-  --text-primary: var(--vscode-editor-foreground);
-  --text-secondary: var(--vscode-descriptionForeground);
-  --accent: var(--vscode-button-background);
-  --accent-hover: var(--vscode-button-hoverBackground);
   --edge-label-bg: var(--vscode-editor-background);
   --edge-label-border: var(--vscode-panel-border);
-  --success: #4ade80;
-  --error: #f87171;
-}
-
-body {
-  margin: 0;
-  padding: 0;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-family: var(--vscode-font-family);
-  font-size: var(--vscode-font-size);
 }
 
 .dashboard {
@@ -32,18 +17,7 @@ body {
 }
 
 .header {
-  display: flex;
-  align-items: center;
   justify-content: flex-end;
-  margin-bottom: 16px;
-}
-
-.select {
-  background-color: var(--vscode-input-background);
-  color: var(--vscode-input-foreground);
-  border: 1px solid var(--vscode-input-border);
-  border-radius: 4px;
-  padding: 4px 8px;
 }
 
 .label-select {
@@ -54,14 +28,14 @@ body {
   margin-right: 8px;
   padding: 4px 12px;
   border: none;
-  background-color: var(--accent);
+  background-color: var(--color-vscode-accent);
   color: var(--vscode-button-foreground);
   border-radius: 4px;
   cursor: pointer;
 }
 
 .toggle-btn:hover {
-  background-color: var(--accent-hover);
+  background-color: var(--color-vscode-accent-hover);
 }
 
 .body {
@@ -72,17 +46,17 @@ body {
 
 .cy {
   flex: 4;
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-vscode-border);
   border-radius: 8px;
-  background-color: var(--bg-secondary);
+  background-color: var(--color-vscode-bg-secondary);
   overflow: hidden;
 }
 
 .info-card {
   flex: 1;
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-vscode-border);
   border-radius: 8px;
-  background-color: var(--bg-secondary);
+  background-color: var(--color-vscode-bg-secondary);
   padding: 8px;
   overflow: auto;
   font-family: var(--vscode-font-family);
@@ -107,7 +81,7 @@ body {
 }
 
 .info-card td:first-child {
-  color: var(--text-secondary);
+  color: var(--color-vscode-text-secondary);
 }
 
 .info-card tr.section td {
@@ -115,17 +89,19 @@ body {
   padding-top: 6px;
 }
 
-.info-card .node-link {
+.info-card .node-link,
+.info-card .link-resource {
   color: var(--vscode-textLink-foreground);
   text-decoration: none;
 }
 
-.info-card .node-link:hover {
+.info-card .node-link:hover,
+.info-card .link-resource:hover {
   text-decoration: underline;
 }
 
-.node-icon,                  /* the <img> tag */
-.react-flow__node svg {      /* or inline fallback */
+.node-icon,
+.react-flow__node svg {
   overflow: visible;
 }
 
@@ -164,9 +140,9 @@ body {
 }
 
 .popup-content {
-  background-color: var(--bg-secondary);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
+  background-color: var(--color-vscode-bg-secondary);
+  color: var(--color-vscode-text-primary);
+  border: 1px solid var(--color-vscode-border);
   border-radius: 8px;
   padding: 16px;
   display: flex;

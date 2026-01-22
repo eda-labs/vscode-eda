@@ -1,7 +1,8 @@
 // src/utils/templateLoader.ts
 import * as fs from 'fs';
 import * as path from 'path';
-import * as vscode from 'vscode';
+
+import type * as vscode from 'vscode';
 import * as Handlebars from 'handlebars';
 
 /**
@@ -15,7 +16,7 @@ import * as Handlebars from 'handlebars';
 export function loadTemplate(
   templateName: string,
   context: vscode.ExtensionContext,
-  variables: Record<string, any>
+  variables: Record<string, unknown>
 ): string {
   try {
     // Adjust the path to point to src/templates instead of templates/
