@@ -382,6 +382,7 @@ async function initializeTreeViewsAndCommands(context: vscode.ExtensionContext):
   });
 
   const namespaceProvider = new EdaNamespaceProvider();
+  void namespaceProvider.initialize();
   const namespaceTreeView = vscode.window.createTreeView('edaNamespaces', {
     treeDataProvider: namespaceProvider,
     showCollapseAll: true
@@ -395,6 +396,7 @@ async function initializeTreeViewsAndCommands(context: vscode.ExtensionContext):
   });
 
   const alarmProvider = new EdaAlarmProvider();
+  void alarmProvider.initialize();
   const alarmTreeView = vscode.window.createTreeView('edaAlarms', {
     treeDataProvider: alarmProvider,
     showCollapseAll: true
@@ -405,6 +407,7 @@ async function initializeTreeViewsAndCommands(context: vscode.ExtensionContext):
   });
 
   edaDeviationProvider = new EdaDeviationProvider();
+  void edaDeviationProvider.initialize();
   const deviationTreeView = vscode.window.createTreeView('edaDeviations', {
     treeDataProvider: edaDeviationProvider,
     showCollapseAll: true
@@ -415,6 +418,7 @@ async function initializeTreeViewsAndCommands(context: vscode.ExtensionContext):
   });
 
   edaTransactionBasketProvider = new TransactionBasketProvider();
+  void edaTransactionBasketProvider.initialize();
   const basketTreeView = vscode.window.createTreeView('edaTransactionBasket', {
     treeDataProvider: edaTransactionBasketProvider,
     showCollapseAll: true
@@ -425,6 +429,7 @@ async function initializeTreeViewsAndCommands(context: vscode.ExtensionContext):
   });
 
   edaTransactionProvider = new EdaTransactionProvider();
+  void edaTransactionProvider.initialize();
   const transactionTreeView = vscode.window.createTreeView('edaTransactions', {
     treeDataProvider: edaTransactionProvider,
     showCollapseAll: true
