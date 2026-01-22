@@ -23,11 +23,91 @@ const SCHEME_K8S = 'k8s' as const;
 const PATH_PATTERN = /^\/apps\/([^/]+)\/([^/]+)(?:\/namespaces\/{namespace\})?\/([^/]+)$/;
 const REF_PATTERN = /\.([^./]+)$/;
 
+// Type definitions for JSON Schema
+interface JsonSchemaProperty {
+  default?: string;
+  enum?: string[];
+  description?: string;
+}
+
+interface JsonSchema {
+  description?: string;
+  properties?: Record<string, JsonSchemaProperty | JsonSchema>;
+}
+
+// Type definitions for OpenAPI spec
+interface OpenApiRequestBody {
+  content?: {
+    'application/json'?: {
+      schema?: {
+        $ref?: string;
+      };
+    };
+  };
+}
+
+interface OpenApiOperation {
+  description?: string;
+  summary?: string;
+  requestBody?: OpenApiRequestBody;
+}
+
+interface OpenApiPathItem {
+  post?: OpenApiOperation;
+}
+
+interface OpenApiComponents {
+  schemas?: Record<string, JsonSchema>;
+}
+
+interface OpenApiSpec {
+  paths?: Record<string, OpenApiPathItem>;
+  components?: OpenApiComponents;
+}
+
+// Type definitions for Kubernetes CRD
+interface K8sCrdVersion {
+  name?: string;
+  storage?: boolean;
+  schema?: {
+    openAPIV3Schema?: JsonSchema;
+  };
+}
+
+interface K8sCrdSpec {
+  group?: string;
+  version?: string;
+  scope?: string;
+  names?: {
+    kind?: string;
+    plural?: string;
+  };
+  versions?: K8sCrdVersion[];
+}
+
+interface K8sCrd {
+  spec?: K8sCrdSpec;
+}
+
+// Type definition for parsed YAML document with kind
+interface ParsedYamlDocument {
+  kind?: string;
+}
+
+// Type definition for Red Hat YAML extension API
+interface YamlExtensionApi {
+  registerContributor?: (
+    name: string,
+    requestSchema: (resource: string) => string | undefined,
+    requestSchemaContent: (schemaUri: string) => string | undefined
+  ) => void;
+}
+
 export class SchemaProviderService extends CoreService {
   private schemaCacheDir: string;
   private disposables: vscode.Disposable[] = [];
   private schemaCache = new Map<string, string>();
-  private yamlApi: any | null = null;
+  private yamlApi: YamlExtensionApi | null = null;
 
   constructor() {
     super();
@@ -41,7 +121,7 @@ export class SchemaProviderService extends CoreService {
    * Calculate the priority of a schema based on whether it has metadata/spec properties.
    * Schemas with these properties are considered more complete.
    */
-  private getSchemaQualityPriority(schema: any): number {
+  private getSchemaQualityPriority(schema: JsonSchema): number {
     return schema?.properties?.metadata || schema?.properties?.spec ? 1 : 0;
   }
 
@@ -54,14 +134,14 @@ export class SchemaProviderService extends CoreService {
       return -1;
     }
     try {
-      const existing = JSON.parse(await fs.promises.readFile(schemaPath, UTF8));
+      const existing = JSON.parse(await fs.promises.readFile(schemaPath, UTF8)) as JsonSchema;
       return this.getSchemaQualityPriority(existing);
     } catch {
       return 0;
     }
   }
 
-  private async cacheSchema(kind: string, schema: any): Promise<void> {
+  private async cacheSchema(kind: string, schema: JsonSchema): Promise<void> {
     const schemaPath = path.join(this.schemaCacheDir, `${kind.toLowerCase()}.json`);
     const existingPriority = await this.getExistingSchemaPriority(schemaPath);
     const newPriority = this.getSchemaQualityPriority(schema);
@@ -126,14 +206,13 @@ export class SchemaProviderService extends CoreService {
   private async processSpecFile(file: string): Promise<void> {
     try {
       const content = await fs.promises.readFile(file, UTF8);
-      const json = JSON.parse(content);
-      const schemas = json.components?.schemas ?? {};
-      for (const [name, schema] of Object.entries<any>(schemas)) {
+      const json = JSON.parse(content) as OpenApiSpec;
+      const schemas: Record<string, JsonSchema> = json.components?.schemas ?? {};
+      for (const [name, schema] of Object.entries(schemas)) {
+        const kindProperty = schema?.properties?.kind as JsonSchemaProperty | undefined;
         const kind =
-          schema?.properties?.kind?.default ||
-          (Array.isArray(schema?.properties?.kind?.enum)
-            ? schema.properties.kind.enum[0]
-            : undefined) ||
+          kindProperty?.default ||
+          (Array.isArray(kindProperty?.enum) ? kindProperty.enum[0] : undefined) ||
           name.split('.').pop();
         if (typeof kind === 'string') {
           await this.cacheSchema(kind, schema);
@@ -155,9 +234,9 @@ export class SchemaProviderService extends CoreService {
       } else if (document.uri.scheme === SCHEME_K8S) {
         kind = ResourceEditDocumentProvider.parseUri(document.uri).kind;
       } else {
-        const parsed = yaml.load(document.getText()) as any;
+        const parsed = yaml.load(document.getText()) as ParsedYamlDocument | null;
         if (parsed && typeof parsed === 'object') {
-          kind = parsed.kind as string | undefined;
+          kind = parsed.kind;
         }
       }
       if (kind) {
@@ -182,7 +261,7 @@ export class SchemaProviderService extends CoreService {
         log('YAML extension not found; schema validation disabled', LogLevel.WARN);
         return;
       }
-      this.yamlApi = await ext.activate();
+      this.yamlApi = (await ext.activate()) as YamlExtensionApi;
       if (!this.yamlApi?.registerContributor) {
         log('YAML extension API missing registerContributor', LogLevel.WARN);
         return;
@@ -209,9 +288,9 @@ export class SchemaProviderService extends CoreService {
       } else {
         const doc = vscode.workspace.textDocuments.find(d => d.uri.toString() === resource);
         if (doc) {
-          const parsed = yaml.load(doc.getText()) as any;
+          const parsed = yaml.load(doc.getText()) as ParsedYamlDocument | null;
           if (parsed?.kind) {
-            kind = parsed.kind as string;
+            kind = parsed.kind;
           }
         }
       }
@@ -239,10 +318,10 @@ export class SchemaProviderService extends CoreService {
   /** Extract CRD from an OpenAPI spec path entry */
   private extractCrdFromPath(
     p: string,
-    methods: any,
-    spec: any
+    methods: OpenApiPathItem,
+    spec: OpenApiSpec
   ): EdaCrd | null {
-    const post = (methods as any).post;
+    const post = methods.post;
     if (!post?.requestBody) {
       return null;
     }
@@ -253,8 +332,8 @@ export class SchemaProviderService extends CoreService {
     const [, group, version, plural] = match;
     const namespaced = p.includes('/namespaces/{namespace}/');
     let kind: string | undefined;
-    let description: string | undefined = post.description || post.summary;
-    const ref = post.requestBody.content?.['application/json']?.schema?.['$ref'];
+    let description: string | undefined = post.description ?? post.summary;
+    const ref = post.requestBody.content?.['application/json']?.schema?.$ref;
     if (typeof ref === 'string') {
       const m = REF_PATTERN.exec(ref);
       if (m) {
@@ -273,8 +352,9 @@ export class SchemaProviderService extends CoreService {
     const results: EdaCrd[] = [];
     try {
       const raw = await fs.promises.readFile(specPath, UTF8);
-      const spec = JSON.parse(raw);
-      for (const [p, methods] of Object.entries<any>(spec.paths ?? {})) {
+      const spec = JSON.parse(raw) as OpenApiSpec;
+      const paths: Record<string, OpenApiPathItem> = spec.paths ?? {};
+      for (const [p, methods] of Object.entries(paths)) {
         const crd = this.extractCrdFromPath(p, methods, spec);
         if (crd) {
           results.push(crd);
@@ -312,35 +392,35 @@ export class SchemaProviderService extends CoreService {
    * Get the active version object from a CRD spec.
    * Prefers the storage version, falls back to first version.
    */
-  private getCrdVersionObject(crd: any): any | undefined {
+  private getCrdVersionObject(crd: K8sCrd): K8sCrdVersion | undefined {
     const versions = crd?.spec?.versions;
     if (!Array.isArray(versions)) {
       return undefined;
     }
-    return versions.find((v: any) => v.storage) || versions[0];
+    return versions.find((v: K8sCrdVersion) => v.storage) ?? versions[0];
   }
 
   /**
    * Extract the version string from a CRD spec.
    * Checks versioned spec first, then falls back to legacy spec.version.
    */
-  private getCrdVersion(crd: any, versionObj: any): string | undefined {
-    return versionObj?.name || (crd?.spec?.version as string | undefined);
+  private getCrdVersion(crd: K8sCrd, versionObj: K8sCrdVersion | undefined): string | undefined {
+    return versionObj?.name ?? crd?.spec?.version;
   }
 
   /**
    * Extract core naming fields from a CRD spec.
    */
-  private getCrdNamingFields(crd: any): { kind?: string; group?: string; plural?: string } {
+  private getCrdNamingFields(crd: K8sCrd): { kind?: string; group?: string; plural?: string } {
     return {
-      kind: crd?.spec?.names?.kind as string | undefined,
-      group: crd?.spec?.group as string | undefined,
-      plural: crd?.spec?.names?.plural as string | undefined,
+      kind: crd?.spec?.names?.kind,
+      group: crd?.spec?.group,
+      plural: crd?.spec?.names?.plural,
     };
   }
 
   /** Extract CRD metadata from a Kubernetes CRD object */
-  private extractCrdFromK8s(crd: any): (EdaCrd & { schema?: any }) | null {
+  private extractCrdFromK8s(crd: K8sCrd): (EdaCrd & { schema?: JsonSchema }) | null {
     const { kind, group, plural } = this.getCrdNamingFields(crd);
     const versionObj = this.getCrdVersionObject(crd);
     const version = this.getCrdVersion(crd, versionObj);
@@ -351,7 +431,7 @@ export class SchemaProviderService extends CoreService {
 
     const namespaced = crd?.spec?.scope === 'Namespaced';
     const schema = versionObj?.schema?.openAPIV3Schema;
-    const description = schema?.description as string | undefined;
+    const description = schema?.description;
 
     return { kind, group, version, plural, namespaced, description, schema };
   }
@@ -361,7 +441,7 @@ export class SchemaProviderService extends CoreService {
     const results: EdaCrd[] = [];
     try {
       const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
-      const crds = await k8sClient.listCrds();
+      const crds = (await k8sClient.listCrds()) as K8sCrd[];
       for (const crd of crds) {
         const extracted = this.extractCrdFromK8s(crd);
         if (!extracted) continue;
@@ -392,14 +472,14 @@ export class SchemaProviderService extends CoreService {
   }
 
   /** Get JSON schema for a given resource kind */
-  public async getSchemaForKind(kind: string): Promise<any | null> {
+  public async getSchemaForKind(kind: string): Promise<JsonSchema | null> {
     if (!this.schemaCache.has(kind)) {
       return null;
     }
     const schemaPath = this.schemaCache.get(kind) as string;
     try {
       const raw = await fs.promises.readFile(schemaPath, UTF8);
-      return JSON.parse(raw);
+      return JSON.parse(raw) as JsonSchema;
     } catch {
       return null;
     }

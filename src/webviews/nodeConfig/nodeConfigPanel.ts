@@ -2,6 +2,11 @@ import * as vscode from 'vscode';
 
 import { BasePanel } from '../basePanel';
 
+interface WebviewMessage {
+  command: string;
+  colorMode?: ColorMode;
+}
+
 export interface LineRange {
   startLine?: number;
   endLine?: number;
@@ -46,7 +51,7 @@ export class NodeConfigPanel extends BasePanel {
 
     this.panel.webview.html = this.buildHtml();
 
-    this.panel.webview.onDidReceiveMessage((message) => {
+    this.panel.webview.onDidReceiveMessage((message: WebviewMessage) => {
       if (message.command === 'ready') {
         this.panel.webview.postMessage({
           command: 'loadData',
@@ -55,7 +60,7 @@ export class NodeConfigPanel extends BasePanel {
           colorMode: NodeConfigPanel.colorMode,
         });
       } else if (message.command === 'saveColorMode') {
-        NodeConfigPanel.colorMode = message.colorMode;
+        NodeConfigPanel.colorMode = message.colorMode ?? 'full';
         this.context.globalState.update('nodeConfigColorMode', NodeConfigPanel.colorMode);
       }
     });

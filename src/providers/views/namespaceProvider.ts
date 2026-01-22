@@ -20,6 +20,40 @@ const CONTEXT_K8S_NAMESPACE = 'k8s-namespace';
 const CONTEXT_STREAM_GROUP = 'stream-group';
 const CONTEXT_STREAM_ITEM = 'stream-item';
 
+/** Standard Kubernetes resource metadata */
+interface K8sMetadata {
+  name?: string;
+  namespace?: string;
+  uid?: string;
+  resourceVersion?: string;
+  labels?: Record<string, string>;
+  [key: string]: unknown;
+}
+
+/** Standard Kubernetes resource object */
+interface K8sResource {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: K8sMetadata;
+  spec?: Record<string, unknown>;
+  status?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/** Stream update object from EDA */
+interface StreamUpdate {
+  key?: string;
+  data?: K8sResource | null;
+}
+
+/** Stream message envelope */
+interface StreamMessageEnvelope {
+  msg?: {
+    updates?: StreamUpdate[];
+    Updates?: StreamUpdate[];
+  };
+}
+
 /**
  * TreeDataProvider for the EDA Namespaces view
  */
@@ -38,7 +72,7 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
 
   private cachedNamespaces: string[] = [];
   private cachedStreamGroups: Record<string, string[]> = {};
-  private streamData: Map<string, Map<string, any>> = new Map();
+  private streamData: Map<string, Map<string, K8sResource>> = new Map();
   private k8sStreams: string[] = [];
   private disposables: vscode.Disposable[] = [];
   /** Track expanded streams so icons persist across refreshes */
@@ -130,10 +164,11 @@ constructor() {
   /** Set up stream message handler */
   private setupStreamMessageHandler(): void {
     this.edaClient.onStreamMessage((stream, msg) => {
+      const envelope = msg as StreamMessageEnvelope;
       if (stream === 'namespaces') {
-        this.handleNamespaceMessage(msg);
+        this.handleNamespaceMessage(envelope);
       } else {
-        this.processStreamMessage(stream, msg);
+        this.processStreamMessage(stream, envelope);
       }
     });
   }
@@ -202,9 +237,9 @@ constructor() {
       return;
     }
     try {
-      const nsObjs = await this.k8sClient.listNamespaces();
+      const nsObjs = (await this.k8sClient.listNamespaces()) as K8sResource[];
       const ns = nsObjs
-        .map(n => n?.metadata?.name)
+        .map(n => n.metadata?.name)
         .filter((n): n is string => typeof n === 'string');
       const all = Array.from(new Set([...ns, ...this.cachedNamespaces]));
       this.k8sClient.setWatchedNamespaces(all);
@@ -296,7 +331,7 @@ constructor() {
       return true;
     }
     if (this.k8sStreams.includes(stream)) {
-      const items = this.k8sClient?.getCachedResource(stream, this.k8sClient?.isNamespacedResource(stream) ? namespace : undefined) || [];
+      const items = (this.k8sClient?.getCachedResource(stream, this.k8sClient?.isNamespacedResource(stream) ? namespace : undefined) || []) as K8sResource[];
       return items.some(r => this.matchesFilter(r.metadata?.name || ''));
     }
     const key = `${stream}:${namespace}`;
@@ -304,7 +339,7 @@ constructor() {
     if (!map) {
       return false;
     }
-    for (const name of map.keys()) {
+    for (const name of Array.from(map.keys())) {
       if (this.matchesFilter(name)) {
         return true;
       }
@@ -669,8 +704,8 @@ constructor() {
   }
 
   /** Handle incoming stream messages and cache items */
-  private processStreamMessage(stream: string, msg: any): void {
-    const updates = getUpdates(msg.msg);
+  private processStreamMessage(stream: string, msg: StreamMessageEnvelope): void {
+    const updates = getUpdates(msg.msg) as StreamUpdate[];
     if (updates.length === 0) {
       log(`[STREAM:${stream}] No updates in message`, LogLevel.DEBUG);
       return;
@@ -689,7 +724,7 @@ constructor() {
       }
       if (up.data === null) {
         map.delete(name);
-      } else {
+      } else if (up.data) {
         map.set(name, up.data);
       }
     }
@@ -697,8 +732,9 @@ constructor() {
   }
 
   /** Extract namespace name from an update object */
-  private extractNamespaceName(up: any): string | undefined {
-    let name: string | undefined = up.data?.metadata?.name || up.data?.name;
+  private extractNamespaceName(up: StreamUpdate): string | undefined {
+    const data = up.data;
+    let name: string | undefined = data?.metadata?.name ?? (data?.name as string | undefined);
     if (!name && up.key) {
       name = parseUpdateKey(String(up.key)).name;
     }
@@ -706,7 +742,7 @@ constructor() {
   }
 
   /** Process a single namespace update, returns true if changed */
-  private processSingleNamespaceUpdate(up: any): boolean {
+  private processSingleNamespaceUpdate(up: StreamUpdate): boolean {
     const name = this.extractNamespaceName(up);
     if (!name) {
       return false;
@@ -735,8 +771,8 @@ constructor() {
   }
 
   /** Update cached namespaces from stream messages */
-  private handleNamespaceMessage(msg: any): void {
-    const updates = getUpdates(msg.msg);
+  private handleNamespaceMessage(msg: StreamMessageEnvelope): void {
+    const updates = getUpdates(msg.msg) as StreamUpdate[];
     if (updates.length === 0) {
       return;
     }
@@ -753,9 +789,9 @@ constructor() {
   }
 
   /** Extract name and namespace from a stream update */
-  private extractNames(update: any): { name?: string; namespace?: string } {
-    let name = update.data?.metadata?.name;
-    let namespace = update.data?.metadata?.namespace;
+  private extractNames(update: StreamUpdate): { name?: string; namespace?: string } {
+    let name: string | undefined = update.data?.metadata?.name;
+    let namespace: string | undefined = update.data?.metadata?.namespace;
     if ((!name || !namespace) && update.key) {
       const parsed = parseUpdateKey(String(update.key));
       if (!name) {
@@ -795,7 +831,7 @@ constructor() {
   }
 
   /** Apply status styling to a tree item */
-  private applyStatusStyling(ti: TreeItemBase, resource: any): void {
+  private applyStatusStyling(ti: TreeItemBase, resource: K8sResource): void {
     if (!resource || !this.statusService) {
       return;
     }
@@ -807,7 +843,7 @@ constructor() {
     ti.status = { indicator, description: desc };
 
     // Mark derived resources with a special icon but keep status color
-    if (resource?.metadata?.labels?.['eda.nokia.com/source'] === 'derived') {
+    if (resource.metadata?.labels?.['eda.nokia.com/source'] === 'derived') {
       const color = this.statusService.getThemeStatusIcon(indicator).color;
       ti.iconPath = new vscode.ThemeIcon('debug-breakpoint-data-unverified', color);
     }
@@ -816,7 +852,7 @@ constructor() {
   /** Create a tree item for a resource */
   private createResourceTreeItem(
     name: string,
-    resource: any,
+    resource: K8sResource,
     namespace: string,
     stream: string,
     streamGroup?: string
@@ -837,7 +873,7 @@ constructor() {
 
   /** Build items for Kubernetes stream */
   private getKubernetesStreamItems(namespace: string, stream: string, streamGroup: string): TreeItemBase[] {
-    const items = this.k8sClient?.getCachedResource(stream, this.k8sClient?.isNamespacedResource(stream) ? namespace : undefined) || [];
+    const items = (this.k8sClient?.getCachedResource(stream, this.k8sClient?.isNamespacedResource(stream) ? namespace : undefined) || []) as K8sResource[];
     if (items.length === 0) {
       return [this.createNoItemsPlaceholder()];
     }

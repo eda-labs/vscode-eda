@@ -7,6 +7,9 @@ import tippy from 'tippy.js';
 import { mountWebview } from '../../shared/utils';
 import { usePostMessage, useMessageListener } from '../../shared/hooks';
 
+import { extractNodeInfo, extractLinkInfo, shortenInterfaceName } from './topologyUtils';
+import type { NodeData, LinkData } from './topologyUtils';
+
 declare module 'cytoscape' {
   interface Core {
     svg(options?: unknown): string;
@@ -55,147 +58,53 @@ interface TopologyMessage {
   edges?: TopologyEdge[];
 }
 
-const tippyFactory = (ref: any, content: HTMLElement): TippyInstance => {
+const tippyFactory = (ref: cytoscapePopper.RefElement, content: HTMLElement): TippyInstance => {
   const dummyDomEle = document.createElement('div');
   return tippy(dummyDomEle, {
-    getReferenceClientRect: ref.getBoundingClientRect,
+    getReferenceClientRect: ref.getBoundingClientRect.bind(ref) as () => DOMRect,
     trigger: 'manual',
     content,
     arrow: false,
     placement: 'top',
     hideOnClick: false,
-    sticky: 'reference',
     appendTo: () => document.getElementById('cy') ?? document.body,
     theme: 'edge-label',
     zIndex: 10
   });
 };
 
-function shortenInterfaceName(name: string | undefined): string {
-  if (!name) return '';
-  return name.replace(/ethernet-/gi, 'e-');
-}
 
-// Helper type for node/link data
-interface NodeData {
-  metadata?: { name?: string; labels?: Record<string, string> };
-  status?: Record<string, unknown>;
-  spec?: Record<string, unknown>;
-}
-
-interface LinkData {
-  local?: { node?: string; interface?: string };
-  remote?: { node?: string; interface?: string };
-  type?: string;
+interface EdgeElementData {
+  id: string;
+  source: string;
+  target: string;
+  raw?: unknown;
+  rawResource?: unknown;
+  dist: number;
+  weight: number;
+  pairIndex: number;
+  sourceInterface?: string;
+  targetInterface?: string;
   state?: string;
   sourceState?: string;
   targetState?: string;
 }
 
-// Helper to build info table row
-function buildInfoRow(label: string, value: string | undefined): string {
-  return value ? `<tr><td>${label}</td><td>${value}</td></tr>` : '';
+interface SvgExportOptions {
+  full: boolean;
+  bg?: string;
 }
 
-// Helper to build section header
-function buildSectionRow(title: string): string {
-  return `<tr class="section"><td colspan="2">${title}</td></tr>`;
+interface CytoscapeRenderer {
+  getPixelRatio: () => number;
 }
 
-// Helper to safely get nested property with fallback
-function getNestedProp(
-  obj: Record<string, unknown> | undefined,
-  ...keys: string[]
-): string | undefined {
-  for (const key of keys) {
-    const val = obj?.[key];
-    if (val !== undefined) return String(val);
-  }
-  return undefined;
-}
-
-// Helper to get property from spec or status
-function getSpecOrStatus(
-  spec: Record<string, unknown> | undefined,
-  status: Record<string, unknown> | undefined,
-  key: string
-): string {
-  return (spec?.[key] ?? status?.[key] ?? '') as string;
-}
-
-// Extract node metadata for display
-function extractNodeMetadata(data: NodeData): { name: string; labels: string } {
-  const name = data?.metadata?.name ?? '';
-  const labelsObj = data?.metadata?.labels ?? {};
-  const labels = Object.keys(labelsObj)
-    .map(k => `${k}: ${String(labelsObj[k])}`)
-    .join('<br>');
-  return { name, labels };
-}
-
-// Extract node status fields
-function extractNodeStatusFields(
-  status: Record<string, unknown> | undefined,
-  spec: Record<string, unknown> | undefined
-): Record<string, string | undefined> {
-  const productionAddr = spec?.productionAddress as Record<string, unknown> | undefined;
-  return {
-    statusVal: getNestedProp(status, 'status'),
-    sync: getNestedProp(status, 'sync'),
-    nodeDetails: getNestedProp(status, 'node-details') ?? getNestedProp(productionAddr, 'ipv4'),
-    nodeState: getNestedProp(status, 'node-state', 'nodeState'),
-    nppState: getNestedProp(status, 'npp-state', 'nppState'),
-    os: getSpecOrStatus(spec, status, 'operatingSystem'),
-    platform: getSpecOrStatus(spec, status, 'platform'),
-    version: getSpecOrStatus(spec, status, 'version')
-  };
-}
-
-// Extract node info for display
-function extractNodeInfo(data: NodeData): string {
-  const { name, labels } = extractNodeMetadata(data);
-  const status = data?.status as Record<string, unknown> | undefined;
-  const spec = data?.spec as Record<string, unknown> | undefined;
-  const fields = extractNodeStatusFields(status, spec);
-
-  return `
-    <h3><span class="codicon codicon-server-environment"></span> <a href="#" class="node-link">${name}</a></h3>
-    <table class="info-table">
-      ${buildInfoRow('Labels', labels)}
-      ${buildInfoRow('Status', fields.statusVal)}
-      ${buildInfoRow('Sync', fields.sync)}
-      ${buildInfoRow('Node Details', fields.nodeDetails)}
-      ${buildInfoRow('Node State', fields.nodeState)}
-      ${buildInfoRow('NPP State', fields.nppState)}
-      ${buildInfoRow('Operating System', fields.os)}
-      ${buildInfoRow('Platform', fields.platform)}
-      ${buildInfoRow('Version', fields.version)}
-    </table>
-  `;
+interface CytoscapeWithRenderer extends cytoscape.Core {
+  renderer: () => CytoscapeRenderer;
 }
 
 // No-op function for ignored promise rejections
 const noop = () => { /* ignore */ };
-
-// Extract link info for display
-function extractLinkInfo(data: LinkData): string {
-  const local = data?.local;
-  const remote = data?.remote;
-
-  return `
-    <h3><span class="codicon codicon-plug"></span> <a href="#" class="link-resource">${local?.node ?? ''} \u2192 ${remote?.node ?? ''}</a></h3>
-    <table class="info-table">
-      ${buildInfoRow('Type', data?.type)}
-      ${buildInfoRow('State', data?.state)}
-      ${buildSectionRow('Local Endpoint')}
-      ${buildInfoRow('State', data?.sourceState)}
-      ${buildInfoRow('Interface', local?.interface)}
-      ${buildSectionRow('Remote Endpoint')}
-      ${buildInfoRow('State', data?.targetState)}
-      ${buildInfoRow('Interface', remote?.interface)}
-    </table>
-  `;
-}
 
 function TopologyDashboard() {
   const postMessage = usePostMessage();
@@ -231,9 +140,9 @@ function TopologyDashboard() {
     const initCytoscape = async () => {
       await loadScript(cytoscapeUri);
       await loadScript(cytoscapeSvgUri);
-      const win = window as unknown as { cytoscape: ((ext: unknown) => void) | undefined };
+      const win = window as unknown as { cytoscape: { use: (ext: unknown) => void } | undefined };
       if (win.cytoscape) {
-        win.cytoscape(cytoscapePopper(tippyFactory));
+        win.cytoscape.use(cytoscapePopper(tippyFactory));
       }
       postMessage({ command: 'ready' });
     };
@@ -267,7 +176,7 @@ function TopologyDashboard() {
 
     cy.edges().forEach(edge => {
       const state = String(edge.data('state') ?? '').toLowerCase();
-      let color = defaultColor;
+      let color = defaultColor || '#888888';
       if (state === 'up' || state === 'active') {
         color = success || '#4ade80';
       } else if (state) {
@@ -291,7 +200,7 @@ function TopologyDashboard() {
         'background-color': '#001135'
       })
       .selector('edge')
-      .style('line-color', textSecondary)
+      .style('line-color', textSecondary || '#888888')
       .update();
 
     updateEdgeColors();
@@ -316,11 +225,7 @@ function TopologyDashboard() {
         tips.source && (show ? tips.source.tip.show() : tips.source.tip.hide());
         tips.target && (show ? tips.target.tip.show() : tips.target.tip.hide());
       }
-      edge.style({
-        'text-opacity': 0,
-        'source-text-background-opacity': 0,
-        'target-text-background-opacity': 0
-      } as cytoscape.Css.Edge);
+      edge.style('text-opacity', 0);
     });
   }, [labelMode]);
 
@@ -460,7 +365,7 @@ function TopologyDashboard() {
           if (node.nonempty()) {
             postMessage({
               command: 'openResource',
-              raw: node.data('raw'),
+              raw: node.data('raw') as unknown,
               streamGroup: 'core'
             });
           }
@@ -473,7 +378,7 @@ function TopologyDashboard() {
           if (edge.nonempty()) {
             postMessage({
               command: 'openResource',
-              raw: edge.data('rawResource'),
+              raw: edge.data('rawResource') as unknown,
               streamGroup: 'core'
             });
           }
@@ -509,8 +414,8 @@ function TopologyDashboard() {
     }
 
     cy.edges().forEach(edge => {
-      const src = edge.data('sourceInterface');
-      const tgt = edge.data('targetInterface');
+      const src = edge.data('sourceInterface') as string | undefined;
+      const tgt = edge.data('targetInterface') as string | undefined;
       if (!src && !tgt) return;
 
       const tips: { source?: { tip: TippyInstance; el: HTMLElement }; target?: { tip: TippyInstance; el: HTMLElement } } = {};
@@ -594,15 +499,15 @@ function TopologyDashboard() {
 
       const sourcePos = edges[0].source().position();
       const targetPos = edges[0].target().position();
-      const sourceTier = edges[0].source().data('tier');
-      const targetTier = edges[0].target().data('tier');
+      const sourceTier = edges[0].source().data('tier') as number | undefined;
+      const targetTier = edges[0].target().data('tier') as number | undefined;
 
       if (sourceTier !== targetTier) {
         const dx = targetPos.x - sourcePos.x;
         const absDx = Math.abs(dx);
 
         edges.forEach((edge) => {
-          const pairIdx = edge.data('pairIndex') || 0;
+          const pairIdx = (edge.data('pairIndex') as number | undefined) ?? 0;
           let baseCurve = 30;
 
           if (absDx > 200) {
@@ -622,7 +527,7 @@ function TopologyDashboard() {
         });
       } else {
         edges.forEach((edge) => {
-          const pairIdx = edge.data('pairIndex') || 0;
+          const pairIdx = (edge.data('pairIndex') as number | undefined) ?? 0;
           const sign = pairIdx % 2 === 0 ? 1 : -1;
           const magnitude = Math.floor(pairIdx / 2) + 1;
           edge.data('dist', sign * magnitude * 30);
@@ -661,20 +566,23 @@ function TopologyDashboard() {
     const cy = cyRef.current;
     if (!cy) return;
 
-    cy.on('tap', 'node', evt => {
+    cy.on('tap', 'node', (evt: cytoscape.EventObjectNode) => {
       clearHighlights();
       const node = evt.target;
       node.addClass('highlight');
       node.connectedEdges().addClass('highlight');
-      displayInfo('Node', node.data('raw'));
+      displayInfo('Node', node.data('raw') as NodeData);
       updateEdgeLabelVisibility();
     });
 
-    const dbl = (evt: any) => {
-      const raw = evt.target.data('raw');
+    const dbl = (evt: cytoscape.EventObjectNode) => {
+      const raw = evt.target.data('raw') as NodeData | undefined;
       const name = raw?.metadata?.name;
-      const namespace = raw?.metadata?.namespace;
-      const nodeDetails = raw?.status?.['node-details'] ?? raw?.spec?.productionAddress?.ipv4;
+      const namespace = (raw?.metadata as Record<string, unknown> | undefined)?.namespace as string | undefined;
+      const status = raw?.status as Record<string, unknown> | undefined;
+      const spec = raw?.spec as Record<string, unknown> | undefined;
+      const productionAddr = spec?.productionAddress as Record<string, unknown> | undefined;
+      const nodeDetails = (status?.['node-details'] ?? productionAddr?.ipv4) as string | undefined;
       if (name) {
         postMessage({
           command: 'sshTopoNode',
@@ -686,16 +594,16 @@ function TopologyDashboard() {
     };
     cy.on('dblclick', 'node', dbl);
 
-    cy.on('tap', 'edge', evt => {
+    cy.on('tap', 'edge', (evt: cytoscape.EventObjectEdge) => {
       clearHighlights();
       const edge = evt.target;
       edge.addClass('highlight');
       edge.connectedNodes().addClass('highlight');
-      const raw = edge.data('raw');
-      const rawResource = edge.data('rawResource');
-      const state = edge.data('state');
-      const sourceState = edge.data('sourceState');
-      const targetState = edge.data('targetState');
+      const raw = edge.data('raw') as LinkData | undefined;
+      const rawResource = edge.data('rawResource') as unknown;
+      const state = edge.data('state') as string | undefined;
+      const sourceState = edge.data('sourceState') as string | undefined;
+      const targetState = edge.data('targetState') as string | undefined;
       displayInfo('Link', { ...raw, rawResource, state, sourceState, targetState });
       updateEdgeLabelVisibility();
     });
@@ -734,7 +642,7 @@ function TopologyDashboard() {
       if (e.targetInterface) idParts.push(e.targetInterface);
       idParts.push(String(edgeCount++));
 
-      const edgeData: any = {
+      const edgeData: EdgeElementData = {
         id: idParts.join('--'),
         source: e.source,
         target: e.target,
@@ -742,18 +650,13 @@ function TopologyDashboard() {
         rawResource: e.rawResource,
         dist: distance,
         weight: 0.5,
-        pairIndex: idx
+        pairIndex: idx,
+        sourceInterface: e.sourceInterface ? shortenInterfaceName(e.sourceInterface) : undefined,
+        targetInterface: e.targetInterface ? shortenInterfaceName(e.targetInterface) : undefined,
+        state: e.state,
+        sourceState: e.sourceState,
+        targetState: e.targetState
       };
-
-      if (e.sourceInterface) {
-        edgeData.sourceInterface = shortenInterfaceName(e.sourceInterface);
-      }
-      if (e.targetInterface) {
-        edgeData.targetInterface = shortenInterfaceName(e.targetInterface);
-      }
-      if (e.state) edgeData.state = e.state;
-      if (e.sourceState) edgeData.sourceState = e.sourceState;
-      if (e.targetState) edgeData.targetState = e.targetState;
 
       elements.push({ group: 'edges', data: edgeData });
     });
@@ -799,7 +702,7 @@ function TopologyDashboard() {
               'control-point-weights': 'data(weight)',
               'source-endpoint': 'outside-to-line',
               'target-endpoint': 'outside-to-line'
-            } as any
+            } as cytoscape.Css.Edge
           },
           {
             selector: 'node.highlight',
@@ -813,7 +716,7 @@ function TopologyDashboard() {
             style: {
               'line-color': '#ffa500',
               'width': 3
-            } as any
+            } as cytoscape.Css.Edge
           }
         ],
         layout: { name: 'preset' },
@@ -914,7 +817,7 @@ function TopologyDashboard() {
       e.style('color', exportFontColor);
     });
 
-    const svgOpts: any = { full: true };
+    const svgOpts: SvgExportOptions = { full: true };
     if (!exportBgTransparent) {
       svgOpts.bg = exportBgColor;
     }
@@ -930,7 +833,7 @@ function TopologyDashboard() {
       const bg = style.getPropertyValue('--edge-label-bg').trim() || '#fff';
       const border = style.getPropertyValue('--edge-label-border').trim() || '#000';
       const bb = cy.elements().boundingBox();
-      const pxRatio = (cy as any).renderer().getPixelRatio();
+      const pxRatio = (cy as CytoscapeWithRenderer).renderer().getPixelRatio();
 
       const createLabel = (x: number, y: number, text: string) => {
         const paddingX = 6;
@@ -967,8 +870,8 @@ function TopologyDashboard() {
       };
 
       edges.forEach(edge => {
-        const src = edge.data('sourceInterface');
-        const tgt = edge.data('targetInterface');
+        const src = edge.data('sourceInterface') as string | undefined;
+        const tgt = edge.data('targetInterface') as string | undefined;
         const offset = 0;
         const orient = edge.target().position('y') > edge.source().position('y') ? 1 : -1;
         const shift = orient * 0.1;

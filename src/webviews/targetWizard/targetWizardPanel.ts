@@ -328,9 +328,10 @@ export class TargetWizardPanel extends BasePanel {
       });
 
       vscode.window.showInformationMessage('Client secret retrieved successfully');
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Full error:', error);
-      vscode.window.showErrorMessage(`Failed to retrieve client secret: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      vscode.window.showErrorMessage(`Failed to retrieve client secret: ${message}`);
     }
   }
 
@@ -349,6 +350,19 @@ export class TargetWizardPanel extends BasePanel {
     const panel = new TargetWizardPanel(context, contexts, targets, selected);
     return panel.waitForClose();
   }
+}
+
+interface TokenResponse {
+  access_token: string;
+}
+
+interface KeycloakClient {
+  id: string;
+  clientId: string;
+}
+
+interface ClientSecretResponse {
+  value?: string;
 }
 
 export async function fetchClientSecretDirectly(
@@ -383,7 +397,7 @@ export async function fetchClientSecretDirectly(
     );
   }
 
-  const adminTokenData = (await adminTokenRes.json()) as any;
+  const adminTokenData = (await adminTokenRes.json()) as TokenResponse;
   const adminToken = adminTokenData.access_token;
 
   // Step 2: List clients to find EDA client
@@ -400,8 +414,8 @@ export async function fetchClientSecretDirectly(
     throw new Error(`Failed to list clients: ${clientsRes.status}`);
   }
 
-  const clients = (await clientsRes.json()) as any[];
-  const edaClient = clients.find((c: any) => c.clientId === 'eda');
+  const clients = (await clientsRes.json()) as KeycloakClient[];
+  const edaClient = clients.find((c) => c.clientId === 'eda');
 
   if (!edaClient) {
     throw new Error('EDA client not found in Keycloak');
@@ -421,7 +435,7 @@ export async function fetchClientSecretDirectly(
     throw new Error(`Failed to fetch client secret: ${secretRes.status}`);
   }
 
-  const secretData = (await secretRes.json()) as any;
+  const secretData = (await secretRes.json()) as ClientSecretResponse;
   return secretData.value || '';
 }
 

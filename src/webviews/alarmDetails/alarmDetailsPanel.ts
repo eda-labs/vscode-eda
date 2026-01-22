@@ -2,6 +2,11 @@ import * as vscode from 'vscode';
 
 import { BasePanel } from '../basePanel';
 
+interface WebviewMessage {
+  command: string;
+  text?: string;
+}
+
 export class AlarmDetailsPanel extends BasePanel {
   private static panels: Map<string, AlarmDetailsPanel> = new Map();
   private data: Record<string, unknown>;
@@ -13,13 +18,13 @@ export class AlarmDetailsPanel extends BasePanel {
     this.panel.webview.html = this.buildHtml();
 
     this.panel.webview.onDidReceiveMessage(
-      async (message) => {
+      async (message: WebviewMessage) => {
         switch (message.command) {
           case 'ready':
             this.sendData();
             break;
           case 'copy':
-            await vscode.env.clipboard.writeText(message.text);
+            await vscode.env.clipboard.writeText(message.text ?? '');
             break;
         }
       },

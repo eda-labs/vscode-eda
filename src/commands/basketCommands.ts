@@ -10,19 +10,12 @@ import {
   basketEditProvider
 } from '../extension';
 import { serviceManager } from '../services/serviceManager';
+import type { Transaction, ChangeRequest } from '../providers/views/transactionBasketProvider';
 
 import { MSG_TRANSACTION_BASKET_EMPTY } from './constants';
 
 interface BasketItem {
   basketIndex: number;
-}
-
-interface TransactionCr {
-  type?: Record<string, { value?: unknown }>;
-}
-
-interface Transaction {
-  crs?: TransactionCr[];
 }
 
 function extractCrsFromItems(items: unknown[]): { type: unknown }[] {
@@ -103,14 +96,15 @@ async function removeBasketItem(item: unknown): Promise<void> {
   await edaTransactionBasketProvider.removeTransaction(typedItem.basketIndex);
 }
 
-function getEditableValue(tx: Transaction): { cr: TransactionCr; op: string; value: unknown } | null {
+function getEditableValue(tx: Transaction): { cr: ChangeRequest; op: string; value: unknown } | null {
   if (!Array.isArray(tx.crs) || tx.crs.length !== 1) {
     vscode.window.showInformationMessage('Editing is only supported for single-resource transactions.');
     return null;
   }
   const cr = tx.crs[0];
   const op = Object.keys(cr.type ?? {})[0];
-  const value = cr.type?.[op]?.value;
+  const opData = cr.type?.[op] as { value?: unknown } | undefined;
+  const value = opData?.value;
   if (!value) {
     vscode.window.showInformationMessage('This basket item is not editable.');
     return null;
@@ -120,7 +114,7 @@ function getEditableValue(tx: Transaction): { cr: TransactionCr; op: string; val
 
 function createSaveListener(
   docUri: vscode.Uri,
-  cr: TransactionCr,
+  cr: ChangeRequest,
   op: string,
   basketIndex: number,
   tx: Transaction
@@ -132,7 +126,7 @@ function createSaveListener(
     try {
       const updatedValue = yaml.load(savedDoc.getText());
       if (cr.type) {
-        cr.type[op] = { value: updatedValue };
+        (cr.type as Record<string, { value?: unknown }>)[op] = { value: updatedValue };
       }
       await edaTransactionBasketProvider.updateTransaction(basketIndex, tx);
       vscode.window.showInformationMessage('Basket item updated.');

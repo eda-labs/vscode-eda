@@ -247,7 +247,7 @@ function highlightNestedBlock(processedLine: string, context: ContextState, colo
   if (PATTERNS.keywordValueBlock.test(processedLine)) {
     return processedLine.replace(
       PATTERNS.keywordValueBlock,
-      (_m, space, keyword, rest) => {
+      (_m: string, space: string, keyword: string, rest: string) => {
         const valueColorKey = getKeywordValueColor(keyword);
         return (
           space +

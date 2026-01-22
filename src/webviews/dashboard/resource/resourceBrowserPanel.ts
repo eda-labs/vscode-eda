@@ -6,6 +6,11 @@ import { serviceManager } from '../../../services/serviceManager';
 import type { SchemaProviderService } from '../../../services/schemaProviderService';
 import type { EdaCrd } from '../../../types';
 
+interface WebviewMessage {
+  command: string;
+  name?: string;
+}
+
 export class ResourceBrowserPanel extends BasePanel {
   private schemaProvider: SchemaProviderService;
   private resources: EdaCrd[] = [];
@@ -22,13 +27,13 @@ export class ResourceBrowserPanel extends BasePanel {
 
     this.schemaProvider = serviceManager.getService<SchemaProviderService>('schema-provider');
 
-    this.panel.webview.onDidReceiveMessage(async msg => {
+    this.panel.webview.onDidReceiveMessage(async (msg: WebviewMessage) => {
       if (msg.command === 'ready') {
         await this.loadResources();
-      } else if (msg.command === 'showResource') {
-        await this.showResource(msg.name as string);
-      } else if (msg.command === 'viewYaml') {
-        await this.openResourceYaml(msg.name as string);
+      } else if (msg.command === 'showResource' && msg.name) {
+        await this.showResource(msg.name);
+      } else if (msg.command === 'viewYaml' && msg.name) {
+        await this.openResourceYaml(msg.name);
       }
     });
 
@@ -55,7 +60,7 @@ export class ResourceBrowserPanel extends BasePanel {
         selected = match ? `${match.plural}.${match.group}` : undefined;
       }
       this.panel.webview.postMessage({ command: 'resources', list, selected });
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.panel.webview.postMessage({ command: 'error', message: String(err) });
     }
   }

@@ -6,10 +6,40 @@ import { serviceManager } from '../../../services/serviceManager';
 import type { KubernetesClient } from '../../../clients/kubernetesClient';
 import type { EdaClient } from '../../../clients/edaClient';
 
+/** Kubernetes resource metadata */
+interface K8sMetadata {
+  name?: string;
+  namespace?: string;
+  labels?: Record<string, string>;
+}
+
+/** Kubernetes resource data structure */
+interface K8sResourceData {
+  metadata?: K8sMetadata;
+  spec?: Record<string, unknown>;
+  status?: Record<string, unknown>;
+}
+
+/** Pod resource with status information */
+interface PodResource extends K8sResourceData {
+  status?: {
+    phase?: string;
+    containerStatuses?: ContainerStatus[];
+  };
+}
+
+/** Container status in a pod */
+interface ContainerStatus {
+  ready?: boolean;
+}
+
+/** Flattened row data for display */
+type FlattenedRow = Record<string, unknown>;
+
 export class SimnodesDashboardPanel extends BasePanel {
   private kubernetesClient: KubernetesClient;
   private edaClient: EdaClient;
-  private rowMap: Map<string, Map<string, Record<string, any>>> = new Map();
+  private rowMap: Map<string, Map<string, FlattenedRow>> = new Map();
   private columns: string[] = [];
   private columnSet: Set<string> = new Set();
   private selectedNamespace = ALL_NAMESPACES;
@@ -75,15 +105,15 @@ export class SimnodesDashboardPanel extends BasePanel {
     });
   }
 
-  private flattenObject(obj: any, prefix = ''): Record<string, any> {
-    const result: Record<string, any> = {};
+  private flattenObject(obj: Record<string, unknown>, prefix = ''): FlattenedRow {
+    const result: FlattenedRow = {};
     if (!obj || typeof obj !== 'object') {
       return result;
     }
     for (const [k, v] of Object.entries(obj)) {
       const key = prefix ? `${prefix}.${k}` : k;
       if (v && typeof v === 'object' && !Array.isArray(v)) {
-        Object.assign(result, this.flattenObject(v, key));
+        Object.assign(result, this.flattenObject(v as Record<string, unknown>, key));
       } else {
         result[key] = v;
       }
@@ -91,12 +121,12 @@ export class SimnodesDashboardPanel extends BasePanel {
     return result;
   }
 
-  private flatten(item: any, podStatus?: string): Record<string, any> {
-    const result: Record<string, any> = {};
+  private flatten(item: K8sResourceData, podStatus?: string): FlattenedRow {
+    const result: FlattenedRow = {};
     if (!item || typeof item !== 'object') {
       return result;
     }
-    const meta = item.metadata || {};
+    const meta = item.metadata ?? {};
     if (meta.name) result.name = meta.name;
     if (meta.namespace) result.namespace = meta.namespace;
     if (meta.labels && typeof meta.labels === 'object') {
@@ -118,7 +148,7 @@ export class SimnodesDashboardPanel extends BasePanel {
     return result;
   }
 
-  private ensureColumns(data: Record<string, any>): boolean {
+  private ensureColumns(data: FlattenedRow): boolean {
     let added = false;
     for (const key of Object.keys(data)) {
       if (!this.columnSet.has(key)) {
@@ -135,11 +165,11 @@ export class SimnodesDashboardPanel extends BasePanel {
   private getPodStatusForSimnode(name: string, namespace: string): string {
     // Pods are in eda-system with naming pattern: cx-{namespace}--{name}-sim-*
     const coreNs = this.edaClient.getCoreNamespace();
-    const pods = this.kubernetesClient.getCachedPods(coreNs);
+    const pods = this.kubernetesClient.getCachedPods(coreNs) as PodResource[];
 
     // Find pod matching this simnode
-    const matchingPod = pods.find((pod: any) => {
-      const labels = pod.metadata?.labels || {};
+    const matchingPod = pods.find((pod: PodResource) => {
+      const labels = pod.metadata?.labels ?? {};
       return labels['cx-pod-name'] === name && labels['cx-node-namespace'] === namespace;
     });
 
@@ -147,9 +177,9 @@ export class SimnodesDashboardPanel extends BasePanel {
       return 'No Pod';
     }
 
-    const phase = matchingPod.status?.phase || 'Unknown';
-    const containerStatuses = matchingPod.status?.containerStatuses || [];
-    const ready = containerStatuses.every((c: any) => c.ready);
+    const phase = matchingPod.status?.phase ?? 'Unknown';
+    const containerStatuses = matchingPod.status?.containerStatuses ?? [];
+    const ready = containerStatuses.every((c: ContainerStatus) => c.ready);
 
     if (phase === 'Running' && ready) {
       return 'Running';
@@ -176,7 +206,7 @@ export class SimnodesDashboardPanel extends BasePanel {
 
     for (const n of targetNamespaces) {
       try {
-        const simnodes = this.kubernetesClient.getCachedSimnodes(n);
+        const simnodes = this.kubernetesClient.getCachedSimnodes(n) as K8sResourceData[];
         let map = this.rowMap.get(n);
         if (!map) {
           map = new Map();
@@ -184,7 +214,7 @@ export class SimnodesDashboardPanel extends BasePanel {
         }
         map.clear();
         for (const item of simnodes) {
-          const name = item.metadata?.name as string | undefined;
+          const name = item.metadata?.name;
           if (!name) continue;
           const podStatus = this.getPodStatusForSimnode(name, n);
           const flat = this.flatten(item, podStatus);
@@ -213,7 +243,7 @@ export class SimnodesDashboardPanel extends BasePanel {
         ? Array.from(this.rowMap.keys()).filter(n => n !== coreNs)
         : [this.selectedNamespace];
 
-    const rows: any[][] = [];
+    const rows: unknown[][] = [];
     for (const ns of namespaces) {
       const map = this.rowMap.get(ns);
       if (!map) continue;
@@ -267,10 +297,10 @@ export class SimnodesDashboardPanel extends BasePanel {
   private sshSimnode(name: string, namespace: string, operatingSystem?: string): void {
     // Find the pod for this simnode
     const coreNs = this.edaClient.getCoreNamespace();
-    const pods = this.kubernetesClient.getCachedPods(coreNs);
+    const pods = this.kubernetesClient.getCachedPods(coreNs) as PodResource[];
 
-    const matchingPod = pods.find((pod: any) => {
-      const labels = pod.metadata?.labels || {};
+    const matchingPod = pods.find((pod: PodResource) => {
+      const labels = pod.metadata?.labels ?? {};
       return labels['cx-pod-name'] === name && labels['cx-node-namespace'] === namespace;
     });
 

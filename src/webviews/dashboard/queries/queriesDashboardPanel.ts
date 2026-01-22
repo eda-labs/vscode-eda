@@ -8,15 +8,49 @@ import { serviceManager } from '../../../services/serviceManager';
 import type { EdaClient } from '../../../clients/edaClient';
 import { EmbeddingSearchService } from '../../../services/embeddingSearchService';
 import { LogLevel, log } from '../../../extension';
-import { getOps, getDelete, getDeleteIds, getInsertOrModify, getRows } from '../../../utils/streamMessageUtils';
+import { getOps, getDelete, getDeleteIds, getInsertOrModify, getRows, type DeleteOperationWithIds, type InsertOrModifyWithRows, type StreamMessageWithOps, type OperationWithInsertOrModify, type OperationWithDelete } from '../../../utils/streamMessageUtils';
+
+/** Message received from the webview */
+interface WebviewMessage {
+  command: string;
+  query?: string;
+  namespace?: string;
+  queryType?: string;
+}
+
+/** Inner payload of stream messages */
+interface StreamMessagePayload extends StreamMessageWithOps, OperationWithInsertOrModify, OperationWithDelete {
+  schema?: { fields?: unknown };
+}
+
+/** Stream message wrapper from EdaClient callbacks */
+interface StreamMessageWrapper extends StreamMessageWithOps {
+  msg?: StreamMessagePayload;
+  details?: string;
+  stream?: string;
+  message?: {
+    details?: string;
+    stream?: string;
+  };
+  state?: string;
+}
+
+/** Stream operation containing insert/modify or delete */
+interface StreamOperation extends OperationWithInsertOrModify, OperationWithDelete {}
+
+/** Row entry in insert/modify operations */
+interface StreamRow {
+  id?: string | number;
+  data?: Record<string, unknown>;
+}
 
 export class QueriesDashboardPanel extends BasePanel {
   private edaClient: EdaClient;
   private embeddingSearch: EmbeddingSearchService;
   private queryStreamName?: string;
   private columns: string[] = [];
-  private rows: any[][] = [];
-  private rowMap: Map<string, any[]> = new Map();
+  private rows: unknown[][] = [];
+  private rowMap: Map<string, unknown[]> = new Map();
   private nqlConversionShown: boolean = false;
 
   constructor(context: vscode.ExtensionContext, title: string) {
@@ -29,7 +63,7 @@ export class QueriesDashboardPanel extends BasePanel {
       log(`EdaClient callback received stream: ${stream}, queryStreamName: ${this.queryStreamName}`, LogLevel.DEBUG);
       if (stream === this.queryStreamName) {
         log('Stream name matches, calling handleQueryStream', LogLevel.DEBUG);
-        this.handleQueryStream(msg);
+        this.handleQueryStream(msg as StreamMessageWrapper);
       } else {
         log('Stream name does not match', LogLevel.DEBUG);
       }
@@ -41,13 +75,13 @@ export class QueriesDashboardPanel extends BasePanel {
       }
     });
 
-    this.panel.webview.onDidReceiveMessage(async msg => {
+    this.panel.webview.onDidReceiveMessage(async (msg: WebviewMessage) => {
       if (msg.command === 'ready') {
         this.sendNamespaces();
       } else if (msg.command === 'runQuery') {
-        await this.handleQuery(msg.query as string, msg.namespace as string, msg.queryType as string);
+        await this.handleQuery(msg.query ?? '', msg.namespace ?? '', msg.queryType ?? 'eql');
       } else if (msg.command === 'autocomplete') {
-        const query = msg.query as string;
+        const query = msg.query ?? '';
         // Only provide autocomplete for EQL queries (starting with .)
         if (query.trim().startsWith('.')) {
           const list = await this.edaClient.autocompleteEql(query, 20);
@@ -57,7 +91,7 @@ export class QueriesDashboardPanel extends BasePanel {
           this.panel.webview.postMessage({ command: 'autocomplete', list: [] });
         }
       } else if (msg.command === 'searchNaturalLanguage') {
-        await this.handleNaturalLanguageSearch(msg.query as string);
+        await this.handleNaturalLanguageSearch(msg.query ?? '');
       }
     });
 
@@ -206,12 +240,12 @@ export class QueriesDashboardPanel extends BasePanel {
     this.panel.webview.postMessage({ command: 'clear' });
   }
 
-  private flattenData(data: any, prefix = ''): Record<string, any> {
-    const result: Record<string, any> = {};
+  private flattenData(data: unknown, prefix = ''): Record<string, unknown> {
+    const result: Record<string, unknown> = {};
     if (!data || typeof data !== 'object') {
       return result;
     }
-    for (const [key, value] of Object.entries(data)) {
+    for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
       const fullKey = prefix ? `${prefix}.${key}` : key;
       if (value && typeof value === 'object' && !Array.isArray(value)) {
         Object.assign(result, this.flattenData(value, fullKey));
@@ -226,7 +260,7 @@ export class QueriesDashboardPanel extends BasePanel {
    * Extract operations from various possible locations in the message structure.
    * Uses case-insensitive helpers for API inconsistencies.
    */
-  private extractOperations(msg: any): any[] {
+  private extractOperations(msg: StreamMessageWrapper): StreamOperation[] {
     let ops = getOps(msg.msg);
     if (ops.length === 0) {
       ops = getOps(msg);
@@ -237,10 +271,10 @@ export class QueriesDashboardPanel extends BasePanel {
       const insertOrModify = getInsertOrModify(msg.msg);
       const deleteOp = getDelete(msg.msg);
       if (insertOrModify || deleteOp) {
-        ops = [msg.msg];
+        ops = [msg.msg as StreamOperation];
       }
     }
-    return ops;
+    return ops as StreamOperation[];
   }
 
   /**
@@ -264,8 +298,8 @@ export class QueriesDashboardPanel extends BasePanel {
   /**
    * Process delete operations from a single operation object.
    */
-  private processDeleteOperation(op: any): void {
-    const deleteOp = getDelete(op);
+  private processDeleteOperation(op: StreamOperation): void {
+    const deleteOp = getDelete(op) as DeleteOperationWithIds | null | undefined;
     const deleteIds = getDeleteIds(deleteOp);
     for (const id of deleteIds) {
       this.rowMap.delete(String(id));
@@ -295,7 +329,7 @@ export class QueriesDashboardPanel extends BasePanel {
     this.rowMap.clear();
     for (const [key, oldRow] of currentRows) {
       // Create a new row with the updated column structure
-      const newRow = this.columns.map((_, idx) => {
+      const newRow: unknown[] = this.columns.map((_, idx) => {
         // Keep existing data if the column index is within the old row
         return idx < oldRow.length ? oldRow[idx] : undefined;
       });
@@ -306,13 +340,14 @@ export class QueriesDashboardPanel extends BasePanel {
   /**
    * Process insert or modify operations from a single operation object.
    */
-  private processInsertOrModifyOperation(op: any): void {
-    const insertOrModify = getInsertOrModify(op);
+  private processInsertOrModifyOperation(op: StreamOperation): void {
+    const insertOrModify = getInsertOrModify(op) as InsertOrModifyWithRows | null | undefined;
     const rows = getRows(insertOrModify);
     if (rows.length === 0) return;
 
     for (const r of rows) {
-      const data = r.data || r;
+      const row = r as StreamRow;
+      const data = row.data ?? r;
       const flat = this.flattenData(data);
 
       // Update columns if we encounter new fields
@@ -323,16 +358,16 @@ export class QueriesDashboardPanel extends BasePanel {
         this.rebuildRowsForNewColumns();
       }
 
-      const row = this.columns.map(c => flat[c]);
-      const key = r.id !== undefined ? String(r.id) : randomUUID();
-      this.rowMap.set(key, row);
+      const rowData: unknown[] = this.columns.map(c => flat[c]);
+      const key = row.id !== undefined ? String(row.id) : randomUUID();
+      this.rowMap.set(key, rowData);
     }
   }
 
   /**
    * Send empty results when stream is synced with schema but no data.
    */
-  private handleEmptyResults(msg: any): void {
+  private handleEmptyResults(msg: StreamMessageWrapper): void {
     if (msg.msg?.schema?.fields && msg.state === 'synced') {
       log('Stream synced with schema but no data operations', LogLevel.DEBUG);
       if (this.rows.length === 0) {
@@ -359,12 +394,12 @@ export class QueriesDashboardPanel extends BasePanel {
     });
   }
 
-  private handleQueryStream(msg: any): void {
+  private handleQueryStream(msg: StreamMessageWrapper): void {
     log(`Received stream message: ${JSON.stringify(msg, null, 2)}`, LogLevel.DEBUG);
 
     // Check if this is an NQL stream with conversion details
-    const details = msg.details || msg.message?.details;
-    const streamName = msg.stream || msg.message?.stream;
+    const details = msg.details ?? msg.message?.details;
+    const streamName = msg.stream ?? msg.message?.stream;
 
     log(`Stream name: ${streamName}`, LogLevel.DEBUG);
     log(`Details: ${details}`, LogLevel.DEBUG);

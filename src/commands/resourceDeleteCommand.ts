@@ -4,6 +4,7 @@ import type { EdaClient } from '../clients/edaClient';
 import { log, LogLevel, edaOutputChannel, edaTransactionBasketProvider } from '../extension';
 import { serviceManager } from '../services/serviceManager';
 import { runKubectl } from '../utils/kubectlRunner';
+import type { Transaction } from '../providers/views/transactionBasketProvider';
 
 import {
   MSG_NO_RESOURCE_SELECTED,
@@ -35,22 +36,6 @@ interface ResourceInfo {
   streamGroup: string | undefined;
   apiVersion: string | undefined;
   resourceType: string | undefined;
-}
-
-/** Delete transaction structure for EDA */
-interface DeleteTransaction {
-  crs: Array<{
-    type: {
-      delete: {
-        gvk: { group: string; version: string; kind: string };
-        name: string;
-        namespace: string | undefined;
-      };
-    };
-  }>;
-  description: string;
-  retain: boolean;
-  dryRun: boolean;
 }
 
 function formatNamespaceSuffix(namespace: string | undefined): string {
@@ -95,14 +80,17 @@ function createDeleteTransaction(
   resourceKind: string,
   resourceName: string,
   resourceNamespace: string | undefined
-): DeleteTransaction {
+): Transaction {
   const [group, version] = apiVersion.split('/');
+  // The EDA API requires group, version, and kind in the gvk field,
+  // but the Transaction type only specifies kind. Use type assertion
+  // since this structure is correct for the EDA API.
   return {
     crs: [
       {
         type: {
           delete: {
-            gvk: { group, version, kind: resourceKind },
+            gvk: { group, version, kind: resourceKind } as { kind?: string },
             name: resourceName,
             namespace: resourceNamespace
           }

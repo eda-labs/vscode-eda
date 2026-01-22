@@ -1,12 +1,14 @@
 // src/commands/resourceEditCommands.ts
 import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
-import { serviceManager } from '../services/serviceManager';
+
 import type { EdaClient } from '../clients/edaClient';
-import type { ResourceService } from '../services/resourceService';
-import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
-import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
+import type { KubernetesClient } from '../clients/kubernetesClient';
 import { log, LogLevel, edaOutputChannel, edaTransactionBasketProvider } from '../extension';
+import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
+import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
+import type { ResourceService } from '../services/resourceService';
+import { serviceManager } from '../services/serviceManager';
 import { isEdaResource } from '../utils/edaGroupUtils';
 import {
   getViewIsEda,
@@ -14,7 +16,6 @@ import {
   setResourceOrigin,
   getResourceOrigin
 } from '../utils/resourceOriginStore';
-import type { KubernetesClient } from '../clients/kubernetesClient';
 import { sanitizeResource, sanitizeResourceForEdit } from '../utils/yamlUtils';
 
 // Command identifiers
@@ -41,6 +42,46 @@ const DESC_BASKET = 'Save changes to the transaction basket';
 const SCHEME_K8S = 'k8s';
 const SCHEME_K8S_VIEW = 'k8s-view';
 
+/** Standard Kubernetes object metadata */
+interface K8sMetadata {
+  name?: string;
+  namespace?: string;
+  uid?: string;
+  resourceVersion?: string;
+  annotations?: Record<string, string>;
+  labels?: Record<string, string>;
+  [key: string]: unknown;
+}
+
+/** Standard Kubernetes resource object */
+interface K8sResource {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: K8sMetadata;
+  spec?: Record<string, unknown>;
+  status?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/**
+ * Command argument passed from tree items or webview messages
+ */
+interface CommandArgument {
+  name?: string;
+  namespace?: string;
+  kind?: string;
+  resourceType?: string;
+  label?: string;
+  streamGroup?: string;
+  raw?: K8sResource;
+  rawResource?: K8sResource;
+  resource?: {
+    raw?: K8sResource;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
 // Interface for resource identification
 interface ResourceInfo {
   namespace: string;
@@ -49,11 +90,14 @@ interface ResourceInfo {
   apiVersion?: string;
 }
 
+/** Type alias for command input that can be a CommandArgument, Uri, or undefined */
+type CommandInput = CommandArgument | vscode.Uri | undefined;
+
 // Keep track of resource URI pairs (view and edit versions of the same resource)
 interface ResourceURIPair {
   viewUri: vscode.Uri;
   editUri: vscode.Uri;
-  originalResource: any;
+  originalResource: K8sResource;
   isEdaResource: boolean;
 }
 
@@ -80,7 +124,7 @@ interface ActionQuickPickItem extends vscode.QuickPickItem {
 function determineEdaOrigin(
   viewUri: vscode.Uri | undefined,
   resourceInfo: ResourceInfo,
-  arg?: any
+  arg?: CommandArgument
 ): boolean {
   // Try to get origin from URI
   if (viewUri) {
@@ -115,7 +159,7 @@ function determineEdaOrigin(
 
   // Try from arg
   if (arg) {
-    const raw = arg.raw || arg.rawResource || arg.resource?.raw;
+    const raw: K8sResource | undefined = arg.raw ?? arg.rawResource ?? arg.resource?.raw;
     return isEdaResource(arg, raw?.apiVersion);
   }
 
@@ -125,7 +169,7 @@ function determineEdaOrigin(
 /**
  * Extracts raw resource data from various argument formats.
  */
-function extractRawResource(arg: any): any {
+function extractRawResource(arg: CommandArgument | undefined): K8sResource | undefined {
   return arg?.raw ?? arg?.rawResource ?? arg?.resource?.raw;
 }
 
@@ -144,9 +188,9 @@ function getFirstDefined<T>(...values: (T | undefined | null)[]): T {
 /**
  * Extracts resource info from arg with fallback values.
  */
-function extractResourceInfoFromArg(arg: any, raw: any): ResourceInfo {
+function extractResourceInfoFromArg(arg: CommandArgument | undefined, raw: K8sResource | undefined): ResourceInfo {
   return {
-    namespace: getFirstDefined(raw?.metadata?.namespace, arg?.namespace, 'default'),
+    namespace: getFirstDefined(raw?.metadata?.namespace, arg?.namespace as string | undefined, 'default'),
     kind: getFirstDefined(raw?.kind, arg?.kind, arg?.resourceType, 'Resource'),
     name: getFirstDefined(raw?.metadata?.name, arg?.name, arg?.label, 'unknown'),
     apiVersion: raw?.apiVersion
@@ -156,14 +200,14 @@ function extractResourceInfoFromArg(arg: any, raw: any): ResourceInfo {
 /**
  * Resolves the view document URI from various input sources.
  */
-function resolveViewDocumentUri(arg: any): { uri: vscode.Uri | undefined; resourceInfo: Partial<ResourceInfo> } {
+function resolveViewDocumentUri(arg: CommandArgument | vscode.Uri): { uri: vscode.Uri | undefined; resourceInfo: Partial<ResourceInfo> } {
   if (!arg) {
     return { uri: undefined, resourceInfo: {} };
   }
 
   // Case 1: Invoked with a URI (from active editor or command palette)
-  if (arg instanceof vscode.Uri || (arg.scheme && typeof arg.scheme === 'string')) {
-    return { uri: arg as vscode.Uri, resourceInfo: {} };
+  if (arg instanceof vscode.Uri) {
+    return { uri: arg, resourceInfo: {} };
   }
 
   // Case 2: Invoked from a tree item or resource data
@@ -236,7 +280,7 @@ function updateProvidersAfterApply(
   resourceEditProvider: ResourceEditDocumentProvider,
   resourceViewProvider: ResourceViewDocumentProvider,
   documentUri: vscode.Uri,
-  resource: any,
+  resource: K8sResource,
   resourceKey: string
 ): void {
   resourceEditProvider.setOriginalResource(
@@ -255,7 +299,7 @@ function updateProvidersAfterApply(
 /**
  * Shows success message with View Details option after applying a resource.
  */
-function showApplySuccessMessage(resource: any): void {
+function showApplySuccessMessage(resource: K8sResource): void {
   vscode.window.showInformationMessage(
     `Successfully applied ${resource.kind} "${resource.metadata?.name}"`,
     BTN_VIEW_DETAILS
@@ -269,7 +313,7 @@ function showApplySuccessMessage(resource: any): void {
 /**
  * Gets the EDA origin flag from a document URI or stored values.
  */
-function getEdaOriginFromDocument(documentUri: vscode.Uri, resource: any, pair?: ResourceURIPair): boolean {
+function getEdaOriginFromDocument(documentUri: vscode.Uri, resource: K8sResource, pair?: ResourceURIPair): boolean {
   if (pair?.isEdaResource !== undefined) {
     return pair.isEdaResource;
   }
@@ -323,7 +367,7 @@ function handleDocumentClose(
 /**
  * Resolves and validates the view document URI from the command argument.
  */
-async function resolveAndValidateViewUri(arg: any): Promise<vscode.Uri> {
+async function resolveAndValidateViewUri(arg: CommandInput): Promise<vscode.Uri> {
   let viewDocumentUri: vscode.Uri | undefined;
 
   if (arg) {
@@ -349,10 +393,10 @@ async function resolveAndValidateViewUri(arg: any): Promise<vscode.Uri> {
 /**
  * Extracts API version from the view document or argument.
  */
-async function extractApiVersion(viewDocumentUri: vscode.Uri, arg: any): Promise<string | undefined> {
-  // Check arg first
-  if (arg) {
-    const raw = arg.raw || arg.rawResource || arg.resource?.raw;
+async function extractApiVersion(viewDocumentUri: vscode.Uri, arg: CommandInput): Promise<string | undefined> {
+  // Check arg first (only if it's a CommandArgument, not a Uri)
+  if (arg && !(arg instanceof vscode.Uri)) {
+    const raw: K8sResource | undefined = arg.raw ?? arg.rawResource ?? arg.resource?.raw;
     if (raw?.apiVersion) {
       return raw.apiVersion;
     }
@@ -361,7 +405,7 @@ async function extractApiVersion(viewDocumentUri: vscode.Uri, arg: any): Promise
   // Try to parse from document
   try {
     const doc = await vscode.workspace.openTextDocument(viewDocumentUri);
-    const obj = yaml.load(doc.getText()) as any;
+    const obj = yaml.load(doc.getText()) as K8sResource | undefined;
     if (obj && typeof obj === 'object' && typeof obj.apiVersion === 'string') {
       return obj.apiVersion;
     }
@@ -375,16 +419,16 @@ async function extractApiVersion(viewDocumentUri: vscode.Uri, arg: any): Promise
 /**
  * Parses YAML text and removes status field.
  */
-function parseAndSanitizeResource(yamlText: string): any {
-  let resourceObject: any;
+function parseAndSanitizeResource(yamlText: string): K8sResource {
+  let resourceObject: K8sResource;
   try {
-    resourceObject = yaml.load(yamlText);
+    resourceObject = yaml.load(yamlText) as K8sResource;
   } catch (parseErr) {
     throw new Error(`Invalid YAML fetched from cluster: ${parseErr}`);
   }
 
   if (resourceObject && typeof resourceObject === 'object') {
-    delete (resourceObject as any).status;
+    delete resourceObject.status;
   }
 
   return resourceObject;
@@ -396,7 +440,7 @@ function parseAndSanitizeResource(yamlText: string): any {
 function getOrCreateEditUri(
   resourceKey: string,
   viewDocumentUri: vscode.Uri,
-  resourceObject: any,
+  resourceObject: K8sResource,
   edaOrigin: boolean,
   resourceInfo: ResourceInfo
 ): { editUri: vscode.Uri; pair: ResourceURIPair | undefined } {
@@ -470,7 +514,7 @@ function storeOriginInfo(
 function prepareEditDocumentContent(
   resourceEditProvider: ResourceEditDocumentProvider,
   editUri: vscode.Uri,
-  resourceObject: any
+  resourceObject: K8sResource
 ): string {
   const sanitizedForEdit = sanitizeResourceForEdit(resourceObject);
   const sanitizedYaml = yaml.dump(sanitizedForEdit, { indent: 2 });
@@ -571,7 +615,7 @@ function syncViewDocumentContent(
  * Executes the switch to edit command logic.
  */
 async function executeSwitchToEdit(
-  arg: any,
+  arg: CommandInput,
   edaClient: EdaClient,
   resourceEditProvider: ResourceEditDocumentProvider,
   context: vscode.ExtensionContext
@@ -585,8 +629,9 @@ async function executeSwitchToEdit(
   const resourceInfo: ResourceInfo = { ...parsedInfo, apiVersion };
   const resourceKey = getResourceKey(resourceInfo.namespace, resourceInfo.kind, resourceInfo.name);
 
-  // Determine EDA origin
-  const edaOrigin = determineEdaOrigin(viewDocumentUri, resourceInfo, arg);
+  // Determine EDA origin - convert arg to CommandArgument if it's not a Uri
+  const argAsCommand = arg instanceof vscode.Uri ? undefined : arg;
+  const edaOrigin = determineEdaOrigin(viewDocumentUri, resourceInfo, argAsCommand);
   if (arg && !edaOrigin) {
     setResourceOrigin(resourceInfo.namespace, resourceInfo.kind, resourceInfo.name, edaOrigin);
   }
@@ -663,7 +708,7 @@ async function executeSwitchToView(
 async function prepareResourceForApply(
   documentUri: vscode.Uri,
   resourceEditProvider: ResourceEditDocumentProvider
-): Promise<{ resource: any; resourceKey: string; originalResource: any }> {
+): Promise<{ resource: K8sResource; resourceKey: string; originalResource: K8sResource }> {
   // Validate scheme
   if (documentUri.scheme !== SCHEME_K8S) {
     throw new Error('Not a Kubernetes resource document');
@@ -673,17 +718,17 @@ async function prepareResourceForApply(
   const document = await vscode.workspace.openTextDocument(documentUri);
   const docText = document.getText();
 
-  let resource: any;
+  let resource: K8sResource;
   try {
-    resource = yaml.load(docText);
+    resource = yaml.load(docText) as K8sResource;
   } catch (yamlError) {
     throw new Error(`YAML validation error: ${yamlError}`);
   }
 
   const resourceKey = getResourceKey(
-    resource.metadata?.namespace || 'default',
-    resource.kind,
-    resource.metadata?.name
+    resource.metadata?.namespace as string ?? 'default',
+    resource.kind ?? '',
+    resource.metadata?.name ?? ''
   );
 
   // Get or reconstruct original resource
@@ -711,8 +756,8 @@ function getOrReconstructOriginalResource(
   documentUri: vscode.Uri,
   resourceEditProvider: ResourceEditDocumentProvider,
   docText: string
-): any {
-  let originalResource = resourceEditProvider.getOriginalResource(documentUri);
+): K8sResource {
+  let originalResource: K8sResource | undefined = resourceEditProvider.getOriginalResource(documentUri) as K8sResource | undefined;
   if (originalResource) {
     return originalResource;
   }
@@ -723,7 +768,7 @@ function getOrReconstructOriginalResource(
 
   if (!originalResource) {
     try {
-      originalResource = yaml.load(docText);
+      originalResource = yaml.load(docText) as K8sResource;
     } catch {
       // ignore parse errors
     }
@@ -755,7 +800,7 @@ async function handleSkipPromptApply(
   resourceEditProvider: ResourceEditDocumentProvider,
   resourceViewProvider: ResourceViewDocumentProvider,
   documentUri: vscode.Uri,
-  resource: any,
+  resource: K8sResource,
   resourceKey: string
 ): Promise<void> {
   if (options.dryRun) {
@@ -786,7 +831,7 @@ async function handleApplyAction(
   resourceEditProvider: ResourceEditDocumentProvider,
   resourceViewProvider: ResourceViewDocumentProvider,
   documentUri: vscode.Uri,
-  resource: any,
+  resource: K8sResource,
   resourceKey: string
 ): Promise<void> {
   switch (action) {
@@ -822,7 +867,7 @@ async function handleDiffAction(
   resourceEditProvider: ResourceEditDocumentProvider,
   resourceViewProvider: ResourceViewDocumentProvider,
   documentUri: vscode.Uri,
-  resource: any,
+  resource: K8sResource,
   resourceKey: string
 ): Promise<void> {
   const shouldContinue = await showResourceDiff(resourceEditProvider, documentUri);
@@ -842,7 +887,7 @@ async function handleDiffAction(
   } else if (nextAction === 'basket') {
     await addResourceToBasket(documentUri, resourceEditProvider, resource);
   } else {
-    const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, false);
+    const confirmed = await confirmResourceUpdate(resource.kind ?? '', resource.metadata?.name ?? '', false);
     if (confirmed) {
       const result = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
       if (result) {
@@ -861,7 +906,7 @@ async function handleDirectApply(
   resourceEditProvider: ResourceEditDocumentProvider,
   resourceViewProvider: ResourceViewDocumentProvider,
   documentUri: vscode.Uri,
-  resource: any,
+  resource: K8sResource,
   resourceKey: string
 ): Promise<void> {
   const confirmed = await showResourceDiff(resourceEditProvider, documentUri, { confirmActionLabel: 'Apply' });
@@ -884,7 +929,7 @@ export function registerResourceEditCommands(
   // Switch from read-only view to editable
   const switchToEditCommand = vscode.commands.registerCommand(
     CMD_SWITCH_TO_EDIT,
-    async (arg: any) => {
+    async (arg: CommandInput) => {
       try {
         await executeSwitchToEdit(arg, edaClient, resourceEditProvider, context);
       } catch (error) {
@@ -1008,9 +1053,9 @@ export function registerResourceEditCommands(
 }
 
 // Prompt user for what action they want to take with the resource
-async function promptForApplyAction(resource: any, isEda: boolean): Promise<string | undefined> {
-  const kind = resource.kind;
-  const name = resource.metadata?.name;
+async function promptForApplyAction(resource: K8sResource, isEda: boolean): Promise<string | undefined> {
+  const kind = resource.kind ?? '';
+  const name = resource.metadata?.name ?? '';
 
   const choices: ActionQuickPickItem[] = [
     { label: LABEL_APPLY, id: 'apply', description: DESC_APPLY },
@@ -1030,9 +1075,9 @@ async function promptForApplyAction(resource: any, isEda: boolean): Promise<stri
 }
 
 // Prompt for next action after diff
-async function promptForNextAction(resource: any, currentStep: string, isEda: boolean): Promise<string | undefined> {
-  const kind = resource.kind;
-  const name = resource.metadata?.name;
+async function promptForNextAction(resource: K8sResource, currentStep: string, isEda: boolean): Promise<string | undefined> {
+  const kind = resource.kind ?? '';
+  const name = resource.metadata?.name ?? '';
 
   let choices: ActionQuickPickItem[] = [];
   if (currentStep === 'diff') {
@@ -1082,14 +1127,14 @@ async function handlePostValidationApply(
   resourceEditProvider: ResourceEditDocumentProvider,
   resourceViewProvider: ResourceViewDocumentProvider,
   documentUri: vscode.Uri,
-  resource: any
+  resource: K8sResource
 ): Promise<void> {
   const applyResult = await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: false });
   if (applyResult) {
     const resourceKey = getResourceKey(
-      resource.metadata.namespace || 'default',
-      resource.kind,
-      resource.metadata.name
+      resource.metadata?.namespace as string ?? 'default',
+      resource.kind ?? '',
+      resource.metadata?.name ?? ''
     );
     updateProvidersAfterApply(resourceEditProvider, resourceViewProvider, documentUri, resource, resourceKey);
     showApplySuccessMessage(resource);
@@ -1105,7 +1150,7 @@ async function handleValidationAction(
   resourceEditProvider: ResourceEditDocumentProvider,
   resourceViewProvider: ResourceViewDocumentProvider,
   documentUri: vscode.Uri,
-  resource: any
+  resource: K8sResource
 ): Promise<void> {
   if (validationAction === BTN_APPLY_CHANGES) {
     await handlePostValidationApply(
@@ -1125,7 +1170,7 @@ async function validateAndPromptForApply(
   resourceEditProvider: ResourceEditDocumentProvider,
   resourceViewProvider: ResourceViewDocumentProvider,
   documentUri: vscode.Uri,
-  resource: any
+  resource: K8sResource
 ): Promise<void> {
   // Always show diff first
   const shouldContinue = await showResourceDiff(resourceEditProvider, documentUri);
@@ -1134,7 +1179,7 @@ async function validateAndPromptForApply(
   }
 
   // Confirm validation
-  const confirmed = await confirmResourceUpdate(resource.kind, resource.metadata?.name, true);
+  const confirmed = await confirmResourceUpdate(resource.kind ?? '', resource.metadata?.name ?? '', true);
   if (!confirmed) {
     return;
   }
@@ -1146,7 +1191,7 @@ async function validateAndPromptForApply(
   }
 
   // Show success message and handle user's choice
-  const validationAction = await showValidationSuccessPrompt(resource.kind, resource.metadata?.name);
+  const validationAction = await showValidationSuccessPrompt(resource.kind ?? '', resource.metadata?.name ?? '');
   await handleValidationAction(
     validationAction, edaClient, resourceEditProvider, resourceViewProvider, documentUri, resource
   );
@@ -1159,8 +1204,8 @@ interface ValidationResult {
 }
 
 function validateResource(
-  resource: any,
-  originalResource: any,
+  resource: K8sResource | undefined,
+  originalResource: K8sResource,
   isNew: boolean = false
 ): ValidationResult {
   // Check for required fields
@@ -1188,17 +1233,17 @@ function validateResource(
     };
   }
 
-  if (!isNew && resource.metadata.name !== originalResource.metadata.name) {
+  if (!isNew && resource.metadata.name !== originalResource.metadata?.name) {
     return {
       valid: false,
-      message: `Cannot change resource name from "${originalResource.metadata.name}" to "${resource.metadata.name}"`
+      message: `Cannot change resource name from "${originalResource.metadata?.name}" to "${resource.metadata.name}"`
     };
   }
 
   // Check that the namespace matches (if present)
   if (
     !isNew &&
-    originalResource.metadata.namespace &&
+    originalResource.metadata?.namespace &&
     resource.metadata.namespace !== originalResource.metadata.namespace
   ) {
     return {
@@ -1216,8 +1261,8 @@ function validateResource(
 function getOriginalResourceForDiff(
   resourceProvider: ResourceEditDocumentProvider,
   documentUri: vscode.Uri
-): any | null {
-  const originalResource = resourceProvider.getOriginalResource(documentUri);
+): K8sResource | null {
+  const originalResource = resourceProvider.getOriginalResource(documentUri) as K8sResource | undefined;
   if (!originalResource) {
     vscode.window.showErrorMessage('Could not find original resource to compare');
     return null;
@@ -1228,10 +1273,10 @@ function getOriginalResourceForDiff(
 /**
  * Parses the current document text and returns the updated resource.
  */
-async function parseUpdatedResource(documentUri: vscode.Uri): Promise<any> {
+async function parseUpdatedResource(documentUri: vscode.Uri): Promise<K8sResource> {
   const document = await vscode.workspace.openTextDocument(documentUri);
   const currentText = document.getText();
-  return yaml.load(currentText);
+  return yaml.load(currentText) as K8sResource;
 }
 
 /**
@@ -1362,8 +1407,8 @@ async function showResourceDiff(
     // Create diff URIs and provider
     const timestamp = Date.now();
     const { originalUri, modifiedUri, title } = createDiffUris(
-      originalResource.kind,
-      originalResource.metadata.name,
+      originalResource.kind ?? '',
+      originalResource.metadata?.name ?? '',
       timestamp
     );
     const diffProvider = createDiffFileSystemProvider(originalYaml, updatedYaml, timestamp);
@@ -1406,10 +1451,10 @@ async function applyEdaResource(
   edaClient: EdaClient,
   resourceEditProvider: ResourceEditDocumentProvider,
   documentUri: vscode.Uri,
-  resource: any,
+  resource: K8sResource,
   isNew: boolean,
   isDryRun: boolean
-): Promise<any> {
+): Promise<K8sResource> {
   const tx = {
     crs: [
       {
@@ -1418,7 +1463,7 @@ async function applyEdaResource(
           : { replace: { value: resource } },
       },
     ],
-    description: `vscode apply ${resource.kind}/${resource.metadata.name}`,
+    description: `vscode apply ${resource.kind}/${resource.metadata?.name}`,
     dryRun: isDryRun,
     retain: true,
     resultType: 'normal'
@@ -1426,7 +1471,7 @@ async function applyEdaResource(
 
   const txId = await edaClient.runTransaction(tx);
   log(
-    `Transaction ${txId} created for ${resource.kind}/${resource.metadata.name}`,
+    `Transaction ${txId} created for ${resource.kind}/${resource.metadata?.name}`,
     LogLevel.INFO,
     true
   );
@@ -1450,18 +1495,18 @@ async function applyEdaResource(
 async function applyK8sResource(
   resourceEditProvider: ResourceEditDocumentProvider,
   documentUri: vscode.Uri,
-  resource: any,
+  resource: K8sResource,
   pair: ResourceURIPair | undefined,
   isNew: boolean,
   isDryRun: boolean
-): Promise<any> {
+): Promise<K8sResource> {
   const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
 
-  if (!isNew && pair?.originalResource?.metadata?.resourceVersion) {
+  if (!isNew && pair?.originalResource?.metadata?.resourceVersion && resource.metadata) {
     resource.metadata.resourceVersion = pair.originalResource.metadata.resourceVersion;
   }
 
-  const updated = await k8sClient.applyResource(resource, { dryRun: isDryRun, isNew });
+  const updated = await k8sClient.applyResource(resource, { dryRun: isDryRun, isNew }) as K8sResource | undefined;
 
   if (!isDryRun) {
     const sanitized = sanitizeResource(updated ?? resource);
@@ -1484,15 +1529,15 @@ async function applyK8sResource(
 /**
  * Logs success for a validation (dry run) operation.
  */
-function logValidationSuccess(resource: any): void {
-  log(`Validation successful for ${resource.kind} "${resource.metadata.name}"`, LogLevel.INFO, true);
+function logValidationSuccess(resource: K8sResource): void {
+  log(`Validation successful for ${resource.kind} "${resource.metadata?.name}"`, LogLevel.INFO, true);
 }
 
 /**
  * Logs success and performs post-apply actions for a real apply operation.
  */
-function logApplySuccess(resource: any, resourceKey: string, appliedResource: any): void {
-  log(`Successfully applied ${resource.kind} "${resource.metadata.name}"`, LogLevel.INFO, true);
+function logApplySuccess(resource: K8sResource, resourceKey: string, appliedResource: K8sResource): void {
+  log(`Successfully applied ${resource.kind} "${resource.metadata?.name}"`, LogLevel.INFO, true);
 
   // Notify resource service of changes if registered
   const serviceNames = serviceManager.getServiceNames();
@@ -1529,18 +1574,18 @@ async function applyResource(
   documentUri: vscode.Uri,
   edaClient: EdaClient,
   resourceEditProvider: ResourceEditDocumentProvider,
-  resource: any,
+  resource: K8sResource,
   options: { dryRun?: boolean }
 ): Promise<boolean> {
   const isDryRun = options.dryRun ?? false;
   const resourceKey = getResourceKey(
-    resource.metadata.namespace || 'default',
-    resource.kind,
-    resource.metadata.name
+    resource.metadata?.namespace as string ?? 'default',
+    resource.kind ?? '',
+    resource.metadata?.name ?? ''
   );
 
   try {
-    log(`${isDryRun ? 'Validating' : 'Applying'} resource ${resource.kind}/${resource.metadata.name}...`, LogLevel.INFO, true);
+    log(`${isDryRun ? 'Validating' : 'Applying'} resource ${resource.kind}/${resource.metadata?.name}...`, LogLevel.INFO, true);
 
     const pair = resourcePairs.get(resourceKey);
     const isEda = getEdaOriginFromDocument(documentUri, resource, pair);
@@ -1567,7 +1612,7 @@ async function applyResource(
 async function addResourceToBasket(
   documentUri: vscode.Uri,
   resourceEditProvider: ResourceEditDocumentProvider,
-  resource: any
+  resource: K8sResource
 ): Promise<void> {
   const { namespace, kind, name } = ResourceEditDocumentProvider.parseUri(documentUri);
   const pair = resourcePairs.get(getResourceKey(namespace, kind, name));
@@ -1593,7 +1638,7 @@ async function addResourceToBasket(
         type: isNew ? { create: { value: resource } } : { replace: { value: resource } }
       }
     ],
-    description: `vscode basket ${resource.kind}/${resource.metadata.name}`,
+    description: `vscode basket ${resource.kind}/${resource.metadata?.name}`,
     retain: true,
     dryRun: false
   };

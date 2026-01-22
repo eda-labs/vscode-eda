@@ -2,8 +2,26 @@ import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
 
 import { serviceManager } from '../services/serviceManager';
-import type { EdaClient } from '../clients/edaClient';
+import type { EdaClient, TransactionRequest } from '../clients/edaClient';
 import { log, LogLevel, edaOutputChannel, edaTransactionBasketProvider } from '../extension';
+import type { Transaction } from '../providers/views/transactionBasketProvider';
+
+/** Kubernetes resource metadata */
+interface K8sMetadata {
+  name?: string;
+  namespace?: string;
+  [key: string]: unknown;
+}
+
+/** EDA Resource structure (Kubernetes custom resource) */
+interface EdaResource {
+  apiVersion: string;
+  kind: string;
+  metadata?: K8sMetadata;
+  spec?: unknown;
+  status?: unknown;
+  [key: string]: unknown;
+}
 
 export function registerApplyYamlFileCommand(context: vscode.ExtensionContext): void {
   const applyCmd = vscode.commands.registerCommand('vscode-eda.applyYamlFile', async (uri?: vscode.Uri) => {
@@ -38,17 +56,22 @@ async function getDocument(uri: vscode.Uri | undefined): Promise<vscode.TextDocu
   return editor.document;
 }
 
-function parseEdaResource(text: string): any | undefined {
-  const resource: any = yaml.load(text);
-  if (!resource || typeof resource !== 'object') {
+function parseEdaResource(text: string): EdaResource | undefined {
+  const parsed: unknown = yaml.load(text);
+  if (!parsed || typeof parsed !== 'object') {
     vscode.window.showErrorMessage('Invalid YAML content');
     return undefined;
   }
-  if (!resource.apiVersion || !/eda\.nokia\.com/.test(resource.apiVersion)) {
+  const resource = parsed as Record<string, unknown>;
+  if (typeof resource.apiVersion !== 'string' || !/eda\.nokia\.com/.test(resource.apiVersion)) {
     vscode.window.showErrorMessage('YAML is not an EDA resource');
     return undefined;
   }
-  return resource;
+  if (typeof resource.kind !== 'string') {
+    vscode.window.showErrorMessage('YAML is missing kind field');
+    return undefined;
+  }
+  return resource as EdaResource;
 }
 
 function getActionName(addToBasket: boolean, dryRun: boolean): string {
@@ -61,24 +84,24 @@ function getActionName(addToBasket: boolean, dryRun: boolean): string {
   return 'apply YAML';
 }
 
-async function addToBasketTransaction(resource: any): Promise<void> {
-  const tx = {
+async function addToBasketTransaction(resource: EdaResource): Promise<void> {
+  const tx: Transaction = {
     crs: [{ type: { replace: { value: resource } } }],
-    description: `vscode basket ${resource.kind}/${resource.metadata?.name}`,
+    description: `vscode basket ${resource.kind}/${resource.metadata?.name ?? 'unknown'}`,
     retain: true,
     dryRun: false
   };
   await edaTransactionBasketProvider.addTransaction(tx);
   vscode.window.showInformationMessage(
-    `Added ${resource.kind} "${resource.metadata?.name}" to transaction basket`
+    `Added ${resource.kind} "${resource.metadata?.name ?? 'unknown'}" to transaction basket`
   );
 }
 
-async function applyTransaction(resource: any, dryRun: boolean): Promise<void> {
+async function applyTransaction(resource: EdaResource, dryRun: boolean): Promise<void> {
   const edaClient = serviceManager.getClient<EdaClient>('eda');
-  const tx = {
+  const tx: TransactionRequest = {
     crs: [{ type: { replace: { value: resource } } }],
-    description: `vscode apply ${resource.kind}/${resource.metadata?.name}${dryRun ? ' (dry run)' : ''}`,
+    description: `vscode apply ${resource.kind}/${resource.metadata?.name ?? 'unknown'}${dryRun ? ' (dry run)' : ''}`,
     dryRun,
     retain: true,
     resultType: 'normal'
@@ -86,9 +109,9 @@ async function applyTransaction(resource: any, dryRun: boolean): Promise<void> {
 
   const id = await edaClient.runTransaction(tx);
   vscode.window.showInformationMessage(
-    `Transaction ${id} created for ${resource.kind} "${resource.metadata?.name}"`
+    `Transaction ${id} created for ${resource.kind} "${resource.metadata?.name ?? 'unknown'}"`
   );
-  log(`Transaction ${id} created for ${resource.kind}/${resource.metadata?.name}`, LogLevel.INFO, true);
+  log(`Transaction ${id} created for ${resource.kind}/${resource.metadata?.name ?? 'unknown'}`, LogLevel.INFO, true);
 }
 
 async function handleYaml(uri: vscode.Uri | undefined, dryRun = false, addToBasket = false): Promise<void> {
@@ -113,9 +136,10 @@ async function handleYaml(uri: vscode.Uri | undefined, dryRun = false, addToBask
     } else {
       await applyTransaction(resource, dryRun);
     }
-  } catch (err: any) {
+  } catch (err: unknown) {
     const action = getActionName(addToBasket, dryRun);
-    const msg = `Failed to ${action}: ${err.message || err}`;
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    const msg = `Failed to ${action}: ${errorMessage}`;
     vscode.window.showErrorMessage(msg);
     log(msg, LogLevel.ERROR, true);
     edaOutputChannel.show();

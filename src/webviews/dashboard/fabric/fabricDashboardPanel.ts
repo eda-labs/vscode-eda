@@ -6,10 +6,98 @@ import { BasePanel } from '../../basePanel';
 import { ALL_NAMESPACES, RESOURCES_DIR } from '../../constants';
 import { serviceManager } from '../../../services/serviceManager';
 import type { EdaClient } from '../../../clients/edaClient';
-import type { StreamEndpoint } from '../../../clients/edaStreamClient';
+import type { EdaAuthClient } from '../../../clients/edaAuthClient';
+import type { EdaSpecManager } from '../../../clients/edaSpecManager';
+import type { StreamEndpoint, StreamMessagePayload } from '../../../clients/edaStreamClient';
 import { EdaStreamClient } from '../../../clients/edaStreamClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
 import { getUpdates, getOps, getDelete, getDeleteIds, getInsertOrModify, getRows } from '../../../utils/streamMessageUtils';
+
+/** Interface for EdaClient internal access (private members) */
+interface EdaClientInternal {
+  authClient: EdaAuthClient;
+  specManager: EdaSpecManager;
+}
+
+/** Inner message payload containing updates or operations */
+interface InnerMessagePayload {
+  updates?: StreamUpdate[];
+  Updates?: StreamUpdate[];
+  op?: StreamOperation[];
+  Op?: StreamOperation[];
+}
+
+/** Individual update entry in stream messages */
+interface StreamUpdate {
+  key?: string;
+  data: StreamUpdateData | null;
+}
+
+/** Data payload in stream updates */
+interface StreamUpdateData {
+  metadata?: {
+    name?: string;
+    namespace?: string;
+  };
+  status?: {
+    'node-state'?: string;
+    nodeState?: string;
+    operationalState?: string;
+    operationalstate?: string;
+    health?: number;
+    spineNodes?: Array<{ node?: string }>;
+    leafNodes?: Array<{ node?: string }>;
+    borderLeafNodes?: Array<{ node?: string }>;
+    superSpineNodes?: Array<{ node?: string }>;
+  };
+  node?: string;
+  '.namespace.name'?: string;
+  'SUM(in-bps)'?: number | string;
+  'SUM(out-bps)'?: number | string;
+  health?: number;
+}
+
+/** Stream operation entry */
+interface StreamOperation {
+  insert_or_modify?: InsertOrModifyOperation;
+  Insert_or_modify?: InsertOrModifyOperation;
+  insertOrModify?: InsertOrModifyOperation;
+  InsertOrModify?: InsertOrModifyOperation;
+  delete?: DeleteOperation;
+  Delete?: DeleteOperation;
+}
+
+/** Insert or modify operation data */
+interface InsertOrModifyOperation {
+  rows?: StreamRow[];
+  Rows?: StreamRow[];
+}
+
+/** Delete operation data */
+interface DeleteOperation {
+  ids?: number[];
+  Ids?: number[];
+}
+
+/** Row entry in insert/modify operations */
+interface StreamRow {
+  id?: number;
+  data?: StreamUpdateData;
+}
+
+/** Resource item from API (toponode, interface, etc.) */
+interface ResourceItem {
+  metadata?: {
+    name?: string;
+    namespace?: string;
+  };
+  status?: {
+    'node-state'?: string;
+    nodeState?: string;
+    operationalState?: string;
+    operationalstate?: string;
+  };
+}
 
 interface NodeGroupStats {
   nodes: Map<number, string>;
@@ -53,8 +141,9 @@ export class FabricDashboardPanel extends BasePanel {
     super(context, 'edaDashboard', title, undefined, BasePanel.getEdaIconPath(context));
 
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
-    const specManager = (this.edaClient as any)['specManager'];
-    const apiVersion = specManager?.getApiVersion?.() ?? '0';
+    const edaInternal = this.edaClient as unknown as EdaClientInternal;
+    const specManager = edaInternal.specManager;
+    const apiVersion = specManager.getApiVersion();
     this.useFieldsQuery = this.isVersionAtLeast(apiVersion, '25.8');
 
     this.streamClient = this.createStreamClient();
@@ -96,8 +185,9 @@ export class FabricDashboardPanel extends BasePanel {
   }
 
   private createStreamClient(): EdaStreamClient {
-    const authClient = (this.edaClient as any)['authClient'];
-    const specManager = (this.edaClient as any)['specManager'];
+    const edaInternal = this.edaClient as unknown as EdaClientInternal;
+    const authClient = edaInternal.authClient;
+    const specManager = edaInternal.specManager;
     const client = new EdaStreamClient();
     client.setAuthClient(authClient);
     const endpoints = specManager
@@ -205,10 +295,10 @@ export class FabricDashboardPanel extends BasePanel {
   private async initializeNodeData(namespaces: string[]): Promise<void> {
     for (const ns of namespaces) {
       try {
-        const nodes = await this.edaClient.listTopoNodes(ns);
+        const nodes = await this.edaClient.listTopoNodes(ns) as ResourceItem[];
         const map = new Map<string, string>();
         for (const node of nodes) {
-          const name = node.metadata?.name as string | undefined;
+          const name = node.metadata?.name;
           if (!name) continue;
           const state = node.status?.['node-state'] ?? node.status?.nodeState ?? '';
           map.set(name, state);
@@ -220,8 +310,9 @@ export class FabricDashboardPanel extends BasePanel {
     }
   }
 
-  private handleTopoNodeStream(msg: any): void {
-    const updates = getUpdates(msg.msg);
+  private handleTopoNodeStream(payload: StreamMessagePayload): void {
+    const innerMsg = payload.msg as InnerMessagePayload | undefined;
+    const updates = getUpdates(innerMsg) as StreamUpdate[];
     if (updates.length === 0) {
       return;
     }
@@ -240,7 +331,7 @@ export class FabricDashboardPanel extends BasePanel {
     this.recalculateFabricHealthForNamespaces(changed);
   }
 
-  private processTopoNodeUpdates(updates: any[]): Set<string> {
+  private processTopoNodeUpdates(updates: StreamUpdate[]): Set<string> {
     const changed = new Set<string>();
     const coreNs = this.edaClient.getCoreNamespace();
 
@@ -258,7 +349,7 @@ export class FabricDashboardPanel extends BasePanel {
     return changed;
   }
 
-  private extractNameAndNamespace(up: any): { name: string | undefined; namespace: string | undefined } {
+  private extractNameAndNamespace(up: StreamUpdate): { name: string | undefined; namespace: string | undefined } {
     let name: string | undefined = up.data?.metadata?.name;
     let namespace: string | undefined = up.data?.metadata?.namespace;
 
@@ -280,7 +371,7 @@ export class FabricDashboardPanel extends BasePanel {
     return map;
   }
 
-  private applyTopoNodeUpdate(map: Map<string, string>, up: any, name: string): void {
+  private applyTopoNodeUpdate(map: Map<string, string>, up: StreamUpdate, name: string): void {
     if (up.data === null) {
       map.delete(name);
     } else {
@@ -333,10 +424,10 @@ export class FabricDashboardPanel extends BasePanel {
   private async initializeInterfaceData(namespaces: string[]): Promise<void> {
     for (const ns of namespaces) {
       try {
-        const ifaces = await this.edaClient.listInterfaces(ns);
+        const ifaces = await this.edaClient.listInterfaces(ns) as ResourceItem[];
         const map = new Map<string, string>();
         for (const iface of ifaces) {
-          const name = iface.metadata?.name as string | undefined;
+          const name = iface.metadata?.name;
           if (!name) continue;
           const state =
             iface.status?.operationalState ?? iface.status?.operationalstate ?? '';
@@ -425,8 +516,9 @@ export class FabricDashboardPanel extends BasePanel {
     return { total, up, down };
   }
 
-  private handleInterfaceStream(msg: any): void {
-    const updates = getUpdates(msg.msg);
+  private handleInterfaceStream(payload: StreamMessagePayload): void {
+    const innerMsg = payload.msg as InnerMessagePayload | undefined;
+    const updates = getUpdates(innerMsg) as StreamUpdate[];
     if (updates.length === 0) {
       return;
     }
@@ -443,7 +535,7 @@ export class FabricDashboardPanel extends BasePanel {
     }
   }
 
-  private processInterfaceUpdates(updates: any[]): Set<string> {
+  private processInterfaceUpdates(updates: StreamUpdate[]): Set<string> {
     const changed = new Set<string>();
     const coreNs = this.edaClient.getCoreNamespace();
 
@@ -470,7 +562,7 @@ export class FabricDashboardPanel extends BasePanel {
     return map;
   }
 
-  private applyInterfaceUpdate(map: Map<string, string>, up: any, name: string): void {
+  private applyInterfaceUpdate(map: Map<string, string>, up: StreamUpdate, name: string): void {
     if (up.data === null) {
       map.delete(name);
     } else {
@@ -497,11 +589,12 @@ export class FabricDashboardPanel extends BasePanel {
     });
   }
 
-  private handleTrafficStream(msg: any): void {
-    const ops = getOps(msg.msg);
+  private handleTrafficStream(payload: StreamMessagePayload): void {
+    const innerMsg = payload.msg as InnerMessagePayload | undefined;
+    const ops = getOps(innerMsg) as StreamOperation[];
     if (ops.length === 0) return;
-    const insertOrModify = getInsertOrModify(ops[0]);
-    const rows = getRows(insertOrModify);
+    const insertOrModify = getInsertOrModify(ops[0]) as InsertOrModifyOperation | undefined;
+    const rows = getRows(insertOrModify) as StreamRow[];
     if (rows.length === 0) return;
     const data = rows[0]?.data;
     if (!data) return;
@@ -619,29 +712,29 @@ export class FabricDashboardPanel extends BasePanel {
     await this.streamClient.closeEqlStream(this.fabricStatusStreamName);
   }
 
-  private handleLeafStream(msg: any): void {
-    this.updateNodeGroup(msg, 'leafs');
+  private handleLeafStream(payload: StreamMessagePayload): void {
+    this.updateNodeGroup(payload, 'leafs');
   }
 
-  private handleSpineStream(msg: any): void {
-    this.updateNodeGroup(msg, 'spines');
+  private handleSpineStream(payload: StreamMessagePayload): void {
+    this.updateNodeGroup(payload, 'spines');
   }
 
-  private handleBorderLeafStream(msg: any): void {
-    this.updateNodeGroup(msg, 'borderleafs');
+  private handleBorderLeafStream(payload: StreamMessagePayload): void {
+    this.updateNodeGroup(payload, 'borderleafs');
   }
 
-  private handleSuperSpineStream(msg: any): void {
-    this.updateNodeGroup(msg, 'superspines');
+  private handleSuperSpineStream(payload: StreamMessagePayload): void {
+    this.updateNodeGroup(payload, 'superspines');
   }
 
   private extractNodesFromRow(
-    data: any,
+    data: StreamUpdateData | undefined,
     key: FabricGroupKey
   ): string[] {
     const status = data?.status;
     if (!status) return [];
-    let arr: any[] | undefined;
+    let arr: Array<{ node?: string }> | undefined;
     switch (key) {
       case 'spines':
         arr = status.spineNodes;
@@ -662,15 +755,16 @@ export class FabricDashboardPanel extends BasePanel {
       .filter((n): n is string => typeof n === 'string');
   }
 
-  private updateNodeGroup(msg: any, key: FabricGroupKey): void {
-    const ops = getOps(msg.msg);
+  private updateNodeGroup(payload: StreamMessagePayload, key: FabricGroupKey): void {
+    const innerMsg = payload.msg as InnerMessagePayload | undefined;
+    const ops = getOps(innerMsg) as StreamOperation[];
     if (ops.length === 0) return;
 
     const changed = this.processNodeGroupOps(ops, key);
     this.updateNodeGroupHealth(changed, key);
   }
 
-  private processNodeGroupOps(ops: any[], key: FabricGroupKey): Set<string> {
+  private processNodeGroupOps(ops: StreamOperation[], key: FabricGroupKey): Set<string> {
     const changed = new Set<string>();
 
     for (const op of ops) {
@@ -681,12 +775,12 @@ export class FabricDashboardPanel extends BasePanel {
     return changed;
   }
 
-  private processNodeGroupInsertOrModify(op: any, key: FabricGroupKey, changed: Set<string>): void {
-    const insertOrModify = getInsertOrModify(op);
-    const rows = getRows(insertOrModify);
+  private processNodeGroupInsertOrModify(op: StreamOperation, key: FabricGroupKey, changed: Set<string>): void {
+    const insertOrModify = getInsertOrModify(op) as InsertOrModifyOperation | undefined;
+    const rows = getRows(insertOrModify) as StreamRow[];
 
     for (const r of rows) {
-      const ns = r.data?.['.namespace.name'] as string | undefined;
+      const ns = r.data?.['.namespace.name'];
       if (!ns) continue;
 
       const stats = this.getOrCreateFabricStats(ns);
@@ -697,11 +791,11 @@ export class FabricDashboardPanel extends BasePanel {
     }
   }
 
-  private processNodeGroupDeletes(op: any, key: FabricGroupKey, changed: Set<string>): void {
+  private processNodeGroupDeletes(op: StreamOperation, key: FabricGroupKey, changed: Set<string>): void {
     if (this.useFieldsQuery) return;
 
-    const deleteOp = getDelete(op);
-    const delIds = getDeleteIds(deleteOp);
+    const deleteOp = getDelete(op) as DeleteOperation | undefined;
+    const delIds = getDeleteIds(deleteOp) as number[];
 
     for (const delId of delIds) {
       for (const [ns, stats] of this.fabricMap) {
@@ -727,7 +821,7 @@ export class FabricDashboardPanel extends BasePanel {
     return stats;
   }
 
-  private applyNodeGroupRowUpdate(stats: FabricStats, r: any, key: FabricGroupKey): boolean {
+  private applyNodeGroupRowUpdate(stats: FabricStats, r: StreamRow, key: FabricGroupKey): boolean {
     if (this.useFieldsQuery) {
       const nodes = this.extractNodesFromRow(r.data, key);
       stats[key].nodes.clear();
@@ -735,8 +829,8 @@ export class FabricDashboardPanel extends BasePanel {
       return true;
     }
 
-    const name = r.data?.node as string | undefined;
-    const id = r.id as number | undefined;
+    const name = r.data?.node;
+    const id = r.id;
     if (!name || id === undefined) return false;
 
     stats[key].nodes.set(id, name);
@@ -754,18 +848,19 @@ export class FabricDashboardPanel extends BasePanel {
     }
   }
 
-  private handleFabricStatusStream(msg: any): void {
-    const ops = getOps(msg.msg);
+  private handleFabricStatusStream(payload: StreamMessagePayload): void {
+    const innerMsg = payload.msg as InnerMessagePayload | undefined;
+    const ops = getOps(innerMsg) as StreamOperation[];
     if (ops.length === 0) return;
 
     const changed = new Set<string>();
 
     for (const op of ops) {
-      const insertOrModify = getInsertOrModify(op);
-      const rows = getRows(insertOrModify);
+      const insertOrModify = getInsertOrModify(op) as InsertOrModifyOperation | undefined;
+      const rows = getRows(insertOrModify) as StreamRow[];
       for (const r of rows) {
         const data = r.data;
-        const ns = data?.['.namespace.name'] as string | undefined;
+        const ns = data?.['.namespace.name'];
         if (!ns) continue;
 
         const stats = this.getOrCreateFabricStats(ns);

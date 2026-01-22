@@ -21,9 +21,56 @@ export interface StreamEndpoint {
   stream: string;
 }
 
+/** Generic stream message payload - the actual content varies by stream type */
+export interface StreamMessagePayload {
+  type?: string;
+  stream?: string;
+  msg?: {
+    client?: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
 export interface StreamMessage {
   stream: string;
-  message: any;
+  message: StreamMessagePayload;
+}
+
+/** WebSocket registration message structure */
+interface RegistrationMessage {
+  type: string;
+  msg?: {
+    client?: string;
+  };
+}
+
+/** Undici fetch Response type for SSE streaming */
+interface SseResponse {
+  ok: boolean;
+  status: number;
+  headers: {
+    get(name: string): string | null;
+  };
+  body: ReadableStream<Uint8Array> | null;
+  text(): Promise<string>;
+}
+
+/** Reader for streaming response body */
+interface StreamReader {
+  read(): Promise<{ value?: Uint8Array; done: boolean }>;
+}
+
+/** Result of an SSE request attempt */
+interface SseRequestResult {
+  response?: SseResponse;
+  error?: Error;
+  aborted?: boolean;
+}
+
+/** Result of token refresh and retry attempt */
+interface TokenRefreshResult extends SseRequestResult {
+  shouldRetry?: boolean;
 }
 
 /**
@@ -207,8 +254,8 @@ export class EdaStreamClient {
    */
   private handleRegistrationMessage(txt: string, socket: WebSocket): void {
     try {
-      const obj = JSON.parse(txt);
-      const client = obj?.msg?.client as string | undefined;
+      const obj = JSON.parse(txt) as RegistrationMessage;
+      const client = obj.msg?.client;
       if (obj.type !== MSG_TYPE_REGISTER || !client) {
         return;
       }
@@ -478,12 +525,12 @@ export class EdaStreamClient {
     url: string,
     headers: Record<string, string>,
     controller?: AbortController
-  ): Promise<any> {
+  ): Promise<SseResponse> {
     return fetch(url, {
       headers,
       dispatcher: this.authClient!.getAgent(),
       signal: controller?.signal,
-    } as any);
+    } as Parameters<typeof fetch>[1]) as Promise<SseResponse>;
   }
 
   /**
@@ -501,13 +548,17 @@ export class EdaStreamClient {
   /**
    * Process streaming response body line by line
    */
-  private async processStreamBody(res: any, streamName: string): Promise<void> {
-    const reader = res.body.getReader();
+  private async processStreamBody(res: SseResponse, streamName: string): Promise<void> {
+    if (!res.body) {
+      log(`[STREAM:${streamName}] no response body`, LogLevel.ERROR);
+      return;
+    }
+    const reader = (res.body as unknown as { getReader(): StreamReader }).getReader();
     const decoder = new TextDecoder();
     let buffer = '';
 
     for (;;) {
-      let readResult;
+      let readResult: { value?: Uint8Array; done: boolean };
       try {
         readResult = await reader.read();
       } catch (err) {
@@ -556,7 +607,7 @@ export class EdaStreamClient {
     const urlObj = new URL(url);
     const streamName = urlObj.searchParams.get('stream') || 'unknown';
 
-    const res = await this.executeWithRetry(url, streamName, controller, extraHeaders);
+    const res: SseResponse | undefined = await this.executeWithRetry(url, streamName, controller, extraHeaders);
     if (!res) {
       return;
     }
@@ -565,7 +616,7 @@ export class EdaStreamClient {
 
     // Check if this is a non-streaming response (e.g., NQL with content-length)
     if (res.headers.get('content-length')) {
-      const text = await res.text();
+      const text: string = await res.text();
       log(`[STREAM:${streamName}] Complete response received: ${text}`, LogLevel.DEBUG);
       this.handleEventMessage(text);
       return;
@@ -577,7 +628,7 @@ export class EdaStreamClient {
   /**
    * Check if SSE request result is a successful response
    */
-  private isSuccessfulResponse(result: { response?: any; aborted?: boolean }): boolean {
+  private isSuccessfulResponse(result: SseRequestResult): boolean {
     return Boolean(result.response?.ok && result.response?.body);
   }
 
@@ -585,7 +636,7 @@ export class EdaStreamClient {
    * Log failed request error
    */
   private logFailedRequest(
-    result: { error?: Error; response?: any },
+    result: SseRequestResult,
     url: string,
     streamName: string
   ): void {
@@ -615,14 +666,14 @@ export class EdaStreamClient {
     streamName: string,
     controller?: AbortController,
     extraHeaders: Record<string, string> = {}
-  ): Promise<any | undefined> {
+  ): Promise<SseResponse | undefined> {
     let attempt = 0;
     let delay = 1000;
     const maxRetries = 5;
 
     for (;;) {
       const headers = this.buildSseHeaders(extraHeaders, streamName, url);
-      const result = await this.attemptSseRequest(url, headers, streamName, controller);
+      const result: SseRequestResult = await this.attemptSseRequest(url, headers, streamName, controller);
 
       if (result.aborted) {
         return undefined;
@@ -632,7 +683,7 @@ export class EdaStreamClient {
       }
 
       // Try token refresh if response indicates expired token
-      const refreshResult = await this.handleFailedResponse(result, url, headers, streamName, controller);
+      const refreshResult: TokenRefreshResult = await this.handleFailedResponse(result, url, headers, streamName, controller);
       if (refreshResult.aborted) {
         return undefined;
       }
@@ -653,17 +704,17 @@ export class EdaStreamClient {
    * Handle failed response - attempt token refresh if applicable
    */
   private async handleFailedResponse(
-    result: { response?: any; error?: Error },
+    result: SseRequestResult,
     url: string,
     headers: Record<string, string>,
     streamName: string,
     controller?: AbortController
-  ): Promise<{ response?: any; aborted?: boolean }> {
+  ): Promise<TokenRefreshResult> {
     if (!result.response || result.response.ok) {
       return {};
     }
 
-    const refreshed = await this.tryTokenRefreshAndRetry(
+    const refreshed: TokenRefreshResult = await this.tryTokenRefreshAndRetry(
       result.response, url, headers, streamName, controller
     );
 
@@ -685,9 +736,9 @@ export class EdaStreamClient {
     headers: Record<string, string>,
     streamName: string,
     controller?: AbortController
-  ): Promise<{ response?: any; error?: Error; aborted?: boolean }> {
+  ): Promise<SseRequestResult> {
     try {
-      const response = await this.doSseRequest(url, headers, controller);
+      const response: SseResponse = await this.doSseRequest(url, headers, controller);
       return { response };
     } catch (err) {
       if (this.handleSseAbort(err as Error, streamName)) {
@@ -701,12 +752,12 @@ export class EdaStreamClient {
    * Try to refresh token and retry request if token expired
    */
   private async tryTokenRefreshAndRetry(
-    res: any,
+    res: SseResponse,
     url: string,
     headers: Record<string, string>,
     streamName: string,
     controller?: AbortController
-  ): Promise<{ response?: any; aborted?: boolean; shouldRetry?: boolean }> {
+  ): Promise<TokenRefreshResult> {
     let text = '';
     try {
       text = await res.text();
@@ -848,7 +899,7 @@ export class EdaStreamClient {
   private handleEventMessage(data: string): void {
     log(`WS message: ${data}`, LogLevel.DEBUG);
     try {
-      const msg = JSON.parse(data);
+      const msg = JSON.parse(data) as StreamMessagePayload;
       if (msg.type && msg.stream) {
         log(`Stream ${msg.stream} event received`, LogLevel.DEBUG);
       }

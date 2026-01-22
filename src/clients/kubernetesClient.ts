@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
+import type { RequestInit } from 'undici';
 import { fetch, Agent } from 'undici';
 import * as yaml from 'js-yaml';
 import * as vscode from 'vscode';
@@ -51,6 +52,34 @@ interface KubeConfigFile {
   'current-context'?: string;
 }
 
+/** Standard Kubernetes object metadata */
+interface K8sMetadata {
+  name?: string;
+  namespace?: string;
+  uid?: string;
+  resourceVersion?: string;
+  [key: string]: unknown;
+}
+
+/** Standard Kubernetes resource object */
+interface K8sResource {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: K8sMetadata;
+  spec?: Record<string, unknown>;
+  status?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/** Kubernetes watch event */
+interface K8sWatchEvent {
+  type: 'ADDED' | 'MODIFIED' | 'DELETED' | 'BOOKMARK' | 'ERROR';
+  object?: K8sResource & { message?: string };
+}
+
+/** Type alias for resource caches */
+type NamespacedCache = Map<string, K8sResource[]>;
+
 export class KubernetesClient {
   private server: string = '';
   private token: string | undefined;
@@ -60,18 +89,38 @@ export class KubernetesClient {
 
   // Cached resources
   private namespaceCache: string[] = [];
-  private podsCache: Map<string, any[]> = new Map();
-  private deploymentsCache: Map<string, any[]> = new Map();
-  private servicesCache: Map<string, any[]> = new Map();
-  private configmapsCache: Map<string, any[]> = new Map();
-  private secretsCache: Map<string, any[]> = new Map();
-  private artifactsCache: Map<string, any[]> = new Map();
-  private engineconfigsCache: Map<string, any[]> = new Map();
-  private nodeprofilesCache: Map<string, any[]> = new Map();
-  private manifestsCache: Map<string, any[]> = new Map();
-  private simnodesCache: Map<string, any[]> = new Map();
-  private simlinksCache: Map<string, any[]> = new Map();
-  private crdCache: any[] = [];
+  private podsCache: NamespacedCache = new Map();
+  private deploymentsCache: NamespacedCache = new Map();
+  private servicesCache: NamespacedCache = new Map();
+  private configmapsCache: NamespacedCache = new Map();
+  private secretsCache: NamespacedCache = new Map();
+  private artifactsCache: NamespacedCache = new Map();
+  private engineconfigsCache: NamespacedCache = new Map();
+  private nodeprofilesCache: NamespacedCache = new Map();
+  private manifestsCache: NamespacedCache = new Map();
+  private simnodesCache: NamespacedCache = new Map();
+  private simlinksCache: NamespacedCache = new Map();
+  private crdCache: K8sResource[] = [];
+
+  // Cluster-scoped caches used by watchDefinitions
+  private clusterScopedCaches: Map<string, K8sResource[]> = new Map([
+    ['nodes', []],
+    ['persistentvolumes', []],
+    ['storageclasses', []],
+    ['clusterroles', []],
+    ['clusterrolebindings', []]
+  ]);
+
+  // Additional namespaced caches used by watchDefinitions
+  private endpointsCache: NamespacedCache = new Map();
+  private eventsCache: NamespacedCache = new Map();
+  private persistentvolumeclaimsCache: NamespacedCache = new Map();
+  private serviceaccountsCache: NamespacedCache = new Map();
+  private statefulsetsCache: NamespacedCache = new Map();
+  private daemonsetsCache: NamespacedCache = new Map();
+  private jobsCache: NamespacedCache = new Map();
+  private cronjobsCache: NamespacedCache = new Map();
+  private ingressesCache: NamespacedCache = new Map();
 
 
   // Active resource watchers
@@ -245,6 +294,37 @@ export class KubernetesClient {
     return this.contexts;
   }
 
+  /** Clear all resource caches */
+  private clearAllCaches(): void {
+    // Clear namespaced caches
+    this.podsCache.clear();
+    this.deploymentsCache.clear();
+    this.servicesCache.clear();
+    this.configmapsCache.clear();
+    this.secretsCache.clear();
+    this.artifactsCache.clear();
+    this.engineconfigsCache.clear();
+    this.nodeprofilesCache.clear();
+    this.manifestsCache.clear();
+    this.simnodesCache.clear();
+    this.simlinksCache.clear();
+    this.endpointsCache.clear();
+    this.eventsCache.clear();
+    this.persistentvolumeclaimsCache.clear();
+    this.serviceaccountsCache.clear();
+    this.statefulsetsCache.clear();
+    this.daemonsetsCache.clear();
+    this.jobsCache.clear();
+    this.cronjobsCache.clear();
+    this.ingressesCache.clear();
+
+    // Clear cluster-scoped caches
+    for (const key of this.clusterScopedCaches.keys()) {
+      this.clusterScopedCaches.set(key, []);
+    }
+    this.crdCache = [];
+  }
+
   public switchContext(contextName: string): void {
     if (!this.contexts.includes(contextName)) {
       return;
@@ -252,20 +332,13 @@ export class KubernetesClient {
     this.clearWatchers();
     const prevNamespaces = this.namespaceCache.slice();
     this.namespaceCache = [];
-    for (const def of this.watchDefinitions) {
-      const key = `${def.name}Cache` as keyof this;
-      if (def.namespaced) {
-        (this as any)[key] = new Map();
-      } else {
-        (this as any)[key] = [];
-      }
-    }
+    this.clearAllCaches();
     this.currentContext = contextName;
     this.loadKubeConfig(contextName);
     this.startWatchers(prevNamespaces);
   }
 
-  private async fetchJSON(pathname: string): Promise<any> {
+  private async fetchJSON<T = unknown>(pathname: string): Promise<T> {
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
@@ -276,14 +349,14 @@ export class KubernetesClient {
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
-      return res.json();
+      return res.json() as Promise<T>;
     } catch (err) {
       log(`Fetch failed for ${url}: ${err}`, LogLevel.ERROR);
       throw err;
     }
   }
 
-  private async requestJSON(method: string, pathname: string, body?: any): Promise<any> {
+  private async requestJSON<T = unknown>(method: string, pathname: string, body?: K8sResource): Promise<T | undefined> {
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
@@ -297,12 +370,12 @@ export class KubernetesClient {
       headers,
       dispatcher: this.agent,
       body: body ? JSON.stringify(body) : undefined
-    } as any);
+    });
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`HTTP ${res.status}: ${text}`);
     }
-    return res.status === 204 ? undefined : res.json();
+    return res.status === 204 ? undefined : res.json() as Promise<T>;
   }
 
   private guessPlural(kind: string): string {
@@ -337,15 +410,15 @@ export class KubernetesClient {
   }
 
   public async applyResource(
-    resource: any,
+    resource: K8sResource,
     opts: { dryRun?: boolean; isNew?: boolean } = {}
-  ): Promise<any> {
+  ): Promise<K8sResource | undefined> {
     const { dryRun = false, isNew = false } = opts;
     const { group, version } = this.parseApiVersion(resource.apiVersion ?? '');
     const namespace: string | undefined = resource.metadata?.namespace;
     const name: string | undefined = resource.metadata?.name;
 
-    const pluralGuess = this.guessPlural(resource.kind);
+    const pluralGuess = this.guessPlural(resource.kind ?? '');
     const def = this.watchDefinitions.find(
       d => d.plural === pluralGuess && d.group === group && d.version === version
     );
@@ -362,7 +435,7 @@ export class KubernetesClient {
     const url = `${resourcePath}?${params.join('&')}`;
 
     const method = isNew ? 'POST' : 'PUT';
-    return this.requestJSON(method, url, sanitizeResource(resource));
+    return this.requestJSON<K8sResource>(method, url, sanitizeResource(resource) as K8sResource);
   }
 
 
@@ -381,6 +454,44 @@ export class KubernetesClient {
     }
   }
 
+  /** Get a namespaced cache by resource type name */
+  private getNamespacedCacheByName(resourceName: string): NamespacedCache | undefined {
+    const cacheMap: Record<string, NamespacedCache> = {
+      pods: this.podsCache,
+      deployments: this.deploymentsCache,
+      services: this.servicesCache,
+      configmaps: this.configmapsCache,
+      secrets: this.secretsCache,
+      artifacts: this.artifactsCache,
+      engineconfigs: this.engineconfigsCache,
+      nodeprofiles: this.nodeprofilesCache,
+      manifests: this.manifestsCache,
+      simnodes: this.simnodesCache,
+      simlinks: this.simlinksCache,
+      endpoints: this.endpointsCache,
+      events: this.eventsCache,
+      persistentvolumeclaims: this.persistentvolumeclaimsCache,
+      serviceaccounts: this.serviceaccountsCache,
+      statefulsets: this.statefulsetsCache,
+      daemonsets: this.daemonsetsCache,
+      jobs: this.jobsCache,
+      cronjobs: this.cronjobsCache,
+      ingresses: this.ingressesCache,
+    };
+    return cacheMap[resourceName];
+  }
+
+  /** Get a cluster-scoped cache by resource type name, returns a wrapper for mutation */
+  private _getClusterCacheByName(resourceName: string): { get: () => K8sResource[]; set: (arr: K8sResource[]) => void } | undefined {
+    if (!this.clusterScopedCaches.has(resourceName)) {
+      return undefined;
+    }
+    return {
+      get: () => this.clusterScopedCaches.get(resourceName) ?? [],
+      set: (arr: K8sResource[]) => { this.clusterScopedCaches.set(resourceName, arr); }
+    };
+  }
+
   /**
    * Stop watchers for namespaced resources in removed namespaces
    */
@@ -393,9 +504,8 @@ export class KubernetesClient {
       this.activeWatchers.get(key)?.abort();
       this.activeWatchers.delete(key);
 
-      const cacheName = `${resourceName}Cache` as keyof this;
-      const map = (this as any)[cacheName] as Map<string, any[]> | undefined;
-      map?.delete(ns);
+      const cache = this.getNamespacedCacheByName(resourceName);
+      cache?.delete(ns);
     }
   }
 
@@ -439,8 +549,9 @@ export class KubernetesClient {
   }
 
   /** Update namespaced cache with event */
-  private updateNamespacedCache(cacheName: string, namespace: string, evt: any, obj: any): void {
-    const map = (this as any)[cacheName] as Map<string, any[]>;
+  private updateNamespacedCache(resourceName: string, namespace: string, evt: K8sWatchEvent, obj: K8sResource): void {
+    const map = this.getNamespacedCacheByName(resourceName);
+    if (!map) return;
     const arr = map.get(namespace) || [];
     if (evt.type === 'DELETED') {
       map.set(namespace, arr.filter(r =>
@@ -454,22 +565,24 @@ export class KubernetesClient {
   }
 
   /** Update non-namespaced cache with event */
-  private updateNonNamespacedCache(cacheName: string, evt: any, obj: any): void {
-    const arr = (this as any)[cacheName] as any[];
+  private updateNonNamespacedCache(resourceName: string, evt: K8sWatchEvent, obj: K8sResource): void {
+    const cacheWrapper = this._getClusterCacheByName(resourceName);
+    if (!cacheWrapper) return;
+    const arr = cacheWrapper.get();
     if (evt.type === 'DELETED') {
-      (this as any)[cacheName] = arr.filter((r: any) =>
+      cacheWrapper.set(arr.filter(r =>
         r.metadata?.uid !== obj.metadata?.uid && r.metadata?.name !== obj.metadata?.name
-      );
+      ));
     } else {
-      const idx = arr.findIndex((r: any) => r.metadata?.uid === obj.metadata?.uid);
+      const idx = arr.findIndex(r => r.metadata?.uid === obj.metadata?.uid);
       if (idx >= 0) { arr[idx] = obj; } else { arr.push(obj); }
     }
   }
 
   /** Log change if enough time has passed since last log */
-  private logChangeIfNeeded(origin: string, namespace: string | undefined, obj: any, evtType: string): void {
+  private logChangeIfNeeded(origin: string, namespace: string | undefined, obj: K8sResource, evtType: string): void {
     const nsInfo = namespace ? ` (namespace: ${namespace})` : '';
-    const objName = obj.metadata?.name ? ` ${obj.metadata.name}` : '';
+    const objName = obj.metadata?.name ? ` ${String(obj.metadata.name)}` : '';
     const now = Date.now();
     const last = this.lastChangeLogTime.get(origin) || 0;
     if (now - last > 1000) {
@@ -480,31 +593,33 @@ export class KubernetesClient {
 
   /** Process a single watch event, returns new resourceVersion or null on error */
   private processWatchEvent(
-    evt: any,
+    evt: K8sWatchEvent,
     def: { name: string; namespaced: boolean },
     namespace: string | undefined,
     currentResourceVersion: string
   ): string | null {
     if (evt.type === 'ERROR') {
       const streamId = this.getWatchStreamId(def.name, namespace);
-      const errMsg = evt.object?.message || '';
+      const errMsg = evt.object?.message ?? '';
       log(`Watch stream for ${streamId} returned error ${errMsg}; reconnecting`, LogLevel.INFO);
       return null; // Signal to break and reconnect
     }
 
     const obj = evt.object;
-    const newResourceVersion = obj?.metadata?.resourceVersion || currentResourceVersion;
+    if (!obj) {
+      return currentResourceVersion;
+    }
+    const newResourceVersion = obj.metadata?.resourceVersion ?? currentResourceVersion;
 
-    if (!obj?.metadata?.name) {
+    if (!obj.metadata?.name) {
       const snippet = JSON.stringify(obj).slice(0, 200);
       log(`Received ${def.name} event without name: ${snippet}`, LogLevel.DEBUG);
     }
 
-    const cacheName = `${def.name}Cache`;
     if (def.namespaced && namespace) {
-      this.updateNamespacedCache(cacheName, namespace, evt, obj);
+      this.updateNamespacedCache(def.name, namespace, evt, obj);
     } else {
-      this.updateNonNamespacedCache(cacheName, evt, obj);
+      this.updateNonNamespacedCache(def.name, evt, obj);
     }
 
     const origin = this.getWatchStreamId(def.name, namespace);
@@ -537,7 +652,7 @@ export class KubernetesClient {
     for (const part of parts) {
       if (!part.trim()) continue;
       try {
-        const evt = JSON.parse(part);
+        const evt = JSON.parse(part) as K8sWatchEvent;
         const newVersion = this.processWatchEvent(evt, def, namespace, resourceVersion.value);
         if (newVersion === null) {
           resourceVersion.value = '';
@@ -586,7 +701,7 @@ export class KubernetesClient {
             signal: controller.signal,
             headersTimeout: 0,
             bodyTimeout: 0
-          } as any);
+          } as RequestInit);
 
           if (!res.ok || !res.body) {
             throw new Error(`HTTP ${res.status}`);
@@ -626,18 +741,18 @@ export class KubernetesClient {
     this.updateNamespaceWatchers(namespaces);
   }
 
-  public async listNamespaces(): Promise<any[]> {
-    const data = await this.fetchJSON('/api/v1/namespaces');
+  public async listNamespaces(): Promise<K8sResource[]> {
+    const data = await this.fetchJSON<{ items?: K8sResource[] }>('/api/v1/namespaces');
     return data.items || [];
   }
 
-  public async listCrds(): Promise<any[]> {
-    const data = await this.fetchJSON('/apis/apiextensions.k8s.io/v1/customresourcedefinitions');
+  public async listCrds(): Promise<K8sResource[]> {
+    const data = await this.fetchJSON<{ items?: K8sResource[] }>('/apis/apiextensions.k8s.io/v1/customresourcedefinitions');
     this.crdCache = data.items || [];
     return this.crdCache;
   }
 
-  public getCachedCrds(): any[] {
+  public getCachedCrds(): K8sResource[] {
     return this.crdCache;
   }
 
@@ -645,51 +760,51 @@ export class KubernetesClient {
     return this.namespaceCache;
   }
 
-  public getCachedResources(): any[] {
+  public getCachedResources(): K8sResource[] {
     return [];
   }
 
-  public getCachedPods(ns: string): any[] {
+  public getCachedPods(ns: string): K8sResource[] {
     return this.podsCache.get(ns) || [];
   }
 
-  public getCachedDeployments(ns: string): any[] {
+  public getCachedDeployments(ns: string): K8sResource[] {
     return this.deploymentsCache.get(ns) || [];
   }
 
-  public getCachedServices(ns: string): any[] {
+  public getCachedServices(ns: string): K8sResource[] {
     return this.servicesCache.get(ns) || [];
   }
 
-  public getCachedConfigMaps(ns: string): any[] {
+  public getCachedConfigMaps(ns: string): K8sResource[] {
     return this.configmapsCache.get(ns) || [];
   }
 
-  public getCachedSecrets(ns: string): any[] {
+  public getCachedSecrets(ns: string): K8sResource[] {
     return this.secretsCache.get(ns) || [];
   }
 
-  public getCachedArtifacts(ns: string): any[] {
+  public getCachedArtifacts(ns: string): K8sResource[] {
     return this.artifactsCache.get(ns) || [];
   }
 
-  public getCachedEngineconfigs(ns: string): any[] {
+  public getCachedEngineconfigs(ns: string): K8sResource[] {
     return this.engineconfigsCache.get(ns) || [];
   }
 
-  public getCachedNodeprofiles(ns: string): any[] {
+  public getCachedNodeprofiles(ns: string): K8sResource[] {
     return this.nodeprofilesCache.get(ns) || [];
   }
 
-  public getCachedManifests(ns: string): any[] {
+  public getCachedManifests(ns: string): K8sResource[] {
     return this.manifestsCache.get(ns) || [];
   }
 
-  public getCachedSimnodes(ns: string): any[] {
+  public getCachedSimnodes(ns: string): K8sResource[] {
     return this.simnodesCache.get(ns) || [];
   }
 
-  public getCachedSimlinks(ns: string): any[] {
+  public getCachedSimlinks(ns: string): K8sResource[] {
     return this.simlinksCache.get(ns) || [];
   }
 
@@ -740,15 +855,29 @@ export class KubernetesClient {
     return yaml.dump(sanitized, { indent: 2 });
   }
 
-  public getCachedResource(type: string, ns?: string): any[] {
+  public getCachedResource(type: string, ns?: string): K8sResource[] {
     const def = this.watchDefinitions.find(d => d.name === type);
     if (!def) return [];
-    if (def.namespaced) {
-      const map = (this as any)[`${type}Cache`] as Map<string, any[]> | undefined;
-      return map?.get(ns || '') || [];
+    const caches: Record<string, NamespacedCache | K8sResource[]> = {
+      pods: this.podsCache,
+      deployments: this.deploymentsCache,
+      services: this.servicesCache,
+      configmaps: this.configmapsCache,
+      secrets: this.secretsCache,
+      artifacts: this.artifactsCache,
+      engineconfigs: this.engineconfigsCache,
+      nodeprofiles: this.nodeprofilesCache,
+      manifests: this.manifestsCache,
+      simnodes: this.simnodesCache,
+      simlinks: this.simlinksCache,
+      crds: this.crdCache
+    };
+    const cache = caches[type];
+    if (!cache) return [];
+    if (def.namespaced && cache instanceof Map) {
+      return cache.get(ns || '') || [];
     }
-    const arr = (this as any)[`${type}Cache`] as any[] | undefined;
-    return arr || [];
+    return Array.isArray(cache) ? cache : [];
   }
 
   public getWatchedResourceTypes(): string[] {

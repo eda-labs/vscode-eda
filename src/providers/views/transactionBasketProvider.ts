@@ -8,10 +8,80 @@ import { log, LogLevel } from '../../extension';
 import { TreeItemBase } from './treeItem';
 import { FilteredTreeProvider } from './filteredTreeProvider';
 
+/** K8s-style resource metadata */
+interface ResourceMetadata {
+  name?: string;
+  namespace?: string;
+  uid?: string;
+  [key: string]: unknown;
+}
+
+/** K8s-style resource value containing kind and metadata */
+interface ResourceValue {
+  kind?: string;
+  metadata?: ResourceMetadata;
+  [key: string]: unknown;
+}
+
+/** Operation types for a change request (create, replace, modify, update, patch, delete) */
+interface CrOperation {
+  value?: ResourceValue;
+  name?: string;
+  gvk?: { kind?: string };
+  [key: string]: unknown;
+}
+
+/** The type field of a change request containing exactly one operation */
+interface CrType {
+  create?: CrOperation;
+  replace?: CrOperation;
+  modify?: CrOperation;
+  update?: CrOperation;
+  patch?: CrOperation;
+  delete?: CrOperation;
+  [key: string]: unknown;
+}
+
+/** Model info stored in basket */
+interface BasketModel {
+  modelName?: string;
+  [key: string]: unknown;
+}
+
+/** Additional basket metadata attached to a CR */
+interface BasketInfo {
+  model?: BasketModel;
+  [key: string]: unknown;
+}
+
+/** A single change request within a transaction */
+export interface ChangeRequest {
+  type?: CrType;
+  basketInfo?: BasketInfo;
+  [key: string]: unknown;
+}
+
+/** A transaction containing multiple change requests */
+export interface Transaction {
+  description?: string;
+  crs?: ChangeRequest[];
+  [key: string]: unknown;
+}
+
+/** Stream message for user storage file updates */
+interface FileStreamMessage {
+  'file-name'?: string;
+  'file-content'?: string;
+  msg?: {
+    'file-name'?: string;
+    'file-content'?: string;
+  };
+}
+
 export class TransactionBasketProvider extends FilteredTreeProvider<TransactionBasketItem> {
   private edaClient: EdaClient;
   private statusService: ResourceStatusService;
-  private items: any[] = [];
+  private items: Transaction[] = [];
   private _onBasketCountChanged = new vscode.EventEmitter<number>();
   readonly onBasketCountChanged = this._onBasketCountChanged.event;
 
@@ -39,11 +109,12 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
 
   /** Set up the stream message listener for basket updates */
   private setupStreamListener(): void {
-    this.edaClient.onStreamMessage((stream, msg) => {
+    this.edaClient.onStreamMessage((stream, msg: unknown) => {
       if (stream === 'file') {
-        const fileName = (msg['file-name'] ?? msg.msg?.['file-name'])?.replace(/^\//, '');
+        const fileMsg = msg as FileStreamMessage;
+        const fileName = (fileMsg['file-name'] ?? fileMsg.msg?.['file-name'])?.replace(/^\//, '');
         if (fileName === 'Transactions') {
-          this.processStreamUpdate(msg);
+          this.processStreamUpdate(fileMsg);
         }
       }
     });
@@ -57,13 +128,13 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     try {
       const content = await this.edaClient.getUserStorageFile('Transactions');
       if (content) {
-        const parsed = JSON.parse(content);
+        const parsed: unknown = JSON.parse(content);
         if (Array.isArray(parsed)) {
-          this.items = parsed;
-        } else if (typeof parsed === 'object' && Object.keys(parsed).length === 0) {
+          this.items = parsed as Transaction[];
+        } else if (typeof parsed === 'object' && parsed !== null && Object.keys(parsed).length === 0) {
           this.items = [];
         } else {
-          this.items = [parsed];
+          this.items = [parsed as Transaction];
         }
       } else {
         this.items = [];
@@ -75,7 +146,7 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     }
   }
 
-  public async addTransaction(tx: any): Promise<void> {
+  public async addTransaction(tx: Transaction): Promise<void> {
     this.items.push(tx);
     await this.saveBasket();
     this.refresh();
@@ -90,15 +161,15 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     }
   }
 
-  public getTransactions(): any[] {
+  public getTransactions(): Transaction[] {
     return this.items.slice();
   }
 
-  public getTransaction(index: number): any | undefined {
+  public getTransaction(index: number): Transaction | undefined {
     return this.items[index];
   }
 
-  public async updateTransaction(index: number, tx: any): Promise<void> {
+  public async updateTransaction(index: number, tx: Transaction): Promise<void> {
     if (index < 0 || index >= this.items.length) {
       return;
     }
@@ -140,7 +211,7 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
 
     this.items.forEach((tx, txIdx) => {
       if (Array.isArray(tx.crs) && tx.crs.length > 0) {
-        tx.crs.forEach((cr: any) => {
+        tx.crs.forEach((cr: ChangeRequest) => {
           items.push(this.createCrItem(cr, txIdx));
         });
       } else {
@@ -157,8 +228,8 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     return item;
   }
 
-  private createTxItem(tx: any, idx: number): TransactionBasketItem {
-    const label = tx.description || `Transaction ${idx + 1}`;
+  private createTxItem(tx: Transaction, idx: number): TransactionBasketItem {
+    const label = tx.description ?? `Transaction ${idx + 1}`;
     const item = new TransactionBasketItem(
       label,
       vscode.TreeItemCollapsibleState.None,
@@ -178,7 +249,7 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
   }
 
   /** Extract the value object from a CR type (create, replace, modify, update, or patch) */
-  private extractCrValue(cr: any): any {
+  private extractCrValue(cr: ChangeRequest): ResourceValue | undefined {
     const type = cr.type;
     if (!type) {
       return undefined;
@@ -187,7 +258,7 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
   }
 
   /** Extract the kind from a CR, falling back through value, delete gvk, basketInfo, or default */
-  private extractCrKind(cr: any, value: any): string {
+  private extractCrKind(cr: ChangeRequest, value: ResourceValue | undefined): string {
     if (value?.kind) {
       return value.kind;
     }
@@ -201,16 +272,16 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
   }
 
   /** Extract the name from a CR value or delete operation */
-  private extractCrName(cr: any, value: any): string | undefined {
+  private extractCrName(cr: ChangeRequest, value: ResourceValue | undefined): string | undefined {
     return value?.metadata?.name ?? cr.type?.delete?.name;
   }
 
-  private createCrItem(cr: any, idx: number): TransactionBasketItem {
+  private createCrItem(cr: ChangeRequest, idx: number): TransactionBasketItem {
     const value = this.extractCrValue(cr);
     const kind = this.extractCrKind(cr, value);
     const name = this.extractCrName(cr, value);
     const label = name ? `${kind}/${name}` : kind;
-    const op = Object.keys(cr.type || {})[0] || '';
+    const op = Object.keys(cr.type ?? {})[0] ?? '';
 
     const item = new TransactionBasketItem(
       label,
@@ -231,17 +302,17 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
   }
 
   /** Process updates from the user-storage stream */
-  private processStreamUpdate(msg: any): void {
+  private processStreamUpdate(msg: FileStreamMessage): void {
     const content = msg['file-content'] ?? msg.msg?.['file-content'];
     if (!content) return;
     try {
-      const parsed = JSON.parse(content);
+      const parsed: unknown = JSON.parse(content);
       if (Array.isArray(parsed)) {
-        this.items = parsed;
-      } else if (typeof parsed === 'object' && Object.keys(parsed).length === 0) {
+        this.items = parsed as Transaction[];
+      } else if (typeof parsed === 'object' && parsed !== null && Object.keys(parsed).length === 0) {
         this.items = [];
       } else {
-        this.items = [parsed];
+        this.items = [parsed as Transaction];
       }
       this.refresh();
       this._onBasketCountChanged.fire(this.count);
@@ -256,7 +327,7 @@ export class TransactionBasketItem extends TreeItemBase {
     label: string,
     collapsibleState: vscode.TreeItemCollapsibleState,
     contextValue: string,
-    resource?: any,
+    resource?: Transaction | ChangeRequest,
     public basketIndex?: number
   ) {
     super(label, collapsibleState, contextValue, resource);

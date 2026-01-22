@@ -27,7 +27,7 @@ function log(
     return;
   }
 
-  // Fallback to console.log
+  // Fallback to console.warn (allowed by lint rules)
   if (level >= LogLevel.INFO || forceLog) {
     const prefix = LogLevel[level];
     const timestamp = new Date().toISOString();
@@ -35,11 +35,11 @@ function log(
     if (level === LogLevel.INFO && elapsedTime !== undefined) {
       line += ` (took ${elapsedTime}ms)`;
     }
-    console.log(line);
+    console.warn(line);
   } else if (process.env.NODE_ENV !== 'production') {
     const prefix = LogLevel[level];
     const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] [${prefix}] ${message}`);
+    console.warn(`[${timestamp}] [${prefix}] ${message}`);
   }
 }
 
@@ -51,6 +51,30 @@ export interface EdaAuthOptions {
   kcPassword?: string;
   edaUsername?: string;
   edaPassword?: string;
+}
+
+/** Keycloak token response */
+interface KeycloakTokenResponse {
+  access_token?: string;
+  expires_in?: number;
+  refresh_expires_in?: number;
+  refresh_token?: string;
+  token_type?: string;
+  scope?: string;
+}
+
+/** Keycloak client entry */
+interface KeycloakClient {
+  id: string;
+  clientId: string;
+  name?: string;
+  enabled?: boolean;
+}
+
+/** Keycloak client secret response */
+interface KeycloakClientSecretResponse {
+  type?: string;
+  value?: string;
 }
 
 /**
@@ -195,8 +219,8 @@ export class EdaAuthClient {
       throw new Error(`Failed Keycloak admin login: HTTP ${res.status}`);
     }
 
-    const data = (await res.json()) as any;
-    const token = data.access_token || '';
+    const data = (await res.json()) as KeycloakTokenResponse;
+    const token = data.access_token ?? '';
     log('Admin token received', LogLevel.DEBUG);
     return token;
   }
@@ -212,7 +236,7 @@ export class EdaAuthClient {
     if (!res.ok) {
       throw new Error(`Failed to list clients: HTTP ${res.status}`);
     }
-    const clients = (await res.json()) as any[];
+    const clients = (await res.json()) as KeycloakClient[];
     const client = clients.find(c => c.clientId === this.clientId);
     if (!client) {
       throw new Error(`Client '${this.clientId}' not found in realm 'eda'`);
@@ -227,8 +251,8 @@ export class EdaAuthClient {
     if (!secretRes.ok) {
       throw new Error(`Failed to fetch client secret: HTTP ${secretRes.status}`);
     }
-    const secretJson = (await secretRes.json()) as any;
-    const secret = secretJson.value || '';
+    const secretJson = (await secretRes.json()) as KeycloakClientSecretResponse;
+    const secret = secretJson.value ?? '';
     log('Client secret obtained', LogLevel.DEBUG);
     return secret;
   }
@@ -259,8 +283,8 @@ export class EdaAuthClient {
       throw new Error(`Failed to authenticate: HTTP ${res.status}`);
     }
 
-    const data = (await res.json()) as any;
-    this.token = data.access_token || '';
+    const data = (await res.json()) as KeycloakTokenResponse;
+    this.token = data.access_token ?? '';
     log('Access token obtained', LogLevel.DEBUG);
   }
 

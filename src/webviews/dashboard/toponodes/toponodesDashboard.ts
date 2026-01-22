@@ -8,9 +8,51 @@ import type { KubernetesClient } from '../../../clients/kubernetesClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
 import { getUpdates } from '../../../utils/streamMessageUtils';
 
+/** Webview message received from the React frontend */
+interface WebviewMessage {
+  command: string;
+  namespace?: string;
+  name?: string;
+  nodeDetails?: unknown;
+}
+
+/** Stream message wrapper from EDA client */
+interface TopoNodeStreamMessage {
+  msg: TopoNodeStreamPayload;
+}
+
+/** Stream message payload containing updates */
+interface TopoNodeStreamPayload {
+  updates?: TopoNodeStreamUpdate[];
+  Updates?: TopoNodeStreamUpdate[];
+}
+
+/** Individual update in stream messages */
+interface TopoNodeStreamUpdate {
+  key?: string;
+  data: K8sResourceData | null;
+}
+
+/** Kubernetes resource metadata */
+interface K8sMetadata {
+  name?: string;
+  namespace?: string;
+  labels?: Record<string, string>;
+}
+
+/** Kubernetes resource data structure */
+interface K8sResourceData {
+  metadata?: K8sMetadata;
+  spec?: Record<string, unknown>;
+  status?: Record<string, unknown>;
+}
+
+/** Flattened row data for display */
+type FlattenedRow = Record<string, unknown>;
+
 export class ToponodesDashboardPanel extends BasePanel {
   private edaClient: EdaClient;
-  private rowMap: Map<string, Map<string, Record<string, any>>> = new Map();
+  private rowMap: Map<string, Map<string, FlattenedRow>> = new Map();
   private columns: string[] = [];
   private columnSet: Set<string> = new Set();
   private selectedNamespace = ALL_NAMESPACES;
@@ -22,7 +64,7 @@ export class ToponodesDashboardPanel extends BasePanel {
 
     this.edaClient.onStreamMessage((stream, msg) => {
       if (stream === 'toponodes') {
-        this.handleTopoNodeStream(msg);
+        this.handleTopoNodeStream(msg as TopoNodeStreamMessage);
       }
     });
 
@@ -30,7 +72,7 @@ export class ToponodesDashboardPanel extends BasePanel {
       this.edaClient.closeTopoNodeStream();
     });
 
-    this.panel.webview.onDidReceiveMessage(async msg => {
+    this.panel.webview.onDidReceiveMessage(async (msg: WebviewMessage) => {
       await this.handleWebviewMessage(msg);
     });
 
@@ -41,14 +83,14 @@ export class ToponodesDashboardPanel extends BasePanel {
     await this.edaClient.streamTopoNodes();
   }
 
-  private async handleWebviewMessage(msg: any): Promise<void> {
+  private async handleWebviewMessage(msg: WebviewMessage): Promise<void> {
     switch (msg.command) {
       case 'ready':
         this.sendNamespaces();
         await this.loadInitial(ALL_NAMESPACES);
         break;
       case 'setNamespace':
-        await this.loadInitial(msg.namespace as string);
+        await this.loadInitial(msg.namespace ?? ALL_NAMESPACES);
         break;
       case 'showInTree':
         await vscode.commands.executeCommand('vscode-eda.filterTree', 'toponodes');
@@ -89,15 +131,15 @@ export class ToponodesDashboardPanel extends BasePanel {
     });
   }
 
-  private flattenObject(obj: any, prefix = ''): Record<string, any> {
-    const result: Record<string, any> = {};
+  private flattenObject(obj: Record<string, unknown>, prefix = ''): FlattenedRow {
+    const result: FlattenedRow = {};
     if (!obj || typeof obj !== 'object') {
       return result;
     }
     for (const [k, v] of Object.entries(obj)) {
       const key = prefix ? `${prefix}.${k}` : k;
       if (v && typeof v === 'object' && !Array.isArray(v)) {
-        Object.assign(result, this.flattenObject(v, key));
+        Object.assign(result, this.flattenObject(v as Record<string, unknown>, key));
       } else {
         result[key] = v;
       }
@@ -105,12 +147,12 @@ export class ToponodesDashboardPanel extends BasePanel {
     return result;
   }
 
-  private flatten(item: any): Record<string, any> {
-    const result: Record<string, any> = {};
+  private flatten(item: K8sResourceData): FlattenedRow {
+    const result: FlattenedRow = {};
     if (!item || typeof item !== 'object') {
       return result;
     }
-    const meta = item.metadata || {};
+    const meta = item.metadata ?? {};
     if (meta.name) result.name = meta.name;
     if (meta.namespace) result.namespace = meta.namespace;
     if (meta.labels && typeof meta.labels === 'object') {
@@ -128,7 +170,7 @@ export class ToponodesDashboardPanel extends BasePanel {
     return result;
   }
 
-  private ensureColumns(data: Record<string, any>): boolean {
+  private ensureColumns(data: FlattenedRow): boolean {
     let added = false;
     for (const key of Object.keys(data)) {
       if (!this.columnSet.has(key)) {
@@ -152,7 +194,7 @@ export class ToponodesDashboardPanel extends BasePanel {
         : [ns];
     for (const n of targetNamespaces) {
       try {
-        const list = await this.edaClient.listTopoNodes(n);
+        const list = (await this.edaClient.listTopoNodes(n)) as K8sResourceData[];
         let map = this.rowMap.get(n);
         if (!map) {
           map = new Map();
@@ -160,7 +202,7 @@ export class ToponodesDashboardPanel extends BasePanel {
         }
         map.clear();
         for (const item of list) {
-          const name = item.metadata?.name as string | undefined;
+          const name = item.metadata?.name;
           if (!name) continue;
           const flat = this.flatten(item);
           this.ensureColumns(flat);
@@ -180,7 +222,7 @@ export class ToponodesDashboardPanel extends BasePanel {
         ? Array.from(this.rowMap.keys()).filter(n => n !== coreNs)
         : [this.selectedNamespace];
 
-    const rows: any[][] = [];
+    const rows: unknown[][] = [];
     for (const ns of namespaces) {
       const map = this.rowMap.get(ns);
       if (!map) continue;
@@ -212,7 +254,7 @@ export class ToponodesDashboardPanel extends BasePanel {
     }
   }
 
-  private extractUpdateIdentifiers(up: any): { name: string | undefined; namespace: string | undefined } {
+  private extractUpdateIdentifiers(up: TopoNodeStreamUpdate): { name: string | undefined; namespace: string | undefined } {
     let name: string | undefined = up.data?.metadata?.name;
     let namespace: string | undefined = up.data?.metadata?.namespace;
     if ((!name || !namespace) && up.key) {
@@ -223,7 +265,7 @@ export class ToponodesDashboardPanel extends BasePanel {
     return { name, namespace };
   }
 
-  private getOrCreateNamespaceMap(namespace: string): Map<string, Record<string, any>> {
+  private getOrCreateNamespaceMap(namespace: string): Map<string, FlattenedRow> {
     let map = this.rowMap.get(namespace);
     if (!map) {
       map = new Map();
@@ -232,7 +274,7 @@ export class ToponodesDashboardPanel extends BasePanel {
     return map;
   }
 
-  private processUpdate(up: any, map: Map<string, Record<string, any>>, name: string): boolean {
+  private processUpdate(up: TopoNodeStreamUpdate, map: Map<string, FlattenedRow>, name: string): boolean {
     if (up.data === null) {
       return map.delete(name);
     }
@@ -242,8 +284,8 @@ export class ToponodesDashboardPanel extends BasePanel {
     return true;
   }
 
-  private handleTopoNodeStream(msg: any): void {
-    const updates = getUpdates(msg.msg);
+  private handleTopoNodeStream(msg: TopoNodeStreamMessage): void {
+    const updates = getUpdates(msg.msg) as TopoNodeStreamUpdate[];
     if (updates.length === 0) {
       return;
     }

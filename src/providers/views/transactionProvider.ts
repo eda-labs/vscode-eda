@@ -9,18 +9,40 @@ import { getResults } from '../../utils/streamMessageUtils';
 import { FilteredTreeProvider } from './filteredTreeProvider';
 import { TreeItemBase } from './treeItem';
 
+/** Represents transaction data from the EDA stream */
+interface Transaction {
+  id?: string | number;
+  username?: string;
+  state?: string;
+  description?: string;
+  lastChangeTimestamp?: string;
+  dryRun?: boolean;
+  success?: boolean;
+  [key: string]: unknown;
+}
+
+/** Stream message envelope */
+interface StreamMessageEnvelope {
+  msg?: {
+    results?: Transaction[];
+    Results?: Transaction[];
+  };
+  results?: Transaction[];
+  Results?: Transaction[];
+}
+
 export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTreeItem> {
   private edaClient: EdaClient;
   private statusService: ResourceStatusService;
-  private cachedTransactions: any[] = [];
+  private cachedTransactions: Transaction[] = [];
   private transactionLimit = 50;
 
   /**
    * Merge new transaction updates into the cached list while
    * maintaining at most 50 entries.
    */
-  private mergeTransactions(txs: any[]): void {
-    const byId = new Map<string, any>();
+  private mergeTransactions(txs: Transaction[]): void {
+    const byId = new Map<string, Transaction>();
     for (const tx of this.cachedTransactions) {
       if (tx && tx.id !== undefined) {
         byId.set(String(tx.id), tx);
@@ -49,7 +71,7 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
     this.edaClient.onStreamMessage((stream, msg) => {
       if (stream === 'summary') {
-        this.processTransactionMessage(msg);
+        this.processTransactionMessage(msg as StreamMessageEnvelope);
       }
     });
   }
@@ -163,10 +185,10 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
   }
 
   /** Process transaction summary stream updates */
-  private processTransactionMessage(msg: any): void {
-    let results = getResults(msg);
+  private processTransactionMessage(msg: StreamMessageEnvelope): void {
+    let results = getResults(msg) as Transaction[];
     if (results.length === 0) {
-      results = getResults(msg.msg);
+      results = getResults(msg.msg) as Transaction[];
     }
     if (results.length > 0) {
       this.mergeTransactions(results);
@@ -180,7 +202,7 @@ export class TransactionTreeItem extends TreeItemBase {
     label: string,
     collapsibleState: vscode.TreeItemCollapsibleState,
     contextValue: string,
-    resource?: any
+    resource?: Transaction
   ) {
     super(label, collapsibleState, contextValue, resource);
   }

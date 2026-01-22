@@ -198,7 +198,7 @@ function DataGridDashboardInner<T extends DataGridMessage>({
                 </th>
               ))}
             </tr>
-            <tr className="filters">
+            <tr>
               <td className="border border-vscode-border p-0 bg-vscode-bg-widget" />
               {columns.map((_, idx) => (
                 <td key={idx} className="border border-vscode-border p-0 bg-vscode-bg-widget">

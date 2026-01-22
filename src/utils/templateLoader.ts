@@ -16,7 +16,7 @@ import * as Handlebars from 'handlebars';
 export function loadTemplate(
   templateName: string,
   context: vscode.ExtensionContext,
-  variables: Record<string, any>
+  variables: Record<string, unknown>
 ): string {
   try {
     // Adjust the path to point to src/templates instead of templates/

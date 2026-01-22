@@ -4,7 +4,65 @@ import { createRoot } from 'react-dom/client';
 import { usePostMessage, useMessageListener, useReadySignal } from '../../shared/hooks';
 import { VSCodeProvider } from '../../shared/context';
 
-declare const echarts: any;
+// ECharts type definitions for CDN-loaded library
+interface EChartsInstance {
+  setOption(option: EChartsOption): void;
+  resize(): void;
+  dispose(): void;
+}
+
+interface EChartsTheme {
+  color?: string[];
+  backgroundColor?: string;
+  textStyle?: { color: string };
+}
+
+interface EChartsOption {
+  tooltip?: {
+    trigger?: string;
+    formatter?: (params: TooltipParam[]) => string;
+  };
+  legend?: {
+    data?: string[];
+    textStyle?: { color: string };
+  };
+  grid?: {
+    left?: string;
+    right?: string;
+    bottom?: string;
+    containLabel?: boolean;
+  };
+  xAxis?: {
+    type?: string;
+    boundaryGap?: boolean;
+    data?: string[];
+    axisLabel?: { color: string };
+  };
+  yAxis?: {
+    type?: string;
+    name?: string;
+    axisLabel?: { color: string };
+  };
+  series?: Array<{
+    name?: string;
+    type?: string;
+    smooth?: boolean;
+    data?: number[];
+    areaStyle?: { opacity: number };
+    itemStyle?: { color: string };
+  }>;
+}
+
+interface TooltipParam {
+  axisValue: string;
+  data: number;
+}
+
+interface EChartsStatic {
+  init(dom: HTMLElement, theme?: EChartsTheme): EChartsInstance;
+}
+
+declare const echarts: EChartsStatic | undefined;
 
 interface FabricMessage {
   command: string;
@@ -174,7 +232,7 @@ function FabricDashboard() {
   const [fabricStats, setFabricStats] = useState<FabricStats>(initialFabricStats);
 
   const chartRef = useRef<HTMLDivElement>(null);
-  const chartInstanceRef = useRef<any>(null);
+  const chartInstanceRef = useRef<EChartsInstance | null>(null);
   const trafficPointsRef = useRef<TrafficPoint[]>([]);
   const trafficUnitRef = useRef('bit/s');
   const trafficDivRef = useRef(1);
@@ -198,21 +256,22 @@ function FabricDashboard() {
       }
     };
 
+    if (!echarts) return;
     chartInstanceRef.current = echarts.init(chartRef.current, chartTheme);
 
     chartInstanceRef.current.setOption({
       tooltip: {
         trigger: 'axis',
-        formatter: (params: any[]) => {
+        formatter: (params: TooltipParam[]) => {
           const [incoming, outgoing] = params;
           return (
             incoming.axisValue +
             '<br/>Inbound: ' +
-            incoming.data +
+            String(incoming.data) +
             ' ' +
             trafficUnitRef.current +
             '<br/>Outbound: ' +
-            outgoing.data +
+            String(outgoing.data) +
             ' ' +
             trafficUnitRef.current
           );

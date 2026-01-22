@@ -7,12 +7,19 @@ import type { EdaCrd } from '../../types';
 import { BaseDocumentProvider } from './baseDocumentProvider';
 
 /**
+ * Represents a Kubernetes-style resource object.
+ * Uses Record<string, unknown> as a base type to allow assignment from
+ * various resource interfaces that may not have index signatures.
+ */
+export type K8sResource = Record<string, unknown>;
+
+/**
  * A file system provider for the "k8s:" scheme, handling the editable version
  * of Kubernetes resources.
  */
 export class ResourceEditDocumentProvider extends BaseDocumentProvider {
   // Store original resources to compare for changes
-  private originalResources = new Map<string, any>();
+  private originalResources = new Map<string, K8sResource>();
   private crdInfo = new Map<string, EdaCrd>();
   private newResources = new Set<string>();
 
@@ -39,9 +46,10 @@ export class ResourceEditDocumentProvider extends BaseDocumentProvider {
 
   /**
    * Store the original resource for a URI (used for diffs and change tracking)
+   * Accepts any object type to allow various resource interfaces without index signatures.
    */
-  public setOriginalResource(uri: vscode.Uri, resource: any): void {
-    this.originalResources.set(uri.toString(), resource);
+  public setOriginalResource(uri: vscode.Uri, resource: object): void {
+    this.originalResources.set(uri.toString(), resource as K8sResource);
   }
 
   public setCrdInfo(uri: vscode.Uri, crd: EdaCrd): void {
@@ -67,7 +75,7 @@ export class ResourceEditDocumentProvider extends BaseDocumentProvider {
   /**
    * Get the original resource for a URI
    */
-  public getOriginalResource(uri: vscode.Uri): any {
+  public getOriginalResource(uri: vscode.Uri): K8sResource | undefined {
     return this.originalResources.get(uri.toString());
   }
 
@@ -87,7 +95,7 @@ export class ResourceEditDocumentProvider extends BaseDocumentProvider {
       const currentYaml = Buffer.from(currentContent).toString('utf8');
 
       // Parse the YAML
-      const currentResource = yaml.load(currentYaml);
+      const currentResource = yaml.load(currentYaml) as K8sResource;
 
       // Convert both to normalized YAML strings to compare
       const normalizedOriginal = yaml.dump(originalResource, { indent: 2 });

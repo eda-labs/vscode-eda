@@ -37,6 +37,14 @@ interface NodeUser {
   metadata?: { name?: string };
 }
 
+interface TopoNode {
+  metadata?: {
+    name?: string;
+    namespace?: string;
+    labels?: Record<string, string>;
+  };
+}
+
 function extractNodeName(info: TopoNodeInfo): string | undefined {
   return info?.name || info?.label || info?.resource?.metadata?.name;
 }
@@ -91,11 +99,11 @@ async function determineUsername(
 ): Promise<{ username: string; found: boolean }> {
   try {
     const [node, users] = await Promise.all([
-      edaClient.getTopoNode(nodeNs, nodeName),
-      edaClient.listNodeUsers(nodeNs)
+      edaClient.getTopoNode(nodeNs, nodeName) as Promise<TopoNode>,
+      edaClient.listNodeUsers(nodeNs) as Promise<NodeUser[]>
     ]);
-    const labels: Record<string, string> = node?.metadata?.labels || {};
-    const matchedUsername = findMatchingUser(users as NodeUser[], nodeName, labels);
+    const labels: Record<string, string> = node?.metadata?.labels ?? {};
+    const matchedUsername = findMatchingUser(users, nodeName, labels);
     if (matchedUsername) {
       return { username: matchedUsername, found: true };
     }

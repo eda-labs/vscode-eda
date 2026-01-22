@@ -785,6 +785,7 @@
     "chai": "^6.2.2",
     "chai-as-promised": "^8.0.2",
     "chai-http": "^5.1.2",
+    "diff": "^8.0.3",
     "esbuild": "^0.27.2",
     "eslint": "^9.39.2",
     "eslint-plugin-better-tailwindcss": "^4.0.1",

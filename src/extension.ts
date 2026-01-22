@@ -1,3 +1,4 @@
+/* eslint-disable import-x/max-dependencies -- Extension entry point requires many imports */
 import * as vscode from 'vscode';
 
 import { KubernetesClient } from './clients/kubernetesClient';
@@ -538,6 +539,11 @@ async function initializeTreeViewsAndCommands(context: vscode.ExtensionContext):
   registerApplyYamlFileCommand(context);
 }
 
+/** Kubernetes namespace resource structure */
+interface K8sNamespaceResource {
+  metadata?: { name?: string };
+}
+
 async function verifyKubernetesContext(
   edaClient: EdaClient,
   k8sClient: KubernetesClient
@@ -545,10 +551,10 @@ async function verifyKubernetesContext(
   try {
     await edaClient.getStreamNames();
     const edaNamespaces = edaClient.getCachedNamespaces();
-    const k8sNsObjs = await k8sClient.listNamespaces();
+    const k8sNsObjs = await k8sClient.listNamespaces() as K8sNamespaceResource[];
     const k8sNamespaces = k8sNsObjs
-      .map((n: any) => n?.metadata?.name)
-      .filter((n: any) => typeof n === 'string');
+      .map((n: K8sNamespaceResource) => n?.metadata?.name)
+      .filter((n): n is string => typeof n === 'string');
     const missing = edaNamespaces.filter(ns => !k8sNamespaces.includes(ns));
     if (missing.length > 0) {
       const msg = `Kubernetes context may not match EDA cluster; missing namespaces: ${missing.join(
@@ -604,7 +610,8 @@ export function measurePerformance<T>(
 }
 
 export async function activate(context: vscode.ExtensionContext) {
-  console.log('Activating EDA extension');
+  // Output channel may not exist yet, use console.warn for early activation logging
+  console.warn('Activating EDA extension');
   edaOutputChannel = vscode.window.createOutputChannel('EDA');
 
   // Set up auth logger to use VS Code output channel
@@ -697,7 +704,7 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
-  console.log('EDA extension deactivated');
+  console.warn('EDA extension deactivated');
   edaOutputChannel?.appendLine('EDA extension deactivated');
   edaOutputChannel?.dispose();
   try {

@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { serviceManager } from '../services/serviceManager';
 import type { EdaClient } from '../clients/edaClient';
 import { edaDeviationProvider, log, LogLevel } from '../extension';
+
 import { MSG_NO_DEVIATION_SELECTED } from './constants';
 
 interface Deviation {
@@ -11,7 +12,11 @@ interface Deviation {
   namespace?: string;
   'namespace.name'?: string;
   spec?: { nodeEndpoint?: string; path?: string };
-  [key: string]: any;
+  [key: string]: unknown;
+}
+
+interface DeviationTreeItem {
+  deviation?: Deviation;
 }
 
 function getDeviationName(dev: Deviation): string | undefined {
@@ -132,8 +137,8 @@ export function registerDeviationCommands(
         );
       }
       edaDeviationProvider.updateDeviation(details.name, details.namespace, 'Processing...');
-    } catch (err: any) {
-      const msg = `Failed to ${actionVerb} deviation: ${err.message || err}`;
+    } catch (err: unknown) {
+      const msg = `Failed to ${actionVerb} deviation: ${err instanceof Error ? err.message : String(err)}`;
       vscode.window.showErrorMessage(msg);
       log(msg, LogLevel.ERROR, true);
     }
@@ -141,23 +146,23 @@ export function registerDeviationCommands(
 
   const acceptCmd = vscode.commands.registerCommand(
     'vscode-eda.acceptDeviation',
-    async (treeItem: any) => {
+    async (treeItem: DeviationTreeItem | undefined) => {
       if (!treeItem?.deviation) {
         vscode.window.showErrorMessage(MSG_NO_DEVIATION_SELECTED);
         return;
       }
-      await handleAction(treeItem.deviation as Deviation, 'setAccept');
+      await handleAction(treeItem.deviation, 'setAccept');
     },
   );
 
   const rejectCmd = vscode.commands.registerCommand(
     'vscode-eda.rejectDeviation',
-    async (treeItem: any) => {
+    async (treeItem: DeviationTreeItem | undefined) => {
       if (!treeItem?.deviation) {
         vscode.window.showErrorMessage(MSG_NO_DEVIATION_SELECTED);
         return;
       }
-      await handleAction(treeItem.deviation as Deviation, 'reject');
+      await handleAction(treeItem.deviation, 'reject');
     },
   );
 

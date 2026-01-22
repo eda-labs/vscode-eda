@@ -17,9 +17,10 @@ export abstract class FilteredTreeProvider<T extends TreeItemBase> implements vs
     this.treeFilter = filter;
     try {
       this.regexFilter = new RegExp(filter, 'i');
-    } catch (err: any) {
+    } catch (err: unknown) {
       this.regexFilter = null;
-      void vscode.window.showErrorMessage(`Invalid filter regex: ${err}`);
+      const message = err instanceof Error ? err.message : String(err);
+      void vscode.window.showErrorMessage(`Invalid filter regex: ${message}`);
     }
     this.refresh();
   }

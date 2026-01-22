@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import { TextDecoder } from "util";
 import { readFileSync } from "fs";
 
@@ -84,12 +85,12 @@ async function handleStreamingResponse(
 
   try {
     for (;;) {
-      const { value, done } = await reader.read();
-      if (done) {
+      const result = await reader.read();
+      if (result.done) {
         console.log("[SSE] Stream ended");
         break;
       }
-      buffer += decoder.decode(value, { stream: true });
+      buffer += decoder.decode(result.value, { stream: true });
       let nl;
       while ((nl = buffer.indexOf("\n")) !== -1) {
         const line = buffer.slice(0, nl).trim();

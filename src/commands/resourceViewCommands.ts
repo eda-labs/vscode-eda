@@ -10,6 +10,40 @@ import { stripManagedFieldsFromYaml, sanitizeResource } from '../utils/yamlUtils
 import { isEdaResource } from '../utils/edaGroupUtils';
 import { setViewIsEda, setResourceOrigin } from '../utils/resourceOriginStore';
 
+/**
+ * Represents a raw Kubernetes resource object with standard metadata
+ */
+interface KubernetesResource {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: {
+    name?: string;
+    namespace?: string;
+    uid?: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+/**
+ * Command argument passed from tree items or webview messages
+ */
+interface CommandArgument {
+  name?: string;
+  namespace?: string;
+  kind?: string;
+  resourceType?: string;
+  label?: string;
+  streamGroup?: string;
+  raw?: KubernetesResource;
+  rawResource?: KubernetesResource;
+  resource?: {
+    raw?: KubernetesResource;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
 interface ResourceInfo {
   namespace: string;
   kind: string;
@@ -19,24 +53,24 @@ interface ResourceInfo {
 }
 
 /** Extracts namespace from raw resource or arg with fallback to 'default'. */
-function getNamespace(arg: any, raw: any): string {
+function getNamespace(arg: CommandArgument | undefined, raw: KubernetesResource | undefined): string {
   return raw?.metadata?.namespace ?? arg?.namespace ?? 'default';
 }
 
 /** Extracts kind from raw resource or arg with fallback to 'Resource'. */
-function getKind(arg: any, raw: any): string {
+function getKind(arg: CommandArgument | undefined, raw: KubernetesResource | undefined): string {
   return raw?.kind ?? arg?.kind ?? arg?.resourceType ?? 'Resource';
 }
 
 /** Extracts name from raw resource or arg with fallback to 'unknown'. */
-function getName(arg: any, raw: any): string {
+function getName(arg: CommandArgument | undefined, raw: KubernetesResource | undefined): string {
   return raw?.metadata?.name ?? arg?.name ?? arg?.label ?? 'unknown';
 }
 
 /**
  * Extracts resource information from a tree item argument.
  */
-function extractResourceInfo(arg: any, raw: any): ResourceInfo {
+function extractResourceInfo(arg: CommandArgument | undefined, raw: KubernetesResource | undefined): ResourceInfo {
   return {
     namespace: getNamespace(arg, raw),
     kind: getKind(arg, raw),
@@ -90,32 +124,34 @@ export function registerResourceViewCommands(
   context: vscode.ExtensionContext,
   provider: ResourceViewDocumentProvider
 ): void {
-  const viewCmd = vscode.commands.registerCommand('vscode-eda.viewResource', async (arg: any) => {
+  const viewCmd = vscode.commands.registerCommand('vscode-eda.viewResource', async (arg: unknown) => {
     try {
-      const raw = arg?.raw || arg?.rawResource || arg?.resource?.raw;
-      const info = extractResourceInfo(arg, raw);
+      const cmdArg = arg as CommandArgument | undefined;
+      const raw: KubernetesResource | undefined = cmdArg?.raw ?? cmdArg?.rawResource ?? cmdArg?.resource?.raw;
+      const info = extractResourceInfo(cmdArg, raw);
       let yamlText = await fetchResourceYaml(info);
       yamlText = stripManagedFieldsFromYaml(yamlText);
       await openResourceDocument(provider, info, yamlText, 'viewResource');
-    } catch (err: any) {
-      log(`Failed to open resource in YAML view: ${err}`, LogLevel.ERROR, true);
-      vscode.window.showErrorMessage(`Error viewing resource: ${err}`);
+    } catch (err: unknown) {
+      log(`Failed to open resource in YAML view: ${String(err)}`, LogLevel.ERROR, true);
+      vscode.window.showErrorMessage(`Error viewing resource: ${String(err)}`);
     }
   });
 
-  const streamCmd = vscode.commands.registerCommand('vscode-eda.viewStreamItem', async (arg: any) => {
+  const streamCmd = vscode.commands.registerCommand('vscode-eda.viewStreamItem', async (arg: unknown) => {
     try {
-      const resource = arg?.raw || arg?.rawResource || arg?.resource?.raw;
+      const cmdArg = arg as CommandArgument | undefined;
+      const resource: KubernetesResource | undefined = cmdArg?.raw ?? cmdArg?.rawResource ?? cmdArg?.resource?.raw;
       if (!resource) {
         vscode.window.showErrorMessage('No data available for this item');
         return;
       }
-      const info = extractResourceInfo(arg, resource);
+      const info = extractResourceInfo(cmdArg, resource);
       const yamlText = yaml.dump(sanitizeResource(resource), { indent: 2 });
       await openResourceDocument(provider, info, yamlText, 'viewStreamItem');
-    } catch (err: any) {
-      log(`Failed to open stream item: ${err}`, LogLevel.ERROR, true);
-      vscode.window.showErrorMessage(`Error viewing stream item: ${err}`);
+    } catch (err: unknown) {
+      log(`Failed to open stream item: ${String(err)}`, LogLevel.ERROR, true);
+      vscode.window.showErrorMessage(`Error viewing stream item: ${String(err)}`);
     }
   });
 

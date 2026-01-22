@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-import openapiTS, { astToString, COMMENT_HEADER } from 'openapi-typescript';
+import openapiTS, { astToString, COMMENT_HEADER, type OpenAPI3 } from 'openapi-typescript';
 
 import { LogLevel, log } from '../extension';
 
@@ -22,6 +22,57 @@ interface NamespaceData {
 interface NamespaceGetResponse {
   allNamesapces?: boolean;
   namespaces?: NamespaceData[];
+}
+
+// OpenAPI spec types
+interface OpenApiParameter {
+  name: string;
+  required?: boolean;
+  in?: string;
+  schema?: unknown;
+}
+
+interface OpenApiOperation {
+  operationId?: string;
+  parameters?: OpenApiParameter[];
+  responses?: Record<string, unknown>;
+  tags?: string[];
+}
+
+interface OpenApiPathItem {
+  get?: OpenApiOperation;
+  post?: OpenApiOperation;
+  put?: OpenApiOperation;
+  delete?: OpenApiOperation;
+  patch?: OpenApiOperation;
+  [key: string]: OpenApiOperation | undefined;
+}
+
+interface OpenApiSpec {
+  paths?: Record<string, OpenApiPathItem>;
+  components?: Record<string, unknown>;
+  info?: {
+    title?: string;
+    version?: string;
+  };
+}
+
+// API root path info (with optional serverRelativeURL or x-eda-nokia-com extension)
+interface ApiRootPathInfo {
+  serverRelativeURL?: string;
+  [X_EDA_NOKIA_COM]?: {
+    serverRelativeURL?: string;
+  };
+}
+
+interface ApiRootSpec {
+  paths?: Record<string, ApiRootPathInfo>;
+}
+
+interface VersionResponse {
+  eda?: {
+    version?: string;
+  };
 }
 
 /**
@@ -135,8 +186,9 @@ export class EdaSpecManager {
     log('Initializing API specs...', LogLevel.INFO);
     try {
       const baseUrl = this.apiClient['authClient'].getBaseUrl();
-      const apiRoot = await this.apiClient.fetchJsonUrl(`${baseUrl}/openapi/v3`);
-      const coreEntry = Object.entries<any>(apiRoot.paths ?? {}).find(([p]) => /\/core$/.test(p));
+      const apiRoot = await this.apiClient.fetchJsonUrl(`${baseUrl}/openapi/v3`) as ApiRootSpec;
+      const paths = apiRoot.paths ?? {};
+      const coreEntry = Object.entries(paths).find(([p]) => /\/core$/.test(p));
       if (!coreEntry) {
         log('core API path not found in root spec', LogLevel.WARN);
         return;
@@ -147,7 +199,7 @@ export class EdaSpecManager {
         return;
       }
       const coreUrl = `${baseUrl}${relUrl}`;
-      const coreSpec = await this.apiClient.fetchJsonUrl(coreUrl);
+      const coreSpec = await this.apiClient.fetchJsonUrl(coreUrl) as OpenApiSpec;
       this.collectOperationPaths(coreSpec);
       const nsPath = this.findPathByOperationId(coreSpec, 'accessGetNamespaces');
       const versionPath = this.findPathByOperationId(coreSpec, 'versionGet');
@@ -168,10 +220,11 @@ export class EdaSpecManager {
     }
   }
 
-  private findPathByOperationId(spec: any, opId: string): string {
-    for (const [p, methods] of Object.entries<any>(spec.paths ?? {})) {
-      for (const m of Object.values<any>(methods as any)) {
-        if (m && typeof m === 'object' && m[OPERATION_ID] === opId) {
+  private findPathByOperationId(spec: OpenApiSpec, opId: string): string {
+    const paths = spec.paths ?? {};
+    for (const [p, methods] of Object.entries(paths)) {
+      for (const m of Object.values(methods)) {
+        if (m && typeof m === 'object' && m.operationId === opId) {
           return p;
         }
       }
@@ -191,28 +244,29 @@ export class EdaSpecManager {
    * Extract serverRelativeURL from an API root path entry.
    * Supports both old and new spec formats.
    */
-  private extractServerRelativeURL(info: any): string | undefined {
+  private extractServerRelativeURL(info: ApiRootPathInfo): string | undefined {
     if (info && typeof info === 'object') {
       if (typeof info[SERVER_RELATIVE_URL] === 'string') {
-        return info[SERVER_RELATIVE_URL] as string;
+        return info[SERVER_RELATIVE_URL];
       }
-      const ext = (info as any)[X_EDA_NOKIA_COM];
+      const ext = info[X_EDA_NOKIA_COM];
       if (ext && typeof ext[SERVER_RELATIVE_URL] === 'string') {
-        return ext[SERVER_RELATIVE_URL] as string;
+        return ext[SERVER_RELATIVE_URL];
       }
     }
     return undefined;
   }
 
-  private collectStreamEndpoints(spec: any): StreamEndpoint[] {
+  private collectStreamEndpoints(spec: OpenApiSpec): StreamEndpoint[] {
     const eps: StreamEndpoint[] = [];
-    for (const [p, methods] of Object.entries<any>(spec.paths ?? {})) {
-      const get = (methods as any).get;
+    const paths = spec.paths ?? {};
+    for (const [p, methods] of Object.entries(paths)) {
+      const get = methods.get;
       if (!get) continue;
-      const params = Array.isArray(get.parameters) ? get.parameters : [];
-      const names = params.map((prm: any) => prm.name);
+      const params: OpenApiParameter[] = Array.isArray(get.parameters) ? get.parameters : [];
+      const names = params.map((prm) => prm.name);
       // Skip endpoints with required parameters (other than eventclient/stream)
-      const hasRequiredParams = params.some((prm: any) =>
+      const hasRequiredParams = params.some((prm) =>
         prm.required && prm.name !== 'eventclient' && prm.name !== 'stream'
       );
       if (hasRequiredParams) continue;
@@ -225,11 +279,12 @@ export class EdaSpecManager {
   }
 
   /** Collect operationId to path mappings */
-  private collectOperationPaths(spec: any): void {
-    for (const [p, methods] of Object.entries<any>(spec.paths ?? {})) {
-      for (const m of Object.values<any>(methods as any)) {
-        if (m && typeof m === 'object' && m[OPERATION_ID]) {
-          this.operationMap.set(m[OPERATION_ID] as string, p);
+  private collectOperationPaths(spec: OpenApiSpec): void {
+    const paths = spec.paths ?? {};
+    for (const [p, methods] of Object.entries(paths)) {
+      for (const m of Object.values(methods)) {
+        if (m && typeof m === 'object' && m.operationId) {
+          this.operationMap.set(m.operationId, p);
         }
       }
     }
@@ -252,13 +307,14 @@ export class EdaSpecManager {
   }
 
 
-  private async writeSpecAndTypes(spec: any, name: string, version: string, category: string): Promise<void> {
+  private async writeSpecAndTypes(spec: OpenApiSpec, name: string, version: string, category: string): Promise<void> {
     const versionDir = path.join(this.cacheBaseDir, version, category);
     await fs.promises.mkdir(versionDir, { recursive: true });
     const jsonPath = path.join(versionDir, `${name}.json`);
     await fs.promises.writeFile(jsonPath, JSON.stringify(spec, null, 2));
 
-    const tsAst = await openapiTS(spec);
+    // Cast to OpenAPI3 since the spec is dynamically fetched and conforms to OpenAPI format
+    const tsAst = await openapiTS(spec as unknown as OpenAPI3);
     const ts = COMMENT_HEADER + astToString(tsAst);
     const dtsPath = path.join(versionDir, `${name}.d.ts`);
     await fs.promises.writeFile(dtsPath, ts);
@@ -267,16 +323,17 @@ export class EdaSpecManager {
   private async fetchVersion(path: string): Promise<string> {
     const baseUrl = this.apiClient['authClient'].getBaseUrl();
     const url = `${baseUrl}${path}`;
-    const data = await this.apiClient.fetchJsonUrl(url);
-    const full = (data?.eda?.version as string | undefined) ?? 'unknown';
+    const data = await this.apiClient.fetchJsonUrl(url) as VersionResponse;
+    const full = data?.eda?.version ?? 'unknown';
     const match = /^([^-]+)/.exec(full);
     return match ? match[1] : full;
   }
 
-  private async fetchAndWriteAllSpecs(apiRoot: any, version: string): Promise<StreamEndpoint[]> {
+  private async fetchAndWriteAllSpecs(apiRoot: ApiRootSpec, version: string): Promise<StreamEndpoint[]> {
     const all: StreamEndpoint[] = [];
     const baseUrl = this.apiClient['authClient'].getBaseUrl();
-    for (const [apiPath, info] of Object.entries<any>(apiRoot.paths ?? {})) {
+    const paths = apiRoot.paths ?? {};
+    for (const [apiPath, info] of Object.entries(paths)) {
       const relUrl = this.extractServerRelativeURL(info);
       if (!relUrl) {
         log(`serverRelativeURL not found for ${apiPath}`, LogLevel.WARN);
@@ -284,7 +341,7 @@ export class EdaSpecManager {
       }
       const url = `${baseUrl}${relUrl}`;
       log(`Fetching spec ${apiPath} from ${url}`, LogLevel.DEBUG);
-      const spec = await this.apiClient.fetchJsonUrl(url);
+      const spec = await this.apiClient.fetchJsonUrl(url) as OpenApiSpec;
       const { category, name } = this.parseApiPath(apiPath);
       await this.writeSpecAndTypes(spec, name, version, category);
       this.collectOperationPaths(spec);

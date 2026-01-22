@@ -3,12 +3,22 @@ import { LogLevel, log } from '../extension';
 
 import type { CoreService } from './coreService';
 
+/** Interface for clients that have a dispose method */
+interface Disposable {
+  dispose(): void;
+}
+
+/** Check if an object is disposable */
+function isDisposable(obj: unknown): obj is Disposable {
+  return typeof obj === 'object' && obj !== null && typeof (obj as Disposable).dispose === 'function';
+}
+
 /**
  * Central registry and lifecycle manager for all services
  */
 export class ServiceManager {
   private services: Map<string, CoreService> = new Map();
-  private clients: Map<string, any> = new Map();
+  private clients: Map<string, unknown> = new Map();
 
   constructor() {}
 
@@ -101,8 +111,8 @@ export class ServiceManager {
 
     for (const [name, client] of this.clients.entries()) {
       try {
-        if (client && typeof (client as any).dispose === 'function') {
-          (client as any).dispose();
+        if (isDisposable(client)) {
+          client.dispose();
           log(`Client ${name} disposed`, LogLevel.DEBUG);
         }
       } catch (error) {

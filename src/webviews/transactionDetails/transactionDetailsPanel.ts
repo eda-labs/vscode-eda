@@ -1,7 +1,12 @@
 import * as vscode from 'vscode';
 
 import { BasePanel } from '../basePanel';
-import { TransactionDiffsPanel } from '../transactionDiffs/transactionDiffsPanel';
+import { TransactionDiffsPanel, type TransactionCR, type TransactionNode } from '../transactionDiffs/transactionDiffsPanel';
+
+interface WebviewMessage {
+  command: string;
+  text?: string;
+}
 
 export class TransactionDetailsPanel extends BasePanel {
   private static panels: Map<string, TransactionDetailsPanel> = new Map();
@@ -13,20 +18,20 @@ export class TransactionDetailsPanel extends BasePanel {
     this.panel.webview.html = this.buildHtml();
 
     this.panel.webview.onDidReceiveMessage(
-      async (message) => {
+      async (message: WebviewMessage) => {
         switch (message.command) {
           case 'ready':
             this.sendData();
             break;
           case 'copy':
-            await vscode.env.clipboard.writeText(message.text);
+            await vscode.env.clipboard.writeText(message.text ?? '');
             break;
           case 'showDiffs':
             TransactionDiffsPanel.show(
               this.context,
               this.data.id as string,
-              (this.data.changedCrs as unknown[]) || [],
-              (this.data.nodesWithConfigChanges as unknown[]) || []
+              (this.data.changedCrs || []) as TransactionCR[],
+              (this.data.nodesWithConfigChanges || []) as TransactionNode[]
             );
             break;
         }

@@ -248,6 +248,14 @@ export default [
     }
   },
 
+  /* ---------- Topology dashboard: uses custom CSS, not Tailwind ---------- */
+  {
+    files: ['src/webviews/dashboard/topology/*.tsx'],
+    rules: {
+      'better-tailwindcss/no-unknown-classes': 'off'
+    }
+  },
+
   /* ---------- Filename conventions: React components (PascalCase) ---------- */
   {
     files: ['src/webviews/**/components/**/*.tsx'],

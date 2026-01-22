@@ -76,10 +76,11 @@ export function runKubectl(
     });
 
     return typeof cmdOutput === 'string' ? cmdOutput : cmdOutput.toString();
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Handle special case where command returns non-zero but still has output
-    if (error.stdout && options.ignoreErrors) {
-      return error.stdout;
+    const execError = error as { stdout?: string };
+    if (execError.stdout && options.ignoreErrors) {
+      return execError.stdout;
     }
 
     log(`Error executing kubectl command: ${error}`, LogLevel.ERROR);

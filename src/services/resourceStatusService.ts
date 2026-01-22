@@ -6,6 +6,107 @@ import { LogLevel, log } from '../extension';
 
 import { CoreService } from './coreService';
 
+// --- Type Definitions for Kubernetes Resources ---
+
+/** Kubernetes resource metadata */
+interface K8sMetadata {
+  name?: string;
+  namespace?: string;
+  uid?: string;
+  creationTimestamp?: string;
+}
+
+/** Kubernetes condition object */
+interface K8sCondition {
+  type: string;
+  status: string;
+  message?: string;
+}
+
+/** Container status for Pod resources */
+interface ContainerStatus {
+  name: string;
+  ready: boolean;
+  restartCount?: number;
+}
+
+/** Load balancer ingress entry */
+interface LoadBalancerIngress {
+  ip?: string;
+  hostname?: string;
+}
+
+/** Pod status structure */
+interface PodStatus {
+  phase?: string;
+  podIP?: string;
+  hostIP?: string;
+  startTime?: string;
+  containerStatuses?: ContainerStatus[];
+  conditions?: K8sCondition[];
+}
+
+/** Deployment status structure */
+interface DeploymentStatus {
+  replicas?: number;
+  readyReplicas?: number;
+  updatedReplicas?: number;
+  availableReplicas?: number;
+  conditions?: K8sCondition[];
+}
+
+/** Deployment spec structure */
+interface DeploymentSpec {
+  replicas?: number;
+}
+
+/** Service status structure */
+interface ServiceStatus {
+  loadBalancer?: {
+    ingress?: LoadBalancerIngress[];
+  };
+}
+
+/** Service spec structure */
+interface ServiceSpec {
+  type?: string;
+}
+
+/** Node status structure */
+interface NodeStatus {
+  conditions?: K8sCondition[];
+}
+
+/** Custom resource status with common fields */
+interface CustomResourceStatus {
+  operationalState?: string;
+  health?: number;
+  state?: string;
+  phase?: string;
+  ready?: boolean;
+  operational?: boolean;
+  reachable?: boolean;
+  error?: string;
+  conditions?: K8sCondition[];
+  [key: string]: unknown;
+}
+
+/** Generic Kubernetes resource */
+interface K8sResource {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: K8sMetadata;
+  spec?: DeploymentSpec | ServiceSpec | Record<string, unknown>;
+  status?: PodStatus | DeploymentStatus | ServiceStatus | NodeStatus | CustomResourceStatus;
+  type?: string; // For Secret resources
+  data?: Record<string, string>; // For ConfigMap resources
+}
+
+/** Status field for tooltip extraction */
+interface StatusField {
+  label: string;
+  value: string;
+}
 
 /**
  * Service for handling resource status information, icons, and tooltips
@@ -211,7 +312,7 @@ export class ResourceStatusService extends CoreService {
    * @param resource Kubernetes resource object
    * @returns URI to the status icon
    */
-  public getResourceStatusIcon(resource: any): vscode.Uri {
+  public getResourceStatusIcon(resource: K8sResource | null | undefined): vscode.Uri {
     const indicator = this.getResourceStatusIndicator(resource);
     return this.getStatusIcon(indicator);
   }
@@ -221,7 +322,7 @@ export class ResourceStatusService extends CoreService {
    * @param resource Kubernetes resource object
    * @returns ThemeIcon representing the resource status
    */
-  public getResourceThemeStatusIcon(resource: any): vscode.ThemeIcon {
+  public getResourceThemeStatusIcon(resource: K8sResource | null | undefined): vscode.ThemeIcon {
     const indicator = this.getResourceStatusIndicator(resource);
     return this.getThemeStatusIcon(indicator);
   }
@@ -231,10 +332,10 @@ export class ResourceStatusService extends CoreService {
    * @param resource Kubernetes resource object
    * @returns Status indicator string
    */
-  public getResourceStatusIndicator(resource: any): string {
+  public getResourceStatusIndicator(resource: K8sResource | null | undefined): string {
     if (!resource) return 'gray';
 
-    const kind = resource.kind;
+    const kind = resource.kind ?? '';
 
     // Handle standard Kubernetes resources
     if (this.isStandardK8sResource(kind)) {
@@ -251,10 +352,10 @@ export class ResourceStatusService extends CoreService {
    * @param resource Kubernetes resource object
    * @returns Short status description
    */
-  public getStatusDescription(resource: any): string {
+  public getStatusDescription(resource: K8sResource | null | undefined): string {
     if (!resource) return '';
 
-    const kind = resource.kind;
+    const kind = resource.kind ?? '';
 
     // Try standard K8s resource description first
     const standardDesc = this.getStandardK8sStatusDescription(kind, resource);
@@ -263,42 +364,49 @@ export class ResourceStatusService extends CoreService {
     }
 
     // For custom resources
-    return this.getCustomResourceStatusDescription(resource.status);
+    return this.getCustomResourceStatusDescription(resource.status as CustomResourceStatus | undefined);
   }
 
   /** Get status description for standard K8s resources */
-  private getStandardK8sStatusDescription(kind: string, resource: any): string | null {
+  private getStandardK8sStatusDescription(kind: string, resource: K8sResource): string | null {
     switch (kind) {
-      case 'Pod':
-        return resource.status?.phase || '';
+      case 'Pod': {
+        const podStatus = resource.status as PodStatus | undefined;
+        return podStatus?.phase ?? '';
+      }
       case 'Deployment':
         return this.getDeploymentStatusDescription(resource);
-      case 'Service':
-        return resource.spec?.type || 'ClusterIP';
+      case 'Service': {
+        const serviceSpec = resource.spec as ServiceSpec | undefined;
+        return serviceSpec?.type ?? 'ClusterIP';
+      }
       case 'ConfigMap':
         return this.getConfigMapStatusDescription(resource);
-      case 'Secret':
-        return resource.type || 'Opaque';
+      case 'Secret': {
+        return resource.type ?? 'Opaque';
+      }
       default:
         return null;
     }
   }
 
   /** Get status description for Deployment resources */
-  private getDeploymentStatusDescription(resource: any): string {
-    const ready = resource.status?.readyReplicas || 0;
-    const desired = resource.spec?.replicas || 0;
+  private getDeploymentStatusDescription(resource: K8sResource): string {
+    const status = resource.status as DeploymentStatus | undefined;
+    const spec = resource.spec as DeploymentSpec | undefined;
+    const ready = status?.readyReplicas ?? 0;
+    const desired = spec?.replicas ?? 0;
     return `${ready}/${desired}`;
   }
 
   /** Get status description for ConfigMap resources */
-  private getConfigMapStatusDescription(resource: any): string {
-    const dataCount = Object.keys(resource.data || {}).length;
+  private getConfigMapStatusDescription(resource: K8sResource): string {
+    const dataCount = Object.keys(resource.data ?? {}).length;
     return `${dataCount} items`;
   }
 
   /** Get status description for custom resources */
-  private getCustomResourceStatusDescription(status: any): string {
+  private getCustomResourceStatusDescription(status: CustomResourceStatus | undefined): string {
     if (!status) return '';
 
     const parts: string[] = [];
@@ -323,12 +431,12 @@ export class ResourceStatusService extends CoreService {
    * @param resource Kubernetes resource object
    * @returns Tooltip text with detailed resource info
    */
-  public getResourceTooltip(resource: any): string {
+  public getResourceTooltip(resource: K8sResource | null | undefined): string {
     if (!resource) return '';
 
-    const kind = resource.kind;
-    const name = resource.metadata?.name || 'Unnamed';
-    const namespace = resource.metadata?.namespace || 'default';
+    const kind = resource.kind ?? '';
+    const name = resource.metadata?.name ?? 'Unnamed';
+    const namespace = resource.metadata?.namespace ?? 'default';
 
     let tooltip = `Name: ${name}\nKind: ${kind}\nNamespace: ${namespace}`;
 
@@ -364,26 +472,26 @@ export class ResourceStatusService extends CoreService {
   /**
    * Extract relevant status fields based on resource kind and schema
    */
-  private extractStatusFields(status: any, kind: string): { label: string, value: string }[] {
+  private extractStatusFields(status: K8sResource['status'], kind: string): StatusField[] {
     if (!status) {
       return [];
     }
 
     switch (kind) {
       case 'Pod':
-        return this.extractPodStatusFields(status);
+        return this.extractPodStatusFields(status as PodStatus);
       case 'Deployment':
-        return this.extractDeploymentStatusFields(status);
+        return this.extractDeploymentStatusFields(status as DeploymentStatus);
       case 'Service':
-        return this.extractServiceStatusFields(status);
+        return this.extractServiceStatusFields(status as ServiceStatus);
       default:
-        return this.extractCustomResourceStatusFields(status);
+        return this.extractCustomResourceStatusFields(status as CustomResourceStatus);
     }
   }
 
   /** Extract status fields for Pod resources */
-  private extractPodStatusFields(status: any): { label: string, value: string }[] {
-    const fields: { label: string, value: string }[] = [];
+  private extractPodStatusFields(status: PodStatus): StatusField[] {
+    const fields: StatusField[] = [];
 
     if (status.phase) {
       fields.push({ label: 'Phase', value: status.phase });
@@ -403,14 +511,14 @@ export class ResourceStatusService extends CoreService {
   }
 
   /** Extract container status fields from Pod status */
-  private extractContainerStatusFields(status: any, fields: { label: string, value: string }[]): void {
+  private extractContainerStatusFields(status: PodStatus, fields: StatusField[]): void {
     if (!status.containerStatuses || !Array.isArray(status.containerStatuses)) {
       return;
     }
 
     for (const container of status.containerStatuses) {
       const ready = container.ready ? 'Ready' : 'Not Ready';
-      const restartCount = container.restartCount || 0;
+      const restartCount = container.restartCount ?? 0;
       fields.push({
         label: `Container ${container.name}`,
         value: `${ready}, Restarts: ${restartCount}`
@@ -419,8 +527,8 @@ export class ResourceStatusService extends CoreService {
   }
 
   /** Extract status fields for Deployment resources */
-  private extractDeploymentStatusFields(status: any): { label: string, value: string }[] {
-    const fields: { label: string, value: string }[] = [];
+  private extractDeploymentStatusFields(status: DeploymentStatus): StatusField[] {
+    const fields: StatusField[] = [];
 
     if (status.replicas !== undefined) {
       fields.push({ label: 'Replicas', value: `${status.replicas}` });
@@ -440,7 +548,7 @@ export class ResourceStatusService extends CoreService {
   }
 
   /** Extract condition fields from resource status */
-  private extractConditionFields(status: any, fields: { label: string, value: string }[]): void {
+  private extractConditionFields(status: DeploymentStatus | PodStatus, fields: StatusField[]): void {
     if (!status.conditions || !Array.isArray(status.conditions)) {
       return;
     }
@@ -448,14 +556,14 @@ export class ResourceStatusService extends CoreService {
     for (const condition of status.conditions) {
       fields.push({
         label: `Condition ${condition.type}`,
-        value: `${condition.status} - ${condition.message || 'No message'}`
+        value: `${condition.status} - ${condition.message ?? 'No message'}`
       });
     }
   }
 
   /** Extract status fields for Service resources */
-  private extractServiceStatusFields(status: any): { label: string, value: string }[] {
-    const fields: { label: string, value: string }[] = [];
+  private extractServiceStatusFields(status: ServiceStatus): StatusField[] {
+    const fields: StatusField[] = [];
 
     if (!status.loadBalancer?.ingress || !Array.isArray(status.loadBalancer.ingress)) {
       return fields;
@@ -474,8 +582,8 @@ export class ResourceStatusService extends CoreService {
   }
 
   /** Extract status fields for custom resources */
-  private extractCustomResourceStatusFields(status: any): { label: string, value: string }[] {
-    const fields: { label: string, value: string }[] = [];
+  private extractCustomResourceStatusFields(status: CustomResourceStatus): StatusField[] {
+    const fields: StatusField[] = [];
 
     for (const [key, value] of Object.entries(status)) {
       const fieldValue = this.extractFieldValue(key, value);
@@ -488,7 +596,7 @@ export class ResourceStatusService extends CoreService {
   }
 
   /** Extract a single field value from a status entry */
-  private extractFieldValue(key: string, value: unknown): { label: string, value: string } | null {
+  private extractFieldValue(key: string, value: unknown): StatusField | null {
     if (value === undefined || value === null) {
       return null;
     }
@@ -507,7 +615,7 @@ export class ResourceStatusService extends CoreService {
   }
 
   /** Extract field value from an object */
-  private extractObjectFieldValue(key: string, obj: Record<string, unknown>): { label: string, value: string } | null {
+  private extractObjectFieldValue(key: string, obj: Record<string, unknown>): StatusField | null {
     // If it has a 'value' property that is primitive, use that
     if ('value' in obj && ['string', 'number', 'boolean'].includes(typeof obj.value)) {
       return { label: this.formatFieldName(key), value: String(obj.value) };
@@ -559,43 +667,43 @@ export class ResourceStatusService extends CoreService {
   /**
    * Get status indicator for standard Kubernetes resources
    */
-  private getStandardK8sResourceStatus(resource: any): string {
+  private getStandardK8sResourceStatus(resource: K8sResource): string {
     if (!resource) return 'gray';
 
-    const kind = resource.kind;
+    const kind = resource.kind ?? '';
     const status = resource.status;
 
     if (!status) return 'gray';
 
     switch (kind) {
       case 'Pod':
-        return this.getPodStatusIndicator(status);
+        return this.getPodStatusIndicator(status as PodStatus);
       case 'Deployment':
-        return this.getDeploymentStatusIndicator(resource.spec, status);
+        return this.getDeploymentStatusIndicator(resource.spec as DeploymentSpec | undefined, status as DeploymentStatus);
       case 'Service':
       case 'ConfigMap':
       case 'Secret':
         return 'green';
       case 'Node':
-        return this.getNodeStatusIndicator(status);
+        return this.getNodeStatusIndicator(status as NodeStatus);
       default:
         return 'gray';
     }
   }
 
   /** Get status indicator for Pod resources */
-  private getPodStatusIndicator(status: any): string {
+  private getPodStatusIndicator(status: PodStatus): string {
     const phase = status.phase?.toLowerCase();
     if (phase === 'running') return 'green';
     if (phase === 'pending') return 'yellow';
-    if (['failed', 'unknown', 'error'].includes(phase)) return 'red';
+    if (phase && ['failed', 'unknown', 'error'].includes(phase)) return 'red';
     return 'gray';
   }
 
   /** Get status indicator for Deployment resources */
-  private getDeploymentStatusIndicator(spec: any, status: any): string {
-    const desired = spec?.replicas || 0;
-    const ready = status.readyReplicas || 0;
+  private getDeploymentStatusIndicator(spec: DeploymentSpec | undefined, status: DeploymentStatus): string {
+    const desired = spec?.replicas ?? 0;
+    const ready = status.readyReplicas ?? 0;
 
     if (desired === 0) return 'gray';
     if (ready === desired) return 'green';
@@ -604,9 +712,9 @@ export class ResourceStatusService extends CoreService {
   }
 
   /** Get status indicator for Node resources */
-  private getNodeStatusIndicator(status: any): string {
-    const conditions = status.conditions || [];
-    const readyCondition = conditions.find((c: any) => c.type === 'Ready');
+  private getNodeStatusIndicator(status: NodeStatus): string {
+    const conditions = status.conditions ?? [];
+    const readyCondition = conditions.find((c: K8sCondition) => c.type === 'Ready');
 
     if (readyCondition && readyCondition.status === 'True') return 'green';
     return 'red';
@@ -615,12 +723,12 @@ export class ResourceStatusService extends CoreService {
   /**
    * Get status indicator for custom resources
    */
-  private getCustomResourceStatus(resource: any): string {
+  private getCustomResourceStatus(resource: K8sResource): string {
     if (!resource || !resource.status) {
       return 'gray';
     }
 
-    const status = resource.status;
+    const status = resource.status as CustomResourceStatus;
 
     // Check explicit operational indicators first
     const operationalResult = this.checkOperationalIndicators(status);
@@ -651,7 +759,7 @@ export class ResourceStatusService extends CoreService {
   }
 
   /** Check explicit operational indicators (operational, reachable, error) */
-  private checkOperationalIndicators(status: any): string | null {
+  private checkOperationalIndicators(status: CustomResourceStatus): string | null {
     if (status.operational === true) {
       return 'green';
     }
@@ -665,7 +773,7 @@ export class ResourceStatusService extends CoreService {
   }
 
   /** Check common status fields: operationalState, health, state, phase, ready */
-  private checkCommonStatusFields(status: any): string | null {
+  private checkCommonStatusFields(status: CustomResourceStatus): string | null {
     const operationalStateResult = this.mapStateToIndicator(status.operationalState);
     if (operationalStateResult) {
       return operationalStateResult;
@@ -747,12 +855,12 @@ export class ResourceStatusService extends CoreService {
   }
 
   /** Check conditions array for ready/error conditions */
-  private checkStatusConditions(status: any): string | null {
+  private checkStatusConditions(status: CustomResourceStatus): string | null {
     if (!status.conditions || !Array.isArray(status.conditions)) {
       return null;
     }
 
-    const readyCondition = status.conditions.find((c: any) =>
+    const readyCondition = status.conditions.find((c: K8sCondition) =>
       c.type === 'Ready' || c.type === 'Available' || c.type === 'Healthy'
     );
     if (readyCondition) {
@@ -765,7 +873,7 @@ export class ResourceStatusService extends CoreService {
       return 'yellow';
     }
 
-    const errorCondition = status.conditions.find((c: any) =>
+    const errorCondition = status.conditions.find((c: K8sCondition) =>
       (c.type === 'Error' || c.type === 'Failed') && c.status === 'True'
     );
     if (errorCondition) {
@@ -776,17 +884,18 @@ export class ResourceStatusService extends CoreService {
   }
 
   /** Scan generic keys containing "status" or "state" */
-  private checkGenericStatusKeys(status: any): string | null {
+  private checkGenericStatusKeys(status: CustomResourceStatus): string | null {
     const genericIndicators: string[] = [];
 
     for (const key of Object.keys(status)) {
       const keyLower = key.toLowerCase();
       const isStatusOrStateKey = keyLower.includes("status") || keyLower.includes("state");
       const isNotDetails = !keyLower.includes("details");
-      const isStringValue = typeof status[key] === "string";
+      const statusValue = status[key];
+      const isStringValue = typeof statusValue === "string";
 
       if (isStatusOrStateKey && isNotDetails && isStringValue) {
-        genericIndicators.push(this.mapStatusTextToIndicator(status[key]));
+        genericIndicators.push(this.mapStatusTextToIndicator(statusValue));
       }
     }
 

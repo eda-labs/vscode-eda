@@ -5,7 +5,92 @@ import { ALL_NAMESPACES, RESOURCES_DIR } from '../../constants';
 import { serviceManager } from '../../../services/serviceManager';
 import type { EdaClient } from '../../../clients/edaClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
-import { getUpdates } from '../../../utils/streamMessageUtils';
+import { getUpdates, type StreamMessageWithUpdates } from '../../../utils/streamMessageUtils';
+
+// --- K8s Resource Types ---
+
+/** Standard Kubernetes object metadata */
+interface K8sMetadata {
+  name?: string;
+  namespace?: string;
+  labels?: Record<string, string>;
+  [key: string]: unknown;
+}
+
+/** Generic Kubernetes resource structure */
+interface K8sResource {
+  apiVersion?: string;
+  kind?: string;
+  metadata?: K8sMetadata;
+  spec?: Record<string, unknown>;
+  status?: Record<string, unknown>;
+}
+
+/** TopoNode resource returned from EDA API */
+interface TopoNode extends K8sResource {
+  metadata?: K8sMetadata;
+}
+
+/** TopoLink spec link entry */
+interface TopoLinkSpecEntry {
+  local?: {
+    node?: string;
+    interface?: string;
+  };
+  remote?: {
+    node?: string;
+    interface?: string;
+  };
+}
+
+/** TopoLink status member entry */
+interface TopoLinkStatusMember {
+  node?: string;
+  interface?: string;
+  operationalState?: string;
+}
+
+/** TopoLink resource returned from EDA API */
+interface TopoLink extends K8sResource {
+  metadata?: K8sMetadata & {
+    labels?: Record<string, string> & {
+      'eda.nokia.com/role'?: string;
+    };
+  };
+  spec?: {
+    links?: TopoLinkSpecEntry[];
+    [key: string]: unknown;
+  };
+  status?: {
+    operationalState?: string;
+    operationalstate?: string;
+    members?: TopoLinkStatusMember[];
+    [key: string]: unknown;
+  };
+}
+
+/** Topology resource */
+interface Topology {
+  name?: string;
+  metadata?: K8sMetadata;
+}
+
+/** TopologyGrouping tier selector */
+interface TierSelectorSpec {
+  tier?: number;
+  nodeSelector?: string[];
+}
+
+/** TopologyGrouping resource */
+interface TopologyGrouping {
+  metadata?: K8sMetadata;
+  spec?: {
+    tierSelectors?: TierSelectorSpec[];
+    [key: string]: unknown;
+  };
+}
+
+// --- Internal Types ---
 
 interface TierSelector {
   tier: number;
@@ -21,14 +106,62 @@ interface EdgeData {
   targetState?: string;
   state?: string;
   label?: string;
-  raw?: any;
-  rawResource?: any;
+  raw?: TopoLinkSpecEntry;
+  rawResource?: TopoLink;
+}
+
+interface NodeData {
+  id: string;
+  label: string;
+  tier: number;
+  raw: TopoNode;
+}
+
+// --- Webview Message Types ---
+
+interface WebviewReadyMessage {
+  command: 'ready';
+}
+
+interface WebviewSetNamespaceMessage {
+  command: 'setNamespace';
+  namespace: string;
+}
+
+interface WebviewSshTopoNodeMessage {
+  command: 'sshTopoNode';
+  name: string;
+  namespace: string;
+  nodeDetails: string;
+}
+
+interface WebviewOpenResourceMessage {
+  command: 'openResource';
+  raw: unknown;
+  streamGroup: string;
+}
+
+type WebviewMessage =
+  | WebviewReadyMessage
+  | WebviewSetNamespaceMessage
+  | WebviewSshTopoNodeMessage
+  | WebviewOpenResourceMessage;
+
+// --- Stream Message Types ---
+
+interface StreamUpdate {
+  key?: string;
+  data?: K8sResource | null;
+}
+
+interface StreamMessagePayload {
+  msg: StreamMessageWithUpdates | null | undefined;
 }
 
 export class TopologyDashboardPanel extends BasePanel {
   private edaClient: EdaClient;
-  private nodeMap: Map<string, Map<string, any>> = new Map();
-  private linkMap: Map<string, any[]> = new Map();
+  private nodeMap: Map<string, Map<string, TopoNode>> = new Map();
+  private linkMap: Map<string, TopoLink[]> = new Map();
   private groupings: TierSelector[] = [];
   private selectedNamespace = ALL_NAMESPACES;
 
@@ -37,11 +170,12 @@ export class TopologyDashboardPanel extends BasePanel {
 
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
 
-    this.edaClient.onStreamMessage((stream, msg) => {
+    this.edaClient.onStreamMessage((stream, msg: unknown) => {
+      const payload = msg as StreamMessagePayload;
       if (stream === 'toponodes') {
-        this.handleTopoNodeStream(msg);
+        this.handleTopoNodeStream(payload);
       } else if (stream === 'topolinks') {
-        this.handleTopoLinkStream(msg);
+        this.handleTopoLinkStream(payload);
       }
     });
 
@@ -50,13 +184,13 @@ export class TopologyDashboardPanel extends BasePanel {
       this.edaClient.closeTopoLinkStream();
     });
 
-    this.panel.webview.onDidReceiveMessage(async msg => {
+    this.panel.webview.onDidReceiveMessage(async (msg: WebviewMessage) => {
       if (msg.command === 'ready') {
         this.sendNamespaces();
         await this.loadGroupings();
         await this.loadInitial(ALL_NAMESPACES);
       } else if (msg.command === 'setNamespace') {
-        await this.loadInitial(msg.namespace as string);
+        await this.loadInitial(msg.namespace);
       } else if (msg.command === 'sshTopoNode') {
         await vscode.commands.executeCommand('vscode-eda.sshTopoNode', {
           name: msg.name,
@@ -96,7 +230,7 @@ export class TopologyDashboardPanel extends BasePanel {
     const cytoscapeUri = this.getResourceUri(RESOURCES_DIR, 'cytoscape.min.js');
     const cytoscapeSvgUri = this.getResourceUri(RESOURCES_DIR, 'cytoscape-svg.js');
     const nodeIcon = this.getResourceUri(RESOURCES_DIR, 'node.svg');
-    const tailwind = (BasePanel as any).tailwind ?? '';
+    const tailwind = (BasePanel as unknown as { tailwind?: string }).tailwind ?? '';
     const styles = `${tailwind}\n${this.getCustomStyles()}`;
 
     const scriptTags = this.getScriptTags(nonce);
@@ -133,7 +267,7 @@ export class TopologyDashboardPanel extends BasePanel {
   private async loadGroupings(): Promise<void> {
     try {
       // First get list of topologies
-      const topologies = await this.edaClient.listTopologies();
+      const topologies = (await this.edaClient.listTopologies()) as Topology[];
       if (!Array.isArray(topologies) || topologies.length === 0) {
         return;
       }
@@ -142,11 +276,11 @@ export class TopologyDashboardPanel extends BasePanel {
       if (!topologyName) {
         return;
       }
-      const list = await this.edaClient.listTopologyGroupings(topologyName);
+      const list = (await this.edaClient.listTopologyGroupings(topologyName)) as TopologyGrouping[];
       if (Array.isArray(list) && list.length) {
         const grp = list[0]?.spec?.tierSelectors;
         if (Array.isArray(grp)) {
-          this.groupings = grp.map((g: any) => ({
+          this.groupings = grp.map((g: TierSelectorSpec) => ({
             tier: Number(g.tier) || 1,
             nodeSelector: Array.isArray(g.nodeSelector) ? g.nodeSelector : []
           }));
@@ -167,15 +301,15 @@ export class TopologyDashboardPanel extends BasePanel {
         : [ns];
     for (const n of target) {
       try {
-        const nodes = await this.edaClient.listTopoNodes(n);
-        const map = new Map<string, any>();
+        const nodes = (await this.edaClient.listTopoNodes(n)) as TopoNode[];
+        const map = new Map<string, TopoNode>();
         for (const node of nodes) {
-          const name = node.metadata?.name as string | undefined;
+          const name = node.metadata?.name;
           if (!name) continue;
           map.set(name, node);
         }
         this.nodeMap.set(n, map);
-        const links = await this.edaClient.listTopoLinks(n);
+        const links = (await this.edaClient.listTopoLinks(n)) as TopoLink[];
         const filtered = Array.isArray(links)
           ? links.filter(l => l.metadata?.labels?.['eda.nokia.com/role'] !== 'edge')
           : [];
@@ -215,24 +349,27 @@ export class TopologyDashboardPanel extends BasePanel {
       : [this.selectedNamespace];
   }
 
-  private buildNodesForNamespace(
-    ns: string
-  ): { id: string; label: string; tier: number; raw: any }[] {
-    const nodes: { id: string; label: string; tier: number; raw: any }[] = [];
+  private buildNodesForNamespace(ns: string): NodeData[] {
+    const nodes: NodeData[] = [];
     const nm = this.nodeMap.get(ns);
     if (!nm) return nodes;
 
     for (const node of nm.values()) {
-      const name = node.metadata?.name as string | undefined;
+      const name = node.metadata?.name;
       if (!name) continue;
-      const labels = node.metadata?.labels || {};
+      const labels = node.metadata?.labels ?? {};
       const tier = this.getTier(labels);
       nodes.push({ id: `${ns}/${name}`, label: name, tier, raw: node });
     }
     return nodes;
   }
 
-  private buildEdgeData(ns: string, link: any, linkSpec: any, members: any[]): EdgeData | null {
+  private buildEdgeData(
+    ns: string,
+    link: TopoLink,
+    linkSpec: TopoLinkSpecEntry,
+    members: TopoLinkStatusMember[]
+  ): EdgeData | null {
     const src = linkSpec.local?.node;
     const dst = linkSpec.remote?.node;
     if (!src || !dst) return null;
@@ -249,18 +386,24 @@ export class TopologyDashboardPanel extends BasePanel {
     return edgeData;
   }
 
-  private populateInterfaceData(edgeData: EdgeData, linkSpec: any, members: any[]): void {
+  private populateInterfaceData(
+    edgeData: EdgeData,
+    linkSpec: TopoLinkSpecEntry,
+    members: TopoLinkStatusMember[]
+  ): void {
     if (linkSpec.local?.interface) {
       edgeData.sourceInterface = this.shortenInterfaceName(linkSpec.local.interface);
       const ms = members.find(
-        (m: any) => m.node === linkSpec.local?.node && m.interface === linkSpec.local?.interface
+        (m: TopoLinkStatusMember) =>
+          m.node === linkSpec.local?.node && m.interface === linkSpec.local?.interface
       );
       if (ms) edgeData.sourceState = ms.operationalState;
     }
     if (linkSpec.remote?.interface) {
       edgeData.targetInterface = this.shortenInterfaceName(linkSpec.remote.interface);
       const ms = members.find(
-        (m: any) => m.node === linkSpec.remote?.node && m.interface === linkSpec.remote?.interface
+        (m: TopoLinkStatusMember) =>
+          m.node === linkSpec.remote?.node && m.interface === linkSpec.remote?.interface
       );
       if (ms) edgeData.targetState = ms.operationalState;
     }
@@ -275,8 +418,10 @@ export class TopologyDashboardPanel extends BasePanel {
       const role = link.metadata?.labels?.['eda.nokia.com/role'];
       if (role === 'edge') continue;
 
-      const arr = Array.isArray(link.spec?.links) ? link.spec.links : [];
-      const members: any[] = Array.isArray(link.status?.members) ? link.status.members : [];
+      const arr: TopoLinkSpecEntry[] = Array.isArray(link.spec?.links) ? link.spec.links : [];
+      const members: TopoLinkStatusMember[] = Array.isArray(link.status?.members)
+        ? link.status.members
+        : [];
 
       for (const l of arr) {
         const edgeData = this.buildEdgeData(ns, link, l, members);
@@ -288,7 +433,7 @@ export class TopologyDashboardPanel extends BasePanel {
 
   private postGraph(): void {
     const namespaces = this.getTargetNamespaces();
-    const nodes: { id: string; label: string; tier: number; raw: any }[] = [];
+    const nodes: NodeData[] = [];
     const edges: EdgeData[] = [];
 
     for (const ns of namespaces) {
@@ -296,10 +441,10 @@ export class TopologyDashboardPanel extends BasePanel {
       edges.push(...this.buildEdgesForNamespace(ns));
     }
 
-    this.panel.webview.postMessage({ command: 'data', nodes, edges });
+    void this.panel.webview.postMessage({ command: 'data', nodes, edges });
   }
 
-  private parseUpdateIdentifiers(up: any): { name: string; ns: string } | null {
+  private parseUpdateIdentifiers(up: StreamUpdate): { name: string; ns: string } | null {
     let name: string | undefined = up.data?.metadata?.name;
     let ns: string | undefined = up.data?.metadata?.namespace;
     if ((!name || !ns) && up.key) {
@@ -312,7 +457,7 @@ export class TopologyDashboardPanel extends BasePanel {
     return { name, ns };
   }
 
-  private processNodeUpdate(up: any, name: string, ns: string): void {
+  private processNodeUpdate(up: StreamUpdate, name: string, ns: string): void {
     let map = this.nodeMap.get(ns);
     if (!map) {
       map = new Map();
@@ -320,13 +465,13 @@ export class TopologyDashboardPanel extends BasePanel {
     }
     if (up.data === null) {
       map.delete(name);
-    } else {
-      map.set(name, up.data);
+    } else if (up.data) {
+      map.set(name, up.data as TopoNode);
     }
   }
 
-  private handleTopoNodeStream(msg: any): void {
-    const updates = getUpdates(msg.msg);
+  private handleTopoNodeStream(msg: StreamMessagePayload): void {
+    const updates = getUpdates(msg.msg) as StreamUpdate[];
     if (updates.length === 0) return;
 
     for (const up of updates) {
@@ -337,7 +482,7 @@ export class TopologyDashboardPanel extends BasePanel {
     this.postGraph();
   }
 
-  private processLinkUpdate(up: any, name: string, ns: string): void {
+  private processLinkUpdate(up: StreamUpdate, name: string, ns: string): void {
     let list = this.linkMap.get(ns);
     if (!list) {
       list = [];
@@ -350,21 +495,24 @@ export class TopologyDashboardPanel extends BasePanel {
       return;
     }
 
-    const role = up.data?.metadata?.labels?.['eda.nokia.com/role'];
+    const linkData = up.data as TopoLink | undefined;
+    const role = linkData?.metadata?.labels?.['eda.nokia.com/role'];
     if (role === 'edge') {
       if (idx >= 0) list.splice(idx, 1);
       return;
     }
 
-    if (idx >= 0) {
-      list[idx] = up.data;
-    } else {
-      list.push(up.data);
+    if (linkData) {
+      if (idx >= 0) {
+        list[idx] = linkData;
+      } else {
+        list.push(linkData);
+      }
     }
   }
 
-  private handleTopoLinkStream(msg: any): void {
-    const updates = getUpdates(msg.msg);
+  private handleTopoLinkStream(msg: StreamMessagePayload): void {
+    const updates = getUpdates(msg.msg) as StreamUpdate[];
     if (updates.length === 0) return;
 
     for (const up of updates) {
