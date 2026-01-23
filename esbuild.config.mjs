@@ -55,9 +55,9 @@ async function run() {
   });
 
   await build({
-    entryPoints: ['src/webviews/dashboard/topology/topologyDashboard.webview.tsx'],
+    entryPoints: ['src/webviews/dashboard/topologyFlow/topologyFlowDashboard.webview.tsx'],
     ...webviewOptions,
-    outfile: 'dist/topologyDashboard.js'
+    outfile: 'dist/topologyFlowDashboard.js'
   });
 
   await build({
