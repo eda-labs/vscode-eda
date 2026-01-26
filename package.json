@@ -788,7 +788,7 @@
     "diff": "^8.0.3",
     "esbuild": "^0.27.2",
     "eslint": "^9.39.2",
-    "eslint-plugin-better-tailwindcss": "^4.0.1",
+    "eslint-plugin-better-tailwindcss": "^4.0.2",
     "eslint-plugin-boundaries": "^5.3.1",
     "eslint-plugin-import-x": "^4.16.1",
     "eslint-plugin-react": "^7.37.5",
