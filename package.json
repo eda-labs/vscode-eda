@@ -779,7 +779,7 @@
     "@types/vscode": "^1.99.0",
     "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.53.1",
-    "@typescript-eslint/parser": "^8.53.1",
+    "@typescript-eslint/parser": "^8.54.0",
     "@vscode/vsce": "^3.7.1",
     "bufferutil": "^4.1.0",
     "chai": "^6.2.2",
