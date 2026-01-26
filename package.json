@@ -800,7 +800,7 @@
     "handlebars-loader": "^1.7.3",
     "jest-mock-vscode": "^4.10.0",
     "js-yaml": "^4.1.1",
-    "mocha": "^11.3.0",
+    "mocha": "^11.7.5",
     "mochawesome": "^7.1.4",
     "openapi-typescript": "^7.10.1",
     "prettier": "^3.8.0",
