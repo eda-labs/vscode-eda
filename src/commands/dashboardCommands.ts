@@ -4,7 +4,7 @@ import { FabricDashboardPanel } from '../webviews/dashboard/fabric/fabricDashboa
 import { QueriesDashboardPanel } from '../webviews/dashboard/queries/queriesDashboardPanel';
 import { ToponodesDashboardPanel } from '../webviews/dashboard/toponodes/toponodesDashboard';
 import { SimnodesDashboardPanel } from '../webviews/dashboard/simnodes/simnodesDashboard';
-import { TopologyDashboardPanel } from '../webviews/dashboard/topology/topologyDashboardPanel';
+import { TopologyFlowDashboardPanel } from '../webviews/dashboard/topologyFlow/topologyFlowDashboardPanel';
 import { ResourceBrowserPanel } from '../webviews/dashboard/resource/resourceBrowserPanel';
 
 export function registerDashboardCommands(context: vscode.ExtensionContext): void {
@@ -16,7 +16,7 @@ export function registerDashboardCommands(context: vscode.ExtensionContext): voi
     } else if (name === 'Simnodes') {
       SimnodesDashboardPanel.show(context, name);
     } else if (name === 'Topology') {
-      TopologyDashboardPanel.show(context, name);
+      TopologyFlowDashboardPanel.show(context, name);
     } else if (name === 'Resource Browser') {
       ResourceBrowserPanel.show(context, name);
     } else {
