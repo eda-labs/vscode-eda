@@ -757,6 +757,9 @@
   "scripts": {
     "compile": "node ./esbuild.config.mjs",
     "watch": "webpack --mode development --watch --info-verbosity verbose",
+    "webviews:dev": "vite --config src/webviews/dev/vite.config.js",
+    "webviews:build": "vite build --config src/webviews/dev/vite.config.js",
+    "webviews:preview": "vite preview --config src/webviews/dev/vite.config.js",
     "check-types": "tsc --noEmit",
     "lint": "npm run check-types && eslint --ext .ts,.tsx .",
     "lint:fix": "npm run lint -- --fix",
@@ -779,6 +782,7 @@
     "@types/ws": "^8.18.1",
     "@typescript-eslint/eslint-plugin": "^8.53.1",
     "@typescript-eslint/parser": "^8.53.1",
+    "@vitejs/plugin-react": "^5.1.4",
     "@vscode/vsce": "^3.7.1",
     "bufferutil": "^4.1.0",
     "chai": "^6.2.2",
@@ -810,6 +814,7 @@
     "undici": "^7.18.2",
     "undici-types": "^7.18.2",
     "utf-8-validate": "^6.0.6",
+    "vite": "^7.3.1",
     "webpack": "^5.104.1",
     "webpack-cli": "^6.0.1",
     "ws": "^8.19.0"

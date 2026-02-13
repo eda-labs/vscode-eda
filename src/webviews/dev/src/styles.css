@@ -1,0 +1,102 @@
+:root,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-editor-foreground);
+  font-family: var(--vscode-font-family, sans-serif);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.dev-shell {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+}
+
+.dev-shell__toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-panel-background);
+}
+
+.dev-shell__title {
+  margin: 0;
+  margin-right: auto;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.dev-shell__field {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.dev-shell__field select {
+  min-width: 220px;
+  height: 30px;
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 4px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  padding: 0 8px;
+  font-size: 13px;
+}
+
+.dev-shell__reload {
+  height: 30px;
+  border: 1px solid var(--vscode-button-background);
+  border-radius: 4px;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  padding: 0 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dev-shell__reload:hover {
+  background: var(--vscode-button-hoverBackground, var(--vscode-button-background));
+}
+
+.dev-shell__content {
+  min-height: 0;
+  padding: 0;
+}
+
+.dev-shell__iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--vscode-editor-background);
+}
+
+@media (max-width: 980px) {
+  .dev-shell__toolbar {
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .dev-shell__title {
+    width: 100%;
+    margin-right: 0;
+  }
+
+  .dev-shell__field,
+  .dev-shell__field select {
+    width: 100%;
+    min-width: 0;
+  }
+}
