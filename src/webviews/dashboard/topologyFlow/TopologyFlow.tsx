@@ -17,7 +17,7 @@ import {
 import DeviceNode, { type TopologyNode, type TopologyNodeData } from './nodes/DeviceNode';
 import NamespaceLabelNodeComponent, { type NamespaceLabelNode } from './nodes/NamespaceLabelNode';
 import LinkEdgeComponent, { type LinkEdge, type LinkEdgeData } from './edges/LinkEdge';
-import { getNodeIcon } from './nodes/icons';
+import { getNodeRoleMonogram } from './nodes/icons';
 
 export type FlowNode = TopologyNode | NamespaceLabelNode;
 
@@ -220,14 +220,12 @@ function generateNodeSvg(node: FlowNode, offsetX: number, offsetY: number, color
 
   if (node.type === 'deviceNode') {
     const data = node.data as TopologyNodeData;
-    const iconSvg = getNodeIcon(data.role)
-      .replace(/var\(--color-icon-bg\)/g, colors.iconBg)
-      .replace(/var\(--color-icon-fg\)/g, colors.iconFg)
-      .replace(/width="28" height="28"/, 'width="32" height="32"');
+    const monogram = getNodeRoleMonogram(data.role);
 
     return `<g transform="translate(${x}, ${y})">
       <rect width="${NODE_WIDTH}" height="${NODE_HEIGHT}" rx="8" fill="${colors.nodeFill}" stroke="${colors.nodeStroke}" stroke-width="1"/>
-      <g transform="translate(${(NODE_WIDTH - 32) / 2}, 12)">${iconSvg}</g>
+      <circle cx="${NODE_WIDTH / 2}" cy="26" r="16" fill="${colors.iconBg}"/>
+      <text x="${NODE_WIDTH / 2}" y="31" text-anchor="middle" font-size="13" font-weight="700" fill="${colors.iconFg}">${escapeXml(monogram)}</text>
       <text x="${NODE_WIDTH / 2}" y="${NODE_HEIGHT - 8}" text-anchor="middle" font-size="10" fill="${colors.text}">${escapeXml(data.label)}</text>
     </g>`;
   }

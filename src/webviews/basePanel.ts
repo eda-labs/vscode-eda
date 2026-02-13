@@ -9,7 +9,6 @@ import { RESOURCES_DIR, ICON_LIGHT, ICON_DARK } from './constants';
 export abstract class BasePanel {
   protected panel: vscode.WebviewPanel;
   protected context: vscode.ExtensionContext;
-  private static tailwind: string | null = null;
 
   constructor(
     context: vscode.ExtensionContext,
@@ -34,15 +33,6 @@ export abstract class BasePanel {
       this.panel.iconPath = iconPath;
     }
 
-    if (!BasePanel.tailwind) {
-      try {
-        const filePath = path.join(this.context.extensionPath, RESOURCES_DIR, 'tailwind.css');
-        BasePanel.tailwind = fs.readFileSync(filePath, 'utf8');
-      } catch (err) {
-        BasePanel.tailwind = '';
-        console.error('Failed to load Tailwind CSS', err);
-      }
-    }
   }
 
   protected getNonce(): string {
@@ -88,9 +78,8 @@ export abstract class BasePanel {
   protected buildHtml(): string {
     const nonce = this.getNonce();
     const csp = this.panel.webview.cspSource;
-    const codiconUri = this.getResourceUri(RESOURCES_DIR, 'codicon.css');
     const customStyles = this.getCustomStyles();
-    const styles = customStyles ? `${BasePanel.tailwind ?? ''}\n${customStyles}` : BasePanel.tailwind ?? '';
+    const styles = customStyles ?? '';
     const scriptTags = this.getScriptTags(nonce);
 
     return `<!DOCTYPE html>
@@ -99,7 +88,6 @@ export abstract class BasePanel {
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${csp} https:; style-src ${csp} 'unsafe-inline'; font-src ${csp}; script-src 'nonce-${nonce}' ${csp};">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link href="${codiconUri}" rel="stylesheet">
   <style>${styles}</style>
 </head>
 <body>

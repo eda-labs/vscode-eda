@@ -227,10 +227,8 @@ export class TopologyFlowDashboardPanel extends BasePanel {
   protected buildHtml(): string {
     const nonce = this.getNonce();
     const csp = this.panel.webview.cspSource;
-    const codiconUri = this.getResourceUri(RESOURCES_DIR, 'codicon.css');
     const reactFlowUri = this.getResourceUri(RESOURCES_DIR, 'reactflow.css');
-    const tailwind = (BasePanel as unknown as { tailwind?: string }).tailwind ?? '';
-    const styles = `${tailwind}\n${this.getCustomStyles()}`;
+    const styles = this.getCustomStyles();
 
     const scriptTags = this.getScriptTags(nonce);
 
@@ -240,7 +238,6 @@ export class TopologyFlowDashboardPanel extends BasePanel {
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${csp} https:; style-src ${csp} 'unsafe-inline'; font-src ${csp}; script-src 'nonce-${nonce}' ${csp};">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link href="${codiconUri}" rel="stylesheet">
   <link href="${reactFlowUri}" rel="stylesheet">
   <style>${styles}</style>
 </head>

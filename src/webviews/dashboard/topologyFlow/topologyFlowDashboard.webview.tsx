@@ -3,6 +3,7 @@ import type { ColorMode } from '@xyflow/react';
 
 import { mountWebview } from '../../shared/utils';
 import { usePostMessage, useMessageListener } from '../../shared/hooks';
+
 import TopologyFlow, { type TopologyNode, type TopologyEdge, type FlowNode, type TopologyFlowRef } from './TopologyFlow';
 
 interface BackendNode {
@@ -292,7 +293,7 @@ function TopologyFlowDashboard() {
         value ? `<tr><td>${label}</td><td>${value}</td></tr>` : '';
       const section = (title: string) => `<tr class="section"><td colspan="2">${title}</td></tr>`;
 
-      let html = `<h3><i class="codicon codicon-server"></i> <a class="node-link" href="#" data-node="${info.name}" data-ns="${info.namespace}">${info.name}</a></h3>`;
+      let html = `<h3><a class="node-link" href="#" data-node="${info.name}" data-ns="${info.namespace}">${info.name}</a></h3>`;
       html += '<table>';
       html += row('Namespace', info.namespace);
       html += row('Status', info.status);
@@ -326,7 +327,7 @@ function TopologyFlowDashboard() {
         value ? `<tr><td>${label}</td><td>${value}</td></tr>` : '';
       const section = (title: string) => `<tr class="section"><td colspan="2">${title}</td></tr>`;
 
-      let html = `<h3><i class="codicon codicon-plug"></i> <a class="link-resource" href="#" data-raw='${JSON.stringify(edge.data?.rawResource).replace(/'/g, '&#39;')}' data-stream="topolinks">${info.sourceNode} → ${info.targetNode}</a></h3>`;
+      let html = `<h3><a class="link-resource" href="#" data-raw='${JSON.stringify(edge.data?.rawResource).replace(/'/g, '&#39;')}' data-stream="topolinks">${info.sourceNode} → ${info.targetNode}</a></h3>`;
       html += '<table>';
       html += row('Type', info.type);
       html += row('State', info.state);

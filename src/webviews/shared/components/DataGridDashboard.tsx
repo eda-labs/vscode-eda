@@ -1,10 +1,13 @@
 import type { ReactNode } from 'react';
-import React, { useState, useCallback, useMemo, memo } from 'react';
+import { useState, useCallback, useMemo, memo } from 'react';
+import { Box, FormControl, InputLabel, MenuItem, Select, Stack, Typography } from '@mui/material';
+import type { GridColDef, GridSortModel } from '@mui/x-data-grid';
 
 import { shallowArrayEquals } from '../utils';
 import { usePostMessage, useMessageListener, useReadySignal } from '../hooks';
 
 import { VSCodeButton } from './VsCodeButton';
+import { VsCodeDataGrid } from './VsCodeDataGrid';
 
 export interface DataGridAction {
   icon: string;
@@ -43,6 +46,12 @@ export interface DataGridContext {
   getColumnIndex: (name: string) => number;
 }
 
+interface DashboardRow {
+  id: string;
+  raw: unknown[];
+  [key: string]: unknown;
+}
+
 function DataGridDashboardInner<T extends DataGridMessage>({
   renderActions,
   renderCell,
@@ -55,9 +64,7 @@ function DataGridDashboardInner<T extends DataGridMessage>({
   const [columns, setColumns] = useState<string[]>([]);
   const [rows, setRows] = useState<unknown[][]>([]);
   const [hasKubernetesContext, setHasKubernetesContext] = useState(true);
-  const [filters, setFilters] = useState<Record<number, string>>({});
-  const [sortIndex, setSortIndex] = useState<number>(-1);
-  const [sortAsc, setSortAsc] = useState(true);
+  const [sortModel, setSortModel] = useState<GridSortModel>([]);
 
   useReadySignal();
 
@@ -76,18 +83,17 @@ function DataGridDashboardInner<T extends DataGridMessage>({
     } else if (msg.command === 'clear') {
       setColumns([]);
       setRows([]);
+      setSortModel([]);
     } else if (msg.command === 'results') {
       const newColumns = msg.columns ?? [];
       setColumns(prev => {
         const colsChanged = !shallowArrayEquals(prev, newColumns);
         if (colsChanged) {
-          setFilters({});
           const newNameIdx = newColumns.indexOf('name');
           if (newNameIdx >= 0) {
-            setSortIndex(newNameIdx);
-            setSortAsc(true);
+            setSortModel([{ field: `col_${newNameIdx}`, sort: 'asc' }]);
           } else {
-            setSortIndex(-1);
+            setSortModel([]);
           }
         }
         return newColumns;
@@ -97,8 +103,7 @@ function DataGridDashboardInner<T extends DataGridMessage>({
     onMessage?.(msg);
   }, [onMessage]));
 
-  const handleNamespaceChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
-    const ns = e.target.value;
+  const handleNamespaceChange = useCallback((ns: string) => {
     setSelectedNamespace(ns);
     postMessage({ command: 'setNamespace', namespace: ns });
   }, [postMessage]);
@@ -106,51 +111,6 @@ function DataGridDashboardInner<T extends DataGridMessage>({
   const handleShowInTree = useCallback(() => {
     postMessage({ command: showInTreeCommand });
   }, [postMessage, showInTreeCommand]);
-
-  const handleSort = useCallback((idx: number) => {
-    if (sortIndex === idx) {
-      setSortAsc(!sortAsc);
-    } else {
-      setSortIndex(idx);
-      setSortAsc(true);
-    }
-  }, [sortIndex, sortAsc]);
-
-  const handleFilterChange = useCallback((idx: number, value: string) => {
-    setFilters(prev => ({ ...prev, [idx]: value }));
-  }, []);
-
-  const filteredAndSortedRows = useMemo(() => {
-    let result = rows;
-
-    // Apply filters
-    const activeFilters = Object.entries(filters).filter(([, v]) => v.trim());
-    if (activeFilters.length > 0) {
-      result = result.filter(row =>
-        activeFilters.every(([idxStr, filterVal]) => {
-          const idx = parseInt(idxStr);
-          const val = String(row[idx] ?? '').toLowerCase();
-          return val.includes(filterVal.toLowerCase());
-        })
-      );
-    }
-
-    // Apply sort
-    if (sortIndex >= 0) {
-      result = [...result].sort((a, b) => {
-        const av = a[sortIndex] ?? '';
-        const bv = b[sortIndex] ?? '';
-        const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true });
-        return sortAsc ? cmp : -cmp;
-      });
-    }
-
-    return result;
-  }, [rows, filters, sortIndex, sortAsc]);
-
-  const displayStatus = useMemo(() => {
-    return `Count: ${filteredAndSortedRows.length}`;
-  }, [filteredAndSortedRows.length]);
 
   const context: DataGridContext = useMemo(() => ({
     columns,
@@ -161,82 +121,83 @@ function DataGridDashboardInner<T extends DataGridMessage>({
     getColumnIndex
   }), [columns, nameIdx, nsIdx, hasKubernetesContext, postMessage, getColumnIndex]);
 
+  const gridRows = useMemo<DashboardRow[]>(() => {
+    return rows.map((row, rowIndex) => {
+      const gridRow: DashboardRow = {
+        id: String(rowIndex),
+        raw: row
+      };
+      columns.forEach((_, columnIndex) => {
+        gridRow[`col_${columnIndex}`] = row[columnIndex];
+      });
+      return gridRow;
+    });
+  }, [rows, columns]);
+
+  const gridColumns = useMemo<GridColDef<DashboardRow>[]>(() => {
+    const actionColumn: GridColDef<DashboardRow> = {
+      field: 'actions',
+      headerName: 'Actions',
+      sortable: false,
+      filterable: false,
+      width: 120,
+      renderCell: (params) => renderActions(params.row.raw, context)
+    };
+
+    const dataColumns = columns.map<GridColDef<DashboardRow>>((column, columnIndex) => {
+      const field = `col_${columnIndex}`;
+      return {
+        field,
+        headerName: column,
+        width: 180,
+        minWidth: 140,
+        renderCell: (params) => {
+          const value = String(params.row[field] ?? '');
+          return <>{renderCell ? renderCell(value, column, columnIndex, params.row.raw) : value}</>;
+        }
+      };
+    });
+
+    return [actionColumn, ...dataColumns];
+  }, [columns, renderActions, renderCell, context]);
+
   return (
-    <div className="p-6 max-w-350 mx-auto">
-      <header className="flex items-center justify-end mb-4 gap-2">
+    <Box sx={{ p: 3, maxWidth: 1600, mx: 'auto' }}>
+      <Stack direction="row" spacing={1.5} justifyContent="flex-end" alignItems="center" sx={{ mb: 2 }}>
         <VSCodeButton onClick={handleShowInTree}>
           Show in VS Code Tree
         </VSCodeButton>
-        <select
-          value={selectedNamespace}
-          onChange={handleNamespaceChange}
-          className="px-2 py-1 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded-sm"
-        >
-          {namespaces.map(ns => (
-            <option key={ns} value={ns}>{ns}</option>
-          ))}
-        </select>
-      </header>
-
-      <div className="overflow-auto max-h-[85vh]">
-        <table className="w-full border-collapse rounded-lg overflow-hidden text-sm">
-          <thead>
-            <tr>
-              <th className="border border-vscode-border px-2 py-1 bg-vscode-bg-secondary text-left">
-                Actions
-              </th>
-              {columns.map((col, idx) => (
-                <th
-                  key={col}
-                  className="border border-vscode-border px-2 py-1 bg-vscode-bg-secondary cursor-pointer select-none text-left"
-                  onClick={() => handleSort(idx)}
-                >
-                  {col}
-                  {sortIndex === idx && (
-                    <span className="ml-1 text-xs">{sortAsc ? '\u25B2' : '\u25BC'}</span>
-                  )}
-                </th>
-              ))}
-            </tr>
-            <tr>
-              <td className="border border-vscode-border p-0 bg-vscode-bg-widget" />
-              {columns.map((_, idx) => (
-                <td key={idx} className="border border-vscode-border p-0 bg-vscode-bg-widget">
-                  <input
-                    type="text"
-                    value={filters[idx] ?? ''}
-                    onChange={(e) => handleFilterChange(idx, e.target.value)}
-                    className="w-full px-1 py-0.5 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded-sm"
-                  />
-                </td>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filteredAndSortedRows.map((row, rowIdx) => (
-              <tr key={rowIdx} className="hover:bg-vscode-bg-hover">
-                <td className="border border-vscode-border px-2 py-1 whitespace-pre">
-                  {renderActions(row, context)}
-                </td>
-                {columns.map((col, colIdx) => {
-                  const value = row[colIdx] == null ? '' : String(row[colIdx]);
-                  const content = renderCell ? renderCell(value, col, colIdx, row) : value;
-                  return (
-                    <td key={colIdx} className="border border-vscode-border px-2 py-1 whitespace-pre">
-                      {content}
-                    </td>
-                  );
-                })}
-              </tr>
+        <FormControl size="small" sx={{ minWidth: 220 }}>
+          <InputLabel id="namespace-label">Namespace</InputLabel>
+          <Select
+            labelId="namespace-label"
+            value={selectedNamespace}
+            label="Namespace"
+            onChange={(event) => handleNamespaceChange(String(event.target.value))}
+          >
+            {namespaces.map(ns => (
+              <MenuItem key={ns} value={ns}>{ns}</MenuItem>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </Select>
+        </FormControl>
+      </Stack>
 
-      <div className="pt-1 border-t border-vscode-border mt-2">
-        <span>{displayStatus}</span>
-      </div>
-    </div>
+      <VsCodeDataGrid<DashboardRow>
+        rows={gridRows}
+        columns={gridColumns}
+        noRowsMessage="No rows"
+        footer={(
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+            Count: {gridRows.length}
+          </Typography>
+        )}
+        dataGridProps={{
+          sortModel,
+          onSortModelChange: setSortModel,
+          getRowHeight: () => 36
+        }}
+      />
+    </Box>
   );
 }
 

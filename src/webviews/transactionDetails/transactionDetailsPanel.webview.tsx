@@ -1,7 +1,29 @@
 import React, { useState, useCallback, useMemo } from 'react';
+import CheckIcon from '@mui/icons-material/Check';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import DataObjectIcon from '@mui/icons-material/DataObject';
+import DifferenceIcon from '@mui/icons-material/Difference';
+import InputIcon from '@mui/icons-material/Input';
+import LanIcon from '@mui/icons-material/Lan';
+import ModeEditIcon from '@mui/icons-material/ModeEdit';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import DeleteIcon from '@mui/icons-material/Delete';
+import {
+  Alert,
+  Box,
+  Card,
+  CardContent,
+  Chip,
+  Grid,
+  List,
+  ListItem,
+  ListItemText,
+  Stack,
+  Typography
+} from '@mui/material';
 
 import { usePostMessage, useMessageListener, useReadySignal, useCopyToClipboard } from '../shared/hooks';
-import { VSCodeButton } from '../shared/components';
+import { LoadingOverlay, VSCodeButton } from '../shared/components';
 import { mountWebview } from '../shared/utils';
 
 interface NodeConfig {
@@ -54,46 +76,64 @@ interface ErrorSummary {
   crName?: string;
 }
 
-function Section({ icon, title, children }: Readonly<{ icon: string; title: string; children: React.ReactNode }>) {
+const COLOR_ERROR = 'error.main' as const;
+const COLOR_SUCCESS = 'success.main' as const;
+
+function Section({
+  icon,
+  title,
+  children
+}: Readonly<{ icon: React.ReactNode; title: string; children: React.ReactNode }>) {
   return (
-    <div className="mb-6 p-4 bg-vscode-bg-secondary rounded-lg border border-vscode-border">
-      <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-        <span>{icon}</span> {title}
-      </h2>
-      {children}
-    </div>
+    <Card variant="outlined" sx={{ mb: 2.5 }}>
+      <CardContent>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
+          {icon}
+          <Typography variant="h6">{title}</Typography>
+        </Stack>
+        {children}
+      </CardContent>
+    </Card>
   );
 }
 
 function ResourceItem({ path, name, isDelete }: Readonly<{ path: string; name?: string; isDelete?: boolean }>) {
   return (
-    <li className="flex items-center gap-2 py-1 px-2 hover:bg-vscode-bg-hover rounded-sm">
-      <span className="text-vscode-text-secondary">{path}</span>
-      {name && <span className="font-medium">{name}</span>}
-      {isDelete && <span className="text-xs px-1 py-0.5 bg-status-error/20 text-status-error rounded-sm">DELETE</span>}
-    </li>
+    <ListItem divider disableGutters sx={{ px: 1 }}>
+      <ListItemText
+        primary={
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" color="text.secondary">{path}</Typography>
+            {name && <Typography variant="body2" sx={{ fontWeight: 600 }}>{name}</Typography>}
+            {isDelete && <Chip size="small" color="error" label="DELETE" />}
+          </Stack>
+        }
+      />
+    </ListItem>
   );
 }
 
 function NodeItem({ node }: Readonly<{ node: NodeConfig }>) {
-  const hasErrors = node.errors && node.errors.length > 0;
+  const hasErrors = Boolean(node.errors && node.errors.length > 0);
 
   return (
-    <li className={`p-3 mb-2 rounded-sm border ${hasErrors ? 'border-status-error/50 bg-status-error/10' : 'border-vscode-border'}`}>
-      <div className="flex justify-between items-center mb-1">
-        <span className="font-medium">{node.name}</span>
-        <span className="text-sm text-vscode-text-secondary">Namespace: {node.namespace}</span>
-      </div>
-      {hasErrors && (
-        <div className="mt-2 space-y-2">
-          {node.errors!.map((err, idx) => (
-            <div key={idx} className="text-sm p-2 bg-status-error/20 rounded-sm">
-              <div className="text-status-error">{err}</div>
-            </div>
-          ))}
-        </div>
-      )}
-    </li>
+    <Card variant="outlined" sx={{ mb: 1.5, borderColor: hasErrors ? COLOR_ERROR : 'divider' }}>
+      <CardContent sx={{ py: 1.5 }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: hasErrors ? 1 : 0 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>{node.name}</Typography>
+          <Typography variant="caption" color="text.secondary">Namespace: {node.namespace}</Typography>
+        </Stack>
+        {hasErrors && (
+          <Stack spacing={1}>
+            {node.errors!.map((err, idx) => (
+              <Alert key={idx} severity="error" variant="outlined" sx={{ py: 0 }}>
+                {err}
+              </Alert>
+            ))}
+          </Stack>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -101,26 +141,25 @@ function ErrorsSummary({ errors }: Readonly<{ errors: ErrorSummary[] }>) {
   if (errors.length === 0) return <></>;
 
   return (
-    <div className="mb-4 p-4 bg-status-error/10 border border-status-error/50 rounded-lg">
-      <div className="flex items-center gap-2 mb-2">
-        <span>⚠️</span>
-        <span className="font-semibold">Errors ({errors.length})</span>
-      </div>
-      <div className="space-y-2">
+    <Alert severity="error" sx={{ mb: 2 }}>
+      <Typography variant="subtitle2" sx={{ mb: 1 }}>Errors ({errors.length})</Typography>
+      <Stack spacing={1}>
         {errors.map((err, idx) => (
-          <div key={idx} className="p-2 bg-vscode-bg-secondary rounded-sm">
-            <div className="flex items-center gap-2 mb-1">
-              <span className={`text-xs px-1.5 py-0.5 rounded-sm ${err.type === 'Intent Error' ? 'bg-status-warning/20 text-status-warning' : 'bg-status-error/20 text-status-error'}`}>
-                {err.type}
-              </span>
-              <span className="text-sm font-medium">{err.source}</span>
-              {err.crName && <span className="text-xs text-vscode-text-secondary">CR: {err.crName}</span>}
-            </div>
-            <div className="text-sm text-vscode-text-secondary">{err.message}</div>
-          </div>
+          <Card key={idx} variant="outlined" sx={{ p: 1 }}>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+              <Chip
+                size="small"
+                color={err.type === 'Intent Error' ? 'warning' : 'error'}
+                label={err.type}
+              />
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>{err.source}</Typography>
+              {err.crName && <Typography variant="caption" color="text.secondary">CR: {err.crName}</Typography>}
+            </Stack>
+            <Typography variant="body2" color="text.secondary">{err.message}</Typography>
+          </Card>
         ))}
-      </div>
-    </div>
+      </Stack>
+    </Alert>
   );
 }
 
@@ -193,67 +232,70 @@ function TransactionDetailsPanel() {
   }, [data]);
 
   if (!data) {
-    return (
-      <div className="p-6 flex items-center justify-center">
-        <span className="text-vscode-text-secondary">Loading...</span>
-      </div>
-    );
+    return <LoadingOverlay message="Loading..." />;
   }
 
   const isSuccess = data.success === 'Yes';
 
   return (
-    <div className="p-6 max-w-300 mx-auto">
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-semibold">
-            Transaction <span className={isSuccess ? 'text-status-success' : 'text-status-error'}>#{data.id}</span>
-          </h1>
-          <VSCodeButton onClick={handleShowDiffs}>Show Diffs</VSCodeButton>
-        </div>
+    <Box sx={{ p: 3, maxWidth: 1400, mx: 'auto' }}>
+      <Box sx={{ mb: 3 }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+          <Typography variant="h5" sx={{ fontWeight: 700 }}>
+            Transaction <Typography component="span" variant="h5" color={isSuccess ? COLOR_SUCCESS : COLOR_ERROR}>#{data.id}</Typography>
+          </Typography>
+          <VSCodeButton onClick={handleShowDiffs}>
+            <DifferenceIcon fontSize="small" sx={{ mr: 0.5 }} />
+            Show Diffs
+          </VSCodeButton>
+        </Stack>
 
         <ErrorsSummary errors={allErrors} />
 
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 p-4 bg-vscode-bg-secondary rounded-lg border border-vscode-border">
-          <div>
-            <div className="text-xs text-vscode-text-secondary uppercase">State</div>
-            <div className="flex items-center gap-2">
-              <span className={`size-2 rounded-full ${isSuccess ? 'bg-status-success' : 'bg-status-error'}`} />
-              {data.state}
-            </div>
-          </div>
-          <div>
-            <div className="text-xs text-vscode-text-secondary uppercase">User</div>
-            <div>{data.username}</div>
-          </div>
-          <div>
-            <div className="text-xs text-vscode-text-secondary uppercase">Success</div>
-            <div className={isSuccess ? 'text-status-success' : 'text-status-error'}>{data.success}</div>
-          </div>
-          <div>
-            <div className="text-xs text-vscode-text-secondary uppercase">Dry Run</div>
-            <div>{data.dryRun}</div>
-          </div>
-          <div className="col-span-2 md:col-span-3 lg:col-span-1">
-            <div className="text-xs text-vscode-text-secondary uppercase">Description</div>
-            <div>{data.description}</div>
-          </div>
-        </div>
-      </div>
+        <Card variant="outlined">
+          <CardContent>
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase' }}>State</Typography>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                  <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: isSuccess ? COLOR_SUCCESS : COLOR_ERROR }} />
+                  <Typography variant="body2">{data.state}</Typography>
+                </Stack>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase' }}>User</Typography>
+                <Typography variant="body2">{data.username}</Typography>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase' }}>Success</Typography>
+                <Typography variant="body2" color={isSuccess ? COLOR_SUCCESS : COLOR_ERROR}>{data.success}</Typography>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase' }}>Dry Run</Typography>
+                <Typography variant="body2">{data.dryRun}</Typography>
+              </Grid>
+              <Grid size={{ xs: 12, md: 2 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase' }}>Description</Typography>
+                <Typography variant="body2">{data.description}</Typography>
+              </Grid>
+            </Grid>
+          </CardContent>
+        </Card>
+      </Box>
 
       {data.deleteResources && data.deleteResources.length > 0 && (
-        <Section icon="🗑️" title="Deleted Resources">
-          <ul className="space-y-1">
+        <Section icon={<DeleteIcon color="error" />} title="Deleted Resources">
+          <List dense>
             {data.deleteResources.map((res, idx) => (
               <ResourceItem key={idx} path={res} />
             ))}
-          </ul>
+          </List>
         </Section>
       )}
 
       {data.inputCrs && data.inputCrs.length > 0 && (
-        <Section icon="📥" title="Input Resources">
-          <ul className="space-y-1">
+        <Section icon={<InputIcon color="primary" />} title="Input Resources">
+          <List dense>
             {data.inputCrs.map((cr, idx) => (
               <ResourceItem
                 key={idx}
@@ -262,13 +304,13 @@ function TransactionDetailsPanel() {
                 isDelete={cr.isDelete}
               />
             ))}
-          </ul>
+          </List>
         </Section>
       )}
 
       {data.changedCrs && data.changedCrs.length > 0 && (
-        <Section icon="✏️" title="Changed Resources">
-          <ul className="space-y-1">
+        <Section icon={<ModeEditIcon color="info" />} title="Changed Resources">
+          <List dense>
             {data.changedCrs.flatMap((cr, idx) => {
               let names: string[];
               if (Array.isArray(cr.names) && cr.names.length > 0) {
@@ -286,43 +328,67 @@ function TransactionDetailsPanel() {
                 <ResourceItem key={`${idx}-${nIdx}`} path={path} name={name} />
               ));
             })}
-          </ul>
+          </List>
         </Section>
       )}
 
       {data.nodesWithConfigChanges && data.nodesWithConfigChanges.length > 0 && (
-        <Section icon="🖥️" title="Nodes with Configuration Changes">
-          <ul className="space-y-2">
+        <Section icon={<LanIcon color="secondary" />} title="Nodes with Configuration Changes">
+          <List disablePadding>
             {data.nodesWithConfigChanges.map((node, idx) => (
               <NodeItem key={idx} node={node} />
             ))}
-          </ul>
+          </List>
         </Section>
       )}
 
       {data.generalErrors && (
-        <div className="mb-6 p-4 bg-status-error/10 border border-status-error/50 rounded-lg">
-          <h2 className="text-lg font-semibold mb-2 flex items-center gap-2">
-            <span>⚠️</span> General Errors
-          </h2>
-          <div className="text-sm">{data.generalErrors}</div>
-        </div>
+        <Alert severity="error" icon={<WarningAmberIcon />} sx={{ mb: 2.5 }}>
+          <Typography variant="subtitle2" sx={{ mb: 0.5 }}>General Errors</Typography>
+          <Typography variant="body2">{data.generalErrors}</Typography>
+        </Alert>
       )}
 
-      <div className="mb-6 p-4 bg-vscode-bg-secondary rounded-lg border border-vscode-border">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <span>📋</span> Raw JSON
-          </h2>
-          <VSCodeButton onClick={handleCopy} size="sm">
-            {copied ? '✓ Copied!' : '📋 Copy'}
-          </VSCodeButton>
-        </div>
-        <pre className="text-xs overflow-auto max-h-96 p-2 bg-vscode-code-bg rounded-sm">
-          {data.rawJson}
-        </pre>
-      </div>
-    </div>
+      <Card variant="outlined" sx={{ mb: 2.5 }}>
+        <CardContent>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1.5 }}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <DataObjectIcon />
+              <Typography variant="h6">Raw JSON</Typography>
+            </Stack>
+            <VSCodeButton onClick={handleCopy} size="sm">
+              {copied ? (
+                <>
+                  <CheckIcon fontSize="small" sx={{ mr: 0.5 }} />
+                  Copied
+                </>
+              ) : (
+                <>
+                  <ContentCopyIcon fontSize="small" sx={{ mr: 0.5 }} />
+                  Copy
+                </>
+              )}
+            </VSCodeButton>
+          </Stack>
+          <Box
+            component="pre"
+            sx={{
+              fontSize: 12,
+              overflow: 'auto',
+              maxHeight: 420,
+              p: 1.5,
+              bgcolor: 'background.default',
+              border: 1,
+              borderColor: 'divider',
+              borderRadius: 1,
+              m: 0
+            }}
+          >
+            {data.rawJson}
+          </Box>
+        </CardContent>
+      </Card>
+    </Box>
   );
 }
 

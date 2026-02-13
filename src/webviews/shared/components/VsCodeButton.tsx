@@ -1,35 +1,61 @@
-import type { ButtonHTMLAttributes} from 'react';
-import { forwardRef, memo } from 'react';
+import type { MouseEventHandler, ReactNode } from 'react';
+import { Button, IconButton } from '@mui/material';
 
-export interface VSCodeButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+export interface VSCodeButtonProps {
   variant?: 'primary' | 'secondary' | 'icon';
   size?: 'sm' | 'md' | 'lg';
+  className?: string;
+  children?: ReactNode;
+  onClick?: MouseEventHandler<HTMLButtonElement>;
+  disabled?: boolean;
+  type?: 'button' | 'submit' | 'reset';
+  title?: string;
 }
 
-export const VSCodeButton = memo(forwardRef<HTMLButtonElement, VSCodeButtonProps>(
-  function VSCodeButton({ variant = 'primary', size = 'md', className = '', children, ...props }, ref) {
-    const baseClasses = 'inline-flex items-center justify-center font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-(--vscode-focusBorder) disabled:opacity-50 disabled:cursor-not-allowed';
+const sizeMap = {
+  sm: 'small',
+  md: 'medium',
+  lg: 'large'
+} as const;
 
-    const variantClasses = {
-      primary: 'bg-vscode-accent text-vscode-button-fg hover:bg-vscode-accent-hover',
-      secondary: 'bg-(--vscode-button-secondaryBackground) text-(--vscode-button-secondaryForeground) hover:bg-(--vscode-button-secondaryHoverBackground)',
-      icon: 'bg-transparent text-vscode-text-primary hover:bg-vscode-bg-hover'
-    };
-
-    const sizeClasses = {
-      sm: variant === 'icon' ? 'p-1' : 'px-2 py-1 text-xs',
-      md: variant === 'icon' ? 'p-1.5' : 'px-3 py-1.5 text-sm',
-      lg: variant === 'icon' ? 'p-2' : 'px-4 py-2 text-base'
-    };
-
+export function VSCodeButton({
+  variant = 'primary',
+  size = 'md',
+  className,
+  children,
+  onClick,
+  disabled,
+  type = 'button',
+  title
+}: Readonly<VSCodeButtonProps>) {
+  if (variant === 'icon') {
     return (
-      <button
-        ref={ref}
-        className={`${baseClasses} ${variantClasses[variant]} ${sizeClasses[size]} ${className}`}
-        {...props}
+      <IconButton
+        size={sizeMap[size]}
+        className={className}
+        onClick={onClick}
+        disabled={disabled}
+        type={type}
+        title={title}
       >
         {children}
-      </button>
+      </IconButton>
     );
   }
-));
+
+  return (
+    <Button
+      className={className}
+      variant={variant === 'secondary' ? 'outlined' : 'contained'}
+      color={variant === 'secondary' ? 'secondary' : 'primary'}
+      size={sizeMap[size]}
+      disableElevation
+      onClick={onClick}
+      disabled={disabled}
+      type={type}
+      title={title}
+    >
+      {children}
+    </Button>
+  );
+}

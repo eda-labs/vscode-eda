@@ -2,6 +2,7 @@ export { DataTable } from './DataTable';
 export type { Column, DataTableProps } from './DataTable';
 export { DataGridDashboard } from './DataGridDashboard';
 export type { DataGridDashboardProps, DataGridMessage, DataGridContext, DataGridAction } from './DataGridDashboard';
+export { VsCodeDataGrid } from './VsCodeDataGrid';
 export { ErrorBoundary } from './ErrorBoundary';
 export { LoadingSpinner, LoadingOverlay } from './LoadingSpinner';
 export { VSCodeButton } from './VsCodeButton';

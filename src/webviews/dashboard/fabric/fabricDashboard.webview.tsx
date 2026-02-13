@@ -1,8 +1,10 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Box, Card, CardContent, FormControl, Grid, InputLabel, MenuItem, Select, Stack, Typography } from '@mui/material';
 
 import { usePostMessage, useMessageListener, useReadySignal } from '../../shared/hooks';
 import { VSCodeProvider } from '../../shared/context';
+import { WebviewThemeProvider } from '../../shared/theme';
 
 // ECharts type definitions for CDN-loaded library
 interface EChartsInstance {
@@ -110,22 +112,33 @@ interface FabricStats {
 
 function StatCard({ label, value, healthIndicator }: Readonly<{ label: string; value: string | number; healthIndicator?: number }>) {
   const getHealthColor = (h: number | undefined) => {
-    if (h === undefined) return 'bg-status-info';
-    if (h >= 90) return 'bg-status-success';
-    if (h >= 50) return 'bg-status-warning';
-    return 'bg-status-error';
+    if (h === undefined) return 'info.main';
+    if (h >= 90) return 'success.main';
+    if (h >= 50) return 'warning.main';
+    return 'error.main';
   };
 
   return (
-    <div className="bg-vscode-bg-secondary border border-vscode-border rounded-xl p-6 transition-all relative overflow-hidden hover:-translate-y-1 hover:shadow-lg hover:border-vscode-accent">
-      <div className="text-vscode-text-secondary text-xs uppercase tracking-wide mb-2">{label}</div>
-      <div className="flex items-center gap-2">
-        <div className="text-2xl font-bold mb-1">{value}</div>
-        {healthIndicator !== undefined && (
-          <div className={`size-3 rounded-full shrink-0 ${getHealthColor(healthIndicator)}`}></div>
-        )}
-      </div>
-    </div>
+    <Card variant="outlined" sx={{ height: '100%' }}>
+      <CardContent>
+        <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          {label}
+        </Typography>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
+          <Typography variant="h5" sx={{ fontWeight: 700 }}>{value}</Typography>
+          {healthIndicator !== undefined && (
+            <Box
+              sx={{
+                width: 10,
+                height: 10,
+                borderRadius: '50%',
+                bgcolor: getHealthColor(healthIndicator)
+              }}
+            />
+          )}
+        </Stack>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -252,7 +265,7 @@ function FabricDashboard() {
       color: ['#60a5fa', '#4ade80', '#fbbf24', '#f87171', '#a78bfa', '#f472b6'],
       backgroundColor: 'transparent',
       textStyle: {
-        color: getComputedStyle(document.documentElement).getPropertyValue('--text-primary')
+        color: getComputedStyle(document.documentElement).getPropertyValue('--vscode-editor-foreground').trim()
       }
     };
 
@@ -416,63 +429,73 @@ function FabricDashboard() {
 
   useReadySignal();
 
-  const handleNamespaceChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
-    const ns = e.target.value;
+  const handleNamespaceChange = useCallback((ns: string) => {
     setSelectedNamespace(ns);
     postMessage({ command: 'getTopoNodeStats', namespace: ns });
   }, [postMessage]);
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <header className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-semibold mb-1 bg-linear-to-r from-vscode-accent to-status-info bg-clip-text text-transparent">
-            Fabric Network Dashboard
-          </h1>
-          <p className="text-sm text-vscode-text-secondary">
+    <Box sx={{ p: 3, maxWidth: 1600, mx: 'auto' }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2} sx={{ mb: 4 }}>
+        <Box>
+          <Typography variant="h5" sx={{ fontWeight: 700 }}>Fabric Network Dashboard</Typography>
+          <Typography variant="body2" color="text.secondary">
             Real-time monitoring and analytics for your network infrastructure
-          </p>
-        </div>
-        <select
-          className="bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded-sm px-2 py-1"
-          value={selectedNamespace}
-          onChange={handleNamespaceChange}
-        >
-          {namespaces.map(ns => (
-            <option key={ns} value={ns}>{ns}</option>
-          ))}
-        </select>
-      </header>
+          </Typography>
+        </Box>
+        <FormControl size="small" sx={{ minWidth: 220 }}>
+          <InputLabel id="fabric-namespace">Namespace</InputLabel>
+          <Select
+            labelId="fabric-namespace"
+            value={selectedNamespace}
+            label="Namespace"
+            onChange={(event) => handleNamespaceChange(String(event.target.value))}
+          >
+            {namespaces.map(ns => (
+              <MenuItem key={ns} value={ns}>{ns}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Stack>
 
-      <div className="grid gap-5 mb-8 grid-cols-[repeat(auto-fit,minmax(280px,1fr))]">
-        <StatCard label="Total Nodes" value={nodeStats.total} />
-        <StatCard label="Synced Nodes" value={nodeStats.synced} />
-        <StatCard label="Not Synced" value={nodeStats.notSynced} />
-      </div>
+      <Grid container spacing={2.5} sx={{ mb: 4 }}>
+        <Grid size={{ xs: 12, md: 4 }}><StatCard label="Total Nodes" value={nodeStats.total} /></Grid>
+        <Grid size={{ xs: 12, md: 4 }}><StatCard label="Synced Nodes" value={nodeStats.synced} /></Grid>
+        <Grid size={{ xs: 12, md: 4 }}><StatCard label="Not Synced" value={nodeStats.notSynced} /></Grid>
+      </Grid>
 
-      <div className="grid gap-5 mb-8 xl:grid-cols-[auto_1fr]">
-        <div className="flex flex-col gap-5 w-70 sm:flex-row xl:flex-col xl:w-70 sm:w-full">
-          <StatCard label="Total Interfaces" value={interfaceStats.total} />
-          <StatCard label="Up Interfaces" value={interfaceStats.up} />
-          <StatCard label="Down Interfaces" value={interfaceStats.down} />
-        </div>
+      <Grid container spacing={2.5} sx={{ mb: 4 }} alignItems="stretch">
+        <Grid size={{ xs: 12, lg: 3 }}>
+          <Stack spacing={2.5} sx={{ height: '100%' }}>
+            <StatCard label="Total Interfaces" value={interfaceStats.total} />
+            <StatCard label="Up Interfaces" value={interfaceStats.up} />
+            <StatCard label="Down Interfaces" value={interfaceStats.down} />
+          </Stack>
+        </Grid>
+        <Grid size={{ xs: 12, lg: 9 }}>
+          <Card variant="outlined" sx={{ height: '100%' }}>
+            <CardContent>
+              <Typography variant="h6" sx={{ mb: 2 }}>Traffic Rate</Typography>
+              <Box ref={chartRef} sx={{ height: 300 }} />
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
 
-        <div className="bg-vscode-bg-secondary border border-vscode-border rounded-xl p-6 transition-all hover:border-vscode-accent hover:shadow-md flex-1">
-          <div className="text-lg font-semibold mb-4 flex items-center justify-between">
-            <span>Traffic Rate</span>
-          </div>
-          <div ref={chartRef} className="h-75"></div>
-        </div>
-      </div>
-
-      <div className="grid gap-5 mb-8 grid-cols-5">
+      <Box
+        sx={{
+          display: 'grid',
+          gap: 2.5,
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))'
+        }}
+      >
         <StatCard label="Fabric Health" value={`${fabricStats.health}%`} healthIndicator={fabricStats.health} />
         <StatCard label="Spines" value={fabricStats.spines.count} healthIndicator={fabricStats.spines.health} />
         <StatCard label="Leafs" value={fabricStats.leafs.count} healthIndicator={fabricStats.leafs.health} />
         <StatCard label="Borderleafs" value={fabricStats.borderleafs.count} healthIndicator={fabricStats.borderleafs.health} />
         <StatCard label="Superspines" value={fabricStats.superspines.count} healthIndicator={fabricStats.superspines.health} />
-      </div>
-    </div>
+      </Box>
+    </Box>
   );
 }
 
@@ -498,7 +521,9 @@ function renderApp() {
     const root = createRoot(container);
     root.render(
       <VSCodeProvider>
-        <FabricDashboard />
+        <WebviewThemeProvider>
+          <FabricDashboard />
+        </WebviewThemeProvider>
       </VSCodeProvider>
     );
   }

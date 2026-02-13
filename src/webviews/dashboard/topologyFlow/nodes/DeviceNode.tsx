@@ -15,14 +15,13 @@ export interface TopologyNodeData extends BaseNodeData {
 export type TopologyNode = Node<TopologyNodeData, 'deviceNode'>;
 
 function DeviceNode({ data, selected }: NodeProps<TopologyNode>) {
-  const iconSvg = getNodeIcon(data.role);
+  const NodeIcon = getNodeIcon(data.role);
 
   return (
     <BaseNodeComponent data={data} selected={selected}>
-      <div
-        className="topology-node-icon"
-        dangerouslySetInnerHTML={{ __html: iconSvg }}
-      />
+      <div className="topology-node-icon">
+        <NodeIcon sx={{ fontSize: 28 }} />
+      </div>
     </BaseNodeComponent>
   );
 }

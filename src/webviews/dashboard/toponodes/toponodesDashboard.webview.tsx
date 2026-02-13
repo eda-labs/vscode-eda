@@ -1,7 +1,10 @@
 import { useCallback } from 'react';
+import CodeIcon from '@mui/icons-material/Code';
+import TerminalIcon from '@mui/icons-material/Terminal';
+import { Tooltip } from '@mui/material';
 
 import type { DataGridContext, DataGridMessage } from '../../shared/components';
-import { DataGridDashboard } from '../../shared/components';
+import { DataGridDashboard, VSCodeButton } from '../../shared/components';
 import { mountWebview } from '../../shared/utils';
 
 interface ToponodesMessage extends DataGridMessage {
@@ -26,21 +29,20 @@ function ToponodesDashboard() {
 
     return (
       <>
-        <button
-          className="mr-1 p-1 border-none bg-vscode-accent text-vscode-button-fg rounded-sm cursor-pointer inline-flex items-center justify-center hover:bg-vscode-accent-hover"
-          title="View Config"
-          onClick={handleViewConfig}
-        >
-          <span className="codicon codicon-file-code" />
-        </button>
-        <button
-          className="p-1 border-none bg-vscode-accent text-vscode-button-fg rounded-sm cursor-pointer inline-flex items-center justify-center hover:bg-vscode-accent-hover disabled:opacity-50 disabled:cursor-not-allowed"
-          title={hasKubernetesContext ? 'SSH' : 'Kubernetes context needs to be set to enable SSH'}
-          disabled={!hasKubernetesContext}
-          onClick={handleSSH}
-        >
-          <span className="codicon codicon-terminal" />
-        </button>
+        <Tooltip title="View Config">
+          <span>
+            <VSCodeButton variant="icon" size="sm" onClick={handleViewConfig}>
+              <CodeIcon fontSize="small" />
+            </VSCodeButton>
+          </span>
+        </Tooltip>
+        <Tooltip title={hasKubernetesContext ? 'SSH' : 'Kubernetes context needs to be set to enable SSH'}>
+          <span>
+            <VSCodeButton variant="icon" size="sm" disabled={!hasKubernetesContext} onClick={handleSSH}>
+              <TerminalIcon fontSize="small" />
+            </VSCodeButton>
+          </span>
+        </Tooltip>
       </>
     );
   }, []);

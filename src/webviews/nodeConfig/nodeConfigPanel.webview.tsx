@@ -1,4 +1,19 @@
 import React, { useState, useCallback, useMemo, useRef } from 'react';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+import {
+  Alert,
+  Box,
+  Button,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
+  Snackbar,
+  Stack,
+  Typography
+} from '@mui/material';
 
 import { usePostMessage, useMessageListener, useReadySignal } from '../shared/hooks';
 import { mountWebview } from '../shared/utils';
@@ -488,8 +503,7 @@ function NodeConfigPanel() {
     }).catch(() => {});
   }, [configText]);
 
-  const handleColorModeChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
-    const mode = e.target.value as 'full' | 'less' | 'none';
+  const handleColorModeChange = useCallback((mode: ColorMode) => {
     setColorMode(mode);
     postMessage({ command: 'saveColorMode', colorMode: mode });
   }, [postMessage]);
@@ -504,105 +518,146 @@ function NodeConfigPanel() {
   }, [highlightedAnnotation]);
 
   return (
-    <div className="grid grid-rows-[auto_1fr] h-screen overflow-hidden font-mono text-(length:--vscode-editor-font-size)">
-      {/* Toolbar */}
-      <div className="p-3 bg-(--vscode-sideBar-background) border-b border-(--vscode-sideBar-border) flex items-center gap-2.5">
-        <button
-          className="bg-(--vscode-button-background) text-(--vscode-button-foreground) border border-(--vscode-button-border,transparent) rounded-sm px-3 py-1.5 text-xs font-medium flex items-center gap-1.5 shadow-sm transition-all hover:bg-(--vscode-button-hoverBackground) hover:-translate-y-px cursor-pointer"
+    <Box
+      sx={{
+        display: 'grid',
+        gridTemplateRows: 'auto 1fr',
+        height: '100vh',
+        overflow: 'hidden',
+        fontFamily: 'var(--vscode-editor-font-family, monospace)',
+        fontSize: 'var(--vscode-editor-font-size)'
+      }}
+    >
+      <Stack
+        direction="row"
+        spacing={1.5}
+        sx={{
+          p: 1.5,
+          borderBottom: 1,
+          borderColor: 'divider',
+          bgcolor: 'background.paper'
+        }}
+      >
+        <Button
+          variant="contained"
+          size="small"
+          startIcon={isAnnotationsVisible ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
           onClick={handleToggleAnnotations}
         >
-          <span className="text-sm leading-none">{'\u229E'}</span>
-          <span>{isAnnotationsVisible ? 'Hide Annotations' : 'Show Annotations'}</span>
-        </button>
-        <button
-          className="bg-(--vscode-button-background) text-(--vscode-button-foreground) border border-(--vscode-button-border,transparent) rounded-sm px-3 py-1.5 text-xs font-medium flex items-center gap-1.5 shadow-sm transition-all hover:bg-(--vscode-button-hoverBackground) hover:-translate-y-px cursor-pointer"
+          {isAnnotationsVisible ? 'Hide Annotations' : 'Show Annotations'}
+        </Button>
+        <Button
+          variant="contained"
+          size="small"
+          startIcon={<ContentCopyIcon fontSize="small" />}
           onClick={handleCopyConfig}
         >
-          <span className="text-sm leading-none">{'\u29C9'}</span>
-          <span>Copy Config</span>
-        </button>
-        <select
-          className="bg-(--vscode-dropdown-background) text-(--vscode-dropdown-foreground) border border-(--vscode-dropdown-border) rounded-sm px-2 py-1.5 text-xs cursor-pointer"
-          value={colorMode}
-          onChange={handleColorModeChange}
-        >
-          <option value="full">Full Color</option>
-          <option value="less">Less Color</option>
-          <option value="none">No Color</option>
-        </select>
-      </div>
+          Copy Config
+        </Button>
+        <FormControl size="small" sx={{ minWidth: 150 }}>
+          <InputLabel id="color-mode-label">Color Mode</InputLabel>
+          <Select
+            labelId="color-mode-label"
+            value={colorMode}
+            label="Color Mode"
+            onChange={(event) => handleColorModeChange(event.target.value as ColorMode)}
+          >
+            <MenuItem value="full">Full Color</MenuItem>
+            <MenuItem value="less">Less Color</MenuItem>
+            <MenuItem value="none">No Color</MenuItem>
+          </Select>
+        </FormControl>
+      </Stack>
 
-      {/* Config View */}
-      <div className={`grid overflow-y-auto font-mono transition-[grid-template-columns] duration-300 ${
-        isAnnotationsVisible
-          ? 'grid-cols-[max-content_auto_1fr]'
-          : 'grid-cols-[auto_1fr]'
-      }`}>
+      <Box
+        sx={{
+          overflowY: 'auto',
+          display: 'grid',
+          gridTemplateColumns: isAnnotationsVisible ? 'max-content auto 1fr' : 'auto 1fr'
+        }}
+      >
         {lineData.map((line, idx) => (
-          <div key={idx} className="contents">
+          <React.Fragment key={idx}>
             {line.showDivider && isAnnotationsVisible && (
-              <div className="col-span-full border-b border-(--vscode-textSeparator-foreground) my-2.5" />
+              <Box sx={{ gridColumn: '1 / -1', borderBottom: 1, borderColor: 'divider', my: 1.5 }} />
             )}
-            <div
-              className="contents"
-              data-line={line.lineNum}
-              data-annotation={line.annotationKey}
+
+            {isAnnotationsVisible && (
+              <Box
+                data-annotation={line.annotationKey}
+                onMouseEnter={() => handleLineHover(line.annotationKey || null)}
+                onMouseLeave={() => handleLineHover(null)}
+                sx={{
+                  py: 0.25,
+                  px: 1.25,
+                  whiteSpace: 'pre',
+                  textAlign: 'right',
+                  userSelect: 'none',
+                  borderRight: 1,
+                  borderColor: 'divider',
+                  color: isHighlighted(line.annotationKey) ? 'text.primary' : 'text.secondary',
+                  bgcolor: isHighlighted(line.annotationKey) ? 'action.selected' : 'action.hover',
+                  fontWeight: isHighlighted(line.annotationKey) ? 700 : 400
+                }}
+              >
+                {line.annotationLabel && (
+                  <>
+                    {line.annotationLabel}
+                    {line.annotationInfo && line.annotationInfo.group && line.annotationInfo.version && line.annotationInfo.kind && (
+                      <>
+                        <br />
+                        <Typography component="span" sx={{ fontSize: '0.8em' }}>
+                          {line.annotationInfo.group}/{line.annotationInfo.version} {line.annotationInfo.kind}
+                        </Typography>
+                      </>
+                    )}
+                  </>
+                )}
+              </Box>
+            )}
+
+            <Box
               onMouseEnter={() => handleLineHover(line.annotationKey || null)}
               onMouseLeave={() => handleLineHover(null)}
+              sx={{
+                py: 0.25,
+                px: 1.25,
+                whiteSpace: 'pre',
+                textAlign: 'right',
+                color: 'text.secondary',
+                userSelect: 'none',
+                bgcolor: 'background.default'
+              }}
             >
-              {/* Annotation column */}
-              {isAnnotationsVisible && (
-                <div
-                  className={`py-0.5 px-2.5 whitespace-pre text-right cursor-default select-none border-r border-(--vscode-sideBar-border) transition-colors duration-200 ${
-                    isHighlighted(line.annotationKey)
-                      ? 'text-(--vscode-list-activeSelectionForeground) bg-(--vscode-list-activeSelectionBackground) font-bold'
-                      : 'text-(--vscode-descriptionForeground) bg-(--vscode-editorWidget-background) hover:text-(--vscode-list-hoverForeground) hover:bg-(--vscode-list-hoverBackground)'
-                  }`}
-                  data-annotation={line.annotationKey}
-                >
-                  {line.annotationLabel && (
-                    <>
-                      {line.annotationLabel}
-                      {line.annotationInfo && line.annotationInfo.group && line.annotationInfo.version && line.annotationInfo.kind && (
-                        <>
-                          <br />
-                          <span className="text-[0.8em] text-(--vscode-editor-foreground)">
-                            {line.annotationInfo.group}/{line.annotationInfo.version} {line.annotationInfo.kind}
-                          </span>
-                        </>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-              {/* Line number column */}
-              <div className="py-0.5 px-2.5 whitespace-pre text-right text-(--vscode-editorLineNumber-foreground) bg-(--vscode-editor-background) select-none">
-                {line.lineNum}
-              </div>
-              {/* Code column */}
-              <div
-                className={`py-0.5 px-2.5 whitespace-pre transition-colors duration-200 relative z-1 ${
-                  isHighlighted(line.annotationKey)
-                    ? 'bg-(--vscode-editor-selectionBackground)'
-                    : 'bg-(--vscode-editor-background)'
-                }`}
-                dangerouslySetInnerHTML={{ __html: line.content || ' ' }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
+              {line.lineNum}
+            </Box>
 
-      {/* Toast notification */}
-      <div className={`fixed bottom-5 right-5 bg-(--vscode-notificationToast-background) text-(--vscode-notificationToast-foreground) py-2.5 px-4 rounded-sm shadow-lg z-9999 flex items-center gap-2 transition-all duration-300 ${
-        showToast
-          ? 'opacity-100 translate-y-0'
-          : 'opacity-0 translate-y-5 pointer-events-none'
-      }`}>
-        <span className="text-sm leading-none">{'\u2713'}</span>
-        <span>Config copied to clipboard</span>
-      </div>
-    </div>
+            <Box
+              onMouseEnter={() => handleLineHover(line.annotationKey || null)}
+              onMouseLeave={() => handleLineHover(null)}
+              sx={{
+                py: 0.25,
+                px: 1.25,
+                whiteSpace: 'pre',
+                bgcolor: isHighlighted(line.annotationKey) ? 'action.selected' : 'background.default'
+              }}
+              dangerouslySetInnerHTML={{ __html: line.content || ' ' }}
+            />
+          </React.Fragment>
+        ))}
+      </Box>
+
+      <Snackbar
+        open={showToast}
+        autoHideDuration={3000}
+        onClose={() => setShowToast(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert severity="success" variant="filled">
+          Config copied to clipboard
+        </Alert>
+      </Snackbar>
+    </Box>
   );
 }
 
