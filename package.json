@@ -757,9 +757,9 @@
   "scripts": {
     "compile": "node ./esbuild.config.mjs",
     "watch": "webpack --mode development --watch --info-verbosity verbose",
-    "webviews:dev": "vite --config src/webviews/dev/vite.config.js",
-    "webviews:build": "vite build --config src/webviews/dev/vite.config.js",
-    "webviews:preview": "vite preview --config src/webviews/dev/vite.config.js",
+    "webviews:dev": "vite --config webviews/dev/vite.config.js",
+    "webviews:build": "vite build --config webviews/dev/vite.config.js",
+    "webviews:preview": "vite preview --config webviews/dev/vite.config.js",
     "check-types": "tsc --noEmit",
     "lint": "npm run check-types && eslint --ext .ts,.tsx .",
     "lint:fix": "npm run lint -- --fix",

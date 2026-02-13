@@ -1,5 +1,6 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import type { ColorMode } from '@xyflow/react';
+import { alpha, useTheme } from '@mui/material/styles';
 
 import { mountWebview } from '../../shared/utils';
 import { usePostMessage, useMessageListener } from '../../shared/hooks';
@@ -152,6 +153,7 @@ function groupNodesByTier(nodes: BackendNode[]): Record<number, BackendNode[]> {
 
 function TopologyFlowDashboard() {
   const postMessage = usePostMessage();
+  const theme = useTheme();
   const [namespaces, setNamespaces] = useState<string[]>([]);
   const [selectedNamespace, setSelectedNamespace] = useState('');
   const [labelMode, setLabelMode] = useState<'hide' | 'show' | 'select'>('select');
@@ -165,21 +167,55 @@ function TopologyFlowDashboard() {
   // Export state
   const topologyRef = useRef<TopologyFlowRef>(null);
   const [showExportPopup, setShowExportPopup] = useState(false);
-  const [exportBgColor, setExportBgColor] = useState('#ffffff');
+  const [exportBgColor, setExportBgColor] = useState(() => theme.vscode.topology.editorBackground);
   const [exportBgTransparent, setExportBgTransparent] = useState(false);
+  const topologyCssVars = useMemo(() => {
+    const { topology, fonts } = theme.vscode;
 
-  // Detect dark mode
+    return {
+      '--topology-link-stroke': topology.linkStroke,
+      '--topology-link-stroke-selected': topology.linkStrokeSelected,
+      '--topology-link-up': topology.linkUp,
+      '--topology-link-down': topology.linkDown,
+      '--topology-node-border': topology.nodeBorder,
+      '--topology-node-border-selected': topology.nodeBorderSelected,
+      '--topology-node-bg': topology.nodeBackground,
+      '--topology-node-text': topology.nodeText,
+      '--topology-handle-bg': topology.handleBackground,
+      '--topology-handle-border': topology.handleBorder,
+      '--topology-icon-bg': topology.iconBackground,
+      '--topology-icon-fg': topology.iconForeground,
+      '--topology-panel-border': topology.panelBorder,
+      '--topology-widget-bg': topology.widgetBackground,
+      '--topology-editor-bg': topology.editorBackground,
+      '--topology-font-family': fonts.uiFamily,
+      '--topology-font-size': `${fonts.uiSize}px`,
+      '--topology-foreground': topology.foreground,
+      '--topology-description-fg': topology.descriptionForeground,
+      '--topology-link-fg': topology.linkForeground,
+      '--topology-input-bg': topology.inputBackground,
+      '--topology-input-fg': topology.inputForeground,
+      '--topology-input-border': topology.inputBorder,
+      '--topology-button-secondary-bg': topology.buttonSecondaryBackground,
+      '--topology-button-secondary-fg': topology.buttonSecondaryForeground,
+      '--topology-button-secondary-hover-bg': topology.buttonSecondaryHoverBackground,
+      '--topology-button-border': topology.buttonBorder,
+      '--topology-editor-line-fg': topology.editorLineForeground,
+      '--topology-badge-bg': topology.badgeBackground,
+      '--topology-header-shadow': `0 1px 3px ${alpha(theme.palette.text.primary, 0.16)}`,
+      '--topology-container-shadow': `0 1px 2px ${alpha(theme.palette.text.primary, 0.12)}`,
+      '--topology-card-shadow': `0 1px 3px ${alpha(theme.palette.text.primary, 0.16)}`,
+      '--topology-edge-label-shadow': `0 1px 3px ${alpha(theme.palette.text.primary, 0.1)}`,
+      '--topology-controls-shadow': `0 2px 6px ${alpha(theme.palette.text.primary, 0.15)}`,
+      '--topology-modal-overlay': alpha(theme.palette.common.black, 0.5),
+      '--topology-modal-shadow': `0 4px 16px ${alpha(theme.palette.text.primary, 0.3)}`
+    } as React.CSSProperties;
+  }, [theme]);
+
+  // Keep React Flow in sync with MUI palette mode
   useEffect(() => {
-    const checkDarkMode = () => {
-      const isDark = document.body.classList.contains('vscode-dark');
-      setColorMode(isDark ? 'dark' : 'light');
-    };
-    checkDarkMode();
-
-    const observer = new MutationObserver(checkDarkMode);
-    observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
-    return () => observer.disconnect();
-  }, []);
+    setColorMode(theme.palette.mode === 'dark' ? 'dark' : 'light');
+  }, [theme.palette.mode]);
 
   // Post ready message on mount
   useEffect(() => {
@@ -396,7 +432,7 @@ function TopologyFlowDashboard() {
       const streamGroup = target.dataset.stream;
       if (rawStr && streamGroup) {
         try {
-          const raw = JSON.parse(rawStr);
+          const raw: unknown = JSON.parse(rawStr);
           postMessage({ command: 'openResource', raw, streamGroup });
         } catch {
           // ignore parse errors
@@ -407,10 +443,9 @@ function TopologyFlowDashboard() {
 
   // Show export popup with theme-appropriate defaults
   const showExportPopupWithDefaults = useCallback(() => {
-    const isDark = document.body.classList.contains('vscode-dark');
-    setExportBgColor(isDark ? '#1e1e1e' : '#ffffff');
+    setExportBgColor(theme.vscode.topology.editorBackground);
     setShowExportPopup(true);
-  }, []);
+  }, [theme.vscode.topology.editorBackground]);
 
   // Handle export
   const handleExport = useCallback(() => {
@@ -426,7 +461,7 @@ function TopologyFlowDashboard() {
   }, [exportBgColor, exportBgTransparent]);
 
   return (
-    <div className="dashboard">
+    <div className="dashboard" style={topologyCssVars}>
       <div className="header">
         <button className="export-btn" onClick={showExportPopupWithDefaults}>
           Export SVG

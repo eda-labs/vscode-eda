@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { applyDevTheme, DEV_THEMES, isDevThemeId, type DevThemeId } from './devTheme';
+import { applyDevTheme, DEV_THEMES, isDevThemeId, type DevThemeId } from '../../../src/webviews/shared/theme';
 import { DEV_WEBVIEWS, isDevWebviewId, type DevWebviewId } from './webviewCatalog';
 import './styles.css';
 

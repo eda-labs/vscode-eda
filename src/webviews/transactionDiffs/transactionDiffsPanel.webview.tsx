@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo } from 'react';
 import DescriptionIcon from '@mui/icons-material/Description';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import { Alert, Box, Chip, FormControl, InputLabel, List, ListItemButton, ListItemText, MenuItem, Paper, Select, Stack, TextField, Typography } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 
 import { usePostMessage, useMessageListener, useReadySignal } from '../shared/hooks';
 import { mountWebview } from '../shared/utils';
@@ -194,15 +195,16 @@ function generateDiff(beforeContent: string, afterContent: string): { beforeDiff
 }
 
 function DiffLineComponent({ item }: Readonly<{ item: DiffLine }>) {
+  const theme = useTheme();
   const bgColors = {
     context: 'transparent',
-    added: 'rgba(76, 175, 80, 0.2)',
-    removed: 'rgba(244, 67, 54, 0.2)',
-    blank: 'rgba(158, 158, 158, 0.15)'
+    added: theme.vscode.diff.addedBackground,
+    removed: theme.vscode.diff.removedBackground,
+    blank: theme.vscode.diff.blankBackground
   };
 
   return (
-    <Box sx={{ display: 'flex', fontFamily: 'var(--vscode-editor-font-family, monospace)', fontSize: 12, bgcolor: bgColors[item.type] }}>
+    <Box sx={{ display: 'flex', fontFamily: theme.vscode.fonts.editorFamily, fontSize: theme.vscode.fonts.editorSize, bgcolor: bgColors[item.type] }}>
       <Box
         sx={{
           width: 56,

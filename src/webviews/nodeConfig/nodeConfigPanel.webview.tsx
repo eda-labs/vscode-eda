@@ -14,6 +14,7 @@ import {
   Stack,
   Typography
 } from '@mui/material';
+import { useTheme, type Theme } from '@mui/material/styles';
 
 import { usePostMessage, useMessageListener, useReadySignal } from '../shared/hooks';
 import { mountWebview } from '../shared/utils';
@@ -58,55 +59,71 @@ interface ContextState {
   level: number;
 }
 
-// VSCode CSS color variables
-const CSS_COLORS = {
-  purple: 'var(--vscode-charts-purple)',
-  blue: 'var(--vscode-charts-blue)',
-  green: 'var(--vscode-charts-green)',
-  yellow: 'var(--vscode-charts-yellow)',
-  red: 'var(--vscode-charts-red)',
-  orange: 'var(--vscode-charts-orange)',
-  foreground: 'var(--vscode-editor-foreground)',
-  description: 'var(--vscode-descriptionForeground)',
-} as const;
+const SYNTAX_COLOR_KEYS = [
+  'sectionKeyword',
+  'interfaceType',
+  'property',
+  'interfaceName',
+  'bracket',
+  'value',
+  'boolean',
+  'number',
+  'string',
+  'ipAddress',
+  'parameter',
+  'networkKeyword',
+  'vlan',
+  'protocol',
+  'bgp',
+  'route',
+  'comment',
+  'foreground'
+] as const;
 
-// Syntax highlighting colors mapped to VSCode CSS variables
-const COLORS = {
-  sectionKeyword: CSS_COLORS.purple,
-  interfaceType: CSS_COLORS.purple,
-  property: CSS_COLORS.blue,
-  interfaceName: CSS_COLORS.green,
-  bracket: CSS_COLORS.foreground,
-  value: CSS_COLORS.yellow,
-  boolean: CSS_COLORS.purple,
-  number: CSS_COLORS.red,
-  string: CSS_COLORS.yellow,
-  ipAddress: CSS_COLORS.orange,
-  parameter: CSS_COLORS.blue,
-  networkKeyword: CSS_COLORS.purple,
-  vlan: CSS_COLORS.purple,
-  protocol: CSS_COLORS.green,
-  bgp: CSS_COLORS.red,
-  route: CSS_COLORS.orange,
-  comment: CSS_COLORS.description,
-  foreground: CSS_COLORS.foreground,
-};
+type SyntaxColorKey = (typeof SYNTAX_COLOR_KEYS)[number];
+type SyntaxColors = Record<SyntaxColorKey, string>;
+
+function buildSyntaxColors(theme: Theme): SyntaxColors {
+  const { charts } = theme.vscode;
+  const foreground = theme.palette.text.primary;
+
+  return {
+    sectionKeyword: charts.purple,
+    interfaceType: charts.purple,
+    property: charts.blue,
+    interfaceName: charts.green,
+    bracket: foreground,
+    value: charts.yellow,
+    boolean: charts.purple,
+    number: charts.red,
+    string: charts.yellow,
+    ipAddress: charts.orange,
+    parameter: charts.blue,
+    networkKeyword: charts.purple,
+    vlan: charts.purple,
+    protocol: charts.green,
+    bgp: charts.red,
+    route: charts.orange,
+    comment: theme.palette.text.secondary,
+    foreground
+  };
+}
 
 // Colors affected by "less" mode (become foreground)
-const LESS_MODE_AFFECTED = new Set([
+const LESS_MODE_AFFECTED = new Set<SyntaxColorKey>([
   'sectionKeyword', 'interfaceType', 'property', 'interfaceName',
   'value', 'string', 'ipAddress', 'parameter', 'networkKeyword',
   'vlan', 'protocol', 'bgp', 'route'
 ]);
 
-function getColor(colorKey: keyof typeof COLORS, colorMode: ColorMode): string {
-  if (colorMode === 'none') return COLORS.foreground;
-  if (colorMode === 'less' && LESS_MODE_AFFECTED.has(colorKey)) return COLORS.foreground;
-  return COLORS[colorKey];
+function getColor(colorKey: SyntaxColorKey, colorMode: ColorMode, colors: SyntaxColors): string {
+  if (colorMode === 'none') return colors.foreground;
+  if (colorMode === 'less' && LESS_MODE_AFFECTED.has(colorKey)) return colors.foreground;
+  return colors[colorKey];
 }
 
-function makeSpan(text: string, colorKey: keyof typeof COLORS, colorMode: ColorMode, bold = false): string {
-  const color = getColor(colorKey, colorMode);
+function makeSpan(text: string, colorKey: SyntaxColorKey, colorMode: ColorMode, colors: SyntaxColors, bold = false): string {
+  const color = getColor(colorKey, colorMode, colors);
   const fontWeight = bold ? '; font-weight: bold' : '';
   const fontStyle = colorKey === 'comment' ? '; font-style: italic' : '';
   return `<span style="color: ${color}${fontWeight}${fontStyle}">${text}</span>`;
@@ -148,12 +165,12 @@ function updateContext(line: string, context: ContextState): void {
 }
 
 // Helper to determine the color key for a block keyword based on section
-function getBlockKeywordColor(section: string): keyof typeof COLORS {
+function getBlockKeywordColor(section: string): SyntaxColorKey {
   return section === 'network-instance' ? 'networkKeyword' : 'property';
 }
 
 // Helper to determine the value color for keyword-value block patterns
-function getKeywordValueColor(keyword: string): keyof typeof COLORS {
+function getKeywordValueColor(keyword: string): SyntaxColorKey {
   return keyword === 'address' ? 'ipAddress' : 'value';
 }
 
@@ -161,7 +178,7 @@ function getKeywordValueColor(keyword: string): keyof typeof COLORS {
 function getPropertyColor(
   property: string,
   context: ContextState
-): keyof typeof COLORS {
+): SyntaxColorKey {
   if (context.section === 'bfd' || property === 'admin-state') return 'parameter';
   if (property.includes('vlan')) return 'vlan';
   if (context.section === 'network-instance' && context.subBlock === 'protocols') return 'protocol';
@@ -175,7 +192,7 @@ function getValueColor(
   value: string,
   property: string,
   context: ContextState
-): { colorKey: keyof typeof COLORS; bold: boolean } {
+): { colorKey: SyntaxColorKey; bold: boolean } {
   const BOOLEAN_VALUES = new Set(['true', 'false', 'enable', 'disable', 'up', 'down']);
 
   if (BOOLEAN_VALUES.has(value)) {
@@ -202,7 +219,7 @@ function getValueColor(
 }
 
 // Helper to highlight standalone values (in arrays or simple lines)
-function highlightStandaloneValue(trimmed: string): keyof typeof COLORS {
+function highlightStandaloneValue(trimmed: string): SyntaxColorKey {
   const BOOLEAN_VALUES = new Set(['enable', 'disable', 'up', 'down']);
 
   if (/^\d+$/.test(trimmed)) return 'number';
@@ -227,34 +244,34 @@ const PATTERNS = {
   closeBrace: /^(\s*)\}$/,
 } as const;
 
-function highlightTopLevel(processedLine: string, colorMode: ColorMode): string {
+function highlightTopLevel(processedLine: string, colorMode: ColorMode, colors: SyntaxColors): string {
   if (PATTERNS.sectionWithName.test(processedLine)) {
     return processedLine.replace(
       PATTERNS.sectionWithNameReplace,
       (_m, space, keyword, name) => (
         space +
-        makeSpan(keyword, 'sectionKeyword', colorMode, true) + ' ' +
-        makeSpan(name, 'interfaceName', colorMode, true) + ' ' +
-        makeSpan('{', 'bracket', colorMode)
+        makeSpan(keyword, 'sectionKeyword', colorMode, colors, true) + ' ' +
+        makeSpan(name, 'interfaceName', colorMode, colors, true) + ' ' +
+        makeSpan('{', 'bracket', colorMode, colors)
       )
     );
   }
   if (PATTERNS.sectionOnly.test(processedLine)) {
     return processedLine.replace(
       PATTERNS.sectionOnly,
-      (_m, space, keyword) => space + makeSpan(keyword, 'sectionKeyword', colorMode, true) + ' ' + makeSpan('{', 'bracket', colorMode)
+      (_m, space, keyword) => space + makeSpan(keyword, 'sectionKeyword', colorMode, colors, true) + ' ' + makeSpan('{', 'bracket', colorMode, colors)
     );
   }
   return processedLine;
 }
 
-function highlightNestedBlock(processedLine: string, context: ContextState, colorMode: ColorMode): string {
+function highlightNestedBlock(processedLine: string, context: ContextState, colorMode: ColorMode, colors: SyntaxColors): string {
   // Block keyword only: "ethernet {"
   if (PATTERNS.blockKeyword.test(processedLine)) {
     const colorKey = getBlockKeywordColor(context.section);
     return processedLine.replace(
       PATTERNS.blockKeyword,
-      (_m, space, kw) => space + makeSpan(kw, colorKey, colorMode) + ' ' + makeSpan('{', 'bracket', colorMode)
+      (_m, space, kw) => space + makeSpan(kw, colorKey, colorMode, colors) + ' ' + makeSpan('{', 'bracket', colorMode, colors)
     );
   }
 
@@ -266,9 +283,9 @@ function highlightNestedBlock(processedLine: string, context: ContextState, colo
         const valueColorKey = getKeywordValueColor(keyword);
         return (
           space +
-          makeSpan(keyword, 'property', colorMode) + ' ' +
-          makeSpan(rest.replace(/\{$/, ''), valueColorKey, colorMode) + ' ' +
-          makeSpan('{', 'bracket', colorMode)
+          makeSpan(keyword, 'property', colorMode, colors) + ' ' +
+          makeSpan(rest.replace(/\{$/, ''), valueColorKey, colorMode, colors) + ' ' +
+          makeSpan('{', 'bracket', colorMode, colors)
         );
       }
     );
@@ -281,17 +298,17 @@ function highlightNestedBlock(processedLine: string, context: ContextState, colo
       (_m, space, property, value) => {
         const propColorKey = getPropertyColor(property, context);
         const { colorKey: valColorKey, bold } = getValueColor(value, property, context);
-        return space + makeSpan(property, propColorKey, colorMode) + ' ' + makeSpan(value, valColorKey, colorMode, bold);
+        return space + makeSpan(property, propColorKey, colorMode, colors) + ' ' + makeSpan(value, valColorKey, colorMode, colors, bold);
       }
     );
   }
 
   // Brackets
   if (PATTERNS.openBracket.test(processedLine)) {
-    return processedLine.replace(PATTERNS.openBracket, (_m, space) => space + makeSpan('[', 'bracket', colorMode));
+    return processedLine.replace(PATTERNS.openBracket, (_m, space) => space + makeSpan('[', 'bracket', colorMode, colors));
   }
   if (PATTERNS.closeBracket.test(processedLine)) {
-    return processedLine.replace(PATTERNS.closeBracket, (_m, space) => space + makeSpan(']', 'bracket', colorMode));
+    return processedLine.replace(PATTERNS.closeBracket, (_m, space) => space + makeSpan(']', 'bracket', colorMode, colors));
   }
 
   // Standalone value (in arrays)
@@ -299,32 +316,32 @@ function highlightNestedBlock(processedLine: string, context: ContextState, colo
     const trimmed = processedLine.trim();
     const colorKey = highlightStandaloneValue(trimmed);
     const bold = colorKey === 'boolean';
-    return processedLine.replace(PATTERNS.standaloneValue, (_m, space, val) => space + makeSpan(val, colorKey, colorMode, bold));
+    return processedLine.replace(PATTERNS.standaloneValue, (_m, space, val) => space + makeSpan(val, colorKey, colorMode, colors, bold));
   }
 
   return processedLine;
 }
 
-function applySyntaxHighlighting(line: string, context: ContextState, colorMode: ColorMode): string {
+function applySyntaxHighlighting(line: string, context: ContextState, colorMode: ColorMode, colors: SyntaxColors): string {
   if (line.trim() === '') return '';
 
   let processedLine = escapeHtml(line);
 
   // Comments
   if (processedLine.trim().startsWith('#')) {
-    return makeSpan(processedLine, 'comment', colorMode);
+    return makeSpan(processedLine, 'comment', colorMode, colors);
   }
 
   // Apply highlighting based on indentation level
   if (context.level === 0) {
-    processedLine = highlightTopLevel(processedLine, colorMode);
+    processedLine = highlightTopLevel(processedLine, colorMode, colors);
   } else {
-    processedLine = highlightNestedBlock(processedLine, context, colorMode);
+    processedLine = highlightNestedBlock(processedLine, context, colorMode, colors);
   }
 
   // Handle closing brace
   if (processedLine.trim() === '}') {
-    processedLine = processedLine.replace(PATTERNS.closeBrace, (_m, space) => space + makeSpan('}', 'bracket', colorMode));
+    processedLine = processedLine.replace(PATTERNS.closeBrace, (_m, space) => space + makeSpan('}', 'bracket', colorMode, colors));
   }
 
   return processedLine;
@@ -423,12 +440,14 @@ interface LineData {
 
 function NodeConfigPanel() {
   const postMessage = usePostMessage();
+  const theme = useTheme();
   const [configText, setConfigText] = useState('');
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [colorMode, setColorMode] = useState<'full' | 'less' | 'none'>('full');
   const [isAnnotationsVisible, setIsAnnotationsVisible] = useState(true);
   const [showToast, setShowToast] = useState(false);
   const [highlightedAnnotation, setHighlightedAnnotation] = useState<string | null>(null);
+  const syntaxColors = useMemo(() => buildSyntaxColors(theme), [theme]);
 
   const annotationLineMapRef = useRef<Map<string, Set<number>>>(new Map());
   const annotationInfoMapRef = useRef<Map<string, AnnotationInfo>>(new Map());
@@ -467,7 +486,7 @@ function NodeConfigPanel() {
       const showDivider = annotationKey !== '' && annotationKey !== previousAnnotation && lastAnnotation !== '';
 
       updateContext(lines[index], context);
-      const highlightedContent = applySyntaxHighlighting(lines[index], context, colorMode);
+      const highlightedContent = applySyntaxHighlighting(lines[index], context, colorMode, syntaxColors);
 
       const firstAnnotation = annotationNames.length > 0 && annotationKey !== previousAnnotation ? annotationNames[0] : undefined;
       const annotationInfo = firstAnnotation ? annotationInfoMapRef.current.get(firstAnnotation) : undefined;
@@ -489,7 +508,7 @@ function NodeConfigPanel() {
     }
 
     return result;
-  }, [configText, annotations, colorMode]);
+  }, [configText, annotations, colorMode, syntaxColors]);
 
   const handleToggleAnnotations = useCallback(() => {
     setIsAnnotationsVisible(prev => !prev);
@@ -524,8 +543,8 @@ function NodeConfigPanel() {
         gridTemplateRows: 'auto 1fr',
         height: '100vh',
         overflow: 'hidden',
-        fontFamily: 'var(--vscode-editor-font-family, monospace)',
-        fontSize: 'var(--vscode-editor-font-size)'
+        fontFamily: theme.vscode.fonts.editorFamily,
+        fontSize: theme.vscode.fonts.editorSize
       }}
     >
       <Stack

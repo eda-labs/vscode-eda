@@ -13,11 +13,11 @@ module.exports = defineConfig({
     port: 5173,
     strictPort: false,
     fs: {
-      allow: [path.resolve(__dirname, '../../..')]
+      allow: [path.resolve(__dirname, '../..')]
     }
   },
   build: {
-    outDir: path.resolve(__dirname, '../../../dist/webviews-dev'),
+    outDir: path.resolve(__dirname, '../../dist/webviews-dev'),
     emptyOutDir: true,
     rollupOptions: {
       input: {

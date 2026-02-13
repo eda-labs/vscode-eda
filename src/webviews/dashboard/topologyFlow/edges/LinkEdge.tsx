@@ -6,6 +6,7 @@ import {
   type Edge,
   useInternalNode,
 } from '@xyflow/react';
+import { useTheme } from '@mui/material/styles';
 
 export interface LinkEdgeData extends Record<string, unknown> {
   sourceInterface?: string;
@@ -20,8 +21,6 @@ export interface LinkEdgeData extends Record<string, unknown> {
 }
 
 export type LinkEdge = Edge<LinkEdgeData, 'linkEdge'>;
-
-const COLOR_LINK_STROKE = 'var(--color-link-stroke)';
 
 // Cytoscape-inspired: control-point-step-size for multi-edge separation
 const CONTROL_POINT_STEP = 40;
@@ -153,12 +152,19 @@ function createBezierPath(
   };
 }
 
-function getStateColor(state: string | undefined): string {
-  if (!state) return COLOR_LINK_STROKE;
+interface EdgeColors {
+  defaultStroke: string;
+  selectedStroke: string;
+  upStroke: string;
+  downStroke: string;
+}
+
+function getStateColor(state: string | undefined, colors: EdgeColors): string {
+  if (!state) return colors.defaultStroke;
   const s = state.toLowerCase();
-  if (s === 'up' || s === 'active') return 'var(--color-link-up)';
-  if (s === 'down' || s === 'error' || s === 'failed') return 'var(--color-link-down)';
-  return COLOR_LINK_STROKE;
+  if (s === 'up' || s === 'active') return colors.upStroke;
+  if (s === 'down' || s === 'error' || s === 'failed') return colors.downStroke;
+  return colors.defaultStroke;
 }
 
 function LinkEdgeComponent({
@@ -168,6 +174,13 @@ function LinkEdgeComponent({
   data,
   selected,
 }: EdgeProps<LinkEdge>) {
+  const theme = useTheme();
+  const edgeColors = useMemo<EdgeColors>(() => ({
+    defaultStroke: theme.vscode.topology.linkStroke,
+    selectedStroke: theme.vscode.topology.linkStrokeSelected,
+    upStroke: theme.vscode.topology.linkUp,
+    downStroke: theme.vscode.topology.linkDown,
+  }), [theme]);
   const sourceNode = useInternalNode(source);
   const targetNode = useInternalNode(target);
 
@@ -194,14 +207,14 @@ function LinkEdgeComponent({
 
     return {
       ...bezier,
-      stroke: getStateColor(data?.state),
+      stroke: getStateColor(data?.state, edgeColors),
     };
-  }, [sourceNode, targetNode, data?.pairIndex, data?.totalInPair, data?.state]);
+  }, [sourceNode, targetNode, data?.pairIndex, data?.totalInPair, data?.state, edgeColors]);
 
   if (!edgeData) return null;
 
   const strokeWidth = selected ? 3 : 1.5;
-  const edgeStroke = selected ? 'var(--color-link-stroke-selected)' : edgeData.stroke;
+  const edgeStroke = selected ? edgeColors.selectedStroke : edgeData.stroke;
 
   return (
     <>

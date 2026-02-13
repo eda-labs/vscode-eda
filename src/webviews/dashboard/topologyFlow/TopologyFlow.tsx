@@ -13,6 +13,7 @@ import {
   type NodeMouseHandler,
   type EdgeMouseHandler,
 } from '@xyflow/react';
+import { useTheme, type Theme } from '@mui/material/styles';
 
 import DeviceNode, { type TopologyNode, type TopologyNodeData } from './nodes/DeviceNode';
 import NamespaceLabelNodeComponent, { type NamespaceLabelNode } from './nodes/NamespaceLabelNode';
@@ -157,17 +158,18 @@ interface SvgColors {
   labelBg: string;
 }
 
-function getSvgColors(isDark: boolean, options: ExportOptions): SvgColors {
-  const defaultBg = isDark ? '#1e1e1e' : '#ffffff';
+function getSvgColors(theme: Theme, options: ExportOptions): SvgColors {
+  const { topology } = theme.vscode;
+
   return {
-    bg: options.transparentBg ? 'none' : (options.backgroundColor ?? defaultBg),
-    text: isDark ? '#cccccc' : '#333333',
-    nodeStroke: isDark ? '#3c3c3c' : '#e0e0e0',
-    nodeFill: isDark ? '#252526' : '#ffffff',
-    iconBg: isDark ? '#0e639c' : '#007acc',
-    iconFg: '#ffffff',
-    edgeStroke: isDark ? '#6e6e6e' : '#999999',
-    labelBg: isDark ? '#252526' : '#ffffff',
+    bg: options.transparentBg ? 'none' : (options.backgroundColor ?? topology.editorBackground),
+    text: topology.foreground,
+    nodeStroke: topology.nodeBorder,
+    nodeFill: topology.nodeBackground,
+    iconBg: topology.iconBackground,
+    iconFg: topology.iconForeground,
+    edgeStroke: topology.linkStroke,
+    labelBg: topology.editorBackground,
   };
 }
 
@@ -384,6 +386,7 @@ function TopologyFlowInner({
 // Wrapper component with ref for export functionality
 const TopologyFlowWithRef = forwardRef<TopologyFlowRef, TopologyFlowProps>(
   function TopologyFlowWithRef(props, ref) {
+    const theme = useTheme();
     const { getNodes, getEdges } = useReactFlow();
 
     const exportImage = useCallback(async (options: ExportOptions) => {
@@ -397,8 +400,7 @@ const TopologyFlowWithRef = forwardRef<TopologyFlowRef, TopologyFlowProps>(
       const offsetX = -bounds.x + SVG_PADDING + NODE_WIDTH / 2;
       const offsetY = -bounds.y + SVG_PADDING + NODE_HEIGHT / 2;
 
-      const isDark = document.body.classList.contains('vscode-dark');
-      const colors = getSvgColors(isDark, options);
+      const colors = getSvgColors(theme, options);
 
       // Build node position map
       const nodePositions = new Map<string, { x: number; y: number }>();
@@ -428,7 +430,7 @@ const TopologyFlowWithRef = forwardRef<TopologyFlowRef, TopologyFlowProps>(
 </svg>`;
 
       downloadSvg(svg);
-    }, [getNodes, getEdges]);
+    }, [getNodes, getEdges, theme]);
 
     useImperativeHandle(ref, () => ({ exportImage }), [exportImage]);
 

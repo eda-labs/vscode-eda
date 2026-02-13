@@ -1,6 +1,6 @@
 /* eslint-disable import-x/max-dependencies */
 
-import { applyDevTheme, isDevThemeId, type DevThemeId } from './devTheme';
+import { applyDevTheme, isDevThemeId, type DevThemeId } from '../../../src/webviews/shared/theme';
 import { createMockHost } from './mockHost';
 import { DEV_WEBVIEWS, getDevWebviewLabel, isDevWebviewId, type DevWebviewId } from './webviewCatalog';
 
@@ -16,17 +16,17 @@ interface WebviewCommand {
 }
 
 const WEBVIEW_LOADERS: Readonly<Record<DevWebviewId, () => Promise<unknown>>> = {
-  alarmDetails: () => import('../../alarmDetails/alarmDetailsPanel.webview'),
-  nodeConfig: () => import('../../nodeConfig/nodeConfigPanel.webview'),
-  targetWizard: () => import('../../targetWizard/targetWizardPanel.webview'),
-  transactionDetails: () => import('../../transactionDetails/transactionDetailsPanel.webview'),
-  transactionDiffs: () => import('../../transactionDiffs/transactionDiffsPanel.webview'),
-  fabricDashboard: () => import('../../dashboard/fabric/fabricDashboard.webview'),
-  queriesDashboard: () => import('../../dashboard/queries/queriesDashboard.webview'),
-  resourceBrowser: () => import('../../dashboard/resource/resourceBrowserPanel.webview'),
-  simnodesDashboard: () => import('../../dashboard/simnodes/simnodesDashboard.webview'),
-  topologyFlowDashboard: () => import('../../dashboard/topologyFlow/topologyFlowDashboard.webview'),
-  toponodesDashboard: () => import('../../dashboard/toponodes/toponodesDashboard.webview')
+  alarmDetails: () => import('../../../src/webviews/alarmDetails/alarmDetailsPanel.webview'),
+  nodeConfig: () => import('../../../src/webviews/nodeConfig/nodeConfigPanel.webview'),
+  targetWizard: () => import('../../../src/webviews/targetWizard/targetWizardPanel.webview'),
+  transactionDetails: () => import('../../../src/webviews/transactionDetails/transactionDetailsPanel.webview'),
+  transactionDiffs: () => import('../../../src/webviews/transactionDiffs/transactionDiffsPanel.webview'),
+  fabricDashboard: () => import('../../../src/webviews/dashboard/fabric/fabricDashboard.webview'),
+  queriesDashboard: () => import('../../../src/webviews/dashboard/queries/queriesDashboard.webview'),
+  resourceBrowser: () => import('../../../src/webviews/dashboard/resource/resourceBrowserPanel.webview'),
+  simnodesDashboard: () => import('../../../src/webviews/dashboard/simnodes/simnodesDashboard.webview'),
+  topologyFlowDashboard: () => import('../../../src/webviews/dashboard/topologyFlow/topologyFlowDashboard.webview'),
+  toponodesDashboard: () => import('../../../src/webviews/dashboard/toponodes/toponodesDashboard.webview')
 };
 
 function parseWebviewId(value: string | null): DevWebviewId {
@@ -82,7 +82,7 @@ async function loadExtraStyles(webviewId: DevWebviewId): Promise<void> {
     return;
   }
 
-  await import('../../dashboard/topologyFlow/topologyFlowDashboard.css');
+  await import('../../../src/webviews/dashboard/topologyFlow/topologyFlowDashboard.css');
   await import('@xyflow/react/dist/style.css');
 }
 

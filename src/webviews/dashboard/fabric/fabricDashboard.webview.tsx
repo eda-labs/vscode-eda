@@ -1,6 +1,7 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Box, Card, CardContent, FormControl, Grid, InputLabel, MenuItem, Select, Stack, Typography } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 
 import { usePostMessage, useMessageListener, useReadySignal } from '../../shared/hooks';
 import { VSCodeProvider } from '../../shared/context';
@@ -235,6 +236,7 @@ function handleFabricHealthMessage(msg: FabricMessage, handlers: MessageHandlers
 
 function FabricDashboard() {
   const postMessage = usePostMessage();
+  const theme = useTheme();
   const [namespaces, setNamespaces] = useState<string[]>([]);
   const [selectedNamespace, setSelectedNamespace] = useState('');
   const [echartsLoaded, setEchartsLoaded] = useState(false);
@@ -249,6 +251,15 @@ function FabricDashboard() {
   const trafficPointsRef = useRef<TrafficPoint[]>([]);
   const trafficUnitRef = useRef('bit/s');
   const trafficDivRef = useRef(1);
+  const chartVisual = useMemo(() => {
+    const { charts } = theme.vscode;
+    return {
+      palette: [charts.blue, charts.green, charts.yellow, charts.red, charts.purple, charts.orange],
+      textColor: theme.palette.text.primary,
+      inboundColor: charts.blue,
+      outboundColor: charts.purple
+    };
+  }, [theme]);
 
   // Load ECharts
   useEffect(() => {
@@ -262,10 +273,10 @@ function FabricDashboard() {
     if (!echartsLoaded || !chartRef.current) return;
 
     const chartTheme = {
-      color: ['#60a5fa', '#4ade80', '#fbbf24', '#f87171', '#a78bfa', '#f472b6'],
+      color: chartVisual.palette,
       backgroundColor: 'transparent',
       textStyle: {
-        color: getComputedStyle(document.documentElement).getPropertyValue('--vscode-editor-foreground').trim()
+        color: chartVisual.textColor
       }
     };
 
@@ -324,7 +335,7 @@ function FabricDashboard() {
           smooth: true,
           data: [],
           areaStyle: { opacity: 0.3 },
-          itemStyle: { color: '#60a5fa' }
+          itemStyle: { color: chartVisual.inboundColor }
         },
         {
           name: 'Outbound',
@@ -332,7 +343,7 @@ function FabricDashboard() {
           smooth: true,
           data: [],
           areaStyle: { opacity: 0.3 },
-          itemStyle: { color: '#a78bfa' }
+          itemStyle: { color: chartVisual.outboundColor }
         }
       ]
     });
@@ -346,7 +357,7 @@ function FabricDashboard() {
       window.removeEventListener('resize', handleResize);
       chartInstanceRef.current?.dispose();
     };
-  }, [echartsLoaded]);
+  }, [echartsLoaded, chartVisual]);
 
   const updateTrafficChart = useCallback((inVal: number, outVal: number) => {
     const now = Date.now();

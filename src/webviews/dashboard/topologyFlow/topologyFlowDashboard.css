@@ -6,30 +6,22 @@
 
 :root {
   /* Link/Edge colors */
-  --color-link-stroke: #6872824C;
-  --color-link-stroke-selected: #6098FF;
-  --color-link-up: #4ade80;
-  --color-link-down: #f87171;
+  --color-link-stroke: var(--topology-link-stroke, #6872824C);
+  --color-link-stroke-selected: var(--topology-link-stroke-selected, #6098FF);
+  --color-link-up: var(--topology-link-up, #4ade80);
+  --color-link-down: var(--topology-link-down, #f87171);
 
   /* Node colors - Light mode defaults */
-  --color-node-border: #6872824C;
-  --color-node-border-selected: #6098FF;
-  --color-node-bg: #F7F9FD;
-  --color-node-text: #2b2b2b;
-  --color-handle-bg: white;
-  --color-handle-border: #6872824C;
+  --color-node-border: var(--topology-node-border, #6872824C);
+  --color-node-border-selected: var(--topology-node-border-selected, #6098FF);
+  --color-node-bg: var(--topology-node-bg, #F7F9FD);
+  --color-node-text: var(--topology-node-text, #2b2b2b);
+  --color-handle-bg: var(--topology-handle-bg, #ffffff);
+  --color-handle-border: var(--topology-handle-border, #6872824C);
 
   /* Icon colors */
-  --color-icon-bg: #707070;
-  --color-icon-fg: white;
-}
-
-/* Dark mode overrides */
-.vscode-dark {
-  --color-node-bg: #1e1e1e;
-  --color-node-text: #ffffff;
-  --color-handle-bg: #2d2d2d;
-  --color-handle-border: #6872824C;
+  --color-icon-bg: var(--topology-icon-bg, #707070);
+  --color-icon-fg: var(--topology-icon-fg, #ffffff);
 }
 
 /* ============================================
@@ -53,19 +45,19 @@
   margin-bottom: 16px;
   gap: 8px;
   padding: 10px 12px;
-  border: 1px solid var(--vscode-panel-border);
+  border: 1px solid var(--topology-panel-border);
   border-radius: 8px;
-  background-color: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16);
+  background-color: var(--topology-widget-bg);
+  box-shadow: var(--topology-header-shadow);
 }
 
 .namespace-select,
 .label-select {
   padding: 5px 10px;
-  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border: 1px solid var(--topology-input-border);
   border-radius: 4px;
-  background-color: var(--vscode-input-background, var(--vscode-editor-background));
-  color: var(--vscode-input-foreground, var(--vscode-foreground));
+  background-color: var(--topology-input-bg);
+  color: var(--topology-input-fg);
   min-width: 150px;
 }
 
@@ -78,10 +70,10 @@
 
 .topology-container {
   flex: 4;
-  border: 1px solid var(--vscode-panel-border);
+  border: 1px solid var(--topology-panel-border);
   border-radius: 8px;
-  background-color: var(--vscode-editor-background);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  background-color: var(--topology-editor-bg);
+  box-shadow: var(--topology-container-shadow);
   overflow: hidden;
   min-height: 400px;
   height: 100%;
@@ -94,15 +86,15 @@
 
 .info-card {
   flex: 1;
-  border: 1px solid var(--vscode-panel-border);
+  border: 1px solid var(--topology-panel-border);
   border-radius: 8px;
-  background-color: var(--vscode-sideBar-background, var(--vscode-editorWidget-background));
+  background-color: var(--topology-widget-bg);
   padding: 12px;
   min-width: 300px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16);
+  box-shadow: var(--topology-card-shadow);
   overflow: auto;
-  font-family: var(--vscode-font-family);
-  font-size: var(--vscode-font-size);
+  font-family: var(--topology-font-family, inherit);
+  font-size: var(--topology-font-size, 13px);
 }
 
 .info-card h3 {
@@ -111,7 +103,7 @@
   gap: 4px;
   margin: 0 0 10px 0;
   padding-bottom: 8px;
-  border-bottom: 1px solid var(--vscode-panel-border);
+  border-bottom: 1px solid var(--topology-panel-border);
   font-size: 14px;
 }
 
@@ -125,7 +117,7 @@
 }
 
 .info-card td:first-child {
-  color: var(--vscode-descriptionForeground);
+  color: var(--topology-description-fg);
 }
 
 .info-card tr.section td {
@@ -135,7 +127,7 @@
 
 .info-card .node-link,
 .info-card .link-resource {
-  color: var(--vscode-textLink-foreground);
+  color: var(--topology-link-fg);
   text-decoration: none;
   cursor: pointer;
 }
@@ -150,14 +142,14 @@
    ============================================ */
 
 .react-flow {
-  --xy-background-color: var(--vscode-editor-background);
-  background-color: var(--vscode-editor-background);
+  --xy-background-color: var(--topology-editor-bg);
+  background-color: var(--topology-editor-bg);
   width: 100%;
   height: 100%;
 }
 
 .react-flow.dark {
-  --xy-background-color: var(--vscode-editor-background);
+  --xy-background-color: var(--topology-editor-bg);
 }
 
 /* ============================================
@@ -262,14 +254,14 @@
 /* Edge Label Styles */
 .topology-edge-label {
   font-size: 10px;
-  background-color: var(--vscode-editor-background);
+  background-color: var(--topology-editor-bg);
   padding: 2px 6px;
   border-radius: 3px;
-  border: 1px solid var(--vscode-panel-border);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--topology-panel-border);
+  box-shadow: var(--topology-edge-label-shadow);
   font-weight: 500;
   white-space: nowrap;
-  color: var(--vscode-foreground);
+  color: var(--topology-foreground);
 }
 
 /* ============================================
@@ -277,19 +269,19 @@
    ============================================ */
 
 .react-flow__controls {
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--topology-controls-shadow);
   border-radius: 6px;
   overflow: hidden;
 }
 
 .react-flow__controls-button {
-  background-color: var(--vscode-button-secondaryBackground);
+  background-color: var(--topology-button-secondary-bg);
   border: none;
-  color: var(--vscode-button-secondaryForeground);
+  color: var(--topology-button-secondary-fg);
 }
 
 .react-flow__controls-button:hover {
-  background-color: var(--vscode-button-secondaryHoverBackground);
+  background-color: var(--topology-button-secondary-hover-bg);
 }
 
 /* ============================================
@@ -297,11 +289,11 @@
    ============================================ */
 
 .react-flow__background {
-  background-color: var(--vscode-editor-background);
+  background-color: var(--topology-editor-bg);
 }
 
 .react-flow__background pattern circle {
-  fill: var(--vscode-editorLineNumber-foreground);
+  fill: var(--topology-editor-line-fg);
 }
 
 .react-flow__panel {
@@ -315,8 +307,8 @@
 .namespace-label {
   font-size: 14px;
   font-weight: 600;
-  color: var(--vscode-foreground);
-  background-color: var(--vscode-badge-background);
+  color: var(--topology-foreground);
+  background-color: var(--topology-badge-bg);
   padding: 4px 12px;
   border-radius: 4px;
   white-space: nowrap;
@@ -331,21 +323,21 @@
 
 .export-btn {
   padding: 4px 12px;
-  border: 1px solid var(--vscode-button-border, transparent);
+  border: 1px solid var(--topology-button-border);
   border-radius: 4px;
-  background-color: var(--vscode-button-secondaryBackground);
-  color: var(--vscode-button-secondaryForeground);
+  background-color: var(--topology-button-secondary-bg);
+  color: var(--topology-button-secondary-fg);
   cursor: pointer;
   font-size: 13px;
 }
 
 .export-btn:hover {
-  background-color: var(--vscode-button-secondaryHoverBackground);
+  background-color: var(--topology-button-secondary-hover-bg);
 }
 
 .export-btn.cancel {
   background-color: transparent;
-  border-color: var(--vscode-button-secondaryBackground);
+  border-color: var(--topology-button-border);
 }
 
 .export-popup {
@@ -354,7 +346,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: var(--topology-modal-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -362,12 +354,12 @@
 }
 
 .export-popup-content {
-  background-color: var(--vscode-editor-background);
-  border: 1px solid var(--vscode-panel-border);
+  background-color: var(--topology-editor-bg);
+  border: 1px solid var(--topology-panel-border);
   border-radius: 8px;
   padding: 20px;
   min-width: 280px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--topology-modal-shadow);
 }
 
 .export-popup-content h3 {
@@ -392,7 +384,7 @@
 .export-popup-content input[type="color"] {
   width: 40px;
   height: 28px;
-  border: 1px solid var(--vscode-panel-border);
+  border: 1px solid var(--topology-panel-border);
   border-radius: 4px;
   cursor: pointer;
 }

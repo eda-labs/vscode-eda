@@ -167,15 +167,6 @@ function TargetItem({
                   event.stopPropagation();
                   onSetDefault();
                 }}
-                sx={{
-                  bgcolor: 'var(--vscode-button-background)',
-                  color: 'var(--vscode-button-foreground)',
-                  border: '1px solid var(--vscode-button-background)',
-                  '&:hover': {
-                    bgcolor: 'var(--vscode-button-hoverBackground, var(--vscode-button-background))',
-                    borderColor: 'var(--vscode-button-hoverBackground, var(--vscode-button-background))'
-                  }
-                }}
               >
                 Set as Default
               </Button>
