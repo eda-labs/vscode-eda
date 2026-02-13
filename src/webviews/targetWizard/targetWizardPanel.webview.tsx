@@ -5,6 +5,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import {
+  Button,
   Box,
   Card,
   CardContent,
@@ -25,7 +26,6 @@ import {
 } from '@mui/material';
 
 import { usePostMessage, useMessageListener, useReadySignal } from '../shared/hooks';
-import { VSCodeButton } from '../shared/components';
 import { mountWebview } from '../shared/utils';
 
 // Constants for repeated values
@@ -94,11 +94,14 @@ function handleInitMessage(
   msg: TargetWizardMessage,
   setTargets: React.Dispatch<React.SetStateAction<Target[]>>,
   setSelectedIdx: React.Dispatch<React.SetStateAction<number>>,
+  setDefaultIdx: React.Dispatch<React.SetStateAction<number>>,
   setContexts: React.Dispatch<React.SetStateAction<string[]>>,
   setLogoUri: React.Dispatch<React.SetStateAction<string>>
 ): void {
+  const selected = msg.selected ?? 0;
   setTargets(msg.targets ?? []);
-  setSelectedIdx(msg.selected ?? 0);
+  setSelectedIdx(selected);
+  setDefaultIdx(selected);
   setContexts(msg.contexts ?? []);
   setLogoUri(msg.logoUri ?? '');
 }
@@ -107,6 +110,7 @@ function handleDeleteConfirmedMessage(
   msg: TargetWizardMessage,
   setTargets: React.Dispatch<React.SetStateAction<Target[]>>,
   setSelectedIdx: React.Dispatch<React.SetStateAction<number>>,
+  setDefaultIdx: React.Dispatch<React.SetStateAction<number>>,
   setMode: React.Dispatch<React.SetStateAction<Mode>>
 ): void {
   const idx = msg.index ?? 0;
@@ -116,6 +120,7 @@ function handleDeleteConfirmedMessage(
     return newTargets;
   });
   setSelectedIdx(prev => Math.max(0, prev >= idx ? prev - 1 : prev));
+  setDefaultIdx(prev => Math.max(0, prev >= idx ? prev - 1 : prev));
   setMode('view');
 }
 
@@ -128,7 +133,19 @@ function handleClientSecretRetrievedMessage(
   setFormUI(prev => ({ ...prev, clientSecretHint: 'Client secret retrieved successfully' }));
 }
 
-function TargetItem({ target, isSelected, onClick }: Readonly<{ target: Target; isSelected: boolean; onClick: () => void }>) {
+function TargetItem({
+  target,
+  isSelected,
+  isDefault,
+  onClick,
+  onSetDefault
+}: Readonly<{
+  target: Target;
+  isSelected: boolean;
+  isDefault: boolean;
+  onClick: () => void;
+  onSetDefault: () => void;
+}>) {
   return (
     <ListItemButton selected={isSelected} onClick={onClick} divider>
       <ListItemText
@@ -138,25 +155,35 @@ function TargetItem({ target, isSelected, onClick }: Readonly<{ target: Target; 
           </Typography>
         }
         secondary={
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.25 }}>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.25, flexWrap: 'wrap' }}>
             {target.context && <Typography variant="caption" sx={{ fontStyle: 'italic' }}>{target.context}</Typography>}
-            {isSelected && <Chip size="small" label="Default" />}
+            {isDefault && <Chip size="small" color="primary" label="Default" />}
             {target.skipTlsVerify && <Chip size="small" variant="outlined" label="Skip TLS" />}
+            {!isDefault && (
+              <Button
+                size="small"
+                variant="contained"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onSetDefault();
+                }}
+                sx={{
+                  bgcolor: 'var(--vscode-button-background)',
+                  color: 'var(--vscode-button-foreground)',
+                  border: '1px solid var(--vscode-button-background)',
+                  '&:hover': {
+                    bgcolor: 'var(--vscode-button-hoverBackground, var(--vscode-button-background))',
+                    borderColor: 'var(--vscode-button-hoverBackground, var(--vscode-button-background))'
+                  }
+                }}
+              >
+                Set as Default
+              </Button>
+            )}
           </Stack>
         }
       />
     </ListItemButton>
-  );
-}
-
-function DetailRow({ label, value, placeholder }: Readonly<{ label: string; value?: string; placeholder?: string }>) {
-  return (
-    <Box sx={{ mb: 2 }}>
-      <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase' }}>{label}</Typography>
-      <Typography variant="body2" sx={{ mt: 0.5, wordBreak: 'break-all' }} color={!value && placeholder ? 'text.secondary' : 'text.primary'}>
-        {value || placeholder || ''}
-      </Typography>
-    </Box>
   );
 }
 
@@ -169,17 +196,39 @@ interface FormFieldProps {
 }
 
 function FormField({ label, required, error, hint, children }: Readonly<FormFieldProps>) {
+  const helperText = error || hint;
+
   return (
-    <Box>
-      <Typography variant="body2" sx={{ mb: 0.5 }}>
-        {label}{' '}
-        {required && <Typography component="span" color="error.main">*</Typography>}
-        {!required && <Typography component="span" color="text.secondary" variant="caption">(optional)</Typography>}
+    <Stack spacing={0.75}>
+      <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>
+        {label}
+        {required ? ' *' : ''}
       </Typography>
       {children}
-      {error && <FormHelperText error>{error}</FormHelperText>}
-      {hint && <FormHelperText>{hint}</FormHelperText>}
-    </Box>
+      {helperText && <FormHelperText error={Boolean(error)}>{helperText}</FormHelperText>}
+    </Stack>
+  );
+}
+
+interface ReadOnlyFieldProps {
+  label: string;
+  value?: string;
+  placeholder?: string;
+}
+
+function ReadOnlyField({ label, value, placeholder = 'Not configured' }: Readonly<ReadOnlyFieldProps>) {
+  return (
+    <FormField label={label}>
+      <TextField
+        size="small"
+        fullWidth
+        value={value ?? ''}
+        placeholder={placeholder}
+        slotProps={{
+          input: { readOnly: true }
+        }}
+      />
+    </FormField>
   );
 }
 
@@ -225,26 +274,26 @@ interface TargetDetailsViewProps {
 
 function TargetDetailsView({ target, onEdit, onDelete }: Readonly<TargetDetailsViewProps>) {
   return (
-    <>
-      <DetailRow label="EDA API URL" value={target.url} />
-      <DetailRow label="Kubernetes Context" value={target.context} placeholder="None" />
-      <DetailRow label="EDA Core Namespace" value={target.coreNamespace || DEFAULT_CORE_NAMESPACE} />
-      <DetailRow label="EDA Username" value={target.edaUsername || DEFAULT_EDA_USERNAME} />
-      <DetailRow label="EDA Password" value={target.edaPassword ? '••••••••' : ''} placeholder="Not configured" />
-      <DetailRow label="Client Secret" value={target.clientSecret ? '••••••••' : ''} placeholder="Not configured" />
-      <DetailRow label="Skip TLS Verification" value={target.skipTlsVerify ? 'Yes' : 'No'} />
+    <Stack spacing={2.25} sx={{ maxWidth: 760 }}>
+      <ReadOnlyField label="EDA API URL" value={target.url} />
+      <ReadOnlyField label="Kubernetes Context" value={target.context} placeholder="None" />
+      <ReadOnlyField label="EDA Core Namespace" value={target.coreNamespace || DEFAULT_CORE_NAMESPACE} />
+      <ReadOnlyField label="EDA Username" value={target.edaUsername || DEFAULT_EDA_USERNAME} />
+      <ReadOnlyField label="EDA Password" value={target.edaPassword ? 'Configured' : ''} />
+      <ReadOnlyField label="Client Secret" value={target.clientSecret ? 'Configured' : ''} />
+      <ReadOnlyField label="Skip TLS Verification" value={target.skipTlsVerify ? 'Enabled' : 'Disabled'} />
 
-      <Stack direction="row" spacing={1.5} sx={{ pt: 1 }}>
-        <VSCodeButton variant="secondary" onClick={onEdit}>
-          <EditIcon fontSize="small" sx={{ mr: 0.5 }} />
-          Edit
-        </VSCodeButton>
-        <VSCodeButton onClick={onDelete}>
-          <DeleteIcon fontSize="small" sx={{ mr: 0.5 }} />
-          Delete
-        </VSCodeButton>
+      <Divider />
+
+      <Stack direction="row" spacing={1.5} justifyContent="flex-end">
+        <Button variant="contained" startIcon={<EditIcon />} onClick={onEdit}>
+          Edit Target
+        </Button>
+        <Button variant="outlined" color="error" startIcon={<DeleteIcon />} onClick={onDelete}>
+          Delete Target
+        </Button>
       </Stack>
-    </>
+    </Stack>
   );
 }
 
@@ -272,7 +321,7 @@ function TargetForm({
   onRetrieveSecret
 }: Readonly<TargetFormProps>) {
   return (
-    <Stack spacing={2} sx={{ p: 2.5, maxWidth: 700 }}>
+    <Stack spacing={2.25} sx={{ p: 2.5, maxWidth: 760 }}>
       <FormField label="EDA API URL" required error={errors.url}>
         <TextField
           size="small"
@@ -339,25 +388,41 @@ function TargetForm({
               placeholder="Client secret for OAuth2 authentication"
             />
           </Box>
-          <VSCodeButton variant="secondary" onClick={onRetrieveSecret}>Retrieve</VSCodeButton>
+          <Button variant="contained" color="primary" onClick={onRetrieveSecret} sx={{ minWidth: 96 }}>
+            Retrieve
+          </Button>
         </Stack>
       </FormField>
 
-      <FormControlLabel
-        control={
-          <Checkbox
-            checked={formData.skipTls}
-            onChange={(e) => setFormData(prev => ({ ...prev, skipTls: e.target.checked }))}
-          />
-        }
-        label="Skip TLS Verification"
-      />
+      <Box
+        sx={{
+          border: 1,
+          borderColor: 'divider',
+          borderRadius: 1,
+          px: 1.25,
+          py: 0.75,
+          bgcolor: 'background.default'
+        }}
+      >
+        <FormControlLabel
+          sx={{ m: 0 }}
+          control={
+            <Checkbox
+              color="primary"
+              checked={formData.skipTls}
+              onChange={(e) => setFormData(prev => ({ ...prev, skipTls: e.target.checked }))}
+              sx={{ '&.Mui-checked': { color: 'primary.main' } }}
+            />
+          }
+          label={<Typography variant="body2">Skip TLS Verification</Typography>}
+        />
+      </Box>
 
       <Divider />
 
       <Stack direction="row" spacing={1.5} justifyContent="flex-end">
-        <VSCodeButton variant="secondary" onClick={onCancel}>Cancel</VSCodeButton>
-        <VSCodeButton onClick={onSave}>Save</VSCodeButton>
+        <Button variant="contained" color="secondary" onClick={onCancel}>Cancel</Button>
+        <Button variant="contained" onClick={onSave}>Save Target</Button>
       </Stack>
     </Stack>
   );
@@ -367,6 +432,7 @@ function TargetWizardPanel() {
   const postMessage = usePostMessage();
   const [targets, setTargets] = useState<Target[]>([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
+  const [defaultIdx, setDefaultIdx] = useState(0);
   const [contexts, setContexts] = useState<string[]>([]);
   const [logoUri, setLogoUri] = useState('');
   const [mode, setMode] = useState<Mode>('view');
@@ -382,10 +448,10 @@ function TargetWizardPanel() {
   useMessageListener<TargetWizardMessage>(useCallback((msg) => {
     switch (msg.command) {
       case 'init':
-        handleInitMessage(msg, setTargets, setSelectedIdx, setContexts, setLogoUri);
+        handleInitMessage(msg, setTargets, setSelectedIdx, setDefaultIdx, setContexts, setLogoUri);
         break;
       case 'deleteConfirmed':
-        handleDeleteConfirmedMessage(msg, setTargets, setSelectedIdx, setMode);
+        handleDeleteConfirmedMessage(msg, setTargets, setSelectedIdx, setDefaultIdx, setMode);
         break;
       case 'clientSecretRetrieved':
         handleClientSecretRetrievedMessage(msg, setFormData, setFormUI);
@@ -411,8 +477,12 @@ function TargetWizardPanel() {
   const handleSelectTarget = useCallback((idx: number) => {
     if (mode !== 'view') return;
     setSelectedIdx(idx);
+  }, [mode]);
+
+  const handleSetDefault = useCallback((idx: number) => {
+    setDefaultIdx(idx);
     postMessage({ command: 'select', index: idx });
-  }, [mode, postMessage]);
+  }, [postMessage]);
 
   const handleAddNew = useCallback(() => {
     setMode('new');
@@ -475,6 +545,7 @@ function TargetWizardPanel() {
 
     let newTargets = [...targets];
     let newSelectedIdx = selectedIdx;
+    let newDefaultIdx = defaultIdx;
 
     if (editIndex !== null) {
       newTargets[editIndex] = newTarget;
@@ -493,6 +564,10 @@ function TargetWizardPanel() {
     } else {
       newTargets.push(newTarget);
       newSelectedIdx = newTargets.length - 1;
+      if (targets.length === 0) {
+        newDefaultIdx = newSelectedIdx;
+        postMessage({ command: 'select', index: newSelectedIdx });
+      }
       postMessage({
         command: 'add',
         url: formData.url,
@@ -504,32 +579,36 @@ function TargetWizardPanel() {
         coreNamespace: formData.coreNs,
         index: null
       });
-      postMessage({ command: 'select', index: newSelectedIdx });
     }
 
     postMessage({ command: 'commit', targets: newTargets });
     setTargets(newTargets);
     setSelectedIdx(newSelectedIdx);
+    setDefaultIdx(newDefaultIdx);
     setMode('view');
     setEditIndex(null);
-  }, [validateForm, formData, targets, editIndex, selectedIdx, postMessage]);
+  }, [validateForm, formData, targets, editIndex, selectedIdx, defaultIdx, postMessage]);
 
   return (
     <Box sx={{ p: 3 }}>
-      <Stack alignItems="center" spacing={1} sx={{ mb: 3 }}>
-        {logoUri && <Box component="img" src={logoUri} alt="EDA" sx={{ width: 160, height: 'auto' }} />}
-        <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>Nokia Event-Driven Automation</Typography>
-      </Stack>
-
       <Stack direction={{ xs: 'column', lg: 'row' }} spacing={3} alignItems="flex-start" sx={{ maxWidth: 1600, mx: 'auto' }}>
         <Card variant="outlined" sx={{ width: { xs: '100%', lg: 420 }, flexShrink: 0 }}>
           <CardContent sx={{ p: 0 }}>
             <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
-              <Typography variant="h6">EDA Targets</Typography>
-              <VSCodeButton onClick={handleAddNew}>
-                <AddIcon fontSize="small" sx={{ mr: 0.5 }} />
+              <Stack direction="row" spacing={1} alignItems="center">
+                {logoUri && (
+                  <Box
+                    component="img"
+                    src={logoUri}
+                    alt="EDA"
+                    sx={{ width: 22, height: 22, objectFit: 'contain', flexShrink: 0 }}
+                  />
+                )}
+                <Typography variant="h6">EDA Targets</Typography>
+              </Stack>
+              <Button variant="contained" size="small" startIcon={<AddIcon fontSize="small" />} onClick={handleAddNew}>
                 Add New
-              </VSCodeButton>
+              </Button>
             </Stack>
             {targets.length === 0 ? (
               <Typography sx={{ p: 3 }} color="text.secondary">No targets configured yet.</Typography>
@@ -540,7 +619,9 @@ function TargetWizardPanel() {
                     key={idx}
                     target={target}
                     isSelected={idx === selectedIdx}
+                    isDefault={idx === defaultIdx}
                     onClick={() => handleSelectTarget(idx)}
+                    onSetDefault={() => handleSetDefault(idx)}
                   />
                 ))}
               </List>
@@ -548,7 +629,7 @@ function TargetWizardPanel() {
           </CardContent>
         </Card>
 
-        <Card variant="outlined" sx={{ flex: 1, width: '100%' }}>
+        <Card variant="outlined" sx={{ flex: 1, width: '100%', maxWidth: { xs: '100%', lg: 860 } }}>
           <CardContent sx={{ p: 0 }}>
             <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
               <Typography variant="h6">
