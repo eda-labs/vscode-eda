@@ -51,6 +51,7 @@ interface K8sResourceData {
 type FlattenedRow = Record<string, unknown>;
 
 export class ToponodesDashboardPanel extends BasePanel {
+  private static currentPanel: ToponodesDashboardPanel | undefined;
   private edaClient: EdaClient;
   private rowMap: Map<string, Map<string, FlattenedRow>> = new Map();
   private columns: string[] = [];
@@ -308,8 +309,20 @@ export class ToponodesDashboardPanel extends BasePanel {
   }
 
   static show(context: vscode.ExtensionContext, title: string): ToponodesDashboardPanel {
+    if (ToponodesDashboardPanel.currentPanel) {
+      ToponodesDashboardPanel.currentPanel.panel.title = title;
+      ToponodesDashboardPanel.currentPanel.panel.reveal(vscode.ViewColumn.Active);
+      return ToponodesDashboardPanel.currentPanel;
+    }
+
     const panel = new ToponodesDashboardPanel(context, title);
     void panel.initialize();
+    ToponodesDashboardPanel.currentPanel = panel;
+    panel.panel.onDidDispose(() => {
+      if (ToponodesDashboardPanel.currentPanel === panel) {
+        ToponodesDashboardPanel.currentPanel = undefined;
+      }
+    });
     return panel;
   }
 }

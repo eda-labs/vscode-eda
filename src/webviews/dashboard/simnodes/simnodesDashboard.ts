@@ -37,6 +37,7 @@ interface ContainerStatus {
 type FlattenedRow = Record<string, unknown>;
 
 export class SimnodesDashboardPanel extends BasePanel {
+  private static currentPanel: SimnodesDashboardPanel | undefined;
   private kubernetesClient: KubernetesClient;
   private edaClient: EdaClient;
   private rowMap: Map<string, Map<string, FlattenedRow>> = new Map();
@@ -322,6 +323,19 @@ export class SimnodesDashboardPanel extends BasePanel {
   }
 
   static show(context: vscode.ExtensionContext, title: string): SimnodesDashboardPanel {
-    return new SimnodesDashboardPanel(context, title);
+    if (SimnodesDashboardPanel.currentPanel) {
+      SimnodesDashboardPanel.currentPanel.panel.title = title;
+      SimnodesDashboardPanel.currentPanel.panel.reveal(vscode.ViewColumn.Active);
+      return SimnodesDashboardPanel.currentPanel;
+    }
+
+    const panel = new SimnodesDashboardPanel(context, title);
+    SimnodesDashboardPanel.currentPanel = panel;
+    panel.panel.onDidDispose(() => {
+      if (SimnodesDashboardPanel.currentPanel === panel) {
+        SimnodesDashboardPanel.currentPanel = undefined;
+      }
+    });
+    return panel;
   }
 }

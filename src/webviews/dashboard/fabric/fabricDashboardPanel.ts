@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 
-import type * as vscode from 'vscode';
+import * as vscode from 'vscode';
 
 import { BasePanel } from '../../basePanel';
 import { ALL_NAMESPACES, RESOURCES_DIR } from '../../constants';
@@ -115,6 +115,7 @@ interface FabricStats {
 }
 
 export class FabricDashboardPanel extends BasePanel {
+  private static currentPanel: FabricDashboardPanel | undefined;
   private edaClient: EdaClient;
   private streamClient: EdaStreamClient;
   private nodeMap: Map<string, Map<string, string>> = new Map();
@@ -973,8 +974,20 @@ export class FabricDashboardPanel extends BasePanel {
   }
 
   static async show(context: vscode.ExtensionContext, title: string): Promise<FabricDashboardPanel> {
+    if (FabricDashboardPanel.currentPanel) {
+      FabricDashboardPanel.currentPanel.panel.title = title;
+      FabricDashboardPanel.currentPanel.panel.reveal(vscode.ViewColumn.Active);
+      return FabricDashboardPanel.currentPanel;
+    }
+
     const panel = new FabricDashboardPanel(context, title);
     await panel.initialize();
+    FabricDashboardPanel.currentPanel = panel;
+    panel.panel.onDidDispose(() => {
+      if (FabricDashboardPanel.currentPanel === panel) {
+        FabricDashboardPanel.currentPanel = undefined;
+      }
+    });
     return panel;
   }
 }

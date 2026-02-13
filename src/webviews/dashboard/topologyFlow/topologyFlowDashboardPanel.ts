@@ -160,6 +160,7 @@ interface StreamMessagePayload {
 }
 
 export class TopologyFlowDashboardPanel extends BasePanel {
+  private static currentPanel: TopologyFlowDashboardPanel | undefined;
   private edaClient: EdaClient;
   private nodeMap: Map<string, Map<string, TopoNode>> = new Map();
   private linkMap: Map<string, TopoLink[]> = new Map();
@@ -523,6 +524,19 @@ export class TopologyFlowDashboardPanel extends BasePanel {
   }
 
   static show(context: vscode.ExtensionContext, title: string): TopologyFlowDashboardPanel {
-    return new TopologyFlowDashboardPanel(context, title);
+    if (TopologyFlowDashboardPanel.currentPanel) {
+      TopologyFlowDashboardPanel.currentPanel.panel.title = title;
+      TopologyFlowDashboardPanel.currentPanel.panel.reveal(vscode.ViewColumn.Active);
+      return TopologyFlowDashboardPanel.currentPanel;
+    }
+
+    const panel = new TopologyFlowDashboardPanel(context, title);
+    TopologyFlowDashboardPanel.currentPanel = panel;
+    panel.panel.onDidDispose(() => {
+      if (TopologyFlowDashboardPanel.currentPanel === panel) {
+        TopologyFlowDashboardPanel.currentPanel = undefined;
+      }
+    });
+    return panel;
   }
 }

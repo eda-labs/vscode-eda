@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 
-import type * as vscode from 'vscode';
+import * as vscode from 'vscode';
 
 import { BasePanel } from '../../basePanel';
 import { ALL_NAMESPACES } from '../../constants';
@@ -45,6 +45,7 @@ interface StreamRow {
 }
 
 export class QueriesDashboardPanel extends BasePanel {
+  private static currentPanel: QueriesDashboardPanel | undefined;
   private edaClient: EdaClient;
   private embeddingSearch: EmbeddingSearchService;
   private queryStreamName?: string;
@@ -423,6 +424,19 @@ export class QueriesDashboardPanel extends BasePanel {
   }
 
   static show(context: vscode.ExtensionContext, title: string): QueriesDashboardPanel {
-    return new QueriesDashboardPanel(context, title);
+    if (QueriesDashboardPanel.currentPanel) {
+      QueriesDashboardPanel.currentPanel.panel.title = title;
+      QueriesDashboardPanel.currentPanel.panel.reveal(vscode.ViewColumn.Active);
+      return QueriesDashboardPanel.currentPanel;
+    }
+
+    const panel = new QueriesDashboardPanel(context, title);
+    QueriesDashboardPanel.currentPanel = panel;
+    panel.panel.onDidDispose(() => {
+      if (QueriesDashboardPanel.currentPanel === panel) {
+        QueriesDashboardPanel.currentPanel = undefined;
+      }
+    });
+    return panel;
   }
 }
