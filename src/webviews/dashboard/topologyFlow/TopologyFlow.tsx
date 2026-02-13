@@ -368,11 +368,13 @@ function TopologyFlowInner({
         colorMode={colorMode}
         nodesDraggable={true}
         nodesConnectable={false}
+        edgesReconnectable={false}
         elementsSelectable={true}
         panOnDrag
         zoomOnScroll
         minZoom={0.1}
         maxZoom={2}
+        proOptions={{ hideAttribution: true }}
       >
         <Controls showInteractive={false} />
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} />

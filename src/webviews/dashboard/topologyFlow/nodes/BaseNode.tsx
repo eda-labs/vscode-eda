@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { Handle, Position, useConnection, type NodeProps, type Node } from '@xyflow/react';
+import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 
 export interface BaseNodeData extends Record<string, unknown> {
   label: string;
@@ -28,13 +28,8 @@ const handlePositions = [
 ];
 
 function BaseNodeComponent({ data, selected, children }: BaseNodeComponentProps) {
-  const connection = useConnection();
-  const isConnecting = connection.inProgress;
-
   return (
-    <div
-      className={`topology-node ${selected ? 'selected' : ''} ${isConnecting ? 'connecting' : ''}`}
-    >
+    <div className={`topology-node ${selected ? 'selected' : ''}`}>
       <div className="topology-node-content">
         {children}
       </div>
