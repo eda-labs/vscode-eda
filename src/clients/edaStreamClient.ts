@@ -12,6 +12,7 @@ import type { EdaAuthClient } from './edaAuthClient';
 // String constants for stream-related values (sonarjs/no-duplicate-string)
 const STREAM_FILE = 'file';
 const STREAM_SUMMARY = 'summary';
+const STREAM_CURRENT_ALARMS = 'current-alarms';
 const MSG_TYPE_NEXT = 'next';
 const MSG_TYPE_CLOSE = 'close';
 const MSG_TYPE_REGISTER = 'register';
@@ -79,11 +80,17 @@ interface TokenRefreshResult extends SseRequestResult {
 export class EdaStreamClient {
   private eventSocket: WebSocket | undefined;
   private eventClient: string | undefined;
+  private connectPromise: Promise<void> | undefined;
+  private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+  private intentionallyClosedSockets = new WeakSet<WebSocket>();
   private activeStreams: Set<string> = new Set();
   private transactionSummarySize = 50;
   private lastNextTimestamps: Map<string, number> = new Map();
   private pendingNextMessages: Set<string> = new Set();
+  private pendingNextTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private messageIntervalMs = 500;
+  private streamAbortControllers: Map<string, AbortController> = new Map();
+  private streamPromises: Map<string, Promise<void>> = new Map();
   private summaryAbortController: AbortController | undefined;
   private summaryStreamPromise: Promise<void> | undefined;
   private userStorageFiles: Set<string> = new Set();
@@ -108,6 +115,7 @@ export class EdaStreamClient {
     'v1',
     'eql',
     'nql',
+    STREAM_CURRENT_ALARMS,
     STREAM_SUMMARY,
     'directory',
     STREAM_FILE,  // user-storage file stream requires path parameter
@@ -152,6 +160,64 @@ export class EdaStreamClient {
     this.nqlStreams.set(streamName, { query, namespaces });
   }
 
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
+  }
+
+  private scheduleReconnect(): void {
+    if (this.disposed || this.reconnectTimer) {
+      return;
+    }
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined;
+      this.connect().catch(() => { /* ignore */ });
+    }, 2000);
+  }
+
+  private clearPendingNextTimer(stream: string): void {
+    this.pendingNextMessages.delete(stream);
+    const timer = this.pendingNextTimers.get(stream);
+    if (timer) {
+      clearTimeout(timer);
+      this.pendingNextTimers.delete(stream);
+    }
+  }
+
+  private clearAllPendingNextTimers(): void {
+    for (const timer of this.pendingNextTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.pendingNextTimers.clear();
+    this.pendingNextMessages.clear();
+    this.lastNextTimestamps.clear();
+  }
+
+  private startManagedStream(
+    key: string,
+    streamName: string,
+    url: string,
+    extraHeaders: Record<string, string> = {}
+  ): void {
+    if (this.streamPromises.has(key)) {
+      return;
+    }
+
+    const controller = new AbortController();
+    this.streamAbortControllers.set(key, controller);
+    const promise = this.streamSse(url, controller, extraHeaders)
+      .catch(err => {
+        log(`[STREAM:${streamName}] error: ${err}`, LogLevel.ERROR);
+      })
+      .finally(() => {
+        this.streamAbortControllers.delete(key);
+        this.streamPromises.delete(key);
+      });
+    this.streamPromises.set(key, promise);
+  }
+
   /**
    * Connect to the WebSocket
    */
@@ -160,13 +226,24 @@ export class EdaStreamClient {
       throw new Error('Auth client not set');
     }
 
+    if (this.disposed) {
+      return;
+    }
+
     await this.authClient.waitForAuth();
+
+    this.clearReconnectTimer();
 
     if (
       this.eventSocket &&
       (this.eventSocket.readyState === WebSocket.OPEN ||
         this.eventSocket.readyState === WebSocket.CONNECTING)
     ) {
+      return;
+    }
+
+    if (this.connectPromise) {
+      await this.connectPromise;
       return;
     }
 
@@ -180,79 +257,108 @@ export class EdaStreamClient {
     });
     this.eventSocket = socket;
 
-    socket.on('open', () => {
-      log('Event WebSocket connected', LogLevel.DEBUG);
-      log(`Started streaming on ${this.streamEndpoints.length} nodes`, LogLevel.INFO);
-
-      // Build list of streams to auto-start (discovered streams minus excluded ones)
-      const autoStartStreams = new Set<string>();
-      for (const ep of this.streamEndpoints) {
-        if (!EdaStreamClient.AUTO_EXCLUDE.has(ep.stream)) {
-          autoStartStreams.add(ep.stream);
+    const connectPromise = new Promise<void>(resolve => {
+      let settled = false;
+      const settle = () => {
+        if (settled) {
+          return;
         }
-      }
-
-      // Add any explicitly subscribed streams
-      for (const stream of this.activeStreams) {
-        autoStartStreams.add(stream);
-      }
-
-      // Update activeStreams to include auto-start streams
-      this.activeStreams = autoStartStreams;
-
-      log(`WebSocket opened with ${this.activeStreams.size} active streams (including auto-discovered)`, LogLevel.DEBUG);
-    });
-
-    socket.on('message', data => {
-      const txt = data.toString();
-      if (!this.eventClient) {
-        this.handleRegistrationMessage(txt, socket);
-      }
-      this.handleEventMessage(txt);
-    });
-
-    const reconnect = () => {
-      this.eventSocket = undefined;
-      this.eventClient = undefined;
-      if (!this.disposed) {
-        setTimeout(() => {
-          this.connect().catch(() => { /* ignore */ });
-        }, 2000);
-      }
-    };
-
-    socket.on('close', reconnect);
-    socket.on('unexpected-response', (_req, res) => {
-      const handleUnexpectedResponse = async () => {
-        log(
-          `Event WebSocket unexpected response: HTTP ${res.statusCode}`,
-          LogLevel.ERROR
-        );
-        if (res.statusCode === 401 && this.authClient) {
-          log('Refreshing authentication token for WebSocket...', LogLevel.INFO);
-          await this.authClient.refreshAuth();
+        settled = true;
+        if (this.connectPromise === connectPromise) {
+          this.connectPromise = undefined;
         }
-        reconnect();
+        resolve();
       };
-      handleUnexpectedResponse().catch(() => { /* ignore */ });
-    });
-    socket.on('error', err => {
-      const handleError = async () => {
-        log(`Event WebSocket error: ${err}`, LogLevel.ERROR);
-        if (err instanceof Error && err.message.includes('401') && this.authClient) {
-          log('Refreshing authentication token for WebSocket...', LogLevel.INFO);
-          await this.authClient.refreshAuth();
+
+      const handleSocketClose = () => {
+        const isCurrentSocket = this.eventSocket === socket;
+        if (isCurrentSocket) {
+          this.eventSocket = undefined;
+          this.eventClient = undefined;
         }
-        reconnect();
+
+        const intentional = this.intentionallyClosedSockets.has(socket);
+        this.intentionallyClosedSockets.delete(socket);
+        if (!intentional) {
+          this.scheduleReconnect();
+        }
+
+        settle();
       };
-      handleError().catch(() => { /* ignore */ });
+
+      socket.on('open', () => {
+        if (this.eventSocket !== socket) {
+          settle();
+          return;
+        }
+        log('Event WebSocket connected', LogLevel.DEBUG);
+        log(`Started streaming on ${this.streamEndpoints.length} nodes`, LogLevel.INFO);
+        log(`WebSocket opened with ${this.activeStreams.size} active streams`, LogLevel.DEBUG);
+        settle();
+      });
+
+      socket.on('message', data => {
+        if (this.eventSocket !== socket) {
+          return;
+        }
+        const txt = data.toString();
+        if (!this.eventClient) {
+          this.handleRegistrationMessage(txt);
+        }
+        this.handleEventMessage(txt);
+      });
+
+      socket.on('close', () => {
+        handleSocketClose();
+      });
+
+      socket.on('unexpected-response', (_req, res) => {
+        const handleUnexpectedResponse = async () => {
+          log(
+            `Event WebSocket unexpected response: HTTP ${res.statusCode}`,
+            LogLevel.ERROR
+          );
+          if (res.statusCode === 401 && this.authClient) {
+            log('Refreshing authentication token for WebSocket...', LogLevel.INFO);
+            await this.authClient.refreshAuth();
+          }
+          this.intentionallyClosedSockets.add(socket);
+          try {
+            socket.close();
+          } catch {
+            /* ignore */
+          }
+          if (this.eventSocket === socket) {
+            this.eventSocket = undefined;
+            this.eventClient = undefined;
+          }
+          this.scheduleReconnect();
+          settle();
+        };
+        handleUnexpectedResponse().catch(() => { /* ignore */ });
+      });
+
+      socket.on('error', err => {
+        const handleError = async () => {
+          log(`Event WebSocket error: ${err}`, LogLevel.ERROR);
+          if (err instanceof Error && err.message.includes('401') && this.authClient) {
+            log('Refreshing authentication token for WebSocket...', LogLevel.INFO);
+            await this.authClient.refreshAuth();
+          }
+          settle();
+        };
+        handleError().catch(() => { /* ignore */ });
+      });
     });
+
+    this.connectPromise = connectPromise;
+    await connectPromise;
   }
 
   /**
    * Handle WebSocket registration message and start all subscribed streams
    */
-  private handleRegistrationMessage(txt: string, socket: WebSocket): void {
+  private handleRegistrationMessage(txt: string): void {
     try {
       const obj = JSON.parse(txt) as RegistrationMessage;
       const client = obj.msg?.client;
@@ -264,7 +370,7 @@ export class EdaStreamClient {
 
       this.startSubscribedStreams(client);
       this.startSpecialStreams(client);
-      this.startUserStorageStreams(client, socket);
+      this.startUserStorageStreams(client);
     } catch {
       /* ignore parse errors */
     }
@@ -277,7 +383,7 @@ export class EdaStreamClient {
     for (const ep of this.streamEndpoints) {
       if (this.activeStreams.has(ep.stream)) {
         log(`Starting stream: ${ep.stream}`, LogLevel.DEBUG);
-        this.startStream(client, ep).catch(() => { /* ignore */ });
+        this.startStream(client, ep);
       }
     }
   }
@@ -286,8 +392,8 @@ export class EdaStreamClient {
    * Start special streams (current-alarms, summary, EQL, NQL)
    */
   private startSpecialStreams(client: string): void {
-    if (this.activeStreams.has('current-alarms')) {
-      this.startCurrentAlarmStream(client).catch(() => { /* ignore */ });
+    if (this.activeStreams.has(STREAM_CURRENT_ALARMS)) {
+      this.startCurrentAlarmStream(client);
     }
     if (this.activeStreams.has(STREAM_SUMMARY)) {
       this.startTransactionSummaryStream(client);
@@ -307,13 +413,13 @@ export class EdaStreamClient {
   /**
    * Start user storage file streams
    */
-  private startUserStorageStreams(client: string, socket: WebSocket): void {
+  private startUserStorageStreams(client: string): void {
     if (this.userStorageFiles.size > 0 && !this.activeStreams.has(STREAM_FILE)) {
       this.activeStreams.add(STREAM_FILE);
-      socket.send(JSON.stringify({ type: MSG_TYPE_NEXT, stream: STREAM_FILE }));
+      this.sendNextMessage(STREAM_FILE);
     }
     for (const file of this.userStorageFiles) {
-      this.startUserStorageFileStream(client, file).catch(() => { /* ignore */ });
+      this.startUserStorageFileStream(client, file);
     }
   }
 
@@ -324,13 +430,101 @@ export class EdaStreamClient {
     this.activeStreams.add(streamName);
     log(`Subscribed to stream: ${streamName}`, LogLevel.DEBUG);
 
-    if (this.eventSocket?.readyState === WebSocket.OPEN) {
+    if (this.eventSocket?.readyState === WebSocket.OPEN && this.eventClient) {
+      this.startStreamByName(this.eventClient, streamName);
       this.sendNextMessage(streamName);
-      if (this.eqlStreams.has(streamName)) {
-        this.startEqlStream(this.eventClient as string, streamName);
-      }
-      if (this.nqlStreams.has(streamName)) {
-        this.startNqlStream(this.eventClient as string, streamName);
+    }
+  }
+
+  private startStreamByName(client: string, streamName: string): void {
+    if (streamName === STREAM_CURRENT_ALARMS) {
+      this.startCurrentAlarmStream(client);
+      return;
+    }
+    if (streamName === STREAM_SUMMARY) {
+      this.startTransactionSummaryStream(client);
+      return;
+    }
+    if (this.eqlStreams.has(streamName)) {
+      this.startEqlStream(client, streamName);
+      return;
+    }
+    if (this.nqlStreams.has(streamName)) {
+      this.startNqlStream(client, streamName);
+      return;
+    }
+    if (streamName === STREAM_FILE) {
+      this.startUserStorageStreams(client);
+      return;
+    }
+
+    const endpoint = this.streamEndpoints.find(ep => ep.stream === streamName);
+    if (!endpoint) {
+      log(`No stream endpoint found for ${streamName}`, LogLevel.DEBUG);
+      return;
+    }
+    this.startStream(client, endpoint);
+  }
+
+  private sendCloseMessage(streamName: string): void {
+    if (this.eventSocket?.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    log(`Sending 'close' for stream: ${streamName}`, LogLevel.DEBUG);
+    try {
+      this.eventSocket.send(JSON.stringify({ type: MSG_TYPE_CLOSE, stream: streamName }));
+    } catch (err) {
+      log(`Failed sending 'close' for stream ${streamName}: ${err}`, LogLevel.DEBUG);
+    }
+  }
+
+  private clearSummaryStreamState(streamName: string): void {
+    if (streamName !== STREAM_SUMMARY || !this.summaryAbortController) {
+      return;
+    }
+    this.summaryAbortController.abort();
+    // do not clear summaryStreamPromise so a restart can wait for closure
+    this.summaryAbortController = undefined;
+  }
+
+  private clearEqlStreamState(streamName: string): void {
+    const ctl = this.eqlAbortControllers.get(streamName);
+    if (ctl) {
+      ctl.abort();
+      this.eqlAbortControllers.delete(streamName);
+    }
+    this.eqlStreamPromises.delete(streamName);
+    this.eqlStreams.delete(streamName);
+  }
+
+  private clearNqlStreamState(streamName: string): void {
+    const ctl = this.nqlAbortControllers.get(streamName);
+    if (ctl) {
+      ctl.abort();
+      this.nqlAbortControllers.delete(streamName);
+    }
+    this.nqlStreamPromises.delete(streamName);
+    this.nqlStreams.delete(streamName);
+  }
+
+  private clearManagedStreamState(streamName: string): void {
+    const streamCtl = this.streamAbortControllers.get(streamName);
+    if (streamCtl) {
+      streamCtl.abort();
+      this.streamAbortControllers.delete(streamName);
+    }
+    this.streamPromises.delete(streamName);
+  }
+
+  private clearFileManagedStreams(): void {
+    for (const key of Array.from(this.streamAbortControllers.keys())) {
+      if (key.startsWith(`${STREAM_FILE}:`)) {
+        const fileCtl = this.streamAbortControllers.get(key);
+        if (fileCtl) {
+          fileCtl.abort();
+        }
+        this.streamAbortControllers.delete(key);
+        this.streamPromises.delete(key);
       }
     }
   }
@@ -340,36 +534,17 @@ export class EdaStreamClient {
    */
   public unsubscribeFromStream(streamName: string): void {
     this.activeStreams.delete(streamName);
+    this.clearPendingNextTimer(streamName);
 
-    // Send 'close' message to server to indicate we're done with this stream
-    if (this.eventSocket?.readyState === WebSocket.OPEN) {
-      log(`Sending 'close' for stream: ${streamName}`, LogLevel.DEBUG);
-      this.eventSocket.send(JSON.stringify({ type: MSG_TYPE_CLOSE, stream: streamName }));
+    this.sendCloseMessage(streamName);
+    this.clearSummaryStreamState(streamName);
+    this.clearEqlStreamState(streamName);
+    this.clearNqlStreamState(streamName);
+    this.clearManagedStreamState(streamName);
+    if (streamName === STREAM_FILE) {
+      this.clearFileManagedStreams();
     }
 
-    if (streamName === STREAM_SUMMARY && this.summaryAbortController) {
-      this.summaryAbortController.abort();
-      // do not clear summaryStreamPromise so a restart can wait for closure
-      this.summaryAbortController = undefined;
-    }
-    const ctl = this.eqlAbortControllers.get(streamName);
-    if (ctl) {
-      ctl.abort();
-      this.eqlAbortControllers.delete(streamName);
-    }
-    if (this.eqlStreamPromises.has(streamName)) {
-      this.eqlStreamPromises.delete(streamName);
-    }
-    this.eqlStreams.delete(streamName);
-    const nqlCtl = this.nqlAbortControllers.get(streamName);
-    if (nqlCtl) {
-      nqlCtl.abort();
-      this.nqlAbortControllers.delete(streamName);
-    }
-    if (this.nqlStreamPromises.has(streamName)) {
-      this.nqlStreamPromises.delete(streamName);
-    }
-    this.nqlStreams.delete(streamName);
     log(`Unsubscribed from stream: ${streamName}`, LogLevel.DEBUG);
   }
 
@@ -429,14 +604,15 @@ export class EdaStreamClient {
    * Disconnect the WebSocket
    */
   public disconnect(clearStreams = true): void {
-    // Clear any pending next messages
-    this.pendingNextMessages.clear();
-    this.lastNextTimestamps.clear();
+    this.clearReconnectTimer();
+    this.clearAllPendingNextTimers();
 
     if (this.eventSocket) {
+      this.intentionallyClosedSockets.add(this.eventSocket);
       this.eventSocket.close();
       this.eventSocket = undefined;
     }
+    this.connectPromise = undefined;
     if (this.summaryAbortController) {
       this.summaryAbortController.abort();
     }
@@ -456,6 +632,13 @@ export class EdaStreamClient {
     }
     this.nqlAbortControllers.clear();
     this.nqlStreamPromises.clear();
+
+    for (const ctl of this.streamAbortControllers.values()) {
+      ctl.abort();
+    }
+    this.streamAbortControllers.clear();
+    this.streamPromises.clear();
+
     this.eventClient = undefined;
     if (clearStreams) {
       this.activeStreams.clear();
@@ -477,14 +660,12 @@ export class EdaStreamClient {
     // Make sure we're subscribed to the 'file' stream via WebSocket
     if (!this.activeStreams.has(STREAM_FILE)) {
       this.activeStreams.add(STREAM_FILE);
-      if (this.eventSocket?.readyState === WebSocket.OPEN) {
-        this.eventSocket.send(JSON.stringify({ type: MSG_TYPE_NEXT, stream: STREAM_FILE }));
-      }
+      this.sendNextMessage(STREAM_FILE);
     }
 
     await this.connect();
     if (this.eventClient) {
-      await this.startUserStorageFileStream(this.eventClient, path);
+      this.startUserStorageFileStream(this.eventClient, path);
     }
   }
 
@@ -779,7 +960,7 @@ export class EdaStreamClient {
     return this.attemptSseRequest(url, newHeaders, streamName, controller);
   }
 
-  private async startStream(client: string, endpoint: StreamEndpoint): Promise<void> {
+  private startStream(client: string, endpoint: StreamEndpoint): void {
     if (!this.authClient) return;
 
     // Double-check that we're not starting excluded streams
@@ -793,26 +974,27 @@ export class EdaStreamClient {
       `?eventclient=${encodeURIComponent(client)}` +
       `&stream=${encodeURIComponent(endpoint.stream)}`;
 
-    await this.streamSse(url);
+    this.startManagedStream(endpoint.stream, endpoint.stream, url);
   }
 
-  private async startCurrentAlarmStream(client: string): Promise<void> {
+  private startCurrentAlarmStream(client: string): void {
     if (!this.authClient) return;
 
     const query = '.namespace.alarms.v1.current-alarm';
     const url =
       `${this.authClient.getBaseUrl()}/core/query/v1/eql` +
       `?eventclient=${encodeURIComponent(client)}` +
-      `&stream=current-alarms` +
+      `&stream=${STREAM_CURRENT_ALARMS}` +
       `&query=${encodeURIComponent(query)}`;
 
-    await this.streamSse(url);
+    this.startManagedStream(STREAM_CURRENT_ALARMS, STREAM_CURRENT_ALARMS, url);
   }
 
   private startEqlStream(client: string, streamName: string): void {
     if (!this.authClient) return;
     const info = this.eqlStreams.get(streamName);
     if (!info) return;
+    if (this.eqlStreamPromises.has(streamName)) return;
     let url =
       `${this.authClient.getBaseUrl()}/core/query/v1/eql` +
       `?eventclient=${encodeURIComponent(client)}` +
@@ -835,6 +1017,7 @@ export class EdaStreamClient {
     if (!this.authClient) return;
     const info = this.nqlStreams.get(streamName);
     if (!info) return;
+    if (this.nqlStreamPromises.has(streamName)) return;
     let url =
       `${this.authClient.getBaseUrl()}/core/query/v1/nql` +
       `?eventclient=${encodeURIComponent(client)}` +
@@ -855,6 +1038,7 @@ export class EdaStreamClient {
 
   private startTransactionSummaryStream(client: string): void {
     if (!this.authClient) return;
+    if (this.summaryStreamPromise) return;
 
     const ep = this.streamEndpoints.find(e => e.stream === STREAM_SUMMARY);
     const path = ep?.path || '/core/transaction/v2/result/summary';
@@ -875,7 +1059,7 @@ export class EdaStreamClient {
       });
   }
 
-  private async startUserStorageFileStream(client: string, file: string): Promise<void> {
+  private startUserStorageFileStream(client: string, file: string): void {
     if (!this.authClient) return;
 
     log(`Starting user storage file stream for: ${file}`, LogLevel.DEBUG);
@@ -892,7 +1076,7 @@ export class EdaStreamClient {
       'Accept-Encoding': 'gzip, deflate, br, zsrd',
     };
 
-    await this.streamSse(url, undefined, customHeaders);
+    this.startManagedStream(`${STREAM_FILE}:${file}`, STREAM_FILE, url, customHeaders);
   }
 
 
@@ -910,7 +1094,11 @@ export class EdaStreamClient {
         // This includes 'update' messages, 'details' messages, and initial stream registration confirmations
         // But throttle to not send faster than messageIntervalMs
         // Skip only 'register' type messages
-        if (msg.type !== MSG_TYPE_REGISTER && this.eventSocket?.readyState === WebSocket.OPEN) {
+        if (
+          msg.type !== MSG_TYPE_REGISTER &&
+          this.activeStreams.has(msg.stream) &&
+          this.eventSocket?.readyState === WebSocket.OPEN
+        ) {
           this.scheduleNextMessage(msg.stream);
         }
       }
@@ -923,6 +1111,10 @@ export class EdaStreamClient {
    * Schedule a 'next' message with rate limiting
    */
   private scheduleNextMessage(stream: string): void {
+    if (!this.activeStreams.has(stream)) {
+      return;
+    }
+
     const now = Date.now();
     const lastSent = this.lastNextTimestamps.get(stream) || 0;
     const timeSinceLastSent = now - lastSent;
@@ -930,18 +1122,20 @@ export class EdaStreamClient {
     if (timeSinceLastSent >= this.messageIntervalMs) {
       // Enough time has passed, send immediately
       this.sendNextMessage(stream);
-    } else if (!this.pendingNextMessages.has(stream)) {
+    } else if (!this.pendingNextMessages.has(stream) && !this.pendingNextTimers.has(stream)) {
       // Schedule a delayed send
       this.pendingNextMessages.add(stream);
       const delay = this.messageIntervalMs - timeSinceLastSent;
       log(`Scheduling 'next' for stream ${stream} in ${delay}ms`, LogLevel.DEBUG);
 
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         this.pendingNextMessages.delete(stream);
+        this.pendingNextTimers.delete(stream);
         if (this.activeStreams.has(stream) && this.eventSocket?.readyState === WebSocket.OPEN) {
           this.sendNextMessage(stream);
         }
       }, delay);
+      this.pendingNextTimers.set(stream, timer);
     }
     // If already pending, skip (we don't want multiple pending sends)
   }
@@ -950,10 +1144,17 @@ export class EdaStreamClient {
    * Send a 'next' message and update timestamp
    */
   private sendNextMessage(stream: string): void {
+    if (!this.activeStreams.has(stream)) {
+      return;
+    }
     if (this.eventSocket?.readyState === WebSocket.OPEN) {
       log(`Sending 'next' for stream ${stream}`, LogLevel.DEBUG);
-      this.eventSocket.send(JSON.stringify({ type: MSG_TYPE_NEXT, stream }));
-      this.lastNextTimestamps.set(stream, Date.now());
+      try {
+        this.eventSocket.send(JSON.stringify({ type: MSG_TYPE_NEXT, stream }));
+        this.lastNextTimestamps.set(stream, Date.now());
+      } catch (err) {
+        log(`Failed sending 'next' for stream ${stream}: ${err}`, LogLevel.DEBUG);
+      }
     }
   }
 

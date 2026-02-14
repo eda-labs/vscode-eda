@@ -192,6 +192,9 @@ export class EdaClient {
   private streamClient: EdaStreamClient;
   private specManager: EdaSpecManager;
   private initPromise: Promise<void> = Promise.resolve();
+  private streamRefCounts: Map<string, number> = new Map();
+  private eqlStreamRefCounts: Map<string, number> = new Map();
+  private nqlStreamRefCounts: Map<string, number> = new Map();
 
   constructor(baseUrl: string, opts: EdaClientOptions) {
     log('Initializing EdaClient with new architecture', LogLevel.DEBUG);
@@ -220,6 +223,25 @@ export class EdaClient {
     });
   }
 
+  private incrementRefCount(map: Map<string, number>, key: string): boolean {
+    const current = map.get(key) ?? 0;
+    map.set(key, current + 1);
+    return current === 0;
+  }
+
+  private decrementRefCount(map: Map<string, number>, key: string): boolean {
+    const current = map.get(key) ?? 0;
+    if (current === 0) {
+      return false;
+    }
+    if (current <= 1) {
+      map.delete(key);
+      return true;
+    }
+    map.set(key, current - 1);
+    return false;
+  }
+
   // Stream event forwarding
   public onStreamMessage(cb: StreamMessageCallback): { dispose(): void } {
     return this.streamClient.onStreamMessage((event: StreamMessage) => {
@@ -233,40 +255,44 @@ export class EdaClient {
   }
 
   // Streaming methods
-  public async streamEdaNamespaces(): Promise<void> {
-    await this.initPromise; // Ensure initialization is complete
-    this.streamClient.subscribeToStream('namespaces');
+  public async streamByName(streamName: string): Promise<void> {
+    await this.initPromise;
+    const isFirstSubscriber = this.incrementRefCount(this.streamRefCounts, streamName);
+    if (isFirstSubscriber) {
+      this.streamClient.subscribeToStream(streamName);
+    }
     await this.streamClient.connect();
+  }
+
+  public closeStreamByName(streamName: string): void {
+    const shouldClose = this.decrementRefCount(this.streamRefCounts, streamName);
+    if (shouldClose) {
+      this.streamClient.unsubscribeFromStream(streamName);
+    }
+  }
+
+  public async streamEdaNamespaces(): Promise<void> {
+    await this.streamByName('namespaces');
   }
 
   public async streamEdaAlarms(): Promise<void> {
-    await this.initPromise;
-    this.streamClient.subscribeToStream('current-alarms');
-    await this.streamClient.connect();
+    await this.streamByName('current-alarms');
   }
 
   public async streamEdaDeviations(): Promise<void> {
-    await this.initPromise;
-    this.streamClient.subscribeToStream('deviations');
-    await this.streamClient.connect();
+    await this.streamByName('deviations');
   }
 
   public async streamTopoNodes(): Promise<void> {
-    await this.initPromise;
-    this.streamClient.subscribeToStream('toponodes');
-    await this.streamClient.connect();
+    await this.streamByName('toponodes');
   }
 
   public async streamTopoLinks(): Promise<void> {
-    await this.initPromise;
-    this.streamClient.subscribeToStream('topolinks');
-    await this.streamClient.connect();
+    await this.streamByName('topolinks');
   }
 
   public async streamInterfaces(): Promise<void> {
-    await this.initPromise;
-    this.streamClient.subscribeToStream('interfaces');
-    await this.streamClient.connect();
+    await this.streamByName('interfaces');
   }
 
   public async streamEql(
@@ -275,13 +301,19 @@ export class EdaClient {
     streamName = 'eql'
   ): Promise<void> {
     await this.initPromise;
+    const isFirstSubscriber = this.incrementRefCount(this.eqlStreamRefCounts, streamName);
     this.streamClient.setEqlQuery(query, namespaces, streamName);
-    this.streamClient.subscribeToStream(streamName);
+    if (isFirstSubscriber) {
+      this.streamClient.subscribeToStream(streamName);
+    }
     await this.streamClient.connect();
   }
 
   public async closeEqlStream(streamName = 'eql'): Promise<void> {
-    await this.streamClient.closeEqlStream(streamName);
+    const shouldClose = this.decrementRefCount(this.eqlStreamRefCounts, streamName);
+    if (shouldClose) {
+      await this.streamClient.closeEqlStream(streamName);
+    }
   }
 
   public async streamNql(
@@ -290,20 +322,29 @@ export class EdaClient {
     streamName = 'nql'
   ): Promise<void> {
     await this.initPromise;
+    const isFirstSubscriber = this.incrementRefCount(this.nqlStreamRefCounts, streamName);
     this.streamClient.setNqlQuery(query, namespaces, streamName);
-    this.streamClient.subscribeToStream(streamName);
+    if (isFirstSubscriber) {
+      this.streamClient.subscribeToStream(streamName);
+    }
     await this.streamClient.connect();
   }
 
   public async closeNqlStream(streamName = 'nql'): Promise<void> {
-    await this.streamClient.closeNqlStream(streamName);
+    const shouldClose = this.decrementRefCount(this.nqlStreamRefCounts, streamName);
+    if (shouldClose) {
+      await this.streamClient.closeNqlStream(streamName);
+    }
   }
 
   public async streamEdaTransactions(size = 50): Promise<void> {
     await this.initPromise;
+    const isFirstSubscriber = this.incrementRefCount(this.streamRefCounts, STREAM_SUMMARY);
     this.streamClient.setTransactionSummarySize(size);
-    if (!this.streamClient.isSubscribed(STREAM_SUMMARY)) {
+    if (isFirstSubscriber) {
       this.streamClient.subscribeToStream(STREAM_SUMMARY);
+      await this.streamClient.connect();
+      return;
     }
     if (!this.streamClient.isConnected()) {
       await this.streamClient.connect();
@@ -313,27 +354,40 @@ export class EdaClient {
   }
 
   public closeAlarmStream(): void {
-    this.streamClient.unsubscribeFromStream('current-alarms');
+    this.closeStreamByName('current-alarms');
   }
 
   public closeDeviationStream(): void {
-    this.streamClient.unsubscribeFromStream('deviations');
+    this.closeStreamByName('deviations');
   }
 
   public closeTopoNodeStream(): void {
-    this.streamClient.unsubscribeFromStream('toponodes');
+    this.closeStreamByName('toponodes');
   }
 
   public closeTopoLinkStream(): void {
-    this.streamClient.unsubscribeFromStream('topolinks');
+    this.closeStreamByName('topolinks');
   }
 
   public closeInterfaceStream(): void {
-    this.streamClient.unsubscribeFromStream('interfaces');
+    this.closeStreamByName('interfaces');
   }
 
   public closeTransactionStream(): void {
-    this.streamClient.unsubscribeFromStream(STREAM_SUMMARY);
+    this.closeStreamByName(STREAM_SUMMARY);
+  }
+
+  public async updateTransactionStreamSize(size = 50): Promise<void> {
+    await this.initPromise;
+    this.streamClient.setTransactionSummarySize(size);
+    if (!this.streamClient.isSubscribed(STREAM_SUMMARY)) {
+      return;
+    }
+    if (!this.streamClient.isConnected()) {
+      await this.streamClient.connect();
+      return;
+    }
+    await this.streamClient.restartTransactionSummaryStream();
   }
 
   // API methods (delegated)
@@ -516,6 +570,10 @@ export class EdaClient {
     return this.specManager.getCoreNamespace();
   }
 
+  public getApiVersion(): string {
+    return this.specManager.getApiVersion();
+  }
+
   public async getStreamNames(): Promise<string[]> {
     await this.initPromise;
     return this.specManager.getStreamNames();
@@ -545,6 +603,9 @@ export class EdaClient {
    * Dispose all resources
    */
   public dispose(): void {
+    this.streamRefCounts.clear();
+    this.eqlStreamRefCounts.clear();
+    this.nqlStreamRefCounts.clear();
     this.streamClient.dispose();
     this.authClient.dispose();
   }

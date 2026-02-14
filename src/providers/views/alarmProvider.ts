@@ -42,6 +42,8 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
   private edaClient: EdaClient;
   private statusService: ResourceStatusService;
   private alarms: Map<string, EdaAlarm> = new Map();
+  private alarmIdToKey: Map<string, string> = new Map();
+  private alarmKeyRefCount: Map<string, number> = new Map();
   private _onAlarmCountChanged = new vscode.EventEmitter<number>();
   readonly onAlarmCountChanged = this._onAlarmCountChanged.event;
 
@@ -124,6 +126,108 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
     return item;
   }
 
+  private getAlarmNamespace(alarm: EdaAlarm): string {
+    return (
+      alarm['.namespace.name'] ||
+      alarm['namespace.name'] ||
+      alarm.namespace ||
+      ''
+    );
+  }
+
+  private getAlarmKey(alarm: EdaAlarm, fallbackId: string): string {
+    const name = alarm.name || '';
+    if (!name) {
+      return `id:${fallbackId}`;
+    }
+    const ns = this.getAlarmNamespace(alarm);
+    const type = alarm.type || '';
+    const resource = alarm.resource || '';
+    return `${ns}|${name}|${type}|${resource}`;
+  }
+
+  private incrementAlarmRef(key: string): void {
+    const count = this.alarmKeyRefCount.get(key) ?? 0;
+    this.alarmKeyRefCount.set(key, count + 1);
+  }
+
+  private decrementAlarmRef(key: string): boolean {
+    const count = this.alarmKeyRefCount.get(key) ?? 0;
+    if (count <= 1) {
+      this.alarmKeyRefCount.delete(key);
+      return true;
+    }
+    this.alarmKeyRefCount.set(key, count - 1);
+    return false;
+  }
+
+  private removeAlarmByRowId(rowId: string): boolean {
+    const key = this.alarmIdToKey.get(rowId);
+    if (!key) {
+      return false;
+    }
+    this.alarmIdToKey.delete(rowId);
+    const shouldDelete = this.decrementAlarmRef(key);
+    if (!shouldDelete) {
+      return false;
+    }
+    return this.alarms.delete(key);
+  }
+
+  private upsertAlarm(rowId: string, data: EdaAlarm): boolean {
+    let changed = false;
+    const newKey = this.getAlarmKey(data, rowId);
+    const existingKey = this.alarmIdToKey.get(rowId);
+
+    if (existingKey && existingKey !== newKey) {
+      const shouldDeleteOld = this.decrementAlarmRef(existingKey);
+      if (shouldDeleteOld && this.alarms.delete(existingKey)) {
+        changed = true;
+      }
+    }
+
+    if (!existingKey || existingKey !== newKey) {
+      this.alarmIdToKey.set(rowId, newKey);
+      this.incrementAlarmRef(newKey);
+    }
+
+    const existing = this.alarms.get(newKey);
+    if (!existing || existing !== data) {
+      changed = true;
+    }
+    this.alarms.set(newKey, data);
+    return changed;
+  }
+
+  private processAlarmDeletes(op: OperationWithDelete & OperationWithInsertOrModify): boolean {
+    let changed = false;
+    const deleteOp = getDelete(op) as DeleteOperationWithIds | undefined;
+    const deleteIds = getDeleteIds(deleteOp) as (string | number)[];
+    for (const id of deleteIds) {
+      if (this.removeAlarmByRowId(String(id))) {
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  private processAlarmUpserts(op: OperationWithDelete & OperationWithInsertOrModify): boolean {
+    let changed = false;
+    const insertOrModify = getInsertOrModify(op) as InsertOrModifyWithRows | undefined;
+    const rows = getRows(insertOrModify) as AlarmRow[];
+    for (const row of rows) {
+      if (!row || row.id === undefined) {
+        continue;
+      }
+      const rowId = String(row.id);
+      const data: EdaAlarm = row.data ?? (row as unknown as EdaAlarm);
+      if (this.upsertAlarm(rowId, data)) {
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
   /** Process alarm stream updates */
   private processAlarmMessage(msg: unknown): void {
     const envelope = msg as { msg?: unknown };
@@ -134,23 +238,8 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
     let changed = false;
     for (const op of ops) {
       const typedOp = op as OperationWithDelete & OperationWithInsertOrModify;
-      const deleteOp = getDelete(typedOp) as DeleteOperationWithIds | undefined;
-      const deleteIds = getDeleteIds(deleteOp) as (string | number)[];
-      for (const id of deleteIds) {
-        if (this.alarms.delete(String(id))) {
-          changed = true;
-        }
-      }
-
-      const insertOrModify = getInsertOrModify(typedOp) as InsertOrModifyWithRows | undefined;
-      const rows = getRows(insertOrModify) as AlarmRow[];
-      for (const row of rows) {
-        if (row && row.id !== undefined) {
-          const data: EdaAlarm = row.data ?? (row as unknown as EdaAlarm);
-          this.alarms.set(String(row.id), data);
-          changed = true;
-        }
-      }
+      changed = this.processAlarmDeletes(typedOp) || changed;
+      changed = this.processAlarmUpserts(typedOp) || changed;
     }
     if (changed) {
       this.refresh();

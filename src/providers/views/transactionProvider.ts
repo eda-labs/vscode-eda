@@ -93,7 +93,7 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
     }
     this.transactionLimit = limit;
     this.cachedTransactions = this.cachedTransactions.slice(0, limit);
-    await this.edaClient.streamEdaTransactions(limit);
+    await this.edaClient.updateTransactionStreamSize(limit);
     this.refresh();
   }
 
