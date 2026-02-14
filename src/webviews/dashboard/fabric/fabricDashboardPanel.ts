@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import * as vscode from 'vscode';
 
 import { BasePanel } from '../../basePanel';
-import { ALL_NAMESPACES, RESOURCES_DIR } from '../../constants';
+import { ALL_NAMESPACES } from '../../constants';
 import { serviceManager } from '../../../services/serviceManager';
 import type { EdaClient } from '../../../clients/edaClient';
 import type { EdaAuthClient } from '../../../clients/edaAuthClient';
@@ -243,9 +243,7 @@ export class FabricDashboardPanel extends BasePanel {
 
   protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'fabricDashboard.js');
-    const echartsUri = this.getResourceUri(RESOURCES_DIR, 'echarts.min.js');
-    const bootstrapData = JSON.stringify({ echartsUri: echartsUri.toString() });
-    return `<script nonce="${nonce}">window.__EDA_BOOTSTRAP__=${bootstrapData};</script><script type="module" nonce="${nonce}" src="${scriptUri}"></script>`;
+    return `<script type="module" nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
   private async sendNamespaces(): Promise<void> {

@@ -824,10 +824,10 @@
     "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^7.3.8",
     "@mui/material": "^7.3.8",
-    "@mui/x-data-grid": "^7.29.12",
+    "@mui/x-charts": "^8.27.0",
+    "@mui/x-data-grid": "^8.27.1",
     "@xyflow/react": "^12.10.0",
     "bezier-js": "^6.1.4",
-    "echarts": "^6.0.0",
     "html-to-image": "^1.11.13",
     "react": "^19.2.3",
     "react-dom": "^19.2.3"

@@ -1,79 +1,12 @@
-import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useCallback, useRef, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Box, Card, CardContent, FormControl, Grid, InputLabel, MenuItem, Select, Stack, Typography } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
+import { LineChart } from '@mui/x-charts/LineChart';
 
 import { usePostMessage, useMessageListener, useReadySignal } from '../../shared/hooks';
 import { VSCodeProvider } from '../../shared/context';
 import { WebviewThemeProvider } from '../../shared/theme';
-
-// ECharts type definitions for CDN-loaded library
-interface EChartsInstance {
-  setOption(option: EChartsOption): void;
-  resize(): void;
-  dispose(): void;
-}
-
-interface EChartsTheme {
-  color?: string[];
-  backgroundColor?: string;
-  textStyle?: { color: string };
-}
-
-interface EChartsOption {
-  tooltip?: {
-    trigger?: string;
-    formatter?: (params: TooltipParam[]) => string;
-  };
-  legend?: {
-    data?: string[];
-    textStyle?: { color: string };
-  };
-  grid?: {
-    left?: string;
-    right?: string;
-    bottom?: string;
-    containLabel?: boolean;
-  };
-  xAxis?: {
-    type?: string;
-    boundaryGap?: boolean;
-    data?: string[];
-    axisLabel?: { color: string };
-  };
-  yAxis?: {
-    type?: string;
-    name?: string;
-    axisLabel?: { color: string };
-  };
-  series?: Array<{
-    name?: string;
-    type?: string;
-    smooth?: boolean;
-    data?: number[];
-    areaStyle?: { opacity: number };
-    itemStyle?: { color: string };
-  }>;
-}
-
-interface TooltipParam {
-  axisValue: string;
-  data: number;
-}
-
-interface EChartsStatic {
-  init(dom: HTMLElement, theme?: EChartsTheme): EChartsInstance;
-}
-
-declare const echarts: EChartsStatic | undefined;
-
-declare global {
-  interface Window {
-    __EDA_BOOTSTRAP__?: {
-      echartsUri?: string;
-    };
-  }
-}
 
 interface FabricMessage {
   command: string;
@@ -97,6 +30,15 @@ interface TrafficPoint {
   time: number;
   inbound: number;
   outbound: number;
+}
+
+interface TrafficChartData {
+  times: Date[];
+  inbound: number[];
+  outbound: number[];
+  unit: string;
+  windowStart: Date;
+  windowEnd: Date;
 }
 
 interface NodeStats {
@@ -247,129 +189,44 @@ function FabricDashboard() {
   const theme = useTheme();
   const [namespaces, setNamespaces] = useState<string[]>([]);
   const [selectedNamespace, setSelectedNamespace] = useState('');
-  const [echartsLoaded, setEchartsLoaded] = useState(false);
 
   // Consolidated state objects
   const [nodeStats, setNodeStats] = useState<NodeStats>(initialNodeStats);
   const [interfaceStats, setInterfaceStats] = useState<InterfaceStats>(initialInterfaceStats);
   const [fabricStats, setFabricStats] = useState<FabricStats>(initialFabricStats);
+  const [trafficChartData, setTrafficChartData] = useState<TrafficChartData>(() => {
+    const now = new Date();
+    return {
+      times: [],
+      inbound: [],
+      outbound: [],
+      unit: 'bit/s',
+      windowStart: now,
+      windowEnd: new Date(now.getTime() + 60000),
+    };
+  });
 
-  const chartRef = useRef<HTMLDivElement>(null);
-  const chartInstanceRef = useRef<EChartsInstance | null>(null);
   const trafficPointsRef = useRef<TrafficPoint[]>([]);
+  const trafficStartRef = useRef<number>(0);
   const trafficUnitRef = useRef('bit/s');
   const trafficDivRef = useRef(1);
   const chartVisual = useMemo(() => {
     const { charts } = theme.vscode;
     return {
-      palette: [charts.blue, charts.green, charts.yellow, charts.red, charts.purple, charts.orange],
-      textColor: theme.palette.text.primary,
       inboundColor: charts.blue,
       outboundColor: charts.purple
     };
   }, [theme]);
 
-  // Load ECharts
-  useEffect(() => {
-    if (typeof echarts !== 'undefined') {
-      setEchartsLoaded(true);
-    }
-  }, []);
-
-  // Initialize chart when ECharts is loaded
-  useEffect(() => {
-    if (!echartsLoaded || !chartRef.current) return;
-
-    const chartTheme = {
-      color: chartVisual.palette,
-      backgroundColor: 'transparent',
-      textStyle: {
-        color: chartVisual.textColor
-      }
-    };
-
-    if (!echarts) return;
-    chartInstanceRef.current = echarts.init(chartRef.current, chartTheme);
-
-    chartInstanceRef.current.setOption({
-      tooltip: {
-        trigger: 'axis',
-        formatter: (params: TooltipParam[]) => {
-          const [incoming, outgoing] = params;
-          return (
-            incoming.axisValue +
-            '<br/>Inbound: ' +
-            String(incoming.data) +
-            ' ' +
-            trafficUnitRef.current +
-            '<br/>Outbound: ' +
-            String(outgoing.data) +
-            ' ' +
-            trafficUnitRef.current
-          );
-        }
-      },
-      legend: {
-        data: ['Inbound', 'Outbound'],
-        textStyle: {
-          color: chartTheme.textStyle.color
-        }
-      },
-      grid: {
-        left: '3%',
-        right: '4%',
-        bottom: '3%',
-        containLabel: true
-      },
-      xAxis: {
-        type: 'category',
-        boundaryGap: false,
-        data: [],
-        axisLabel: {
-          color: chartTheme.textStyle.color
-        }
-      },
-      yAxis: {
-        type: 'value',
-        name: 'Traffic (bit/s)',
-        axisLabel: {
-          color: chartTheme.textStyle.color
-        }
-      },
-      series: [
-        {
-          name: 'Inbound',
-          type: 'line',
-          smooth: true,
-          data: [],
-          areaStyle: { opacity: 0.3 },
-          itemStyle: { color: chartVisual.inboundColor }
-        },
-        {
-          name: 'Outbound',
-          type: 'line',
-          smooth: true,
-          data: [],
-          areaStyle: { opacity: 0.3 },
-          itemStyle: { color: chartVisual.outboundColor }
-        }
-      ]
-    });
-
-    const handleResize = () => {
-      chartInstanceRef.current?.resize();
-    };
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      chartInstanceRef.current?.dispose();
-    };
-  }, [echartsLoaded, chartVisual]);
-
   const updateTrafficChart = useCallback((inVal: number, outVal: number) => {
     const now = Date.now();
     trafficPointsRef.current.push({ time: now, inbound: inVal, outbound: outVal });
+
+    // Record the start time on the first data point
+    if (trafficStartRef.current === 0) {
+      trafficStartRef.current = now;
+    }
+
     const cutoff = now - 60000;
     while (trafficPointsRef.current.length && trafficPointsRef.current[0].time < cutoff) {
       trafficPointsRef.current.shift();
@@ -390,27 +247,39 @@ function FabricDashboard() {
       trafficDivRef.current = 1;
     }
 
-    const trafficTimes = trafficPointsRef.current.map(p =>
-      new Date(p.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    );
-    const inboundData = trafficPointsRef.current.map(p => +(p.inbound / trafficDivRef.current).toFixed(2));
-    const outboundData = trafficPointsRef.current.map(p => +(p.outbound / trafficDivRef.current).toFixed(2));
+    const points = trafficPointsRef.current;
+    const div = trafficDivRef.current;
+    const trafficTimes = points.map(p => new Date(p.time));
+    const inboundData = points.map(p => +(p.inbound / div).toFixed(2));
+    const outboundData = points.map(p => +(p.outbound / div).toFixed(2));
 
-    chartInstanceRef.current?.setOption({
-      xAxis: { data: trafficTimes },
-      yAxis: { name: 'Traffic (' + trafficUnitRef.current + ')' },
-      series: [{ data: inboundData }, { data: outboundData }]
+    // Fixed 60-second window: starts at first data point, slides after 60s
+    const windowStart = new Date(points[0].time);
+    const windowEnd = new Date(Math.max(points[0].time + 60000, now));
+
+    setTrafficChartData({
+      times: trafficTimes,
+      inbound: inboundData,
+      outbound: outboundData,
+      unit: trafficUnitRef.current,
+      windowStart,
+      windowEnd,
     });
   }, []);
 
   const clearTrafficChart = useCallback(() => {
     trafficPointsRef.current = [];
+    trafficStartRef.current = 0;
     trafficUnitRef.current = 'bit/s';
     trafficDivRef.current = 1;
-    chartInstanceRef.current?.setOption({
-      xAxis: { data: [] },
-      yAxis: { name: 'Traffic (bit/s)' },
-      series: [{ data: [] }, { data: [] }]
+    const now = new Date();
+    setTrafficChartData({
+      times: [],
+      inbound: [],
+      outbound: [],
+      unit: 'bit/s',
+      windowStart: now,
+      windowEnd: new Date(now.getTime() + 60000),
     });
   }, []);
 
@@ -495,7 +364,62 @@ function FabricDashboard() {
           <Card variant="outlined" sx={{ height: '100%' }}>
             <CardContent>
               <Typography variant="h6" sx={{ mb: 2 }}>Traffic Rate</Typography>
-              <Box ref={chartRef} sx={{ height: 300 }} />
+              <LineChart
+                skipAnimation
+                height={300}
+                margin={{ left: 70, right: 24, top: 16, bottom: 36 }}
+                grid={{ horizontal: true }}
+                xAxis={[{
+                  scaleType: 'time',
+                  data: trafficChartData.times,
+                  min: trafficChartData.windowStart,
+                  max: trafficChartData.windowEnd,
+                  valueFormatter: (date: Date) =>
+                    date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                  tickNumber: 5,
+                }]}
+                yAxis={[{
+                  label: `Traffic (${trafficChartData.unit})`,
+                  min: 0,
+                }]}
+                series={[
+                  {
+                    id: 'inbound',
+                    label: 'Inbound',
+                    data: trafficChartData.inbound,
+                    color: chartVisual.inboundColor,
+                    showMark: false,
+                    area: true,
+                    curve: 'monotoneX',
+                    valueFormatter: value => `${value ?? 0} ${trafficChartData.unit}`,
+                  },
+                  {
+                    id: 'outbound',
+                    label: 'Outbound',
+                    data: trafficChartData.outbound,
+                    color: chartVisual.outboundColor,
+                    showMark: false,
+                    area: true,
+                    curve: 'monotoneX',
+                    valueFormatter: value => `${value ?? 0} ${trafficChartData.unit}`,
+                  }
+                ]}
+                sx={{
+                  '.MuiAreaElement-series-inbound': { fill: 'url(#inbound-gradient)' },
+                  '.MuiAreaElement-series-outbound': { fill: 'url(#outbound-gradient)' },
+                }}
+              >
+                <defs>
+                  <linearGradient id="inbound-gradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={chartVisual.inboundColor} stopOpacity={0.3} />
+                    <stop offset="100%" stopColor={chartVisual.inboundColor} stopOpacity={0.02} />
+                  </linearGradient>
+                  <linearGradient id="outbound-gradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={chartVisual.outboundColor} stopOpacity={0.3} />
+                    <stop offset="100%" stopColor={chartVisual.outboundColor} stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+              </LineChart>
             </CardContent>
           </Card>
         </Grid>
@@ -518,21 +442,6 @@ function FabricDashboard() {
   );
 }
 
-// Get bootstrap data injected by the panel host.
-const echartsUri = window.__EDA_BOOTSTRAP__?.echartsUri ?? '';
-
-// Load echarts first, then render React
-function loadEchartsAndRender() {
-  if (echartsUri) {
-    const script = document.createElement('script');
-    script.src = echartsUri;
-    script.onload = renderApp;
-    document.body.appendChild(script);
-  } else {
-    renderApp();
-  }
-}
-
 function renderApp() {
   const container = document.getElementById('root');
   if (container) {
@@ -547,4 +456,4 @@ function renderApp() {
   }
 }
 
-loadEchartsAndRender();
+renderApp();
