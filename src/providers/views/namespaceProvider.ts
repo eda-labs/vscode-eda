@@ -19,6 +19,17 @@ const STREAM_GROUP_KUBERNETES = 'kubernetes';
 const CONTEXT_K8S_NAMESPACE = 'k8s-namespace';
 const CONTEXT_STREAM_GROUP = 'stream-group';
 const CONTEXT_STREAM_ITEM = 'stream-item';
+const STREAM_SUBSCRIBE_EXCLUDE = new Set([
+  'resultsummary',
+  'v1',
+  'eql',
+  'nql',
+  'current-alarms',
+  'summary',
+  'directory',
+  'file',
+  'namespaces'
+]);
 
 /** Standard Kubernetes resource metadata */
 interface K8sMetadata {
@@ -178,8 +189,33 @@ constructor() {
    */
   public async initialize(): Promise<void> {
     await this.loadStreams();
+    await this.subscribeToKnownEdaStreams();
     await this.initializeKubernetesNamespaces();
     await this.edaClient.streamEdaNamespaces();
+  }
+
+  private async subscribeToKnownEdaStreams(): Promise<void> {
+    const streams = new Set<string>();
+    for (const [group, names] of Object.entries(this.cachedStreamGroups)) {
+      if (group === STREAM_GROUP_KUBERNETES) {
+        continue;
+      }
+      for (const stream of names) {
+        if (!STREAM_SUBSCRIBE_EXCLUDE.has(stream)) {
+          streams.add(stream);
+        }
+      }
+    }
+
+    await Promise.all(
+      Array.from(streams).map(async stream => {
+        try {
+          await this.edaClient.streamByName(stream);
+        } catch (err) {
+          log(`Failed to subscribe stream ${stream}: ${err}`, LogLevel.DEBUG);
+        }
+      })
+    );
   }
 
   /**

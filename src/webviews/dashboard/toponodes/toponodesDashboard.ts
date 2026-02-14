@@ -53,6 +53,7 @@ type FlattenedRow = Record<string, unknown>;
 export class ToponodesDashboardPanel extends BasePanel {
   private static currentPanel: ToponodesDashboardPanel | undefined;
   private edaClient: EdaClient;
+  private streamDisposable: { dispose(): void } | undefined;
   private rowMap: Map<string, Map<string, FlattenedRow>> = new Map();
   private columns: string[] = [];
   private columnSet: Set<string> = new Set();
@@ -63,13 +64,14 @@ export class ToponodesDashboardPanel extends BasePanel {
 
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
 
-    this.edaClient.onStreamMessage((stream, msg) => {
+    this.streamDisposable = this.edaClient.onStreamMessage((stream, msg) => {
       if (stream === 'toponodes') {
         this.handleTopoNodeStream(msg as TopoNodeStreamMessage);
       }
     });
 
     this.panel.onDidDispose(() => {
+      this.streamDisposable?.dispose();
       this.edaClient.closeTopoNodeStream();
     });
 

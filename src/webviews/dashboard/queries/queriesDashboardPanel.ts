@@ -48,6 +48,7 @@ export class QueriesDashboardPanel extends BasePanel {
   private static currentPanel: QueriesDashboardPanel | undefined;
   private edaClient: EdaClient;
   private embeddingSearch: EmbeddingSearchService;
+  private streamDisposable: { dispose(): void } | undefined;
   private queryStreamName?: string;
   private columns: string[] = [];
   private rows: unknown[][] = [];
@@ -60,7 +61,7 @@ export class QueriesDashboardPanel extends BasePanel {
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.embeddingSearch = EmbeddingSearchService.getInstance();
 
-    this.edaClient.onStreamMessage((stream, msg) => {
+    this.streamDisposable = this.edaClient.onStreamMessage((stream, msg) => {
       log(`EdaClient callback received stream: ${stream}, queryStreamName: ${this.queryStreamName}`, LogLevel.DEBUG);
       if (stream === this.queryStreamName) {
         log('Stream name matches, calling handleQueryStream', LogLevel.DEBUG);
@@ -71,8 +72,10 @@ export class QueriesDashboardPanel extends BasePanel {
     });
 
     this.panel.onDidDispose(() => {
+      this.streamDisposable?.dispose();
       if (this.queryStreamName) {
         void this.edaClient.closeEqlStream(this.queryStreamName);
+        void this.edaClient.closeNqlStream(this.queryStreamName);
       }
     });
 
@@ -190,6 +193,7 @@ export class QueriesDashboardPanel extends BasePanel {
     this.nqlConversionShown = false;
     if (this.queryStreamName) {
       await this.edaClient.closeEqlStream(this.queryStreamName);
+      await this.edaClient.closeNqlStream(this.queryStreamName);
     }
     this.queryStreamName = `query-${Date.now()}`;
     const ns = namespace === ALL_NAMESPACES ? undefined : namespace;
@@ -203,6 +207,7 @@ export class QueriesDashboardPanel extends BasePanel {
     this.rowMap.clear();
     this.nqlConversionShown = false;
     if (this.queryStreamName) {
+      await this.edaClient.closeEqlStream(this.queryStreamName);
       await this.edaClient.closeNqlStream(this.queryStreamName);
     }
     this.queryStreamName = `nql-${Date.now()}`;
