@@ -71,9 +71,18 @@ body {
 }
 
 .dev-shell__content {
+  --dev-explorer-width: 380px;
   display: grid;
-  grid-template-columns: minmax(320px, 440px) minmax(0, 1fr);
+  grid-template-columns: minmax(180px, var(--dev-explorer-width)) 8px minmax(0, 1fr);
   min-height: 0;
+}
+
+.dev-shell__content--resizing {
+  cursor: col-resize;
+}
+
+.dev-shell__content--resizing .dev-shell__iframe {
+  pointer-events: none;
 }
 
 .dev-shell__pane {
@@ -83,7 +92,30 @@ body {
 }
 
 .dev-shell__pane--explorer {
-  border-right: 1px solid var(--vscode-panel-border);
+  min-width: 0;
+}
+
+.dev-shell__splitter {
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+}
+
+.dev-shell__splitter::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: var(--vscode-panel-border);
+  transition: background-color 0.12s ease;
+}
+
+.dev-shell__splitter:hover::before,
+.dev-shell__content--resizing .dev-shell__splitter::before {
+  background: var(--vscode-focusBorder, var(--vscode-button-background));
 }
 
 .dev-shell__pane-title {
@@ -128,8 +160,11 @@ body {
     grid-template-rows: minmax(300px, 45vh) minmax(0, 1fr);
   }
 
+  .dev-shell__splitter {
+    display: none;
+  }
+
   .dev-shell__pane--explorer {
-    border-right: 0;
     border-bottom: 1px solid var(--vscode-panel-border);
   }
 }

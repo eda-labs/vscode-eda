@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 
 import { applyDevTheme, DEV_THEMES, isDevThemeId, type DevThemeId } from '../../../src/webviews/shared/theme';
 
@@ -15,6 +15,9 @@ import './styles.css';
 const WEBVIEW_PARAM = 'webview';
 const THEME_PARAM = 'theme';
 const OPEN_PREVIEW_EVENT_SOURCE = 'eda-webviews-dev';
+const EXPLORER_MIN_WIDTH = 180;
+const PREVIEW_MIN_WIDTH = 260;
+const EXPLORER_DEFAULT_WIDTH = 380;
 
 interface OpenPreviewMessage {
   source: typeof OPEN_PREVIEW_EVENT_SOURCE;
@@ -90,6 +93,9 @@ export default function App() {
   const [themeId, setThemeId] = useState<DevThemeId>(getInitialThemeId);
   const [previewParams, setPreviewParams] = useState<Record<string, string>>({});
   const [reloadVersion, setReloadVersion] = useState(0);
+  const [explorerWidth, setExplorerWidth] = useState(EXPLORER_DEFAULT_WIDTH);
+  const [isResizingExplorer, setIsResizingExplorer] = useState(false);
+  const contentRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     applyDevTheme(themeId);
@@ -131,6 +137,71 @@ export default function App() {
     };
   }, []);
 
+  const clampExplorerWidth = useCallback((proposedWidth: number): number => {
+    const content = contentRef.current;
+    if (!content) {
+      return Math.max(EXPLORER_MIN_WIDTH, proposedWidth);
+    }
+
+    const maxWidth = Math.max(EXPLORER_MIN_WIDTH, content.clientWidth - PREVIEW_MIN_WIDTH);
+    return Math.min(Math.max(proposedWidth, EXPLORER_MIN_WIDTH), maxWidth);
+  }, []);
+
+  const handleResizeStart = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || window.matchMedia('(max-width: 980px)').matches) {
+      return;
+    }
+    event.preventDefault();
+
+    const content = contentRef.current;
+    if (!content) {
+      return;
+    }
+    const { left } = content.getBoundingClientRect();
+    setExplorerWidth(clampExplorerWidth(event.clientX - left));
+    setIsResizingExplorer(true);
+  }, [clampExplorerWidth]);
+
+  useEffect(() => {
+    if (!isResizingExplorer) {
+      return;
+    }
+
+    const updateWidth = (clientX: number): void => {
+      const content = contentRef.current;
+      if (!content) {
+        return;
+      }
+      const { left } = content.getBoundingClientRect();
+      setExplorerWidth(clampExplorerWidth(clientX - left));
+    };
+
+    const handlePointerMove = (event: PointerEvent): void => {
+      updateWidth(event.clientX);
+    };
+
+    const stopResize = (): void => {
+      setIsResizingExplorer(false);
+    };
+
+    const previousCursor = document.body.style.cursor;
+    const previousUserSelect = document.body.style.userSelect;
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', stopResize);
+    window.addEventListener('blur', stopResize);
+
+    return () => {
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousUserSelect;
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', stopResize);
+      window.removeEventListener('blur', stopResize);
+    };
+  }, [clampExplorerWidth, isResizingExplorer]);
+
   const explorerUrl = useMemo(
     () => buildPreviewUrl(DEV_EXPLORER_WEBVIEW.id, themeId),
     [themeId]
@@ -140,6 +211,10 @@ export default function App() {
     [webviewId, themeId, previewParams]
   );
   const previewLabel = useMemo(() => getDevWebviewLabel(webviewId), [webviewId]);
+  const contentStyle = useMemo(
+    () => ({ '--dev-explorer-width': `${explorerWidth}px` } as CSSProperties),
+    [explorerWidth]
+  );
 
   return (
     <div className="dev-shell">
@@ -184,7 +259,11 @@ export default function App() {
         </button>
       </header>
 
-      <main className="dev-shell__content">
+      <main
+        ref={contentRef}
+        className={`dev-shell__content${isResizingExplorer ? ' dev-shell__content--resizing' : ''}`}
+        style={contentStyle}
+      >
         <section className="dev-shell__pane dev-shell__pane--explorer">
           <h2 className="dev-shell__pane-title">{DEV_EXPLORER_WEBVIEW.label}</h2>
           <iframe
@@ -194,6 +273,14 @@ export default function App() {
             className="dev-shell__iframe"
           />
         </section>
+
+        <div
+          className="dev-shell__splitter"
+          role="separator"
+          aria-label="Resize explorer width"
+          aria-orientation="vertical"
+          onPointerDown={handleResizeStart}
+        />
 
         <section className="dev-shell__pane dev-shell__pane--preview">
           <h2 className="dev-shell__pane-title">{previewLabel}</h2>

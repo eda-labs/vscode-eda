@@ -1,9 +1,17 @@
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import MoreVertIcon from '@mui/icons-material/MoreVert';
-import SearchIcon from '@mui/icons-material/Search';
-import SettingsIcon from '@mui/icons-material/Settings';
-import ShoppingBasketIcon from '@mui/icons-material/ShoppingBasket';
+import {
+  Add as AddIcon,
+  ChevronRight as ChevronRightIcon,
+  Close as CloseIcon,
+  DeleteOutline as DeleteOutlineIcon,
+  ExpandMore as ExpandMoreIcon,
+  FactCheck as FactCheckIcon,
+  MoreVert as MoreVertIcon,
+  PlayArrow as PlayArrowIcon,
+  Search as SearchIcon,
+  Settings as SettingsIcon,
+  ShoppingBasket as ShoppingBasketIcon,
+  type SvgIconComponent
+} from '@mui/icons-material';
 import {
   Alert,
   Badge,
@@ -57,6 +65,22 @@ const TOOLBAR_BUTTON_SX = {
   minHeight: 28,
   px: 1.25,
   py: 0.25,
+  flexShrink: 0,
+  whiteSpace: 'nowrap',
+  borderRadius: 1,
+  border: '1px solid',
+  borderColor: COLOR_DIVIDER,
+  color: COLOR_TEXT_PRIMARY,
+  bgcolor: (theme: Theme) => alpha(theme.palette.background.default, 0.45),
+  '&:hover': {
+    borderColor: COLOR_PRIMARY_MAIN,
+    bgcolor: (theme: Theme) => alpha(theme.palette.primary.main, 0.14)
+  }
+} as const;
+
+const TOOLBAR_ICON_BUTTON_SX = {
+  width: 28,
+  height: 28,
   borderRadius: 1,
   border: '1px solid',
   borderColor: COLOR_DIVIDER,
@@ -105,6 +129,46 @@ function flattenExpandableNodeIds(nodes: ExplorerNode[]): string[] {
     ids.push(...flattenExpandableNodeIds(node.children));
   }
   return ids;
+}
+
+type ToolbarActionIconId =
+  | 'createResource'
+  | 'rejectAllDeviations'
+  | 'commitBasket'
+  | 'dryRunBasket'
+  | 'discardBasket'
+  | 'setTransactionLimit';
+
+const TOOLBAR_ACTION_ICONS: Record<ToolbarActionIconId, SvgIconComponent> = {
+  createResource: AddIcon,
+  rejectAllDeviations: CloseIcon,
+  commitBasket: PlayArrowIcon,
+  dryRunBasket: FactCheckIcon,
+  discardBasket: DeleteOutlineIcon,
+  setTransactionLimit: SettingsIcon
+};
+
+function toolbarActionIconId(action: ExplorerAction): ToolbarActionIconId | undefined {
+  if (action.command === 'vscode-eda.createResource') {
+    return 'createResource';
+  }
+  if (action.command === 'vscode-eda.rejectAllDeviations') {
+    return 'rejectAllDeviations';
+  }
+  if (action.command === 'vscode-eda.commitBasket') {
+    return 'commitBasket';
+  }
+  if (action.command === 'vscode-eda.dryRunBasket') {
+    return 'dryRunBasket';
+  }
+  if (action.command === 'vscode-eda.discardBasket') {
+    return 'discardBasket';
+  }
+  if (action.command === 'vscode-eda.setTransactionLimit') {
+    return 'setTransactionLimit';
+  }
+
+  return undefined;
 }
 
 function ExplorerNodeLabel({ node, onInvokeAction }: Readonly<ExplorerNodeLabelProps>) {
@@ -579,7 +643,7 @@ function EdaExplorerView() {
       </Stack>
 
       {filterText.length > 0 && (
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap' }}>
+        <Stack direction="row" spacing={1} useFlexGap alignItems="center" sx={{ flexWrap: 'wrap' }}>
           <Button size="small" onClick={clearFilter} sx={TOOLBAR_BUTTON_SX}>
             Clear Filter
           </Button>
@@ -600,7 +664,6 @@ function EdaExplorerView() {
           const isDropTarget = dragOverSection === section.id && draggingSection !== section.id;
           const isBeingDragged = draggingSection === section.id;
           const expandedItems = expandedByTab[section.id] ?? [];
-          const hasToolbar = section.toolbarActions.length > 0 || section.id === 'resources';
 
           return (
             <Paper
@@ -630,7 +693,7 @@ function EdaExplorerView() {
                   py: 0.75,
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 0.25,
+                  gap: 0.5,
                   borderBottom: isCollapsed ? 'none' : '1px solid',
                   borderColor: COLOR_DIVIDER,
                   cursor: isBeingDragged ? 'grabbing' : 'grab',
@@ -640,20 +703,6 @@ function EdaExplorerView() {
                     : alpha(theme.palette.background.default, 0.55)
                 }}
               >
-                <Tooltip title="Drag to reorder section">
-                  <Box
-                    component="span"
-                    sx={{
-                      color: 'text.secondary',
-                      lineHeight: 1,
-                      fontSize: 12,
-                      letterSpacing: '-0.5px',
-                      px: 0.35
-                    }}
-                  >
-                    ::::
-                  </Box>
-                </Tooltip>
                 <IconButton
                   size="small"
                   onClick={(event) => {
@@ -674,44 +723,72 @@ function EdaExplorerView() {
                     {formatSectionTitle(section)}
                   </Typography>
                 </Box>
+                <Stack direction="row" spacing={0.25}>
+                  {section.toolbarActions.map(action => {
+                    const iconId = toolbarActionIconId(action);
+                    if (!iconId) {
+                      return null;
+                    }
+                    const IconComponent = TOOLBAR_ACTION_ICONS[iconId];
+
+                    return (
+                      <Tooltip key={action.id} title={action.label}>
+                        <IconButton
+                          size="small"
+                          aria-label={action.label}
+                          sx={TOOLBAR_ICON_BUTTON_SX}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            invokeAction(action);
+                          }}
+                        >
+                          <IconComponent fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    );
+                  })}
+                </Stack>
+                {section.id === 'resources' && (
+                  <Stack direction="row" spacing={0.25}>
+                    <Tooltip title="Expand All Resources">
+                      <IconButton
+                        size="small"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setCollapsedBySection(current => ({
+                            ...current,
+                            resources: false
+                          }));
+                          expandAllInSection(section.id, section.nodes);
+                        }}
+                        aria-label="Expand all resources"
+                        sx={{ color: COLOR_TEXT_PRIMARY }}
+                      >
+                        <ExpandMoreIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Collapse All Resources">
+                      <IconButton
+                        size="small"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          collapseAllInSection(section.id);
+                        }}
+                        aria-label="Collapse all resources"
+                        sx={{ color: COLOR_TEXT_PRIMARY }}
+                      >
+                        <ChevronRightIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Stack>
+                )}
               </Box>
 
               {!isCollapsed && (
                 <Box sx={{ p: 1 }}>
-                  {hasToolbar && (
-                    <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap', mb: 1 }}>
-                      {section.toolbarActions.map(action => (
-                        <Button
-                          key={action.id}
-                          size="small"
-                          sx={TOOLBAR_BUTTON_SX}
-                          onClick={() => invokeAction(action)}
-                        >
-                          {action.label}
-                        </Button>
-                      ))}
-
-                      {section.id === 'resources' && (
-                        <>
-                          <Button
-                            size="small"
-                            onClick={() => expandAllInSection(section.id, section.nodes)}
-                            sx={TOOLBAR_BUTTON_SX}
-                          >
-                            Expand All
-                          </Button>
-                          <Button
-                            size="small"
-                            onClick={() => collapseAllInSection(section.id)}
-                            sx={TOOLBAR_BUTTON_SX}
-                          >
-                            Collapse All
-                          </Button>
-                        </>
-                      )}
-                    </Stack>
-                  )}
-
                   <SectionTree
                     section={section}
                     expandedItems={expandedItems}
