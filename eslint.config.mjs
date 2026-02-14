@@ -7,7 +7,6 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import importPlugin from 'eslint-plugin-import-x';
 import boundaries from 'eslint-plugin-boundaries';
 import unicorn from 'eslint-plugin-unicorn';
-import betterTailwindcss from 'eslint-plugin-better-tailwindcss';
 
 export default [
   /* ─── files & globs ESLint must ignore ─────────────────────────── */
@@ -172,6 +171,9 @@ export default [
           },
         ],
       }],
+      'no-restricted-imports': ['error', {
+        patterns: ['tailwindcss', '@tailwindcss/*', '**/codicon.css']
+      }],
 
       // ─── Type safety rules (warnings for gradual adoption) ───
       '@typescript-eslint/no-explicit-any': 'warn',
@@ -226,33 +228,16 @@ export default [
   /* ---------- React & Hooks rules for webview ---------- */
   {
     files: ['src/webviews/**/*.tsx'],
-    plugins: { react, 'react-hooks': reactHooks, 'better-tailwindcss': betterTailwindcss },
+    plugins: { react, 'react-hooks': reactHooks },
     settings: {
-      react: { version: 'detect' },
-      'better-tailwindcss': { entryPoint: 'src/styles/tailwind-input.css' }
+      react: { version: 'detect' }
     },
     rules: {
       ...react.configs.recommended.rules,
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
       'react/react-in-jsx-scope': 'off',  // Not needed in React 17+
-      'react/prop-types': 'off',          // Using TypeScript
-      // Tailwind CSS rules (better-tailwindcss supports v4)
-      'better-tailwindcss/no-duplicate-classes': 'warn',
-      'better-tailwindcss/no-conflicting-classes': 'warn',
-      'better-tailwindcss/no-deprecated-classes': 'warn',
-      'better-tailwindcss/enforce-shorthand-classes': 'warn',
-      'better-tailwindcss/no-unknown-classes': ['warn', {
-        ignore: ['^codicon', '^vscode-', '^query-', '^copy-']
-      }],
-    }
-  },
-
-  /* ---------- Topology dashboard: uses custom CSS, not Tailwind ---------- */
-  {
-    files: ['src/webviews/dashboard/topology/*.tsx'],
-    rules: {
-      'better-tailwindcss/no-unknown-classes': 'off'
+      'react/prop-types': 'off'          // Using TypeScript
     }
   },
 

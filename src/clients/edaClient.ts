@@ -221,8 +221,8 @@ export class EdaClient {
   }
 
   // Stream event forwarding
-  public onStreamMessage(cb: StreamMessageCallback): void {
-    this.streamClient.onStreamMessage((event: StreamMessage) => {
+  public onStreamMessage(cb: StreamMessageCallback): { dispose(): void } {
+    return this.streamClient.onStreamMessage((event: StreamMessage) => {
       cb(event.stream, event.message as unknown);
     });
   }

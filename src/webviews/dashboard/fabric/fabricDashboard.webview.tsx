@@ -1,68 +1,12 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useRef, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Box, Card, CardContent, FormControl, Grid, InputLabel, MenuItem, Select, Stack, Typography } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
+import { LineChart } from '@mui/x-charts/LineChart';
 
 import { usePostMessage, useMessageListener, useReadySignal } from '../../shared/hooks';
 import { VSCodeProvider } from '../../shared/context';
-
-// ECharts type definitions for CDN-loaded library
-interface EChartsInstance {
-  setOption(option: EChartsOption): void;
-  resize(): void;
-  dispose(): void;
-}
-
-interface EChartsTheme {
-  color?: string[];
-  backgroundColor?: string;
-  textStyle?: { color: string };
-}
-
-interface EChartsOption {
-  tooltip?: {
-    trigger?: string;
-    formatter?: (params: TooltipParam[]) => string;
-  };
-  legend?: {
-    data?: string[];
-    textStyle?: { color: string };
-  };
-  grid?: {
-    left?: string;
-    right?: string;
-    bottom?: string;
-    containLabel?: boolean;
-  };
-  xAxis?: {
-    type?: string;
-    boundaryGap?: boolean;
-    data?: string[];
-    axisLabel?: { color: string };
-  };
-  yAxis?: {
-    type?: string;
-    name?: string;
-    axisLabel?: { color: string };
-  };
-  series?: Array<{
-    name?: string;
-    type?: string;
-    smooth?: boolean;
-    data?: number[];
-    areaStyle?: { opacity: number };
-    itemStyle?: { color: string };
-  }>;
-}
-
-interface TooltipParam {
-  axisValue: string;
-  data: number;
-}
-
-interface EChartsStatic {
-  init(dom: HTMLElement, theme?: EChartsTheme): EChartsInstance;
-}
-
-declare const echarts: EChartsStatic | undefined;
+import { WebviewThemeProvider } from '../../shared/theme';
 
 interface FabricMessage {
   command: string;
@@ -88,6 +32,15 @@ interface TrafficPoint {
   outbound: number;
 }
 
+interface TrafficChartData {
+  times: Date[];
+  inbound: number[];
+  outbound: number[];
+  unit: string;
+  windowStart: Date;
+  windowEnd: Date;
+}
+
 interface NodeStats {
   total: number;
   synced: number;
@@ -110,22 +63,33 @@ interface FabricStats {
 
 function StatCard({ label, value, healthIndicator }: Readonly<{ label: string; value: string | number; healthIndicator?: number }>) {
   const getHealthColor = (h: number | undefined) => {
-    if (h === undefined) return 'bg-status-info';
-    if (h >= 90) return 'bg-status-success';
-    if (h >= 50) return 'bg-status-warning';
-    return 'bg-status-error';
+    if (h === undefined) return 'info.main';
+    if (h >= 90) return 'success.main';
+    if (h >= 50) return 'warning.main';
+    return 'error.main';
   };
 
   return (
-    <div className="bg-vscode-bg-secondary border border-vscode-border rounded-xl p-6 transition-all relative overflow-hidden hover:-translate-y-1 hover:shadow-lg hover:border-vscode-accent">
-      <div className="text-vscode-text-secondary text-xs uppercase tracking-wide mb-2">{label}</div>
-      <div className="flex items-center gap-2">
-        <div className="text-2xl font-bold mb-1">{value}</div>
-        {healthIndicator !== undefined && (
-          <div className={`size-3 rounded-full shrink-0 ${getHealthColor(healthIndicator)}`}></div>
-        )}
-      </div>
-    </div>
+    <Card variant="outlined" sx={{ height: '100%' }}>
+      <CardContent>
+        <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          {label}
+        </Typography>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
+          <Typography variant="h5" sx={{ fontWeight: 700 }}>{value}</Typography>
+          {healthIndicator !== undefined && (
+            <Box
+              sx={{
+                width: 10,
+                height: 10,
+                borderRadius: '50%',
+                bgcolor: getHealthColor(healthIndicator)
+              }}
+            />
+          )}
+        </Stack>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -222,122 +186,47 @@ function handleFabricHealthMessage(msg: FabricMessage, handlers: MessageHandlers
 
 function FabricDashboard() {
   const postMessage = usePostMessage();
+  const theme = useTheme();
   const [namespaces, setNamespaces] = useState<string[]>([]);
   const [selectedNamespace, setSelectedNamespace] = useState('');
-  const [echartsLoaded, setEchartsLoaded] = useState(false);
 
   // Consolidated state objects
   const [nodeStats, setNodeStats] = useState<NodeStats>(initialNodeStats);
   const [interfaceStats, setInterfaceStats] = useState<InterfaceStats>(initialInterfaceStats);
   const [fabricStats, setFabricStats] = useState<FabricStats>(initialFabricStats);
+  const [trafficChartData, setTrafficChartData] = useState<TrafficChartData>(() => {
+    const now = new Date();
+    return {
+      times: [],
+      inbound: [],
+      outbound: [],
+      unit: 'bit/s',
+      windowStart: now,
+      windowEnd: new Date(now.getTime() + 60000),
+    };
+  });
 
-  const chartRef = useRef<HTMLDivElement>(null);
-  const chartInstanceRef = useRef<EChartsInstance | null>(null);
   const trafficPointsRef = useRef<TrafficPoint[]>([]);
+  const trafficStartRef = useRef<number>(0);
   const trafficUnitRef = useRef('bit/s');
   const trafficDivRef = useRef(1);
-
-  // Load ECharts
-  useEffect(() => {
-    if (typeof echarts !== 'undefined') {
-      setEchartsLoaded(true);
-    }
-  }, []);
-
-  // Initialize chart when ECharts is loaded
-  useEffect(() => {
-    if (!echartsLoaded || !chartRef.current) return;
-
-    const chartTheme = {
-      color: ['#60a5fa', '#4ade80', '#fbbf24', '#f87171', '#a78bfa', '#f472b6'],
-      backgroundColor: 'transparent',
-      textStyle: {
-        color: getComputedStyle(document.documentElement).getPropertyValue('--text-primary')
-      }
+  const chartVisual = useMemo(() => {
+    const { charts } = theme.vscode;
+    return {
+      inboundColor: charts.blue,
+      outboundColor: charts.purple
     };
-
-    if (!echarts) return;
-    chartInstanceRef.current = echarts.init(chartRef.current, chartTheme);
-
-    chartInstanceRef.current.setOption({
-      tooltip: {
-        trigger: 'axis',
-        formatter: (params: TooltipParam[]) => {
-          const [incoming, outgoing] = params;
-          return (
-            incoming.axisValue +
-            '<br/>Inbound: ' +
-            String(incoming.data) +
-            ' ' +
-            trafficUnitRef.current +
-            '<br/>Outbound: ' +
-            String(outgoing.data) +
-            ' ' +
-            trafficUnitRef.current
-          );
-        }
-      },
-      legend: {
-        data: ['Inbound', 'Outbound'],
-        textStyle: {
-          color: chartTheme.textStyle.color
-        }
-      },
-      grid: {
-        left: '3%',
-        right: '4%',
-        bottom: '3%',
-        containLabel: true
-      },
-      xAxis: {
-        type: 'category',
-        boundaryGap: false,
-        data: [],
-        axisLabel: {
-          color: chartTheme.textStyle.color
-        }
-      },
-      yAxis: {
-        type: 'value',
-        name: 'Traffic (bit/s)',
-        axisLabel: {
-          color: chartTheme.textStyle.color
-        }
-      },
-      series: [
-        {
-          name: 'Inbound',
-          type: 'line',
-          smooth: true,
-          data: [],
-          areaStyle: { opacity: 0.3 },
-          itemStyle: { color: '#60a5fa' }
-        },
-        {
-          name: 'Outbound',
-          type: 'line',
-          smooth: true,
-          data: [],
-          areaStyle: { opacity: 0.3 },
-          itemStyle: { color: '#a78bfa' }
-        }
-      ]
-    });
-
-    const handleResize = () => {
-      chartInstanceRef.current?.resize();
-    };
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      chartInstanceRef.current?.dispose();
-    };
-  }, [echartsLoaded]);
+  }, [theme]);
 
   const updateTrafficChart = useCallback((inVal: number, outVal: number) => {
     const now = Date.now();
     trafficPointsRef.current.push({ time: now, inbound: inVal, outbound: outVal });
+
+    // Record the start time on the first data point
+    if (trafficStartRef.current === 0) {
+      trafficStartRef.current = now;
+    }
+
     const cutoff = now - 60000;
     while (trafficPointsRef.current.length && trafficPointsRef.current[0].time < cutoff) {
       trafficPointsRef.current.shift();
@@ -358,27 +247,39 @@ function FabricDashboard() {
       trafficDivRef.current = 1;
     }
 
-    const trafficTimes = trafficPointsRef.current.map(p =>
-      new Date(p.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-    );
-    const inboundData = trafficPointsRef.current.map(p => +(p.inbound / trafficDivRef.current).toFixed(2));
-    const outboundData = trafficPointsRef.current.map(p => +(p.outbound / trafficDivRef.current).toFixed(2));
+    const points = trafficPointsRef.current;
+    const div = trafficDivRef.current;
+    const trafficTimes = points.map(p => new Date(p.time));
+    const inboundData = points.map(p => +(p.inbound / div).toFixed(2));
+    const outboundData = points.map(p => +(p.outbound / div).toFixed(2));
 
-    chartInstanceRef.current?.setOption({
-      xAxis: { data: trafficTimes },
-      yAxis: { name: 'Traffic (' + trafficUnitRef.current + ')' },
-      series: [{ data: inboundData }, { data: outboundData }]
+    // Fixed 60-second window: starts at first data point, slides after 60s
+    const windowStart = new Date(points[0].time);
+    const windowEnd = new Date(Math.max(points[0].time + 60000, now));
+
+    setTrafficChartData({
+      times: trafficTimes,
+      inbound: inboundData,
+      outbound: outboundData,
+      unit: trafficUnitRef.current,
+      windowStart,
+      windowEnd,
     });
   }, []);
 
   const clearTrafficChart = useCallback(() => {
     trafficPointsRef.current = [];
+    trafficStartRef.current = 0;
     trafficUnitRef.current = 'bit/s';
     trafficDivRef.current = 1;
-    chartInstanceRef.current?.setOption({
-      xAxis: { data: [] },
-      yAxis: { name: 'Traffic (bit/s)' },
-      series: [{ data: [] }, { data: [] }]
+    const now = new Date();
+    setTrafficChartData({
+      times: [],
+      inbound: [],
+      outbound: [],
+      unit: 'bit/s',
+      windowStart: now,
+      windowEnd: new Date(now.getTime() + 60000),
     });
   }, []);
 
@@ -416,80 +317,129 @@ function FabricDashboard() {
 
   useReadySignal();
 
-  const handleNamespaceChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
-    const ns = e.target.value;
+  const handleNamespaceChange = useCallback((ns: string) => {
     setSelectedNamespace(ns);
     postMessage({ command: 'getTopoNodeStats', namespace: ns });
   }, [postMessage]);
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <header className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-semibold mb-1 bg-linear-to-r from-vscode-accent to-status-info bg-clip-text text-transparent">
-            Fabric Network Dashboard
-          </h1>
-          <p className="text-sm text-vscode-text-secondary">
+    <Box sx={{ p: 3, maxWidth: 1600, mx: 'auto' }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2} sx={{ mb: 4 }}>
+        <Box>
+          <Typography variant="h5" sx={{ fontWeight: 700 }}>Fabric Network Dashboard</Typography>
+          <Typography variant="body2" color="text.secondary">
             Real-time monitoring and analytics for your network infrastructure
-          </p>
-        </div>
-        <select
-          className="bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded-sm px-2 py-1"
-          value={selectedNamespace}
-          onChange={handleNamespaceChange}
-        >
-          {namespaces.map(ns => (
-            <option key={ns} value={ns}>{ns}</option>
-          ))}
-        </select>
-      </header>
+          </Typography>
+        </Box>
+        <FormControl size="small" sx={{ minWidth: 220 }}>
+          <InputLabel id="fabric-namespace">Namespace</InputLabel>
+          <Select
+            labelId="fabric-namespace"
+            value={selectedNamespace}
+            label="Namespace"
+            onChange={(event) => handleNamespaceChange(String(event.target.value))}
+          >
+            {namespaces.map(ns => (
+              <MenuItem key={ns} value={ns}>{ns}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Stack>
 
-      <div className="grid gap-5 mb-8 grid-cols-[repeat(auto-fit,minmax(280px,1fr))]">
-        <StatCard label="Total Nodes" value={nodeStats.total} />
-        <StatCard label="Synced Nodes" value={nodeStats.synced} />
-        <StatCard label="Not Synced" value={nodeStats.notSynced} />
-      </div>
+      <Grid container spacing={2.5} sx={{ mb: 4 }}>
+        <Grid size={{ xs: 12, md: 4 }}><StatCard label="Total Nodes" value={nodeStats.total} /></Grid>
+        <Grid size={{ xs: 12, md: 4 }}><StatCard label="Synced Nodes" value={nodeStats.synced} /></Grid>
+        <Grid size={{ xs: 12, md: 4 }}><StatCard label="Not Synced" value={nodeStats.notSynced} /></Grid>
+      </Grid>
 
-      <div className="grid gap-5 mb-8 xl:grid-cols-[auto_1fr]">
-        <div className="flex flex-col gap-5 w-70 sm:flex-row xl:flex-col xl:w-70 sm:w-full">
-          <StatCard label="Total Interfaces" value={interfaceStats.total} />
-          <StatCard label="Up Interfaces" value={interfaceStats.up} />
-          <StatCard label="Down Interfaces" value={interfaceStats.down} />
-        </div>
+      <Grid container spacing={2.5} sx={{ mb: 4 }} alignItems="stretch">
+        <Grid size={{ xs: 12, lg: 3 }}>
+          <Stack spacing={2.5} sx={{ height: '100%' }}>
+            <StatCard label="Total Interfaces" value={interfaceStats.total} />
+            <StatCard label="Up Interfaces" value={interfaceStats.up} />
+            <StatCard label="Down Interfaces" value={interfaceStats.down} />
+          </Stack>
+        </Grid>
+        <Grid size={{ xs: 12, lg: 9 }}>
+          <Card variant="outlined" sx={{ height: '100%' }}>
+            <CardContent>
+              <Typography variant="h6" sx={{ mb: 2 }}>Traffic Rate</Typography>
+              <LineChart
+                skipAnimation
+                height={300}
+                margin={{ left: 70, right: 24, top: 16, bottom: 36 }}
+                grid={{ horizontal: true }}
+                xAxis={[{
+                  scaleType: 'time',
+                  data: trafficChartData.times,
+                  min: trafficChartData.windowStart,
+                  max: trafficChartData.windowEnd,
+                  valueFormatter: (date: Date) =>
+                    date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                  tickNumber: 5,
+                }]}
+                yAxis={[{
+                  label: `Traffic (${trafficChartData.unit})`,
+                  min: 0,
+                }]}
+                series={[
+                  {
+                    id: 'inbound',
+                    label: 'Inbound',
+                    data: trafficChartData.inbound,
+                    color: chartVisual.inboundColor,
+                    showMark: false,
+                    area: true,
+                    curve: 'monotoneX',
+                    valueFormatter: value => `${value ?? 0} ${trafficChartData.unit}`,
+                  },
+                  {
+                    id: 'outbound',
+                    label: 'Outbound',
+                    data: trafficChartData.outbound,
+                    color: chartVisual.outboundColor,
+                    showMark: false,
+                    area: true,
+                    curve: 'monotoneX',
+                    valueFormatter: value => `${value ?? 0} ${trafficChartData.unit}`,
+                  }
+                ]}
+                sx={{
+                  '.MuiAreaElement-series-inbound': { fill: 'url(#inbound-gradient)' },
+                  '.MuiAreaElement-series-outbound': { fill: 'url(#outbound-gradient)' },
+                }}
+              >
+                <defs>
+                  <linearGradient id="inbound-gradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={chartVisual.inboundColor} stopOpacity={0.3} />
+                    <stop offset="100%" stopColor={chartVisual.inboundColor} stopOpacity={0.02} />
+                  </linearGradient>
+                  <linearGradient id="outbound-gradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={chartVisual.outboundColor} stopOpacity={0.3} />
+                    <stop offset="100%" stopColor={chartVisual.outboundColor} stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+              </LineChart>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
 
-        <div className="bg-vscode-bg-secondary border border-vscode-border rounded-xl p-6 transition-all hover:border-vscode-accent hover:shadow-md flex-1">
-          <div className="text-lg font-semibold mb-4 flex items-center justify-between">
-            <span>Traffic Rate</span>
-          </div>
-          <div ref={chartRef} className="h-75"></div>
-        </div>
-      </div>
-
-      <div className="grid gap-5 mb-8 grid-cols-5">
+      <Box
+        sx={{
+          display: 'grid',
+          gap: 2.5,
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))'
+        }}
+      >
         <StatCard label="Fabric Health" value={`${fabricStats.health}%`} healthIndicator={fabricStats.health} />
         <StatCard label="Spines" value={fabricStats.spines.count} healthIndicator={fabricStats.spines.health} />
         <StatCard label="Leafs" value={fabricStats.leafs.count} healthIndicator={fabricStats.leafs.health} />
         <StatCard label="Borderleafs" value={fabricStats.borderleafs.count} healthIndicator={fabricStats.borderleafs.health} />
         <StatCard label="Superspines" value={fabricStats.superspines.count} healthIndicator={fabricStats.superspines.health} />
-      </div>
-    </div>
+      </Box>
+    </Box>
   );
-}
-
-// Get echartsUri from script tag before React takes over
-const currentScript = document.currentScript as HTMLScriptElement | null;
-const echartsUri = currentScript?.dataset.echartsUri || '';
-
-// Load echarts first, then render React
-function loadEchartsAndRender() {
-  if (echartsUri) {
-    const script = document.createElement('script');
-    script.src = echartsUri;
-    script.onload = renderApp;
-    document.body.appendChild(script);
-  } else {
-    renderApp();
-  }
 }
 
 function renderApp() {
@@ -498,10 +448,12 @@ function renderApp() {
     const root = createRoot(container);
     root.render(
       <VSCodeProvider>
-        <FabricDashboard />
+        <WebviewThemeProvider>
+          <FabricDashboard />
+        </WebviewThemeProvider>
       </VSCodeProvider>
     );
   }
 }
 
-loadEchartsAndRender();
+renderApp();

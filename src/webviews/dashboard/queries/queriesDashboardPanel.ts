@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 
-import type * as vscode from 'vscode';
+import * as vscode from 'vscode';
 
 import { BasePanel } from '../../basePanel';
 import { ALL_NAMESPACES } from '../../constants';
@@ -45,6 +45,7 @@ interface StreamRow {
 }
 
 export class QueriesDashboardPanel extends BasePanel {
+  private static currentPanel: QueriesDashboardPanel | undefined;
   private edaClient: EdaClient;
   private embeddingSearch: EmbeddingSearchService;
   private queryStreamName?: string;
@@ -90,8 +91,6 @@ export class QueriesDashboardPanel extends BasePanel {
           // No autocomplete for natural language queries
           this.panel.webview.postMessage({ command: 'autocomplete', list: [] });
         }
-      } else if (msg.command === 'searchNaturalLanguage') {
-        await this.handleNaturalLanguageSearch(msg.query ?? '');
       }
     });
 
@@ -100,7 +99,7 @@ export class QueriesDashboardPanel extends BasePanel {
 
   protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'queriesDashboard.js');
-    return `<script nonce="${nonce}" src="${scriptUri}"></script>`;
+    return `<script type="module" nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
   private sendNamespaces(): void {
@@ -180,30 +179,6 @@ export class QueriesDashboardPanel extends BasePanel {
       this.panel.webview.postMessage({
         command: 'error',
         error: `Failed to process NQL query: ${error}`
-      });
-    }
-  }
-
-  private async handleNaturalLanguageSearch(query: string): Promise<void> {
-    try {
-      // Check if embeddingsearch is ready
-      if (!this.embeddingSearch.isReady()) {
-        this.panel.webview.postMessage({
-          command: 'error',
-          error: 'Natural language queries are still initializing. Please try again in a moment.'
-        });
-        return;
-      }
-
-      const result = await this.embeddingSearch.searchNaturalLanguage(query);
-      this.panel.webview.postMessage({
-        command: 'naturalLanguageResults',
-        results: result
-      });
-    } catch (error) {
-      this.panel.webview.postMessage({
-        command: 'error',
-        error: `Natural language search failed: ${error}`
       });
     }
   }
@@ -423,6 +398,19 @@ export class QueriesDashboardPanel extends BasePanel {
   }
 
   static show(context: vscode.ExtensionContext, title: string): QueriesDashboardPanel {
-    return new QueriesDashboardPanel(context, title);
+    if (QueriesDashboardPanel.currentPanel) {
+      QueriesDashboardPanel.currentPanel.panel.title = title;
+      QueriesDashboardPanel.currentPanel.panel.reveal(vscode.ViewColumn.Active);
+      return QueriesDashboardPanel.currentPanel;
+    }
+
+    const panel = new QueriesDashboardPanel(context, title);
+    QueriesDashboardPanel.currentPanel = panel;
+    panel.panel.onDidDispose(() => {
+      if (QueriesDashboardPanel.currentPanel === panel) {
+        QueriesDashboardPanel.currentPanel = undefined;
+      }
+    });
+    return panel;
   }
 }

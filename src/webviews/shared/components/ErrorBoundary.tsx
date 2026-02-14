@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
 import React, { Component } from 'react';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import { Alert, AlertTitle, Box, Button, Stack, Typography } from '@mui/material';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -39,38 +41,30 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     }
 
     return (
-      <>
-        <div className="p-6 text-center">
-          <div className="mb-4">
-            <span className="text-4xl">Warning</span>
-          </div>
-          <h2 className="text-lg font-semibold mb-2 text-status-error">
-            Something went wrong
-          </h2>
-          <p className="text-sm text-vscode-text-secondary mb-4">
-            An error occurred while rendering this view.
-          </p>
-          {this.state.error && (
-            <details className="text-left bg-vscode-code-bg p-3 rounded-sm text-xs">
-              <summary className="cursor-pointer mb-2 font-medium">Error details</summary>
-              <pre className="overflow-auto whitespace-pre-wrap text-status-error">
-                {this.state.error.message}
-              </pre>
-              {this.state.error.stack && (
-                <pre className="overflow-auto whitespace-pre-wrap mt-2 text-vscode-text-secondary">
-                  {this.state.error.stack}
-                </pre>
-              )}
-            </details>
-          )}
-          <button
-            className="mt-4 px-4 py-2 bg-vscode-accent text-vscode-button-fg rounded-sm hover:bg-vscode-accent-hover"
-            onClick={() => this.setState({ hasError: false, error: null })}
-          >
+      <Stack spacing={2} sx={{ p: 3 }}>
+        <Alert severity="error" icon={<ErrorOutlineIcon />}>
+          <AlertTitle>Something went wrong</AlertTitle>
+          An error occurred while rendering this view.
+        </Alert>
+        {this.state.error && (
+          <Box component="details" sx={{ fontSize: 12, p: 2, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+            <Box component="summary" sx={{ cursor: 'pointer', mb: 1, fontWeight: 600 }}>Error details</Box>
+            <Typography component="pre" sx={{ whiteSpace: 'pre-wrap', overflow: 'auto', m: 0, color: 'error.main' }}>
+              {this.state.error.message}
+            </Typography>
+            {this.state.error.stack && (
+              <Typography component="pre" sx={{ whiteSpace: 'pre-wrap', overflow: 'auto', mt: 1, color: 'text.secondary' }}>
+                {this.state.error.stack}
+              </Typography>
+            )}
+          </Box>
+        )}
+        <Box>
+          <Button variant="contained" onClick={() => this.setState({ hasError: false, error: null })}>
             Try again
-          </button>
-        </div>
-      </>
+          </Button>
+        </Box>
+      </Stack>
     );
   }
 }

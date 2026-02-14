@@ -1,4 +1,25 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import DescriptionIcon from '@mui/icons-material/Description';
+import SearchIcon from '@mui/icons-material/Search';
+import UnfoldLessIcon from '@mui/icons-material/UnfoldLess';
+import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore';
+import {
+  Box,
+  Card,
+  CardContent,
+  Chip,
+  Collapse,
+  FormControl,
+  IconButton,
+  InputAdornment,
+  InputLabel,
+  MenuItem,
+  Select,
+  Stack,
+  TextField,
+  Typography
+} from '@mui/material';
 
 import { usePostMessage, useMessageListener, useReadySignal } from '../../shared/hooks';
 import { VSCodeButton } from '../../shared/components';
@@ -42,26 +63,33 @@ function SchemaProp({ name, node, isRequired }: Readonly<{ name: string; node: S
     if (expandTrigger < 0) setIsOpen(false);
   }, [expandTrigger]);
 
+  const hasExpandableContent = Boolean(node.description || node.properties || node.items?.properties);
+
   return (
-    <details className="ml-4 mb-1" open={isOpen}>
-      <summary
-        className="flex items-center gap-2 cursor-pointer py-1 hover:bg-vscode-bg-hover"
-        onClick={(e) => { e.preventDefault(); setIsOpen(!isOpen); }}
-      >
-        <span className="font-medium text-(--vscode-symbolIcon-propertyForeground)">{name}</span>
-        {isRequired && (
-          <span className="text-xs px-1 py-0.5 bg-status-error/20 text-status-error rounded-sm">required</span>
-        )}
-        <span className="text-xs px-1 py-0.5 bg-(--vscode-badge-background) text-(--vscode-badge-foreground) rounded-sm">{type}</span>
-      </summary>
-      <div className="ml-2 border-l border-vscode-border pl-2">
-        {node.description && (
-          <p className="text-sm text-vscode-text-secondary mb-1">{node.description}</p>
-        )}
-        {node.properties && <SchemaProps node={node} />}
-        {node.items?.properties && <SchemaProps node={node.items} />}
-      </div>
-    </details>
+    <Box sx={{ ml: 2, mb: 1 }}>
+      <Stack direction="row" spacing={1} alignItems="center">
+        <IconButton
+          size="small"
+          onClick={() => setIsOpen(prev => !prev)}
+          disabled={!hasExpandableContent}
+          sx={{ transform: isOpen ? 'rotate(180deg)' : 'none' }}
+        >
+          <ExpandMoreIcon fontSize="small" />
+        </IconButton>
+        <Typography variant="body2" sx={{ fontWeight: 600, color: 'info.main' }}>{name}</Typography>
+        {isRequired && <Chip size="small" color="error" label="required" />}
+        {type && <Chip size="small" variant="outlined" label={type} />}
+      </Stack>
+      <Collapse in={isOpen} unmountOnExit>
+        <Box sx={{ ml: 3, pl: 1.5, borderLeft: 1, borderColor: 'divider' }}>
+          {node.description && (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>{node.description}</Typography>
+          )}
+          {node.properties && <SchemaProps node={node} />}
+          {node.items?.properties && <SchemaProps node={node.items} />}
+        </Box>
+      </Collapse>
+    </Box>
   );
 }
 
@@ -69,11 +97,11 @@ function SchemaProps({ node }: Readonly<{ node: SchemaNode }>) {
   const required = node.required || [];
   const props = node.properties || {};
   return (
-    <div>
+    <Box>
       {Object.entries(props).map(([key, val]) => (
         <SchemaProp key={key} name={key} node={val as SchemaNode} isRequired={required.includes(key)} />
       ))}
-    </div>
+    </Box>
   );
 }
 
@@ -89,21 +117,26 @@ function SchemaSection({ name, node }: Readonly<{ name: string; node: SchemaNode
   }, [expandTrigger]);
 
   return (
-    <details className="mb-4 border border-vscode-border rounded-sm" open={isOpen}>
-      <summary
-        className="flex items-center gap-2 cursor-pointer p-2 bg-vscode-bg-secondary hover:bg-vscode-bg-hover"
-        onClick={(e) => { e.preventDefault(); setIsOpen(!isOpen); }}
-      >
-        <span className="font-semibold">{name}</span>
-        <span className="text-xs px-1 py-0.5 bg-(--vscode-badge-background) text-(--vscode-badge-foreground) rounded-sm">{type}</span>
-      </summary>
-      <div className="p-2">
-        {node.description && (
-          <p className="text-sm text-vscode-text-secondary mb-2">{node.description}</p>
-        )}
-        <SchemaProps node={node} />
-      </div>
-    </details>
+    <Card variant="outlined" sx={{ mb: 2 }}>
+      <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: isOpen ? 1 : 0 }}>
+          <IconButton size="small" onClick={() => setIsOpen(!isOpen)} sx={{ transform: isOpen ? 'rotate(180deg)' : 'none' }}>
+            <ExpandMoreIcon fontSize="small" />
+          </IconButton>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{name}</Typography>
+          {type && <Chip size="small" variant="outlined" label={type} />}
+        </Stack>
+
+        <Collapse in={isOpen} unmountOnExit>
+          {node.description && (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+              {node.description}
+            </Typography>
+          )}
+          <SchemaProps node={node} />
+        </Collapse>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -151,8 +184,7 @@ function ResourceBrowserPanel() {
     );
   }, [resources, filter]);
 
-  const handleResourceChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
-    const name = e.target.value;
+  const handleResourceChange = useCallback((name: string) => {
     setSelectedResource(name);
     postMessage({ command: 'showResource', name });
   }, [postMessage]);
@@ -175,50 +207,82 @@ function ResourceBrowserPanel() {
 
   return (
     <ExpandContext.Provider value={expandTrigger}>
-      <div className="p-6 max-w-350 mx-auto">
-        <header className="flex items-center gap-2 mb-4">
-          <input
-            type="text"
+      <Box sx={{ p: 3, maxWidth: 1600, mx: 'auto' }}>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} sx={{ mb: 2 }}>
+          <TextField
+            size="small"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Search..."
-            className="px-2 py-1 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded-sm flex-1 max-w-xs"
+            sx={{ width: { xs: '100%', md: 320 } }}
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                )
+              }
+            }}
           />
-          <select
-            value={selectedResource}
-            onChange={handleResourceChange}
-            className="px-2 py-1 bg-vscode-input-bg text-vscode-input-fg border border-vscode-input-border rounded-sm flex-1"
-          >
-            {filteredResources.map(r => (
-              <option key={r.name} value={r.name}>{r.kind} ({r.name})</option>
-            ))}
-          </select>
+
+          <FormControl size="small" sx={{ flex: 1 }}>
+            <InputLabel id="resource-select-label">Resource</InputLabel>
+            <Select
+              labelId="resource-select-label"
+              value={selectedResource}
+              label="Resource"
+              onChange={(event) => handleResourceChange(String(event.target.value))}
+            >
+              {filteredResources.map(r => (
+                <MenuItem key={r.name} value={r.name}>{r.kind} ({r.name})</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
           <VSCodeButton onClick={handleViewYaml}>View YAML</VSCodeButton>
-        </header>
+        </Stack>
 
-        <h1 className="text-xl font-semibold mb-2">{title}</h1>
+        <Typography variant="h5" sx={{ fontWeight: 700, mb: 1.5 }}>{title}</Typography>
 
-        <div className="mb-4 p-2 bg-vscode-code-bg rounded-sm overflow-auto max-h-48">
-          <pre className="text-sm whitespace-pre-wrap">{yaml}</pre>
-        </div>
+        <Card variant="outlined" sx={{ mb: 2 }}>
+          <CardContent sx={{ p: 1.5 }}>
+            <Box component="pre" sx={{ fontSize: 13, m: 0, maxHeight: 260, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+              {yaml}
+            </Box>
+          </CardContent>
+        </Card>
 
         {description && (
-          <p className="text-vscode-text-secondary mb-4">{description}</p>
+          <Typography color="text.secondary" sx={{ mb: 2 }}>
+            {description}
+          </Typography>
         )}
 
-        <div className="flex gap-2 mb-4">
-          <VSCodeButton variant="secondary" size="sm" onClick={handleExpandAll}>+ Expand All</VSCodeButton>
-          <VSCodeButton variant="secondary" size="sm" onClick={handleCollapseAll}>- Collapse All</VSCodeButton>
-        </div>
+        <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+          <VSCodeButton variant="primary" size="sm" onClick={handleExpandAll}>
+            <UnfoldMoreIcon fontSize="small" sx={{ mr: 0.5 }} />
+            Expand All
+          </VSCodeButton>
+          <VSCodeButton variant="primary" size="sm" onClick={handleCollapseAll}>
+            <UnfoldLessIcon fontSize="small" sx={{ mr: 0.5 }} />
+            Collapse All
+          </VSCodeButton>
+        </Stack>
 
-        <div>
+        <Box>
           {specSchema && <SchemaSection name="spec" node={specSchema} />}
           {statusSchema && <SchemaSection name="status" node={statusSchema} />}
           {!specSchema && !statusSchema && schema && (
             <SchemaSection name="schema" node={schema as SchemaNode} />
           )}
-        </div>
-      </div>
+          {!schema && (
+            <Stack direction="row" spacing={1} alignItems="center" color="text.secondary">
+              <DescriptionIcon fontSize="small" />
+              <Typography variant="body2">No schema available</Typography>
+            </Stack>
+          )}
+        </Box>
+      </Box>
     </ExpandContext.Provider>
   );
 }

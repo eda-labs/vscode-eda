@@ -7,4 +7,8 @@ node_modules
 patch.sh
 test.yaml
 CLAUDE.md
+AGENTS.md
 screenshots/**
+*.clab.yml
+*.clab.yml.annotations.json
+topology.svg

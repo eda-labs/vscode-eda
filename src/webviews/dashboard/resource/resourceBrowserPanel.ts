@@ -12,6 +12,7 @@ interface WebviewMessage {
 }
 
 export class ResourceBrowserPanel extends BasePanel {
+  private static currentPanel: ResourceBrowserPanel | undefined;
   private schemaProvider: SchemaProviderService;
   private resources: EdaCrd[] = [];
   private target?: { group: string; kind: string };
@@ -42,7 +43,7 @@ export class ResourceBrowserPanel extends BasePanel {
 
   protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'resourceBrowserPanel.js');
-    return `<script nonce="${nonce}" src="${scriptUri}"></script>`;
+    return `<script type="module" nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
   private async loadResources(): Promise<void> {
@@ -63,6 +64,15 @@ export class ResourceBrowserPanel extends BasePanel {
     } catch (err: unknown) {
       this.panel.webview.postMessage({ command: 'error', message: String(err) });
     }
+  }
+
+  private async updateTarget(
+    title: string,
+    target?: { group: string; kind: string }
+  ): Promise<void> {
+    this.panel.title = title;
+    this.target = target;
+    await this.loadResources();
   }
 
   private async showResource(name: string): Promise<void> {
@@ -99,6 +109,19 @@ export class ResourceBrowserPanel extends BasePanel {
     title: string,
     target?: { group: string; kind: string }
   ): ResourceBrowserPanel {
-    return new ResourceBrowserPanel(context, title, target);
+    if (ResourceBrowserPanel.currentPanel) {
+      void ResourceBrowserPanel.currentPanel.updateTarget(title, target);
+      ResourceBrowserPanel.currentPanel.panel.reveal(vscode.ViewColumn.Active);
+      return ResourceBrowserPanel.currentPanel;
+    }
+
+    const panel = new ResourceBrowserPanel(context, title, target);
+    ResourceBrowserPanel.currentPanel = panel;
+    panel.panel.onDidDispose(() => {
+      if (ResourceBrowserPanel.currentPanel === panel) {
+        ResourceBrowserPanel.currentPanel = undefined;
+      }
+    });
+    return panel;
   }
 }

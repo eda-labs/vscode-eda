@@ -68,7 +68,7 @@ export class NodeConfigPanel extends BasePanel {
 
   protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'nodeConfigPanel.js');
-    return `<script nonce="${nonce}" src="${scriptUri}"></script>`;
+    return `<script type="module" nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
   static show(

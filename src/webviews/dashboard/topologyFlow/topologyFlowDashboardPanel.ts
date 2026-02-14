@@ -114,6 +114,7 @@ interface NodeData {
   id: string;
   label: string;
   tier: number;
+  role?: string;
   raw: TopoNode;
 }
 
@@ -158,19 +159,21 @@ interface StreamMessagePayload {
   msg: StreamMessageWithUpdates | null | undefined;
 }
 
-export class TopologyDashboardPanel extends BasePanel {
+export class TopologyFlowDashboardPanel extends BasePanel {
+  private static currentPanel: TopologyFlowDashboardPanel | undefined;
   private edaClient: EdaClient;
   private nodeMap: Map<string, Map<string, TopoNode>> = new Map();
   private linkMap: Map<string, TopoLink[]> = new Map();
   private groupings: TierSelector[] = [];
   private selectedNamespace = ALL_NAMESPACES;
+  private postGraphTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(context: vscode.ExtensionContext, title: string) {
-    super(context, 'topologyDashboard', title, undefined, BasePanel.getEdaIconPath(context));
+    super(context, 'topologyFlowDashboard', title, undefined, BasePanel.getEdaIconPath(context));
 
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
 
-    this.edaClient.onStreamMessage((stream, msg: unknown) => {
+    const streamDisposable = this.edaClient.onStreamMessage((stream, msg: unknown) => {
       const payload = msg as StreamMessagePayload;
       if (stream === 'toponodes') {
         this.handleTopoNodeStream(payload);
@@ -180,6 +183,8 @@ export class TopologyDashboardPanel extends BasePanel {
     });
 
     this.panel.onDidDispose(() => {
+      streamDisposable.dispose();
+      if (this.postGraphTimer) clearTimeout(this.postGraphTimer);
       this.edaClient.closeTopoNodeStream();
       this.edaClient.closeTopoLinkStream();
     });
@@ -215,23 +220,19 @@ export class TopologyDashboardPanel extends BasePanel {
   }
 
   protected getCustomStyles(): string {
-    return this.readWebviewFile('dashboard', 'topology', 'topologyDashboard.css');
+    return this.readWebviewFile('dashboard', 'topologyFlow', 'topologyFlowDashboard.css');
   }
 
   protected getScriptTags(nonce: string): string {
-    const scriptUri = this.getResourceUri('dist', 'topologyDashboard.js');
-    return `<script nonce="${nonce}" src="${scriptUri}"></script>`;
+    const scriptUri = this.getResourceUri('dist', 'topologyFlowDashboard.js');
+    return `<script type="module" nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
   protected buildHtml(): string {
     const nonce = this.getNonce();
     const csp = this.panel.webview.cspSource;
-    const codiconUri = this.getResourceUri(RESOURCES_DIR, 'codicon.css');
-    const cytoscapeUri = this.getResourceUri(RESOURCES_DIR, 'cytoscape.min.js');
-    const cytoscapeSvgUri = this.getResourceUri(RESOURCES_DIR, 'cytoscape-svg.js');
-    const nodeIcon = this.getResourceUri(RESOURCES_DIR, 'node.svg');
-    const tailwind = (BasePanel as unknown as { tailwind?: string }).tailwind ?? '';
-    const styles = `${tailwind}\n${this.getCustomStyles()}`;
+    const reactFlowUri = this.getResourceUri(RESOURCES_DIR, 'reactflow.css');
+    const styles = this.getCustomStyles();
 
     const scriptTags = this.getScriptTags(nonce);
 
@@ -241,10 +242,10 @@ export class TopologyDashboardPanel extends BasePanel {
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${csp} https:; style-src ${csp} 'unsafe-inline'; font-src ${csp}; script-src 'nonce-${nonce}' ${csp};">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link href="${codiconUri}" rel="stylesheet">
+  <link href="${reactFlowUri}" rel="stylesheet">
   <style>${styles}</style>
 </head>
-<body data-cytoscape-uri="${cytoscapeUri}" data-cytoscape-svg-uri="${cytoscapeSvgUri}" data-node-icon="${nodeIcon}">
+<body>
   <div id="root"></div>
   ${scriptTags}
 </body>
@@ -266,12 +267,10 @@ export class TopologyDashboardPanel extends BasePanel {
 
   private async loadGroupings(): Promise<void> {
     try {
-      // First get list of topologies
       const topologies = (await this.edaClient.listTopologies()) as Topology[];
       if (!Array.isArray(topologies) || topologies.length === 0) {
         return;
       }
-      // Get groupings for the first topology
       const topologyName = topologies[0]?.name;
       if (!topologyName) {
         return;
@@ -336,9 +335,12 @@ export class TopologyDashboardPanel extends BasePanel {
     return 1;
   }
 
+  private getRole(labels: Record<string, string>): string | undefined {
+    return labels?.['eda.nokia.com/role'];
+  }
+
   private shortenInterfaceName(name: string | undefined): string {
     if (!name) return '';
-    // Replace ethernet with e- (handle ethernet-1-2 -> e-1-2)
     return name.replace(/ethernet-/gi, 'e-');
   }
 
@@ -359,7 +361,8 @@ export class TopologyDashboardPanel extends BasePanel {
       if (!name) continue;
       const labels = node.metadata?.labels ?? {};
       const tier = this.getTier(labels);
-      nodes.push({ id: `${ns}/${name}`, label: name, tier, raw: node });
+      const role = this.getRole(labels);
+      nodes.push({ id: `${ns}/${name}`, label: name, tier, role, raw: node });
     }
     return nodes;
   }
@@ -431,6 +434,11 @@ export class TopologyDashboardPanel extends BasePanel {
     return edges;
   }
 
+  private schedulePostGraph(): void {
+    if (this.postGraphTimer) clearTimeout(this.postGraphTimer);
+    this.postGraphTimer = setTimeout(() => this.postGraph(), 50);
+  }
+
   private postGraph(): void {
     const namespaces = this.getTargetNamespaces();
     const nodes: NodeData[] = [];
@@ -479,7 +487,7 @@ export class TopologyDashboardPanel extends BasePanel {
       if (!ids) continue;
       this.processNodeUpdate(up, ids.name, ids.ns);
     }
-    this.postGraph();
+    this.schedulePostGraph();
   }
 
   private processLinkUpdate(up: StreamUpdate, name: string, ns: string): void {
@@ -520,10 +528,23 @@ export class TopologyDashboardPanel extends BasePanel {
       if (!ids) continue;
       this.processLinkUpdate(up, ids.name, ids.ns);
     }
-    this.postGraph();
+    this.schedulePostGraph();
   }
 
-  static show(context: vscode.ExtensionContext, title: string): TopologyDashboardPanel {
-    return new TopologyDashboardPanel(context, title);
+  static show(context: vscode.ExtensionContext, title: string): TopologyFlowDashboardPanel {
+    if (TopologyFlowDashboardPanel.currentPanel) {
+      TopologyFlowDashboardPanel.currentPanel.panel.title = title;
+      TopologyFlowDashboardPanel.currentPanel.panel.reveal(vscode.ViewColumn.Active);
+      return TopologyFlowDashboardPanel.currentPanel;
+    }
+
+    const panel = new TopologyFlowDashboardPanel(context, title);
+    TopologyFlowDashboardPanel.currentPanel = panel;
+    panel.panel.onDidDispose(() => {
+      if (TopologyFlowDashboardPanel.currentPanel === panel) {
+        TopologyFlowDashboardPanel.currentPanel = undefined;
+      }
+    });
+    return panel;
   }
 }

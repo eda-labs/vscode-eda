@@ -3,6 +3,7 @@ import { createContext, useContext, useCallback, useEffect, useRef } from 'react
 
 import { getVSCodeApi } from '../hooks/useVsCodeApi';
 import type { WebviewMessage } from '../hooks/useMessageListener';
+import { WebviewThemeProvider } from '../theme';
 
 interface VSCodeContextValue {
   postMessage: <T>(message: T) => void;
@@ -79,7 +80,9 @@ export function WebviewApp<T extends WebviewMessage = WebviewMessage>({
 
   return (
     <VSCodeProvider>
-      {children}
+      <WebviewThemeProvider>
+        {children}
+      </WebviewThemeProvider>
     </VSCodeProvider>
   );
 }

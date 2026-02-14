@@ -1,0 +1,8 @@
+# Keep dist packageable for VSCE; runtime pruning is handled by .vscodeignore.
+node_modules
+.vscode-test/
+*.vsix
+.vscode/**
+screenshots/**
+*.clab.yml
+*.clab.yml.annotations.json

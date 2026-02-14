@@ -1,9 +1,9 @@
 import { randomUUID } from 'crypto';
 
-import type * as vscode from 'vscode';
+import * as vscode from 'vscode';
 
 import { BasePanel } from '../../basePanel';
-import { ALL_NAMESPACES, RESOURCES_DIR } from '../../constants';
+import { ALL_NAMESPACES } from '../../constants';
 import { serviceManager } from '../../../services/serviceManager';
 import type { EdaClient } from '../../../clients/edaClient';
 import type { EdaAuthClient } from '../../../clients/edaAuthClient';
@@ -115,6 +115,7 @@ interface FabricStats {
 }
 
 export class FabricDashboardPanel extends BasePanel {
+  private static currentPanel: FabricDashboardPanel | undefined;
   private edaClient: EdaClient;
   private streamClient: EdaStreamClient;
   private nodeMap: Map<string, Map<string, string>> = new Map();
@@ -242,8 +243,7 @@ export class FabricDashboardPanel extends BasePanel {
 
   protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'fabricDashboard.js');
-    const echartsUri = this.getResourceUri(RESOURCES_DIR, 'echarts.min.js');
-    return `<script nonce="${nonce}" data-echarts-uri="${echartsUri}" src="${scriptUri}"></script>`;
+    return `<script type="module" nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
   private async sendNamespaces(): Promise<void> {
@@ -591,16 +591,43 @@ export class FabricDashboardPanel extends BasePanel {
 
   private handleTrafficStream(payload: StreamMessagePayload): void {
     const innerMsg = payload.msg as InnerMessagePayload | undefined;
+    let inboundTotal = 0;
+    let outboundTotal = 0;
+    let hasTrafficData = false;
+
+    const accumulateTraffic = (data: StreamUpdateData | null | undefined): void => {
+      const stats = this.extractTrafficStats(data);
+      if (!stats) {
+        return;
+      }
+      inboundTotal += stats.in;
+      outboundTotal += stats.out;
+      hasTrafficData = true;
+    };
+
     const ops = getOps(innerMsg) as StreamOperation[];
-    if (ops.length === 0) return;
-    const insertOrModify = getInsertOrModify(ops[0]) as InsertOrModifyOperation | undefined;
-    const rows = getRows(insertOrModify) as StreamRow[];
-    if (rows.length === 0) return;
-    const data = rows[0]?.data;
-    if (!data) return;
+    for (const op of ops) {
+      const insertOrModify = getInsertOrModify(op) as InsertOrModifyOperation | undefined;
+      const rows = getRows(insertOrModify) as StreamRow[];
+      for (const row of rows) {
+        accumulateTraffic(row.data);
+      }
+    }
+
+    if (!hasTrafficData) {
+      const updates = getUpdates(innerMsg) as StreamUpdate[];
+      for (const update of updates) {
+        accumulateTraffic(update.data);
+      }
+    }
+
+    if (!hasTrafficData) {
+      return;
+    }
+
     const stats = {
-      in: Number(data['SUM(in-bps)'] ?? 0),
-      out: Number(data['SUM(out-bps)'] ?? 0)
+      in: inboundTotal,
+      out: outboundTotal
     };
     this.trafficMap.set(this.selectedNamespace, stats);
     this.panel.webview.postMessage({
@@ -608,6 +635,39 @@ export class FabricDashboardPanel extends BasePanel {
       namespace: this.selectedNamespace,
       stats
     });
+  }
+
+  private extractTrafficStats(data: StreamUpdateData | null | undefined): { in: number; out: number } | null {
+    if (!data || typeof data !== 'object') {
+      return null;
+    }
+
+    const record = data as Record<string, unknown>;
+
+    const getMetric = (matcher: RegExp): number | undefined => {
+      for (const [key, value] of Object.entries(record)) {
+        if (!matcher.test(key)) {
+          continue;
+        }
+        const numeric = Number(value);
+        if (!Number.isNaN(numeric)) {
+          return numeric;
+        }
+      }
+      return undefined;
+    };
+
+    const inbound = getMetric(/^sum\(in-bps\)$/i);
+    const outbound = getMetric(/^sum\(out-bps\)$/i);
+
+    if (inbound === undefined && outbound === undefined) {
+      return null;
+    }
+
+    return {
+      in: inbound ?? 0,
+      out: outbound ?? 0
+    };
   }
 
   private async sendTrafficStats(ns: string): Promise<void> {
@@ -913,8 +973,20 @@ export class FabricDashboardPanel extends BasePanel {
   }
 
   static async show(context: vscode.ExtensionContext, title: string): Promise<FabricDashboardPanel> {
+    if (FabricDashboardPanel.currentPanel) {
+      FabricDashboardPanel.currentPanel.panel.title = title;
+      FabricDashboardPanel.currentPanel.panel.reveal(vscode.ViewColumn.Active);
+      return FabricDashboardPanel.currentPanel;
+    }
+
     const panel = new FabricDashboardPanel(context, title);
     await panel.initialize();
+    FabricDashboardPanel.currentPanel = panel;
+    panel.panel.onDidDispose(() => {
+      if (FabricDashboardPanel.currentPanel === panel) {
+        FabricDashboardPanel.currentPanel = undefined;
+      }
+    });
     return panel;
   }
 }

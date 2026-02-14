@@ -1,4 +1,8 @@
 import { useState, useCallback, useMemo } from 'react';
+import DescriptionIcon from '@mui/icons-material/Description';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import { Alert, Box, Chip, FormControl, InputLabel, List, ListItemButton, ListItemText, MenuItem, Paper, Select, Stack, TextField, Typography } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 
 import { usePostMessage, useMessageListener, useReadySignal } from '../shared/hooks';
 import { mountWebview } from '../shared/utils';
@@ -34,6 +38,10 @@ interface TransactionDiffsMessage {
   message?: string;
 }
 
+const COLOR_TEXT_SECONDARY = 'text.secondary' as const;
+const COLOR_DIVIDER = 'divider' as const;
+const JUSTIFY_BETWEEN = 'space-between' as const;
+
 function computeLCS(arr1: string[], arr2: string[]): string[] {
   const m = arr1.length;
   const n = arr2.length;
@@ -50,7 +58,8 @@ function computeLCS(arr1: string[], arr2: string[]): string[] {
   }
 
   const lcs: string[] = [];
-  let i = m, j = n;
+  let i = m;
+  let j = n;
   while (i > 0 && j > 0) {
     if (arr1[i - 1] === arr2[j - 1]) {
       lcs.unshift(arr1[i - 1]);
@@ -186,34 +195,33 @@ function generateDiff(beforeContent: string, afterContent: string): { beforeDiff
 }
 
 function DiffLineComponent({ item }: Readonly<{ item: DiffLine }>) {
+  const theme = useTheme();
   const bgColors = {
-    context: '',
-    added: 'bg-green-500/20',
-    removed: 'bg-red-500/20',
-    blank: 'bg-gray-500/10'
+    context: 'transparent',
+    added: theme.vscode.diff.addedBackground,
+    removed: theme.vscode.diff.removedBackground,
+    blank: theme.vscode.diff.blankBackground
   };
 
   return (
-    <div className={`flex font-mono text-xs ${bgColors[item.type]}`}>
-      <span className="w-12 shrink-0 text-right pr-2 text-(--vscode-descriptionForeground) border-r border-(--vscode-panel-border)">
+    <Box sx={{ display: 'flex', fontFamily: theme.vscode.fonts.editorFamily, fontSize: theme.vscode.fonts.editorSize, bgcolor: bgColors[item.type] }}>
+      <Box
+        sx={{
+          width: 56,
+          flexShrink: 0,
+          textAlign: 'right',
+          pr: 1,
+          color: COLOR_TEXT_SECONDARY,
+          borderRight: 1,
+          borderColor: COLOR_DIVIDER
+        }}
+      >
         {item.lineNum}
-      </span>
-      <span className="pl-2 whitespace-pre overflow-x-auto">{item.line || ' '}</span>
-    </div>
-  );
-}
-
-function ResourceItem({ resource, isSelected, onClick }: Readonly<{ resource: ResourceRef; isSelected: boolean; onClick: () => void }>) {
-  const kind = resource.type === 'node' ? NODE_CONFIG_LABEL : resource.kind;
-
-  return (
-    <button
-      className={`w-full text-left px-3 py-2 border-b border-(--vscode-panel-border) hover:bg-(--vscode-list-hoverBackground) ${isSelected ? 'bg-(--vscode-list-activeSelectionBackground) text-(--vscode-list-activeSelectionForeground)' : ''}`}
-      onClick={onClick}
-    >
-      <div className="font-medium">{resource.name}</div>
-      <div className="text-xs text-(--vscode-descriptionForeground)">{kind} - {resource.namespace}</div>
-    </button>
+      </Box>
+      <Box sx={{ pl: 1, whiteSpace: 'pre', overflowX: 'auto', flex: 1 }}>
+        {item.line || ' '}
+      </Box>
+    </Box>
   );
 }
 
@@ -285,111 +293,134 @@ function TransactionDiffsPanel() {
   const titleKind = selectedResource?.type === 'node' ? NODE_CONFIG_LABEL : selectedResource?.kind;
 
   return (
-    <div className="flex h-screen">
-      {/* Sidebar */}
-      <div className="w-72 shrink-0 border-r border-(--vscode-panel-border) flex flex-col bg-(--vscode-sideBar-background)">
-        <div className="p-3 border-b border-(--vscode-panel-border)">
-          <h3 className="font-semibold mb-2">Diffs</h3>
-          <select
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
-            className="w-full px-2 py-1 mb-2 bg-(--vscode-input-background) text-(--vscode-input-foreground) border border-(--vscode-input-border) rounded-sm text-sm"
-          >
-            <option value="all">All</option>
-            <option value="resource">Resource</option>
-            <option value="node">{NODE_CONFIG_LABEL}</option>
-          </select>
-          <input
-            type="text"
+    <Box sx={{ display: 'flex', height: '100vh' }}>
+      <Paper
+        variant="outlined"
+        sx={{
+          width: 300,
+          flexShrink: 0,
+          borderRadius: 0,
+          borderRight: 1,
+          borderColor: COLOR_DIVIDER,
+          display: 'flex',
+          flexDirection: 'column'
+        }}
+      >
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: COLOR_DIVIDER }}>
+          <Typography variant="subtitle1" sx={{ mb: 1 }}>Diffs</Typography>
+          <FormControl size="small" fullWidth sx={{ mb: 1 }}>
+            <InputLabel id="type-filter-label">Type</InputLabel>
+            <Select
+              labelId="type-filter-label"
+              value={typeFilter}
+              label="Type"
+              onChange={(e) => setTypeFilter(String(e.target.value))}
+            >
+              <MenuItem value="all">All</MenuItem>
+              <MenuItem value="resource">Resource</MenuItem>
+              <MenuItem value="node">{NODE_CONFIG_LABEL}</MenuItem>
+            </Select>
+          </FormControl>
+          <TextField
+            size="small"
+            fullWidth
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search..."
-            className="w-full px-2 py-1 bg-(--vscode-input-background) text-(--vscode-input-foreground) border border-(--vscode-input-border) rounded-sm text-sm"
           />
-        </div>
-        <div className="flex-1 overflow-y-auto">
-          {filteredDiffs.map((resource, idx) => (
-            <ResourceItem
-              key={`${resource.type}-${resource.name}-${resource.namespace}-${idx}`}
-              resource={resource}
-              isSelected={selectedResource === resource}
-              onClick={() => handleSelectResource(resource)}
-            />
-          ))}
-        </div>
-      </div>
+        </Box>
 
-      {/* Main content */}
-      <div className="flex-1 flex flex-col min-w-0">
-        <div className="p-3 border-b border-(--vscode-panel-border) flex items-center justify-between">
-          <h2 className="font-semibold">
+        <Box sx={{ flex: 1, overflowY: 'auto' }}>
+          <List disablePadding>
+            {filteredDiffs.map((resource, idx) => {
+              const kind = resource.type === 'node' ? NODE_CONFIG_LABEL : resource.kind;
+              return (
+                <ListItemButton
+                  key={`${resource.type}-${resource.name}-${resource.namespace}-${idx}`}
+                  selected={selectedResource === resource}
+                  onClick={() => handleSelectResource(resource)}
+                  divider
+                >
+                  <ListItemText
+                    primary={<Typography sx={{ fontSize: 14, fontWeight: 600 }}>{resource.name}</Typography>}
+                    secondary={<Typography sx={{ fontSize: 12 }}>{kind} - {resource.namespace}</Typography>}
+                  />
+                </ListItemButton>
+              );
+            })}
+          </List>
+        </Box>
+      </Paper>
+
+      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <Box sx={{ p: 1.5, borderBottom: 1, borderColor: COLOR_DIVIDER, display: 'flex', justifyContent: JUSTIFY_BETWEEN, alignItems: 'center' }}>
+          <Typography variant="subtitle1">
             {selectedResource ? `${titleKind}/${selectedResource.name}` : 'Select a resource to view diff'}
-          </h2>
+          </Typography>
           {stats.total > 0 && (
-            <div className="flex gap-3 text-sm">
-              <span className="text-green-500">+{stats.added}</span>
-              <span className="text-red-500">-{stats.removed}</span>
-              <span className="text-(--vscode-descriptionForeground)">Total: {stats.total} lines</span>
-            </div>
+            <Stack direction="row" spacing={1.5} alignItems="center">
+              <Chip size="small" color="success" label={`+${stats.added}`} />
+              <Chip size="small" color="error" label={`-${stats.removed}`} />
+              <Typography variant="caption" color={COLOR_TEXT_SECONDARY}>Total: {stats.total} lines</Typography>
+            </Stack>
           )}
-        </div>
+        </Box>
 
         {error && (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <span className="text-4xl mb-2 block">❌</span>
-              <p>Error loading diff:</p>
-              <p className="text-red-500 text-sm mt-2">{error}</p>
-            </div>
-          </div>
+          <Box sx={{ flex: 1, display: 'grid', placeItems: 'center' }}>
+            <Alert severity="error" icon={<ErrorOutlineIcon />} sx={{ maxWidth: 500 }}>
+              Error loading diff: {error}
+            </Alert>
+          </Box>
         )}
+
         {!error && noDiff && (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center text-(--vscode-descriptionForeground)">
-              <span className="text-4xl mb-2 block">📄</span>
-              <p>No differences found</p>
-            </div>
-          </div>
+          <Box sx={{ flex: 1, display: 'grid', placeItems: 'center', color: COLOR_TEXT_SECONDARY }}>
+            <Stack spacing={1} alignItems="center">
+              <DescriptionIcon fontSize="large" />
+              <Typography>No differences found</Typography>
+            </Stack>
+          </Box>
         )}
+
         {!error && !noDiff && !selectedResource && (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center text-(--vscode-descriptionForeground)">
-              <span className="text-4xl mb-2 block">📄</span>
-              <p>Select a resource from the list to view its diff</p>
-            </div>
-          </div>
+          <Box sx={{ flex: 1, display: 'grid', placeItems: 'center', color: COLOR_TEXT_SECONDARY }}>
+            <Stack spacing={1} alignItems="center">
+              <DescriptionIcon fontSize="large" />
+              <Typography>Select a resource from the list to view its diff</Typography>
+            </Stack>
+          </Box>
         )}
+
         {!error && !noDiff && selectedResource && (
-          <div className="flex-1 flex min-h-0">
-            {/* Before pane */}
-            <div className="flex-1 flex flex-col min-w-0 border-r border-(--vscode-panel-border)">
-              <div className="px-3 py-2 border-b border-(--vscode-panel-border) flex items-center justify-between bg-(--vscode-editorGroupHeader-tabsBackground)">
-                <span className="font-medium">Before</span>
-                <span className="text-xs px-2 py-0.5 bg-red-500/20 text-red-400 rounded-sm">Deleted</span>
-              </div>
-              <div className="flex-1 overflow-auto">
+          <Box sx={{ flex: 1, display: 'flex', minHeight: 0 }}>
+            <Box sx={{ flex: 1, minWidth: 0, borderRight: 1, borderColor: COLOR_DIVIDER, display: 'flex', flexDirection: 'column' }}>
+              <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: COLOR_DIVIDER, display: 'flex', justifyContent: JUSTIFY_BETWEEN, alignItems: 'center' }}>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>Before</Typography>
+                <Chip size="small" color="error" variant="outlined" label="Deleted" />
+              </Box>
+              <Box sx={{ flex: 1, overflow: 'auto' }}>
                 {beforeDiff.map((item, idx) => (
                   <DiffLineComponent key={idx} item={item} />
                 ))}
-              </div>
-            </div>
+              </Box>
+            </Box>
 
-            {/* After pane */}
-            <div className="flex-1 flex flex-col min-w-0">
-              <div className="px-3 py-2 border-b border-(--vscode-panel-border) flex items-center justify-between bg-(--vscode-editorGroupHeader-tabsBackground)">
-                <span className="font-medium">After</span>
-                <span className="text-xs px-2 py-0.5 bg-green-500/20 text-green-400 rounded-sm">Added</span>
-              </div>
-              <div className="flex-1 overflow-auto">
+            <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+              <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: COLOR_DIVIDER, display: 'flex', justifyContent: JUSTIFY_BETWEEN, alignItems: 'center' }}>
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>After</Typography>
+                <Chip size="small" color="success" variant="outlined" label="Added" />
+              </Box>
+              <Box sx={{ flex: 1, overflow: 'auto' }}>
                 {afterDiff.map((item, idx) => (
                   <DiffLineComponent key={idx} item={item} />
                 ))}
-              </div>
-            </div>
-          </div>
+              </Box>
+            </Box>
+          </Box>
         )}
-      </div>
-    </div>
+      </Box>
+    </Box>
   );
 }
 

@@ -23,6 +23,7 @@ eslint.config.mjs
 tailwind.config.js
 patch.sh
 .gitignore
+.npmignore
 .eslintrc*
 .prettierrc*
 
@@ -39,8 +40,12 @@ package-lock.json
 # Exclude source maps
 **/*.map
 
+# Exclude dev webview preview environment
+webviews/dev/**
+
 # Exclude documentation not needed in extension
 CLAUDE.md
+plan.md
 
 # Include bin if needed
 !bin/**

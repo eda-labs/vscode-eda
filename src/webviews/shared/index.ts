@@ -28,3 +28,6 @@ export type { VSCodeSelectProps, SelectOption } from './components';
 // utils
 export { shallowArrayEquals } from './utils';
 export { mountWebview } from './utils';
+
+// theme
+export { WebviewThemeProvider } from './theme';

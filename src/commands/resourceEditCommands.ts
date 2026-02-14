@@ -29,10 +29,10 @@ const BTN_APPLY_CHANGES = 'Apply Changes';
 const BTN_CANCEL = 'Cancel';
 
 // Quick pick item constants
-const LABEL_APPLY = '💾 Apply Changes';
-const LABEL_DIFF = '👁 View Changes (Diff)';
-const LABEL_VALIDATE = '✓ Validate (Dry Run)';
-const LABEL_BASKET = '🧺 Add to Basket';
+const LABEL_APPLY = 'Apply Changes';
+const LABEL_DIFF = 'View Changes (Diff)';
+const LABEL_VALIDATE = 'Validate (Dry Run)';
+const LABEL_BASKET = 'Add to Basket';
 const DESC_APPLY = 'Apply changes to the cluster';
 const DESC_DIFF = 'Compare changes before proceeding';
 const DESC_VALIDATE = 'Check if changes are valid without applying';

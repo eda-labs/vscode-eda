@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { VSCodeProvider } from '../context';
+import { WebviewThemeProvider } from '../theme';
 
 /**
  * Mounts a webview component with the VSCodeProvider wrapper.
@@ -13,7 +14,9 @@ export function mountWebview(Component: React.ComponentType): void {
     const root = createRoot(container);
     root.render(
       <VSCodeProvider>
-        <Component />
+        <WebviewThemeProvider>
+          <Component />
+        </WebviewThemeProvider>
       </VSCodeProvider>
     );
   }

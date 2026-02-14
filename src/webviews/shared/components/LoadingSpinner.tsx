@@ -1,3 +1,5 @@
+import { CircularProgress, Stack, Typography } from '@mui/material';
+
 const SIZE_MD = 'md' as const;
 
 interface LoadingSpinnerProps {
@@ -6,11 +8,11 @@ interface LoadingSpinnerProps {
   className?: string;
 }
 
-const sizeClasses = {
-  sm: 'size-4',
-  [SIZE_MD]: 'size-6',
-  lg: 'size-8'
-};
+const sizeMap = {
+  sm: 16,
+  [SIZE_MD]: 24,
+  lg: 32
+} as const;
 
 export function LoadingSpinner({
   size = SIZE_MD,
@@ -18,14 +20,14 @@ export function LoadingSpinner({
   className = ''
 }: Readonly<LoadingSpinnerProps>) {
   return (
-    <div className={`flex items-center justify-center gap-2 ${className}`}>
-      <div
-        className={`${sizeClasses[size]} border-2 border-vscode-text-primary border-t-transparent rounded-full animate-spin`}
-      />
+    <Stack direction="row" spacing={1} alignItems="center" justifyContent="center" className={className}>
+      <CircularProgress size={sizeMap[size]} />
       {message && (
-        <span className="text-vscode-text-primary">{message}</span>
+        <Typography variant="body2" color="text.primary">
+          {message}
+        </Typography>
       )}
-    </div>
+    </Stack>
   );
 }
 
@@ -35,8 +37,8 @@ interface LoadingOverlayProps {
 
 export function LoadingOverlay({ message = 'Loading...' }: Readonly<LoadingOverlayProps>) {
   return (
-    <div className="flex flex-col items-center justify-center h-full min-h-50">
+    <Stack alignItems="center" justifyContent="center" sx={{ minHeight: 200, height: '100%' }}>
       <LoadingSpinner size="lg" message={message} />
-    </div>
+    </Stack>
   );
 }

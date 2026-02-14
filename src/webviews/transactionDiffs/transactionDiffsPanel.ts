@@ -107,13 +107,9 @@ export class TransactionDiffsPanel extends BasePanel {
     this.panel.webview.html = this.buildHtml();
   }
 
-  protected getCustomStyles(): string {
-    return this.readWebviewFile('transactionDiffs', 'transactionDiffsPanel.css');
-  }
-
   protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'transactionDiffsPanel.js');
-    return `<script nonce="${nonce}" src="${scriptUri}"></script>`;
+    return `<script type="module" nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
 

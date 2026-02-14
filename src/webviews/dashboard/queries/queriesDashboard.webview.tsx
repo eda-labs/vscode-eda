@@ -1,7 +1,37 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
+import CloseIcon from '@mui/icons-material/Close';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import SearchIcon from '@mui/icons-material/Search';
+import {
+  Alert,
+  Box,
+  Button,
+  ButtonGroup,
+  FormControl,
+  IconButton,
+  InputAdornment,
+  InputLabel,
+  List,
+  ListItemButton,
+  ListItemText,
+  Menu,
+  MenuItem,
+  Paper,
+  Select,
+  Stack,
+  TextField,
+  Tooltip,
+  Typography
+} from '@mui/material';
+import type { GridColDef, GridSortModel } from '@mui/x-data-grid';
 
 import { usePostMessage, useMessageListener, useReadySignal, useCopyToClipboard } from '../../shared/hooks';
 import { shallowArrayEquals, mountWebview } from '../../shared/utils';
+import { VsCodeDataGrid } from '../../shared/components';
 
 import type { CopyFormat } from './queryFormatters';
 import { formatValue, pruneEmptyColumns, formatForClipboard } from './queryFormatters';
@@ -48,12 +78,6 @@ const initialConversionState: ConversionState = {
   showAlternatives: false
 };
 
-// Grouped state for sort
-interface SortState {
-  index: number;
-  ascending: boolean;
-}
-
 // Message handler helpers
 function handleInitMessage(
   msg: QueriesMessage,
@@ -67,12 +91,12 @@ function handleInitMessage(
 function handleClearMessage(
   setColumns: React.Dispatch<React.SetStateAction<string[]>>,
   setAllRows: React.Dispatch<React.SetStateAction<unknown[][]>>,
-  setSort: React.Dispatch<React.SetStateAction<SortState>>,
+  setSortModel: React.Dispatch<React.SetStateAction<GridSortModel>>,
   setStatus: React.Dispatch<React.SetStateAction<string>>
 ): void {
   setColumns([]);
   setAllRows([]);
-  setSort({ index: -1, ascending: true });
+  setSortModel([]);
   setStatus('Running...');
 }
 
@@ -80,16 +104,14 @@ function handleResultsMessage(
   msg: QueriesMessage,
   setColumns: React.Dispatch<React.SetStateAction<string[]>>,
   setAllRows: React.Dispatch<React.SetStateAction<unknown[][]>>,
-  setSort: React.Dispatch<React.SetStateAction<SortState>>,
-  setFilters: React.Dispatch<React.SetStateAction<string[]>>,
+  setSortModel: React.Dispatch<React.SetStateAction<GridSortModel>>,
   setStatus: React.Dispatch<React.SetStateAction<string>>
 ): void {
   const filtered = pruneEmptyColumns(msg.columns || [], msg.rows || []);
   setColumns(prev => {
     const colsChanged = !shallowArrayEquals(prev, filtered.cols);
     if (colsChanged) {
-      setSort({ index: -1, ascending: true });
-      setFilters(new Array(filtered.cols.length).fill(''));
+      setSortModel([]);
     }
     return filtered.cols;
   });
@@ -181,10 +203,34 @@ interface AutocompleteState {
   index: number;
 }
 
+interface QueryGridRow {
+  id: string;
+  raw: unknown[];
+  [key: string]: unknown;
+}
+
+function getSortIndex(sortModel: GridSortModel): { index: number; ascending: boolean } | null {
+  const firstSort = sortModel[0];
+  if (!firstSort?.field.startsWith('col_')) {
+    return null;
+  }
+
+  const index = Number.parseInt(firstSort.field.replace('col_', ''), 10);
+  if (Number.isNaN(index)) {
+    return null;
+  }
+
+  return {
+    index,
+    ascending: firstSort.sort !== 'desc'
+  };
+}
+
 function QueriesDashboard() {
   const postMessage = usePostMessage();
   useReadySignal();
   const { copied, copyToClipboard } = useCopyToClipboard({ successDuration: 1000 });
+  const controlHeight = 32;
 
   // Namespace state
   const [namespaces, setNamespaces] = useState<string[]>([]);
@@ -197,17 +243,17 @@ function QueriesDashboard() {
   // Results state
   const [columns, setColumns] = useState<string[]>([]);
   const [allRows, setAllRows] = useState<unknown[][]>([]);
-  const [filters, setFilters] = useState<string[]>([]);
-  const [sort, setSort] = useState<SortState>({ index: -1, ascending: true });
+  const [sortModel, setSortModel] = useState<GridSortModel>([]);
   const [status, setStatus] = useState('Ready');
 
   // UI state
   const [autocomplete, setAutocomplete] = useState<AutocompleteState>({ list: [], index: -1 });
   const [copyFormat, setCopyFormat] = useState<CopyFormat>('ascii');
-  const [showFormatMenu, setShowFormatMenu] = useState(false);
   const [conversion, setConversion] = useState<ConversionState>(initialConversionState);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const autocompleteRef = useRef<HTMLDivElement | null>(null);
+  const [copyMenuAnchor, setCopyMenuAnchor] = useState<HTMLElement | null>(null);
 
   useMessageListener<QueriesMessage>(useCallback((msg) => {
     switch (msg.command) {
@@ -215,10 +261,10 @@ function QueriesDashboard() {
         handleInitMessage(msg, setNamespaces, setSelectedNamespace);
         break;
       case 'clear':
-        handleClearMessage(setColumns, setAllRows, setSort, setStatus);
+        handleClearMessage(setColumns, setAllRows, setSortModel, setStatus);
         break;
       case 'results':
-        handleResultsMessage(msg, setColumns, setAllRows, setSort, setFilters, setStatus);
+        handleResultsMessage(msg, setColumns, setAllRows, setSortModel, setStatus);
         break;
       case 'error':
         handleErrorMessage(msg, setStatus, setColumns, setAllRows);
@@ -255,44 +301,23 @@ function QueriesDashboard() {
   }, [queryType]);
 
   const sortedRows = useMemo(() => {
-    if (sort.index < 0) return allRows;
+    const activeSort = getSortIndex(sortModel);
+    if (!activeSort) return allRows;
+
+    const { index, ascending } = activeSort;
+
     return [...allRows].sort((a, b) => {
-      const av = formatValue(a[sort.index]);
-      const bv = formatValue(b[sort.index]);
-      if (av < bv) return sort.ascending ? -1 : 1;
-      if (av > bv) return sort.ascending ? 1 : -1;
+      const av = formatValue(a[index]);
+      const bv = formatValue(b[index]);
+      if (av < bv) return ascending ? -1 : 1;
+      if (av > bv) return ascending ? 1 : -1;
       return 0;
     });
-  }, [allRows, sort]);
-
-  // Pre-compile regexes for filters to avoid creating them in the filter loop
-  const compiledFilters = useMemo(() => {
-    return filters.map(f => {
-      if (!f) return null;
-      try {
-        return { type: 'regex' as const, pattern: new RegExp(f, 'i') };
-      } catch {
-        return { type: 'string' as const, pattern: f.toLowerCase() };
-      }
-    });
-  }, [filters]);
-
-  const filteredRows = useMemo(() => {
-    return sortedRows.filter(row => {
-      return compiledFilters.every((compiled, idx) => {
-        if (!compiled) return true;
-        const value = formatValue(row[idx]);
-        if (compiled.type === 'regex') {
-          return compiled.pattern.test(value);
-        }
-        return value.toLowerCase().includes(compiled.pattern);
-      });
-    });
-  }, [sortedRows, compiledFilters]);
+  }, [allRows, sortModel]);
 
   useEffect(() => {
-    setStatus(`Count: ${filteredRows.length}`);
-  }, [filteredRows.length]);
+    setStatus(`Count: ${sortedRows.length}`);
+  }, [sortedRows.length]);
 
   const handleRunQuery = useCallback(() => {
     setStatus('Running...');
@@ -353,7 +378,7 @@ function QueriesDashboard() {
 
     if (key === 'Escape') {
       setAutocomplete({ list: [], index: -1 });
-      setShowFormatMenu(false);
+      setCopyMenuAnchor(null);
       return;
     }
 
@@ -375,30 +400,15 @@ function QueriesDashboard() {
     }
   }, [autocomplete, queryType, insertAutocomplete, handleRunQuery]);
 
-  const handleSort = useCallback((idx: number) => {
-    setSort(prev => ({
-      index: idx,
-      ascending: prev.index === idx ? !prev.ascending : true
-    }));
-  }, []);
-
-  const handleFilterChange = useCallback((idx: number, value: string) => {
-    setFilters(prev => {
-      const newFilters = [...prev];
-      newFilters[idx] = value;
-      return newFilters;
-    });
-  }, []);
-
-  const handleCopy = useCallback(() => {
-    const text = formatForClipboard(copyFormat, columns, filteredRows);
+  const handleCopy = useCallback((format?: CopyFormat) => {
+    const text = formatForClipboard(format ?? copyFormat, columns, sortedRows);
     copyToClipboard(text).then((success) => {
       if (success) {
         setStatus('Copied to clipboard');
-        setTimeout(() => setStatus(`Count: ${filteredRows.length}`), 1000);
+        setTimeout(() => setStatus(`Count: ${sortedRows.length}`), 1000);
       }
     }).catch(() => {});
-  }, [copyFormat, columns, filteredRows, copyToClipboard]);
+  }, [copyFormat, columns, sortedRows, copyToClipboard]);
 
   const handleAlternativeClick = useCallback((alt: Alternative) => {
     setQueryInput(alt.query);
@@ -409,220 +419,261 @@ function QueriesDashboard() {
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      if (!target.closest('.query-input-wrapper')) {
+      if (autocompleteRef.current && !autocompleteRef.current.contains(target)) {
         setAutocomplete(prev => ({ ...prev, list: [] }));
-      }
-      if (!target.closest('.copy-dropdown')) {
-        setShowFormatMenu(false);
       }
     };
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
   }, []);
 
+  const gridRows = useMemo<QueryGridRow[]>(() => {
+    return sortedRows.map((row, rowIndex) => {
+      const gridRow: QueryGridRow = {
+        id: String(rowIndex),
+        raw: row
+      };
+      columns.forEach((_, colIndex) => {
+        gridRow[`col_${colIndex}`] = formatValue(row[colIndex]);
+      });
+      return gridRow;
+    });
+  }, [sortedRows, columns]);
+
+  const gridColumns = useMemo<GridColDef<QueryGridRow>[]>(() => {
+    return columns.map((column, index) => ({
+      field: `col_${index}`,
+      headerName: column,
+      minWidth: 180,
+      width: 220,
+      renderCell: (params) => (
+        <Box sx={{ py: 0.25, whiteSpace: 'pre-wrap', overflow: 'auto', maxHeight: 140 }}>
+          {String(params.row[`col_${index}`] ?? '')}
+        </Box>
+      )
+    }));
+  }, [columns]);
+
   return (
-    <div className="p-6 max-w-350 mx-auto">
-      <header className="flex items-center justify-between mb-4 gap-2">
-        <div className="flex items-center gap-2 flex-1 relative mr-2">
-          <label className="flex items-center" htmlFor="queryInput">
-            <span className="codicon codicon-search mr-1"></span> Query
-          </label>
-          <select
-            className="bg-(--vscode-input-background) text-(--vscode-input-foreground) border border-(--vscode-input-border) rounded-sm px-2 py-1 mr-2 min-w-15"
-            value={queryType}
-            onChange={(e) => setQueryType(e.target.value as QueryType)}
-          >
-            <option value="eql">EQL</option>
-            <option value="nql">NQL</option>
-            <option value="emb">EMB</option>
-          </select>
-          <div className="query-input-wrapper flex-1 relative">
-            <input
-              ref={inputRef}
-              type="text"
-              className="w-full px-2 py-1 bg-(--vscode-input-background) text-(--vscode-input-foreground) border border-(--vscode-input-border) rounded-sm"
+    <Box sx={{ p: 3, maxWidth: 1600, mx: 'auto' }}>
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 2 }} alignItems={{ md: 'center' }}>
+        <Stack direction="row" spacing={1} sx={{ flex: 1 }} alignItems="center">
+          <Typography variant="body2" sx={{ minWidth: 48 }}>Query</Typography>
+          <FormControl size="small" sx={{ minWidth: 100 }}>
+            <InputLabel id="query-type-label">Type</InputLabel>
+            <Select
+              labelId="query-type-label"
+              size="small"
+              sx={{ height: controlHeight, '& .MuiSelect-select': { height: controlHeight, display: 'flex', alignItems: 'center' } }}
+              value={queryType}
+              label="Type"
+              onChange={(e) => setQueryType(e.target.value as QueryType)}
+            >
+              <MenuItem value="eql">EQL</MenuItem>
+              <MenuItem value="nql">NQL</MenuItem>
+              <MenuItem value="emb">EMB</MenuItem>
+            </Select>
+          </FormControl>
+
+          <Box sx={{ flex: 1, position: 'relative' }} ref={autocompleteRef}>
+            <TextField
+              inputRef={inputRef}
+              fullWidth
+              size="small"
+              sx={{ '& .MuiOutlinedInput-root': { minHeight: controlHeight, height: controlHeight } }}
               placeholder={queryPlaceholder}
               value={queryInput}
               onChange={handleQueryInputChange}
               onKeyDown={handleKeyDown}
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" />
+                    </InputAdornment>
+                  )
+                }
+              }}
             />
             {autocomplete.list.length > 0 && (
-              <ul className="list-none m-0 p-0 absolute left-0 right-0 top-full bg-(--vscode-input-background) border border-(--vscode-input-border) border-t-0 max-h-50 overflow-y-auto z-10">
-                {autocomplete.list.map((item, idx) => (
-                  <li
-                    key={idx}
-                    className={`px-2 py-0.5 cursor-pointer hover:bg-(--vscode-list-hoverBackground) ${idx === autocomplete.index ? 'bg-(--vscode-list-activeSelectionBackground) text-(--vscode-list-activeSelectionForeground)' : ''}`}
-                    onMouseOver={() => setAutocomplete(prev => ({ ...prev, index: idx }))}
-                    onClick={() => insertAutocomplete(item)}
-                  >
-                    {item}
-                  </li>
-                ))}
-              </ul>
+              <Paper
+                variant="outlined"
+                sx={{
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  top: '100%',
+                  zIndex: 10,
+                  maxHeight: 280,
+                  overflowY: 'auto'
+                }}
+              >
+                <List dense disablePadding>
+                  {autocomplete.list.map((item, idx) => (
+                    <ListItemButton
+                      key={idx}
+                      selected={idx === autocomplete.index}
+                      onMouseOver={() => setAutocomplete(prev => ({ ...prev, index: idx }))}
+                      onClick={() => insertAutocomplete(item)}
+                    >
+                      <ListItemText primary={<Typography sx={{ fontSize: 13 }}>{item}</Typography>} />
+                    </ListItemButton>
+                  ))}
+                </List>
+              </Paper>
             )}
-          </div>
-          <button
-            className="px-3 py-1 border-none bg-(--vscode-button-background) text-(--vscode-button-foreground) rounded-sm cursor-pointer hover:bg-(--vscode-button-hoverBackground)"
+          </Box>
+
+          <Button
+            variant="contained"
+            size="small"
+            sx={{ minHeight: controlHeight, height: controlHeight }}
+            startIcon={<PlayArrowIcon />}
             onClick={handleRunQuery}
           >
             Run
-          </button>
-          <div className="flex items-center gap-0.5">
-            <div className="copy-dropdown relative flex">
-              <button
-                className={`flex items-center gap-1 px-3 py-1 pr-0 border-none rounded-sm cursor-pointer ${copied ? 'bg-(--vscode-debugConsole-infoForeground)' : 'bg-(--vscode-button-background)'} text-(--vscode-button-foreground) hover:bg-(--vscode-button-hoverBackground)`}
-                onClick={handleCopy}
+          </Button>
+
+          <ButtonGroup
+            variant="contained"
+            color={copied ? 'success' : 'primary'}
+            size="small"
+            sx={{
+              '& .MuiButton-root': {
+                minHeight: controlHeight,
+                height: controlHeight
+              }
+            }}
+          >
+            <Button
+              startIcon={<ContentCopyIcon />}
+              onClick={() => handleCopy()}
+            >
+              Copy
+            </Button>
+            <Tooltip title="Choose copy format">
+              <Button
+                size="small"
+                onClick={(event) => setCopyMenuAnchor(event.currentTarget)}
+                aria-haspopup="menu"
+                aria-label="Choose copy format"
               >
-                <span>Copy</span>
-                <span
-                  className="flex items-center py-0 px-3 pl-1 ml-1 border-l border-(--vscode-panel-border) cursor-pointer"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowFormatMenu(prev => !prev);
-                  }}
-                >
-                  <span className="codicon codicon-chevron-down"></span>
-                </span>
-              </button>
-              {showFormatMenu && (
-                <ul className="list-none m-0 p-0 absolute right-0 top-full bg-(--vscode-input-background) border border-(--vscode-input-border) z-10">
-                  {(['ascii', 'markdown', 'json', 'yaml'] as CopyFormat[]).map(fmt => (
-                    <li
-                      key={fmt}
-                      className="px-2 py-0.5 cursor-pointer hover:bg-(--vscode-list-hoverBackground)"
-                      onClick={() => {
-                        setCopyFormat(fmt);
-                        setShowFormatMenu(false);
-                        handleCopy();
-                      }}
-                    >
-                      {fmt.toUpperCase()}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-        </div>
-        <select
-          className="bg-(--vscode-input-background) text-(--vscode-input-foreground) border border-(--vscode-input-border) rounded-sm px-2 py-1"
-          value={selectedNamespace}
-          onChange={(e) => setSelectedNamespace(e.target.value)}
-        >
-          {namespaces.map(ns => (
-            <option key={ns} value={ns}>{ns}</option>
-          ))}
-        </select>
-      </header>
+                <ArrowDropDownIcon />
+              </Button>
+            </Tooltip>
+          </ButtonGroup>
+          <Menu
+            anchorEl={copyMenuAnchor}
+            open={Boolean(copyMenuAnchor)}
+            onClose={() => setCopyMenuAnchor(null)}
+          >
+            {(['ascii', 'markdown', 'json', 'yaml'] as CopyFormat[]).map(fmt => (
+              <MenuItem
+                key={fmt}
+                selected={copyFormat === fmt}
+                onClick={() => {
+                  setCopyFormat(fmt);
+                  setCopyMenuAnchor(null);
+                  handleCopy(fmt);
+                }}
+              >
+                {fmt.toUpperCase()}
+              </MenuItem>
+            ))}
+          </Menu>
+        </Stack>
+
+        <FormControl size="small" sx={{ minWidth: 220 }}>
+          <InputLabel id="query-namespace-label">Namespace</InputLabel>
+          <Select
+            labelId="query-namespace-label"
+            size="small"
+            sx={{ height: controlHeight, '& .MuiSelect-select': { height: controlHeight, display: 'flex', alignItems: 'center' } }}
+            value={selectedNamespace}
+            label="Namespace"
+            onChange={(e) => setSelectedNamespace(String(e.target.value))}
+          >
+            {namespaces.map(ns => (
+              <MenuItem key={ns} value={ns}>{ns}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Stack>
 
       {queryTypeNote && (
-        <div className="bg-(--vscode-editorHoverWidget-background) border border-(--vscode-editorHoverWidget-border) rounded-sm mb-3 text-xs">
-          <div className="flex items-center gap-2 py-2 px-3">
-            <span className="text-(--vscode-notificationsInfoIcon-foreground) text-sm">{'\u2139\uFE0F'}</span>
-            <span className="text-(--vscode-notifications-foreground) italic">{queryTypeNote}</span>
-          </div>
-        </div>
+        <Alert severity="info" icon={<InfoOutlinedIcon />} sx={{ mb: 2 }}>
+          <Typography variant="body2" sx={{ fontStyle: 'italic' }}>{queryTypeNote}</Typography>
+        </Alert>
       )}
 
       {conversion.show && (
-        <div className="bg-(--vscode-notifications-background) border border-(--vscode-notifications-border) rounded-sm mb-4 text-sm">
-          <div className="flex items-center gap-2 py-3 px-4">
-            <span className="text-(--vscode-notificationsInfoIcon-foreground) text-base">{'\u2139\uFE0F'}</span>
-            <div className="flex-1 text-(--vscode-notifications-foreground)">
-              <div><span>{conversion.label}</span> <code className="bg-(--vscode-textBlockQuote-background) px-1.5 py-0.5 rounded-sm text-xs font-mono">{conversion.eql}</code></div>
-              {conversion.description && (
-                <div className="text-xs text-(--vscode-descriptionForeground) mt-1 italic">{conversion.description}</div>
+        <Alert
+          severity="info"
+          sx={{ mb: 2 }}
+          action={
+            <Stack direction="row" spacing={0.5}>
+              {conversion.alternatives.length > 0 && (
+                <IconButton
+                  size="small"
+                  onClick={() => setConversion(prev => ({ ...prev, showAlternatives: !prev.showAlternatives }))}
+                  sx={{ transform: conversion.showAlternatives ? 'rotate(180deg)' : 'none' }}
+                >
+                  <ExpandMoreIcon fontSize="small" />
+                </IconButton>
               )}
-            </div>
-            {conversion.alternatives.length > 0 && (
-              <button
-                className={`bg-transparent border-none text-(--vscode-notifications-foreground) cursor-pointer p-1 flex items-center transition-transform ${conversion.showAlternatives ? 'rotate-180' : ''}`}
-                title="Show alternative queries"
-                onClick={() => setConversion(prev => ({ ...prev, showAlternatives: !prev.showAlternatives }))}
-              >
-                <span className="codicon codicon-chevron-down"></span>
-              </button>
-            )}
-            <button
-              className="bg-transparent border-none text-(--vscode-notifications-foreground) text-xl cursor-pointer p-1 opacity-70 hover:opacity-100"
-              onClick={() => setConversion(initialConversionState)}
-            >
-              {'\u00D7'}
-            </button>
-          </div>
-          {conversion.showAlternatives && conversion.alternatives.length > 0 && (
-            <div className="px-4 pb-3 border-t border-(--vscode-notifications-border)">
-              <div className="my-2 font-medium text-(--vscode-notifications-foreground)">Alternative queries:</div>
-              <ul className="list-none m-0 p-0 max-h-50 overflow-y-auto">
-                {conversion.alternatives.map((alt, idx) => (
-                  <li
-                    key={idx}
-                    className="flex justify-between items-start gap-3 py-2 px-2.5 my-1 bg-(--vscode-textBlockQuote-background) rounded-sm cursor-pointer hover:bg-(--vscode-list-hoverBackground)"
-                    onClick={() => handleAlternativeClick(alt)}
-                  >
-                    <div className="flex-1">
-                      <code className="font-mono text-xs">{alt.query}</code>
-                      {alt.description && (
-                        <div className="text-[11px] text-(--vscode-descriptionForeground) mt-0.5">
-                          {alt.description}
-                        </div>
-                      )}
-                    </div>
-                    <span className="text-[11px] text-(--vscode-descriptionForeground) ml-2">Score: {alt.score.toFixed(1)}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+              <IconButton size="small" onClick={() => setConversion(initialConversionState)}>
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </Stack>
+          }
+        >
+          <Typography variant="body2">
+            {conversion.label} <code>{conversion.eql}</code>
+          </Typography>
+          {conversion.description && (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontStyle: 'italic' }}>
+              {conversion.description}
+            </Typography>
           )}
-        </div>
+          {conversion.showAlternatives && conversion.alternatives.length > 0 && (
+            <Box sx={{ mt: 1.5 }}>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>Alternative queries</Typography>
+              <List dense sx={{ maxHeight: 220, overflowY: 'auto' }}>
+                {conversion.alternatives.map((alt, idx) => (
+                  <ListItemButton key={idx} onClick={() => handleAlternativeClick(alt)}>
+                    <ListItemText
+                      primary={<code>{alt.query}</code>}
+                      secondary={
+                        <>
+                          {alt.description ? `${alt.description} ` : ''}
+                          Score: {alt.score.toFixed(1)}
+                        </>
+                      }
+                    />
+                  </ListItemButton>
+                ))}
+              </List>
+            </Box>
+          )}
+        </Alert>
       )}
 
-      <div className="overflow-auto max-h-[85vh]">
-        <table className="w-max min-w-full border-collapse rounded-lg overflow-hidden">
-          <thead>
-            <tr>
-              {columns.map((col, idx) => (
-                <th
-                  key={col}
-                  onClick={() => handleSort(idx)}
-                  className="border border-(--vscode-panel-border) px-2 py-1 bg-(--vscode-panel-background) cursor-pointer select-none text-left"
-                >
-                  {col}
-                  {sort.index === idx && (
-                    <span className="ml-1">{sort.ascending ? '\u25B2' : '\u25BC'}</span>
-                  )}
-                </th>
-              ))}
-            </tr>
-            <tr>
-              {columns.map((_, idx) => (
-                <td key={idx} className="border border-(--vscode-panel-border) p-0 bg-(--vscode-editorWidget-background)">
-                  <input
-                    value={filters[idx] || ''}
-                    onChange={(e) => handleFilterChange(idx, e.target.value)}
-                    className="w-full px-1 py-0.5 bg-(--vscode-input-background) text-(--vscode-input-foreground) border-none rounded-sm"
-                  />
-                </td>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filteredRows.map((row, rowIdx) => (
-              <tr key={rowIdx} className="hover:bg-(--vscode-list-hoverBackground)">
-                {columns.map((_, colIdx) => (
-                  <td key={colIdx} className="border border-(--vscode-panel-border) px-2 py-1 whitespace-pre align-top">
-                    <div className="max-w-150 max-h-50 overflow-auto whitespace-pre-wrap">{formatValue(row[colIdx])}</div>
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="pt-1 border-t border-(--vscode-panel-border) mt-2">
-        <span>{status}</span>
-      </div>
-    </div>
+      <VsCodeDataGrid<QueryGridRow>
+        rows={gridRows}
+        columns={gridColumns}
+        noRowsMessage="No rows"
+        footer={(
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+            {status}
+          </Typography>
+        )}
+        dataGridProps={{
+          sortModel,
+          onSortModelChange: setSortModel,
+          getRowHeight: () => 40
+        }}
+      />
+    </Box>
   );
 }
 

@@ -1,0 +1,411 @@
+/* Topology Flow Dashboard - All styles for the React Flow topology view */
+
+/* ============================================
+   CSS Variables - Theme Integration
+   ============================================ */
+
+:root {
+  /* Link/Edge colors */
+  --color-link-stroke: var(--topology-link-stroke, #6872824C);
+  --color-link-stroke-selected: var(--topology-link-stroke-selected, #6098FF);
+  --color-link-up: var(--topology-link-up, #4ade80);
+  --color-link-down: var(--topology-link-down, #f87171);
+
+  /* Node colors - Dark-safe defaults (VS Code vars override when available) */
+  --color-node-border: var(--topology-node-border, #6872824C);
+  --color-node-border-selected: var(--topology-node-border-selected, #6098FF);
+  --color-node-bg: var(--topology-node-bg, #252526);
+  --color-node-text: var(--topology-node-text, #cccccc);
+  --color-handle-bg: var(--topology-handle-bg, #ffffff);
+  --color-handle-border: var(--topology-handle-border, #6872824C);
+
+  /* Icon colors */
+  --color-icon-bg: var(--topology-icon-bg, #5f6368);
+  --color-icon-fg: var(--topology-icon-fg, #ffffff);
+}
+
+/* ============================================
+   Dashboard Layout
+   ============================================ */
+
+.dashboard {
+  padding: 24px;
+  max-width: 2800px;
+  margin: 0 auto;
+  height: 100vh;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--topology-editor-bg, #1e1e1e);
+  color: var(--topology-foreground, #cccccc);
+}
+
+.header {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-bottom: 16px;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--topology-panel-border);
+  border-radius: 8px;
+  background-color: var(--topology-widget-bg);
+  box-shadow: var(--topology-header-shadow);
+}
+
+.namespace-select,
+.label-select {
+  padding: 5px 10px;
+  border: 1px solid var(--topology-input-border);
+  border-radius: 4px;
+  background-color: var(--topology-input-bg);
+  color: var(--topology-input-fg);
+  min-width: 150px;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  gap: 16px;
+  min-height: 0;
+}
+
+.topology-container {
+  flex: 4;
+  border: 1px solid var(--topology-panel-border);
+  border-radius: 8px;
+  background-color: var(--topology-editor-bg, #1e1e1e);
+  box-shadow: var(--topology-container-shadow);
+  overflow: hidden;
+  min-height: 400px;
+  height: 100%;
+  position: relative;
+}
+
+/* ============================================
+   Info Card / Sidebar
+   ============================================ */
+
+.info-card {
+  flex: 1;
+  border: 1px solid var(--topology-panel-border);
+  border-radius: 8px;
+  background-color: var(--topology-widget-bg);
+  padding: 12px;
+  min-width: 300px;
+  box-shadow: var(--topology-card-shadow);
+  overflow: auto;
+  font-family: var(--topology-font-family, inherit);
+  font-size: var(--topology-font-size, 13px);
+}
+
+.info-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 10px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--topology-panel-border);
+  font-size: 14px;
+}
+
+.info-card table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.info-card td {
+  padding: 2px 4px;
+}
+
+.info-card td:first-child {
+  color: var(--topology-description-fg);
+}
+
+.info-card tr.section td {
+  font-weight: bold;
+  padding-top: 6px;
+}
+
+.info-card .node-link,
+.info-card .link-resource {
+  color: var(--topology-link-fg);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.info-card .node-link:hover,
+.info-card .link-resource:hover {
+  text-decoration: underline;
+}
+
+/* ============================================
+   React Flow Container
+   ============================================ */
+
+.react-flow {
+  --xy-background-color: var(--topology-editor-bg, #1e1e1e);
+  background-color: var(--topology-editor-bg, #1e1e1e);
+  width: 100%;
+  height: 100%;
+}
+
+.react-flow.dark {
+  --xy-background-color: var(--topology-editor-bg, #1e1e1e);
+}
+
+/* ============================================
+   Topology Node Styles - 80x80 boxes
+   ============================================ */
+
+.topology-node {
+  width: 80px;
+  height: 80px;
+  border-radius: 8px;
+  background-color: var(--color-node-bg);
+  border: 1px solid var(--color-node-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  position: relative;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.topology-node:hover {
+  border-color: var(--color-node-border-selected);
+}
+
+.topology-node.selected {
+  border-color: var(--color-node-border-selected);
+  box-shadow: 0 0 0 1px var(--color-node-border-selected);
+}
+
+.topology-node-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.topology-node-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background-color: var(--color-icon-bg);
+  color: var(--color-icon-fg);
+  box-sizing: border-box;
+}
+
+.topology-node-icon svg {
+  width: 18px;
+  height: 18px;
+  overflow: visible;
+  color: inherit;
+  fill: currentColor;
+}
+
+.topology-node-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-node-text);
+  white-space: nowrap;
+  text-align: center;
+  width: 70px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+
+/* Keep anchor handles for edge routing, but hide them visually. */
+.topology-handle {
+  width: 10px !important;
+  height: 10px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  border: none !important;
+  background: transparent !important;
+}
+
+/* ============================================
+   Edge/Link Styles
+   ============================================ */
+
+.react-flow__edge-path {
+  stroke: var(--color-link-stroke);
+  stroke-width: 1.5;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--color-link-stroke-selected) !important;
+  stroke-width: 3 !important;
+}
+
+/* Hide default edge labels */
+.react-flow__edge-text {
+  display: none;
+}
+
+/* Make sure edges are clickable */
+.react-flow__edge-interaction {
+  stroke-width: 20;
+  stroke: transparent;
+  fill: none;
+}
+
+/* Edge Label Styles */
+.topology-edge-label {
+  font-size: 10px;
+  background-color: var(--topology-editor-bg);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--topology-panel-border);
+  box-shadow: var(--topology-edge-label-shadow);
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--topology-foreground);
+}
+
+/* ============================================
+   React Flow Controls
+   ============================================ */
+
+.react-flow__controls {
+  box-shadow: var(--topology-controls-shadow);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.react-flow__controls-button {
+  background-color: var(--topology-button-secondary-bg);
+  border: none;
+  color: var(--topology-button-secondary-fg);
+}
+
+.react-flow__controls-button:hover {
+  background-color: var(--topology-button-secondary-hover-bg);
+}
+
+/* ============================================
+   React Flow Background
+   ============================================ */
+
+.react-flow__background {
+  background-color: var(--topology-editor-bg);
+}
+
+.react-flow__background pattern circle {
+  fill: var(--topology-editor-line-fg);
+}
+
+.react-flow__panel {
+  margin: 8px;
+}
+
+/* ============================================
+   Namespace Label Styles
+   ============================================ */
+
+.namespace-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--topology-foreground);
+  background-color: var(--topology-badge-bg);
+  padding: 4px 12px;
+  border-radius: 4px;
+  white-space: nowrap;
+  text-align: center;
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+/* ============================================
+   Export Button and Popup
+   ============================================ */
+
+.export-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--topology-button-border);
+  border-radius: 4px;
+  background-color: var(--topology-button-secondary-bg);
+  color: var(--topology-button-secondary-fg);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.export-btn:hover {
+  background-color: var(--topology-button-secondary-hover-bg);
+}
+
+.export-btn.cancel {
+  background-color: transparent;
+  border-color: var(--topology-button-border);
+}
+
+.export-popup {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--topology-modal-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.export-popup-content {
+  background-color: var(--topology-editor-bg);
+  border: 1px solid var(--topology-panel-border);
+  border-radius: 8px;
+  padding: 20px;
+  min-width: 280px;
+  box-shadow: var(--topology-modal-shadow);
+}
+
+.export-popup-content h3 {
+  margin: 0 0 16px 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.export-popup-content label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.export-popup-content label.checkbox-label {
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.export-popup-content input[type="color"] {
+  width: 40px;
+  height: 28px;
+  border: 1px solid var(--topology-panel-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.export-popup-content input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.export-popup-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
