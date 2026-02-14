@@ -206,7 +206,7 @@ function ExplorerNodeLabel({ node, onInvokeAction }: Readonly<ExplorerNodeLabelP
           cursor: node.primaryAction ? 'pointer' : 'default'
         }}
       >
-        <Tooltip title={node.tooltip || ''} enterDelay={400}>
+        <Tooltip title={node.tooltip || ''} enterDelay={400} disableInteractive>
           <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
             {node.statusIndicator && (
               <Box
