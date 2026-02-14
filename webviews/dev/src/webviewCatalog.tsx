@@ -11,7 +11,8 @@ export type DevWebviewId =
   | 'resourceBrowser'
   | 'simnodesDashboard'
   | 'topologyFlowDashboard'
-  | 'toponodesDashboard';
+  | 'toponodesDashboard'
+  | 'workflowsDashboard';
 
 export type DevPreviewWebviewId = Exclude<DevWebviewId, 'edaExplorer'>;
 
@@ -42,7 +43,8 @@ export const DEV_PREVIEW_WEBVIEWS: readonly DevPreviewWebviewOption[] = [
   { id: 'resourceBrowser', label: 'Resource Browser' },
   { id: 'simnodesDashboard', label: 'Simnodes Dashboard' },
   { id: 'topologyFlowDashboard', label: 'Topology Flow Dashboard' },
-  { id: 'toponodesDashboard', label: 'Toponodes Dashboard' }
+  { id: 'toponodesDashboard', label: 'Toponodes Dashboard' },
+  { id: 'workflowsDashboard', label: 'Workflows Dashboard' }
 ] as const;
 
 export const DEV_WEBVIEWS: readonly DevWebviewOption[] = [

@@ -222,6 +222,95 @@ export class EdaApiClient {
   }
 
   /**
+   * Resolve an API path by trying operation IDs in order.
+   * Returns undefined if no operation ID matches in the current spec.
+   */
+  private async resolvePathFromOperationIds(
+    operationIds: readonly string[],
+    replacements: Record<string, string> = {}
+  ): Promise<string | undefined> {
+    if (!this.specManager) {
+      return undefined;
+    }
+
+    for (const operationId of operationIds) {
+      try {
+        const template = await this.specManager.getPathByOperationId(operationId);
+        if (typeof template !== 'string' || template.length === 0) {
+          continue;
+        }
+        let path = template;
+        for (const [token, value] of Object.entries(replacements)) {
+          path = path.split(token).join(value);
+        }
+        return path;
+      } catch {
+        // Try the next operation ID variant.
+      }
+    }
+    return undefined;
+  }
+
+  private toPascalIdentifier(input: string): string {
+    return input
+      .split(/[.-]/)
+      .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+      .join('');
+  }
+
+  private uniqueOperationIds(ids: string[]): string[] {
+    const filtered = ids.filter((id) => typeof id === 'string' && id.length > 0);
+    return Array.from(new Set(filtered));
+  }
+
+  private buildWorkflowOperationIds(group: string, version: string, kind: string): {
+    listNamespaced: string[];
+    listAll: string[];
+    createNamespaced: string[];
+    createAll: string[];
+    readNamespaced: string[];
+    readAll: string[];
+  } {
+    const plural = kindToPlural(kind);
+    const groupPascal = this.toPascalIdentifier(group);
+    const versionPascal = this.toPascalIdentifier(version);
+    const kindPascal = this.toPascalIdentifier(kind);
+    const pluralPascal = this.toPascalIdentifier(plural);
+    return {
+      listNamespaced: this.uniqueOperationIds([
+        `wfList${groupPascal}${versionPascal}Namespace${pluralPascal}`,
+        `list${groupPascal}${versionPascal}Namespaced${kindPascal}`,
+        `list${groupPascal}${versionPascal}Namespace${pluralPascal}`
+      ]),
+      listAll: this.uniqueOperationIds([
+        `wfList${groupPascal}${versionPascal}${pluralPascal}`,
+        `list${groupPascal}${versionPascal}${kindPascal}ForAllNamespaces`,
+        `list${groupPascal}${versionPascal}${pluralPascal}`
+      ]),
+      createNamespaced: this.uniqueOperationIds([
+        `wfCreate${groupPascal}${versionPascal}Namespace${pluralPascal}`,
+        `create${groupPascal}${versionPascal}Namespaced${kindPascal}`,
+        `create${groupPascal}${versionPascal}Namespace${pluralPascal}`
+      ]),
+      createAll: this.uniqueOperationIds([
+        `wfCreate${groupPascal}${versionPascal}${pluralPascal}`,
+        `create${groupPascal}${versionPascal}${kindPascal}`,
+        `create${groupPascal}${versionPascal}${pluralPascal}`
+      ]),
+      readNamespaced: this.uniqueOperationIds([
+        `wfRead${groupPascal}${versionPascal}Namespace${pluralPascal}`,
+        `read${groupPascal}${versionPascal}Namespaced${kindPascal}`,
+        `read${groupPascal}${versionPascal}Namespace${pluralPascal}`
+      ]),
+      readAll: this.uniqueOperationIds([
+        `wfRead${groupPascal}${versionPascal}${pluralPascal}`,
+        `read${groupPascal}${versionPascal}${kindPascal}`,
+        `read${groupPascal}${versionPascal}${pluralPascal}`
+      ])
+    };
+  }
+
+  /**
    * Get EDA resource YAML
    */
   public async getEdaResourceYaml(
@@ -614,6 +703,197 @@ export class EdaApiClient {
     const path = template.replace(PARAM_NAMESPACE, namespace);
     const data = await this.fetchJSON<K8sResourceList>(path);
     return Array.isArray(data.items) ? data.items : [];
+  }
+
+  /**
+   * List available namespaces from the API server.
+   */
+  public async listNamespaces(): Promise<string[]> {
+    const data = await this.fetchJSON<K8sResourceList>('/api/v1/namespaces');
+    const items = Array.isArray(data.items) ? data.items : [];
+    const namespaces = new Set<string>();
+    for (const item of items) {
+      const name = item.metadata?.name;
+      if (typeof name === 'string' && name.length > 0) {
+        namespaces.add(name);
+      }
+    }
+    return Array.from(namespaces).sort((a, b) => a.localeCompare(b));
+  }
+
+  /**
+   * List Workflows in a namespace
+   */
+  public async listWorkflows(namespace?: string): Promise<K8sResource[]> {
+    const namespaced = typeof namespace === 'string' && namespace.length > 0;
+
+    const path = await this.resolvePathFromOperationIds(
+      namespaced
+        ? [
+            'wfListCoreEdaNokiaComV1NamespaceWorkflows',
+            'listCoreEdaNokiaComV1NamespacedWorkflow',
+            'listCoreEdaNokiaComV1NamespaceWorkflows'
+          ]
+        : [
+            'wfListCoreEdaNokiaComV1Workflows',
+            'listCoreEdaNokiaComV1WorkflowForAllNamespaces',
+            'listCoreEdaNokiaComV1Workflows'
+          ],
+      namespaced ? { [PARAM_NAMESPACE]: namespace } : {}
+    );
+
+    const resolvedPath = path ?? (
+      namespaced
+        ? `/apps/core.eda.nokia.com/v1/namespaces/${namespace}/workflows`
+        : '/apps/core.eda.nokia.com/v1/workflows'
+    );
+
+    const data = await this.fetchJSON<K8sResourceList>(resolvedPath);
+    return Array.isArray(data.items) ? data.items : [];
+  }
+
+  /**
+   * List WorkflowDefinitions.
+   * If namespace is omitted, returns definitions across all namespaces when supported.
+   */
+  public async listWorkflowDefinitions(namespace?: string): Promise<K8sResource[]> {
+    const namespaced = typeof namespace === 'string' && namespace.length > 0;
+
+    const path = await this.resolvePathFromOperationIds(
+      namespaced
+        ? [
+            'listCoreEdaNokiaComV1NamespacedWorkflowDefinition',
+            'listCoreEdaNokiaComV1NamespaceWorkflowdefinitions'
+          ]
+        : [
+            'listCoreEdaNokiaComV1WorkflowDefinitionForAllNamespaces',
+            'listCoreEdaNokiaComV1Workflowdefinitions'
+          ],
+      namespaced ? { [PARAM_NAMESPACE]: namespace } : {}
+    );
+
+    const resolvedPath = path ?? (
+      namespaced
+        ? `/apps/core.eda.nokia.com/v1/namespaces/${namespace}/workflowdefinitions`
+        : '/apps/core.eda.nokia.com/v1/workflowdefinitions'
+    );
+
+    const data = await this.fetchJSON<K8sResourceList>(resolvedPath);
+    return Array.isArray(data.items) ? data.items : [];
+  }
+
+  /**
+   * Create a Workflow in a namespace.
+   */
+  public async createWorkflow(namespace: string, workflow: K8sResource): Promise<K8sResource> {
+    const path = await this.resolvePathFromOperationIds(
+      [
+        'wfCreateCoreEdaNokiaComV1NamespaceWorkflows',
+        'createCoreEdaNokiaComV1NamespacedWorkflow',
+        'createCoreEdaNokiaComV1NamespaceWorkflows'
+      ],
+      { [PARAM_NAMESPACE]: namespace }
+    );
+
+    const resolvedPath = path ?? `/apps/core.eda.nokia.com/v1/namespaces/${namespace}/workflows`;
+
+    return this.requestJSON<K8sResource>('POST', resolvedPath, workflow);
+  }
+
+  /**
+   * List workflow-backed resources for the given G/V/K.
+   * Uses /workflows/v1 endpoints discovered via operation IDs.
+   */
+  public async listWorkflowBackedResources(
+    group: string,
+    version: string,
+    kind: string,
+    namespace?: string
+  ): Promise<K8sResource[]> {
+    const plural = kindToPlural(kind);
+    const ids = this.buildWorkflowOperationIds(group, version, kind);
+    const namespaced = typeof namespace === 'string' && namespace.length > 0;
+
+    const path = await this.resolvePathFromOperationIds(
+      namespaced
+        ? [...ids.listNamespaced, ...ids.listAll]
+        : ids.listAll,
+      namespaced ? { [PARAM_NAMESPACE]: namespace } : {}
+    );
+
+    const resolvedPath = path ?? (
+      namespaced
+        ? `/apps/${group}/${version}/namespaces/${namespace}/${plural}`
+        : `/apps/${group}/${version}/${plural}`
+    );
+
+    const data = await this.fetchJSON<K8sResourceList>(resolvedPath);
+    return Array.isArray(data.items) ? data.items : [];
+  }
+
+  /**
+   * Create a workflow-backed resource for the given G/V/K.
+   * Uses /workflows/v1 endpoints discovered via operation IDs.
+   */
+  public async createWorkflowBackedResource(
+    group: string,
+    version: string,
+    kind: string,
+    resource: K8sResource,
+    namespace?: string
+  ): Promise<K8sResource> {
+    const plural = kindToPlural(kind);
+    const ids = this.buildWorkflowOperationIds(group, version, kind);
+    const namespaced = typeof namespace === 'string' && namespace.length > 0;
+
+    const path = await this.resolvePathFromOperationIds(
+      namespaced
+        ? [...ids.createNamespaced, ...ids.createAll]
+        : ids.createAll,
+      namespaced ? { [PARAM_NAMESPACE]: namespace } : {}
+    );
+
+    const resolvedPath = path ?? (
+      namespaced
+        ? `/apps/${group}/${version}/namespaces/${namespace}/${plural}`
+        : `/apps/${group}/${version}/${plural}`
+    );
+
+    return this.requestJSON<K8sResource>('POST', resolvedPath, resource);
+  }
+
+  /**
+   * Get workflow-backed resource YAML for the given G/V/K and name.
+   */
+  public async getWorkflowBackedResourceYaml(
+    group: string,
+    version: string,
+    kind: string,
+    name: string,
+    namespace?: string
+  ): Promise<string> {
+    const plural = kindToPlural(kind);
+    const ids = this.buildWorkflowOperationIds(group, version, kind);
+    const namespaced = typeof namespace === 'string' && namespace.length > 0;
+
+    const path = await this.resolvePathFromOperationIds(
+      namespaced
+        ? [...ids.readNamespaced, ...ids.readAll]
+        : ids.readAll,
+      namespaced
+        ? { [PARAM_NAMESPACE]: namespace, [PARAM_NAME]: name }
+        : { [PARAM_NAME]: name }
+    );
+
+    const resolvedPath = path ?? (
+      namespaced
+        ? `/apps/${group}/${version}/namespaces/${namespace}/${plural}/${name}`
+        : `/apps/${group}/${version}/${plural}/${name}`
+    );
+
+    const data = await this.fetchJSON<K8sResource>(resolvedPath);
+    const sanitized = sanitizeResource(data);
+    return yaml.dump(sanitized, { indent: 2 });
   }
 
   /**
