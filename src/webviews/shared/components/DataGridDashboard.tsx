@@ -31,10 +31,16 @@ export interface DataGridDashboardProps<T extends DataGridMessage> {
   renderActions: (row: unknown[], ctx: DataGridContext) => ReactNode;
   /** Function to render cell content with optional custom styling */
   renderCell?: (value: string, column: string, colIdx: number, row: unknown[]) => ReactNode;
+  /** Optional toolbar actions rendered next to built-in controls */
+  renderToolbarActions?: (ctx: DataGridToolbarContext) => ReactNode;
   /** Custom message handler for additional commands */
   onMessage?: (msg: T) => void;
   /** Initial command to send when showing in tree */
   showInTreeCommand?: string;
+  /** Default column name used for sorting when columns update */
+  defaultSortColumn?: string;
+  /** Default sort direction */
+  defaultSortDirection?: 'asc' | 'desc';
 }
 
 export interface DataGridContext {
@@ -46,17 +52,78 @@ export interface DataGridContext {
   getColumnIndex: (name: string) => number;
 }
 
+export interface DataGridToolbarContext extends DataGridContext {
+  selectedNamespace: string;
+  namespaces: string[];
+}
+
 interface DashboardRow {
   id: string;
   raw: unknown[];
   [key: string]: unknown;
 }
 
+function formatGridCellValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      return '';
+    }
+    const formatted = value.map(item => formatGridCellValue(item));
+    const primitiveOnly = value.every(
+      item => item === null || item === undefined || typeof item !== 'object'
+    );
+    return formatted.join(primitiveOnly ? ', ' : '\n');
+  }
+  if (typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>);
+    if (entries.length === 0) {
+      return '';
+    }
+    return entries
+      .map(([key, childValue]) => `${key}: ${formatGridCellValue(childValue)}`)
+      .join(', ');
+  }
+  return String(value);
+}
+
+function longestLineLength(value: string): number {
+  const lines = value.split('\n');
+  let max = 0;
+  for (const line of lines) {
+    if (line.length > max) {
+      max = line.length;
+    }
+  }
+  return max;
+}
+
+function estimateColumnWidth(header: string, rows: unknown[][], columnIndex: number): number {
+  const sampleSize = Math.min(rows.length, 300);
+  let maxChars = header.length;
+
+  for (let i = 0; i < sampleSize; i += 1) {
+    const formatted = formatGridCellValue(rows[i]?.[columnIndex]);
+    const length = longestLineLength(formatted);
+    if (length > maxChars) {
+      maxChars = length;
+    }
+  }
+
+  const estimated = (maxChars * 7) + 48;
+  return Math.max(140, Math.min(520, estimated));
+}
+
 function DataGridDashboardInner<T extends DataGridMessage>({
   renderActions,
   renderCell,
+  renderToolbarActions,
   onMessage,
-  showInTreeCommand = 'showInTree'
+  showInTreeCommand = 'showInTree',
+  defaultSortColumn = 'name',
+  defaultSortDirection = 'asc'
 }: Readonly<DataGridDashboardProps<T>>) {
   const postMessage = usePostMessage();
   const [namespaces, setNamespaces] = useState<string[]>([]);
@@ -89,9 +156,21 @@ function DataGridDashboardInner<T extends DataGridMessage>({
       setColumns(prev => {
         const colsChanged = !shallowArrayEquals(prev, newColumns);
         if (colsChanged) {
-          const newNameIdx = newColumns.indexOf('name');
-          if (newNameIdx >= 0) {
-            setSortModel([{ field: `col_${newNameIdx}`, sort: 'asc' }]);
+          const preferredColumns = [defaultSortColumn, 'name'];
+          let sortField: string | undefined;
+          for (const preferredColumn of preferredColumns) {
+            if (!preferredColumn) {
+              continue;
+            }
+            const columnIndex = newColumns.indexOf(preferredColumn);
+            if (columnIndex >= 0) {
+              sortField = `col_${columnIndex}`;
+              break;
+            }
+          }
+
+          if (sortField) {
+            setSortModel([{ field: sortField, sort: defaultSortDirection }]);
           } else {
             setSortModel([]);
           }
@@ -101,7 +180,7 @@ function DataGridDashboardInner<T extends DataGridMessage>({
       setRows(msg.rows ?? []);
     }
     onMessage?.(msg);
-  }, [onMessage]));
+  }, [onMessage, defaultSortColumn, defaultSortDirection]));
 
   const handleNamespaceChange = useCallback((ns: string) => {
     setSelectedNamespace(ns);
@@ -121,6 +200,12 @@ function DataGridDashboardInner<T extends DataGridMessage>({
     getColumnIndex
   }), [columns, nameIdx, nsIdx, hasKubernetesContext, postMessage, getColumnIndex]);
 
+  const toolbarContext: DataGridToolbarContext = useMemo(() => ({
+    ...context,
+    selectedNamespace,
+    namespaces
+  }), [context, selectedNamespace, namespaces]);
+
   const gridRows = useMemo<DashboardRow[]>(() => {
     return rows.map((row, rowIndex) => {
       const gridRow: DashboardRow = {
@@ -133,6 +218,11 @@ function DataGridDashboardInner<T extends DataGridMessage>({
       return gridRow;
     });
   }, [rows, columns]);
+
+  const columnWidths = useMemo<number[]>(
+    () => columns.map((column, columnIndex) => estimateColumnWidth(column, rows, columnIndex)),
+    [columns, rows]
+  );
 
   const gridColumns = useMemo<GridColDef<DashboardRow>[]>(() => {
     const actionColumn: GridColDef<DashboardRow> = {
@@ -149,21 +239,22 @@ function DataGridDashboardInner<T extends DataGridMessage>({
       return {
         field,
         headerName: column,
-        width: 180,
+        width: columnWidths[columnIndex],
         minWidth: 140,
         renderCell: (params) => {
-          const value = String(params.row[field] ?? '');
+          const value = formatGridCellValue(params.row[field]);
           return <>{renderCell ? renderCell(value, column, columnIndex, params.row.raw) : value}</>;
         }
       };
     });
 
     return [actionColumn, ...dataColumns];
-  }, [columns, renderActions, renderCell, context]);
+  }, [columns, renderActions, renderCell, context, columnWidths]);
 
   return (
     <Box sx={{ p: 3, maxWidth: 1600, mx: 'auto' }}>
       <Stack direction="row" spacing={1.5} justifyContent="flex-end" alignItems="center" sx={{ mb: 2 }}>
+        {renderToolbarActions?.(toolbarContext)}
         <VSCodeButton onClick={handleShowInTree}>
           Show in VS Code Tree
         </VSCodeButton>

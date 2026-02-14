@@ -34,7 +34,8 @@ const WEBVIEW_LOADERS: Readonly<Record<DevWebviewId, () => Promise<unknown>>> = 
   resourceBrowser: () => import('../../../src/webviews/dashboard/resource/resourceBrowserPanel.webview'),
   simnodesDashboard: () => import('../../../src/webviews/dashboard/simnodes/simnodesDashboard.webview'),
   topologyFlowDashboard: () => import('../../../src/webviews/dashboard/topologyFlow/topologyFlowDashboard.webview'),
-  toponodesDashboard: () => import('../../../src/webviews/dashboard/toponodes/toponodesDashboard.webview')
+  toponodesDashboard: () => import('../../../src/webviews/dashboard/toponodes/toponodesDashboard.webview'),
+  workflowsDashboard: () => import('../../../src/webviews/dashboard/workflows/workflowsDashboard.webview')
 };
 
 function parseWebviewId(value: string | null): DevWebviewId {

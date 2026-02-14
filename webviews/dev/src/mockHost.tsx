@@ -20,7 +20,8 @@ const DASHBOARD_PREVIEW_BY_NAME: Readonly<Record<string, DevPreviewWebviewId>> =
   Queries: 'queriesDashboard',
   'Resource Browser': 'resourceBrowser',
   Simnodes: 'simnodesDashboard',
-  Topology: 'topologyFlowDashboard'
+  Topology: 'topologyFlowDashboard',
+  Workflows: 'workflowsDashboard'
 };
 
 const DEV_DEVIATION_KEY = 'fabric-a/leaf02-bgp-hold-time';
@@ -647,6 +648,19 @@ const toponodesFixture: DataGridFixture = {
   }
 };
 
+const workflowsFixture: DataGridFixture = {
+  columns: ['name', 'namespace', 'workflow-type', 'workflow-status', 'created'],
+  rowsByNamespace: {
+    'fabric-a': [
+      ['leaf-upgrade-001', 'fabric-a', 'operatingsystem-image-gvk', 'Running', '2026-02-13T10:17:00Z'],
+      ['neighbor-audit-019', 'fabric-a', 'protocols-checkdefaultbgppeers-gvk', 'Succeeded', '2026-02-13T10:04:12Z']
+    ],
+    'fabric-b': [
+      ['edgeping-744', 'fabric-b', 'services-edgeping-gvk', 'Failed', '2026-02-13T09:58:07Z']
+    ]
+  }
+};
+
 const topologyFixtureByNamespace: Readonly<Record<string, TopologyFixture>> = {
   [ALL_NAMESPACES]: {
     nodes: [
@@ -776,6 +790,15 @@ const explorerSectionsFixture: ReadonlyArray<ExplorerSectionSnapshot> = [
           'Open Dashboard',
           'vscode-eda.showDashboard',
           ['Topology']
+        )
+      }),
+      createExplorerNode('dashboards/workflows', 'Workflows', {
+        contextValue: 'eda-dashboard',
+        primaryAction: createExplorerAction(
+          'open-dashboard-workflows',
+          'Open Dashboard',
+          'vscode-eda.showDashboard',
+          ['Workflows']
         )
       })
     ],
@@ -1150,7 +1173,8 @@ const mockFactoryByWebview: Readonly<Record<DevWebviewId, (send: SendMessage, op
   resourceBrowser: (send) => createResourceBrowserMock(send),
   simnodesDashboard: (send) => createDataGridMock(send, simnodesFixture),
   topologyFlowDashboard: (send) => createTopologyFlowMock(send),
-  toponodesDashboard: (send) => createDataGridMock(send, toponodesFixture)
+  toponodesDashboard: (send) => createDataGridMock(send, toponodesFixture),
+  workflowsDashboard: (send) => createWorkflowsDashboardMock(send)
 };
 
 function createExplorerMock(send: SendMessage): MockHost {
@@ -1577,6 +1601,101 @@ function createDataGridMock(send: SendMessage, fixture: DataGridFixture): MockHo
           selectedNamespace = ALL_NAMESPACES;
         }
         sendResults();
+      }
+    },
+    dispose: () => {}
+  };
+}
+
+function createWorkflowsDashboardMock(send: SendMessage): MockHost {
+  let selectedNamespace = ALL_NAMESPACES;
+  let createdCounter = 1;
+  const rowsByNamespace: Record<string, unknown[][]> = {};
+
+  for (const [namespace, rows] of Object.entries(workflowsFixture.rowsByNamespace)) {
+    rowsByNamespace[namespace] = rows.map(row => [...row]);
+  }
+
+  const getRows = (namespace: string): unknown[][] => {
+    if (namespace === ALL_NAMESPACES) {
+      return Object.values(rowsByNamespace)
+        .flatMap(rows => rows)
+        .map(row => [...row]);
+    }
+    return (rowsByNamespace[namespace] ?? []).map(row => [...row]);
+  };
+
+  const sendResults = (): void => {
+    const rows = getRows(selectedNamespace);
+    send({
+      command: 'results',
+      columns: workflowsFixture.columns,
+      rows,
+      status: `Count: ${rows.length}`,
+      hasKubernetesContext: true
+    });
+  };
+
+  const nextWorkflowName = (): string => {
+    const name = `workflow-${String(createdCounter).padStart(3, '0')}`;
+    createdCounter += 1;
+    return name;
+  };
+
+  const applySelectedNamespace = (value: unknown): void => {
+    if (typeof value === 'string' && (DEFAULT_NAMESPACES as string[]).includes(value)) {
+      selectedNamespace = value;
+      return;
+    }
+    selectedNamespace = ALL_NAMESPACES;
+  };
+
+  const resolveCreateTargetNamespace = (value: unknown): string => {
+    if (typeof value === 'string' && value !== ALL_NAMESPACES) {
+      return value;
+    }
+    if (selectedNamespace !== ALL_NAMESPACES) {
+      return selectedNamespace;
+    }
+    return 'fabric-a';
+  };
+
+  const addCreatedWorkflowRow = (value: unknown): void => {
+    const targetNamespace = resolveCreateTargetNamespace(value);
+    const row: unknown[] = [
+      nextWorkflowName(),
+      targetNamespace,
+      'oam-ping-gvk',
+      'Running',
+      new Date().toISOString()
+    ];
+
+    if (!rowsByNamespace[targetNamespace]) {
+      rowsByNamespace[targetNamespace] = [];
+    }
+    rowsByNamespace[targetNamespace].unshift(row);
+  };
+
+  return {
+    onMessage: (message) => {
+      switch (message.command) {
+        case 'ready':
+          send({
+            command: 'init',
+            namespaces: DEFAULT_NAMESPACES,
+            selected: selectedNamespace,
+            hasKubernetesContext: true
+          });
+          sendResults();
+          break;
+        case 'setNamespace':
+          applySelectedNamespace(message.namespace);
+          sendResults();
+          break;
+        case 'createWorkflow':
+          addCreatedWorkflowRow(message.namespace);
+          sendResults();
+          break;
       }
     },
     dispose: () => {}

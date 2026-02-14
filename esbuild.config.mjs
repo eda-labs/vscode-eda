@@ -8,6 +8,7 @@ const webviewEntryPoints = {
   fabricDashboard: 'src/webviews/dashboard/fabric/fabricDashboard.webview.tsx',
   queriesDashboard: 'src/webviews/dashboard/queries/queriesDashboard.webview.tsx',
   topologyFlowDashboard: 'src/webviews/dashboard/topologyFlow/topologyFlowDashboard.webview.tsx',
+  workflowsDashboard: 'src/webviews/dashboard/workflows/workflowsDashboard.webview.tsx',
   targetWizardPanel: 'src/webviews/targetWizard/targetWizardPanel.webview.tsx',
   nodeConfigPanel: 'src/webviews/nodeConfig/nodeConfigPanel.webview.tsx',
   alarmDetailsPanel: 'src/webviews/alarmDetails/alarmDetailsPanel.webview.tsx',

@@ -6,6 +6,7 @@ import { ToponodesDashboardPanel } from '../webviews/dashboard/toponodes/toponod
 import { SimnodesDashboardPanel } from '../webviews/dashboard/simnodes/simnodesDashboard';
 import { TopologyFlowDashboardPanel } from '../webviews/dashboard/topologyFlow/topologyFlowDashboardPanel';
 import { ResourceBrowserPanel } from '../webviews/dashboard/resource/resourceBrowserPanel';
+import { WorkflowsDashboardPanel } from '../webviews/dashboard/workflows/workflowsDashboard';
 
 export function registerDashboardCommands(context: vscode.ExtensionContext): void {
   const cmd = vscode.commands.registerCommand('vscode-eda.showDashboard', (name: string) => {
@@ -19,6 +20,8 @@ export function registerDashboardCommands(context: vscode.ExtensionContext): voi
       TopologyFlowDashboardPanel.show(context, name);
     } else if (name === 'Resource Browser') {
       ResourceBrowserPanel.show(context, name);
+    } else if (name === 'Workflows') {
+      WorkflowsDashboardPanel.show(context, name);
     } else {
       FabricDashboardPanel.show(context, name || 'Fabric').catch((error: unknown) => {
         console.error('Failed to show Fabric Dashboard:', error);

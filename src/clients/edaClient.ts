@@ -534,6 +534,58 @@ export class EdaClient {
     return this.apiClient.listTopoLinks(namespace) as Promise<TopoLink[]>;
   }
 
+  public async listNamespaces(): Promise<string[]> {
+    await this.initPromise;
+    return this.apiClient.listNamespaces();
+  }
+
+  public async listWorkflows(namespace?: string): Promise<K8sResource[]> {
+    await this.initPromise;
+    return this.apiClient.listWorkflows(namespace) as Promise<K8sResource[]>;
+  }
+
+  public async listWorkflowDefinitions(namespace?: string): Promise<K8sResource[]> {
+    await this.initPromise;
+    return this.apiClient.listWorkflowDefinitions(namespace) as Promise<K8sResource[]>;
+  }
+
+  public async createWorkflow(namespace: string, workflow: K8sResource): Promise<K8sResource> {
+    await this.initPromise;
+    return this.apiClient.createWorkflow(namespace, workflow) as Promise<K8sResource>;
+  }
+
+  public async listWorkflowBackedResources(
+    group: string,
+    version: string,
+    kind: string,
+    namespace?: string
+  ): Promise<K8sResource[]> {
+    await this.initPromise;
+    return this.apiClient.listWorkflowBackedResources(group, version, kind, namespace) as Promise<K8sResource[]>;
+  }
+
+  public async createWorkflowBackedResource(
+    group: string,
+    version: string,
+    kind: string,
+    resource: K8sResource,
+    namespace?: string
+  ): Promise<K8sResource> {
+    await this.initPromise;
+    return this.apiClient.createWorkflowBackedResource(group, version, kind, resource, namespace) as Promise<K8sResource>;
+  }
+
+  public async getWorkflowBackedResourceYaml(
+    group: string,
+    version: string,
+    kind: string,
+    name: string,
+    namespace?: string
+  ): Promise<string> {
+    await this.initPromise;
+    return this.apiClient.getWorkflowBackedResourceYaml(group, version, kind, name, namespace);
+  }
+
   public async listTopologies(): Promise<Topology[]> {
     await this.initPromise;
     return this.apiClient.listTopologies() as Promise<Topology[]>;
