@@ -536,6 +536,7 @@
     "ws": "^8.19.0"
   },
   "dependencies": {
+    "@eda-labs/topo-builder": "https://codeload.github.com/eda-labs/topo-builder/tar.gz/refs/heads/npm_package",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^7.3.8",

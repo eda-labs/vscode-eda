@@ -1,0 +1,200 @@
+.topobuilder-dashboard-root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.topobuilder-dashboard-root .react-flow {
+  --xy-background-color: var(--tb-flow-bg) !important;
+}
+
+.topobuilder-dashboard-root .MuiAppBar-root {
+  background-color: var(--vscode-panel-background) !important;
+  color: var(--vscode-editor-foreground) !important;
+  border-bottom: 1px solid var(--vscode-panel-border) !important;
+}
+
+.topobuilder-dashboard-root .MuiAppBar-root .MuiTypography-root,
+.topobuilder-dashboard-root .MuiAppBar-root .MuiIconButton-root {
+  color: inherit !important;
+}
+
+.topobuilder-dashboard-root .MuiDrawer-paper {
+  background-color: var(--vscode-editorWidget-background) !important;
+  color: var(--vscode-editor-foreground) !important;
+  border-left: 1px solid var(--vscode-panel-border) !important;
+}
+
+.topobuilder-dashboard-root .MuiDrawer-paper .MuiTabs-root {
+  background-color: var(--vscode-editorWidget-background) !important;
+  border-bottom: 1px solid var(--vscode-panel-border) !important;
+}
+
+.topobuilder-dashboard-root .MuiDrawer-paper .MuiTab-root {
+  color: var(--vscode-descriptionForeground) !important;
+}
+
+.topobuilder-dashboard-root .MuiDrawer-paper .MuiTab-root.Mui-selected {
+  color: var(--vscode-editor-foreground) !important;
+}
+
+.topobuilder-dashboard-root .MuiDrawer-paper .MuiTabs-indicator {
+  background-color: var(--vscode-focusBorder) !important;
+}
+
+.topobuilder-dashboard-root .MuiDrawer-paper .MuiBox-root {
+  background-color: var(--vscode-editorWidget-background) !important;
+}
+
+/*
+ * Topo Builder currently uses Tailwind utility class names in graph nodes.
+ * In this host integration, those utility rules may be absent, so provide
+ * small scoped fallbacks required for correct graph rendering.
+ */
+.topobuilder-dashboard-root .react-flow__node > .group {
+  position: relative;
+  box-sizing: border-box;
+  width: 80px;
+  height: 80px;
+  border-style: solid;
+  border-width: 1px;
+  border-radius: 8px;
+  background: var(--color-node-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.topobuilder-dashboard-root .react-flow__node > .group[class*='border-(--color-node-border-selected)'] {
+  border-color: var(--color-node-border-selected);
+}
+
+.topobuilder-dashboard-root .react-flow__node > .group[class*='border-(--color-node-border)'] {
+  border-color: var(--color-node-border);
+}
+
+.topobuilder-dashboard-root .react-flow__node > .group.border-dashed {
+  border-style: dashed;
+}
+
+.topobuilder-dashboard-root .react-flow__node > .group > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.topobuilder-dashboard-root .react-flow__node > .group > div > div {
+  width: 70px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--color-node-text);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topobuilder-dashboard-root .react-flow__handle {
+  width: 10px !important;
+  height: 10px !important;
+  border-radius: 999px;
+  background: var(--color-handle-bg) !important;
+  border: 1px solid var(--color-node-border) !important;
+}
+
+.topobuilder-dashboard-root .react-flow__handle[id$='-target'] {
+  opacity: 0 !important;
+}
+
+.topobuilder-dashboard-root .z-1300 {
+  z-index: 1300;
+}
+
+.topobuilder-dashboard-root .relative {
+  position: relative;
+}
+
+.topobuilder-dashboard-root .absolute {
+  position: absolute;
+}
+
+.topobuilder-dashboard-root .inset-0 {
+  inset: 0;
+}
+
+.topobuilder-dashboard-root .rounded {
+  border-radius: 4px;
+}
+
+.topobuilder-dashboard-root .cursor-move {
+  cursor: move;
+}
+
+.topobuilder-dashboard-root .px-2 {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.topobuilder-dashboard-root .py-1 {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.topobuilder-dashboard-root .outline {
+  outline-style: solid;
+}
+
+.topobuilder-dashboard-root .outline-2 {
+  outline-width: 2px;
+}
+
+.topobuilder-dashboard-root [class*='outline-(--color-node-border-selected)'] {
+  outline-color: var(--color-node-border-selected);
+}
+
+.topobuilder-vscode-yaml-panel {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  gap: 8px;
+  padding: 8px;
+  background: var(--vscode-editor-background);
+}
+
+.topobuilder-vscode-yaml-actions {
+  flex-wrap: wrap;
+}
+
+.topobuilder-vscode-yaml-caption {
+  color: var(--vscode-descriptionForeground);
+}
+
+.topobuilder-vscode-yaml-alert {
+  margin-bottom: 2px;
+}
+
+.topobuilder-vscode-yaml-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.topobuilder-vscode-yaml-editor .MuiInputBase-root {
+  align-items: stretch;
+  height: 100%;
+}
+
+.topobuilder-vscode-yaml-editor .MuiInputBase-inputMultiline {
+  box-sizing: border-box;
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: auto !important;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  line-height: 1.4;
+}

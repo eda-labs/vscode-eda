@@ -10,6 +10,7 @@ export type DevWebviewId =
   | 'queriesDashboard'
   | 'resourceBrowser'
   | 'simnodesDashboard'
+  | 'topobuilderDashboard'
   | 'topologyFlowDashboard'
   | 'toponodesDashboard'
   | 'workflowsDashboard';
@@ -42,6 +43,7 @@ export const DEV_PREVIEW_WEBVIEWS: readonly DevPreviewWebviewOption[] = [
   { id: 'queriesDashboard', label: 'Queries Dashboard' },
   { id: 'resourceBrowser', label: 'Resource Browser' },
   { id: 'simnodesDashboard', label: 'Simnodes Dashboard' },
+  { id: 'topobuilderDashboard', label: 'Topo Builder Dashboard' },
   { id: 'topologyFlowDashboard', label: 'Topology Flow Dashboard' },
   { id: 'toponodesDashboard', label: 'Toponodes Dashboard' },
   { id: 'workflowsDashboard', label: 'Workflows Dashboard' }

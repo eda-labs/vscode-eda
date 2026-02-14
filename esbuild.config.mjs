@@ -1,5 +1,6 @@
 /* eslint-env node */
 import { build } from 'esbuild';
+import path from 'path';
 
 const webviewEntryPoints = {
   toponodesDashboard: 'src/webviews/dashboard/toponodes/toponodesDashboard.webview.tsx',
@@ -8,6 +9,7 @@ const webviewEntryPoints = {
   fabricDashboard: 'src/webviews/dashboard/fabric/fabricDashboard.webview.tsx',
   queriesDashboard: 'src/webviews/dashboard/queries/queriesDashboard.webview.tsx',
   topologyFlowDashboard: 'src/webviews/dashboard/topologyFlow/topologyFlowDashboard.webview.tsx',
+  topobuilderDashboard: 'src/webviews/dashboard/topobuilder/topobuilderDashboard.webview.tsx',
   workflowsDashboard: 'src/webviews/dashboard/workflows/workflowsDashboard.webview.tsx',
   targetWizardPanel: 'src/webviews/targetWizard/targetWizardPanel.webview.tsx',
   nodeConfigPanel: 'src/webviews/nodeConfig/nodeConfigPanel.webview.tsx',
@@ -24,11 +26,20 @@ const webviewOptions = {
   platform: 'browser',
   format: 'esm',
   splitting: true,
+  conditions: ['style'],
   sourcemap: false,
   minify: true,
   treeShaking: true,
   jsx: 'automatic',
   jsxImportSource: 'react',
+  alias: {
+    '@eda-labs/topo-builder': path.resolve('node_modules/@eda-labs/topo-builder/src/index.ts'),
+    '@eda-labs/topo-builder/styles.css': path.resolve('node_modules/@eda-labs/topo-builder/src/styles.css')
+  },
+  loader: {
+    '.svg': 'text',
+    '.yaml': 'text'
+  },
   entryNames: '[name]',
   chunkNames: 'chunks/[name]-[hash]',
   outdir: 'dist'
