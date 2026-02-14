@@ -1,0 +1,461 @@
+import * as vscode from 'vscode';
+
+import type { EdaAlarmProvider } from '../../providers/views/alarmProvider';
+import type { DashboardProvider } from '../../providers/views/dashboardProvider';
+import type { EdaDeviationProvider } from '../../providers/views/deviationProvider';
+import type { HelpProvider } from '../../providers/views/helpProvider';
+import type { EdaNamespaceProvider } from '../../providers/views/namespaceProvider';
+import type { TransactionBasketProvider } from '../../providers/views/transactionBasketProvider';
+import type { EdaTransactionProvider } from '../../providers/views/transactionProvider';
+import type { ResourceData, TreeItemBase } from '../../providers/views/treeItem';
+import {
+  EXPLORER_TAB_LABELS,
+  EXPLORER_TAB_ORDER,
+  type ExplorerAction,
+  type ExplorerNode,
+  type ExplorerSectionSnapshot,
+  type ExplorerSnapshotMessage,
+  type ExplorerTabId
+} from '../shared/explorer/types';
+
+const CMD_VIEW_STREAM_ITEM = 'vscode-eda.viewStreamItem';
+const CMD_VIEW_RESOURCE = 'vscode-eda.viewResource';
+const CMD_EDIT_RESOURCE = 'vscode-eda.switchToEditResource';
+const CMD_DELETE_RESOURCE = 'vscode-eda.deleteResource';
+const LABEL_EDIT_RESOURCE = 'Switch To Edit Mode';
+const LABEL_DELETE_RESOURCE = 'Delete Resource';
+
+const RESOURCE_CONTEXT_VALUES = new Set([
+  'stream-item',
+  'pod',
+  'k8s-deployment-instance',
+  'toponode',
+  'crd-instance'
+]);
+
+interface ExplorerTreeProvider {
+  getChildren(element?: TreeItemBase): vscode.ProviderResult<TreeItemBase[]>;
+}
+
+interface ExplorerTreeItemLike extends TreeItemBase {
+  basketIndex?: number;
+  deviation?: Record<string, unknown>;
+}
+
+export interface ExplorerSnapshotProviders {
+  dashboardProvider: DashboardProvider;
+  namespaceProvider: EdaNamespaceProvider;
+  alarmProvider: EdaAlarmProvider;
+  deviationProvider: EdaDeviationProvider;
+  basketProvider: TransactionBasketProvider;
+  transactionProvider: EdaTransactionProvider;
+  helpProvider: HelpProvider;
+}
+
+function labelToText(label: string | vscode.TreeItemLabel): string {
+  return typeof label === 'string' ? label : label.label;
+}
+
+function descriptionToText(description: string | boolean | undefined): string | undefined {
+  if (typeof description === 'string') {
+    return description;
+  }
+  return undefined;
+}
+
+function tooltipToText(tooltip: vscode.MarkdownString | string | undefined): string | undefined {
+  if (typeof tooltip === 'string') {
+    return tooltip;
+  }
+  if (tooltip instanceof vscode.MarkdownString) {
+    return tooltip.value;
+  }
+  return undefined;
+}
+
+function serializeUri(uri: vscode.Uri): Record<string, unknown> {
+  return {
+    __vscodeUri: uri.toString()
+  };
+}
+
+function toSerializable(value: unknown): unknown {
+  if (value === null || value === undefined) {
+    return value;
+  }
+
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+
+  if (value instanceof vscode.Uri) {
+    return serializeUri(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(item => toSerializable(item));
+  }
+
+  if (typeof value === 'object') {
+    const output: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+      output[key] = toSerializable(nested);
+    }
+    return output;
+  }
+
+  return undefined;
+}
+
+function createAction(command: string, label: string, args?: unknown[]): ExplorerAction {
+  const serializedArgs = args?.map(item => toSerializable(item));
+  const id = `${command}:${label}`;
+  return {
+    id,
+    label,
+    command,
+    args: serializedArgs
+  };
+}
+
+function dedupeActions(actions: ExplorerAction[]): ExplorerAction[] {
+  const seen = new Set<string>();
+  const unique: ExplorerAction[] = [];
+  for (const action of actions) {
+    if (seen.has(action.id)) {
+      continue;
+    }
+    seen.add(action.id);
+    unique.push(action);
+  }
+  return unique;
+}
+
+function buildResourceCommandArgument(item: ExplorerTreeItemLike): Record<string, unknown> {
+  const label = labelToText(item.label);
+  const resourceData = item.resource as ResourceData | undefined;
+
+  const arg: Record<string, unknown> = {
+    label,
+    namespace: item.namespace,
+    resourceType: item.resourceType,
+    streamGroup: item.streamGroup,
+    contextValue: item.contextValue
+  };
+
+  if (resourceData) {
+    arg.resource = toSerializable(resourceData);
+    arg.name = resourceData.name;
+    arg.kind = resourceData.kind;
+
+    if (resourceData.raw) {
+      arg.raw = toSerializable(resourceData.raw);
+      arg.rawResource = toSerializable(resourceData.raw);
+    }
+  }
+
+  if (typeof item.basketIndex === 'number') {
+    arg.basketIndex = item.basketIndex;
+  }
+
+  if (item.deviation) {
+    arg.deviation = toSerializable(item.deviation);
+  }
+
+  return arg;
+}
+
+function primaryActionFromTreeItem(item: ExplorerTreeItemLike): ExplorerAction | undefined {
+  const command = item.command;
+  if (!command?.command) {
+    return undefined;
+  }
+  const label = command.title || 'Open';
+  return createAction(command.command, label, command.arguments);
+}
+
+function getResourceActions(contextValue: string | undefined, commandArg: Record<string, unknown>): ExplorerAction[] {
+  if (!contextValue) {
+    return [];
+  }
+
+  const common = [
+    createAction(CMD_VIEW_STREAM_ITEM, 'View Stream Item', [commandArg]),
+    createAction(CMD_VIEW_RESOURCE, 'View Resource YAML', [commandArg])
+  ];
+
+  if (contextValue === 'pod') {
+    return [
+      ...common,
+      createAction('vscode-eda.logsPod', 'View Logs', [commandArg]),
+      createAction('vscode-eda.describePod', 'Describe Pod', [commandArg]),
+      createAction('vscode-eda.terminalPod', 'Open Terminal', [commandArg]),
+      createAction('vscode-eda.deletePod', 'Delete Pod', [commandArg])
+    ];
+  }
+
+  if (contextValue === 'k8s-deployment-instance') {
+    return [
+      ...common,
+      createAction('vscode-eda.restartDeployment', 'Restart Deployment', [commandArg]),
+      createAction(CMD_EDIT_RESOURCE, LABEL_EDIT_RESOURCE, [commandArg]),
+      createAction(CMD_DELETE_RESOURCE, LABEL_DELETE_RESOURCE, [commandArg])
+    ];
+  }
+
+  if (contextValue === 'toponode') {
+    return [
+      ...common,
+      createAction('vscode-eda.viewNodeConfig', 'Get Node Config', [commandArg]),
+      createAction('vscode-eda.sshTopoNode', 'SSH To Node', [commandArg]),
+      createAction(CMD_EDIT_RESOURCE, LABEL_EDIT_RESOURCE, [commandArg]),
+      createAction(CMD_DELETE_RESOURCE, LABEL_DELETE_RESOURCE, [commandArg])
+    ];
+  }
+
+  if (contextValue === 'crd-instance') {
+    return [
+      ...common,
+      createAction('vscode-eda.showCRDDefinition', 'Show CRD Definition', [commandArg]),
+      createAction(CMD_EDIT_RESOURCE, LABEL_EDIT_RESOURCE, [commandArg]),
+      createAction(CMD_DELETE_RESOURCE, LABEL_DELETE_RESOURCE, [commandArg])
+    ];
+  }
+
+  if (contextValue === 'stream-item') {
+    return [
+      ...common,
+      createAction(CMD_EDIT_RESOURCE, LABEL_EDIT_RESOURCE, [commandArg]),
+      createAction(CMD_DELETE_RESOURCE, LABEL_DELETE_RESOURCE, [commandArg])
+    ];
+  }
+
+  return [];
+}
+
+function getDeviationActions(contextValue: string | undefined, commandArg: Record<string, unknown>): ExplorerAction[] {
+  if (contextValue !== 'eda-deviation') {
+    return [];
+  }
+
+  return [
+    createAction('vscode-eda.acceptDeviation', 'Accept Deviation', [commandArg]),
+    createAction('vscode-eda.rejectDeviation', 'Reject Deviation', [commandArg])
+  ];
+}
+
+function getTransactionActions(contextValue: string | undefined, commandArg: Record<string, unknown>): ExplorerAction[] {
+  if (contextValue !== 'transaction') {
+    return [];
+  }
+
+  return [
+    createAction('vscode-eda.revertTransaction', 'Revert Transaction', [commandArg]),
+    createAction('vscode-eda.restoreTransaction', 'Restore Transaction', [commandArg])
+  ];
+}
+
+function getBasketActions(contextValue: string | undefined, commandArg: Record<string, unknown>): ExplorerAction[] {
+  if (contextValue !== 'basket-item') {
+    return [];
+  }
+
+  return [
+    createAction('vscode-eda.editBasketItem', 'Edit Basket Item', [commandArg]),
+    createAction('vscode-eda.removeBasketItem', 'Remove Basket Item', [commandArg])
+  ];
+}
+
+function getDashboardActions(contextValue: string | undefined, label: string): ExplorerAction[] {
+  if (contextValue !== 'eda-dashboard') {
+    return [];
+  }
+
+  return [createAction('vscode-eda.showDashboard', 'Open Dashboard', [label])];
+}
+
+function getSectionActions(
+  sectionId: ExplorerTabId,
+  item: ExplorerTreeItemLike,
+  commandArg: Record<string, unknown>
+): ExplorerAction[] {
+  const contextValue = item.contextValue;
+  const label = labelToText(item.label);
+
+  if (sectionId === 'resources') {
+    return getResourceActions(contextValue, commandArg);
+  }
+
+  if (sectionId === 'deviations') {
+    return getDeviationActions(contextValue, commandArg);
+  }
+
+  if (sectionId === 'transactions') {
+    return getTransactionActions(contextValue, commandArg);
+  }
+
+  if (sectionId === 'basket') {
+    return getBasketActions(contextValue, commandArg);
+  }
+
+  if (sectionId === 'dashboards') {
+    return getDashboardActions(contextValue, label);
+  }
+
+  return [];
+}
+
+function getProviderChildren(provider: ExplorerTreeProvider, element?: TreeItemBase): TreeItemBase[] {
+  const result = provider.getChildren(element);
+  if (Array.isArray(result)) {
+    return result;
+  }
+  return [];
+}
+
+function buildNode(
+  provider: ExplorerTreeProvider,
+  item: ExplorerTreeItemLike,
+  sectionId: ExplorerTabId,
+  pathId: string
+): ExplorerNode {
+  const label = labelToText(item.label);
+  const description = descriptionToText(item.description);
+  const tooltip = tooltipToText(item.tooltip);
+  const commandArg = buildResourceCommandArgument(item);
+  const primaryAction = primaryActionFromTreeItem(item);
+
+  const sectionActions = getSectionActions(sectionId, item, commandArg);
+  const mergedActions = dedupeActions([
+    ...(primaryAction ? [primaryAction] : []),
+    ...sectionActions
+  ]);
+
+  const childrenItems = getProviderChildren(provider, item);
+  const children: ExplorerNode[] = childrenItems.map((child, index) =>
+    buildNode(provider, child as ExplorerTreeItemLike, sectionId, `${pathId}/${index}`)
+  );
+
+  return {
+    id: item.id || pathId,
+    label,
+    description,
+    tooltip,
+    contextValue: item.contextValue,
+    statusIndicator: item.status?.indicator,
+    statusDescription: item.status?.description,
+    primaryAction,
+    actions: mergedActions,
+    children
+  };
+}
+
+function buildSectionNodes(provider: ExplorerTreeProvider, sectionId: ExplorerTabId): ExplorerNode[] {
+  const roots = getProviderChildren(provider);
+  return roots.map((item, index) => buildNode(provider, item as ExplorerTreeItemLike, sectionId, `${sectionId}/${index}`));
+}
+
+function countNodes(nodes: ExplorerNode[], predicate: (node: ExplorerNode) => boolean): number {
+  let total = 0;
+  for (const node of nodes) {
+    if (predicate(node)) {
+      total += 1;
+    }
+    total += countNodes(node.children, predicate);
+  }
+  return total;
+}
+
+function countForSection(sectionId: ExplorerTabId, nodes: ExplorerNode[]): number {
+  if (sectionId === 'resources') {
+    return countNodes(nodes, node => RESOURCE_CONTEXT_VALUES.has(node.contextValue ?? ''));
+  }
+
+  const byContext: Partial<Record<ExplorerTabId, string>> = {
+    dashboards: 'eda-dashboard',
+    alarms: 'eda-alarm',
+    deviations: 'eda-deviation',
+    basket: 'basket-item',
+    transactions: 'transaction',
+    help: 'help-link'
+  };
+
+  const context = byContext[sectionId];
+  if (!context) {
+    return 0;
+  }
+
+  return countNodes(nodes, node => node.contextValue === context);
+}
+
+function toolbarActionsForSection(sectionId: ExplorerTabId): ExplorerAction[] {
+  if (sectionId === 'resources') {
+    return [createAction('vscode-eda.createResource', 'Create Resource')];
+  }
+
+  if (sectionId === 'deviations') {
+    return [createAction('vscode-eda.rejectAllDeviations', 'Reject All Deviations')];
+  }
+
+  if (sectionId === 'basket') {
+    return [
+      createAction('vscode-eda.commitBasket', 'Commit Basket'),
+      createAction('vscode-eda.dryRunBasket', 'Dry Run Basket'),
+      createAction('vscode-eda.discardBasket', 'Discard Basket')
+    ];
+  }
+
+  if (sectionId === 'transactions') {
+    return [createAction('vscode-eda.setTransactionLimit', 'Set Transaction Limit')];
+  }
+
+  return [];
+}
+
+function buildSectionSnapshot(
+  sectionId: ExplorerTabId,
+  provider: ExplorerTreeProvider
+): ExplorerSectionSnapshot {
+  const nodes = buildSectionNodes(provider, sectionId);
+
+  return {
+    id: sectionId,
+    label: EXPLORER_TAB_LABELS[sectionId],
+    count: countForSection(sectionId, nodes),
+    nodes,
+    toolbarActions: toolbarActionsForSection(sectionId)
+  };
+}
+
+export function buildExplorerSnapshot(
+  providers: ExplorerSnapshotProviders,
+  filterText: string
+): ExplorerSnapshotMessage {
+  const sections: ExplorerSectionSnapshot[] = EXPLORER_TAB_ORDER.map(sectionId => {
+    if (sectionId === 'dashboards') {
+      return buildSectionSnapshot(sectionId, providers.dashboardProvider);
+    }
+    if (sectionId === 'resources') {
+      return buildSectionSnapshot(sectionId, providers.namespaceProvider);
+    }
+    if (sectionId === 'alarms') {
+      return buildSectionSnapshot(sectionId, providers.alarmProvider);
+    }
+    if (sectionId === 'deviations') {
+      return buildSectionSnapshot(sectionId, providers.deviationProvider);
+    }
+    if (sectionId === 'basket') {
+      return buildSectionSnapshot(sectionId, providers.basketProvider);
+    }
+    if (sectionId === 'transactions') {
+      return buildSectionSnapshot(sectionId, providers.transactionProvider);
+    }
+    return buildSectionSnapshot(sectionId, providers.helpProvider);
+  });
+
+  return {
+    command: 'snapshot',
+    filterText,
+    sections
+  };
+}

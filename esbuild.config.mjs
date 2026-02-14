@@ -11,8 +11,10 @@ const webviewEntryPoints = {
   targetWizardPanel: 'src/webviews/targetWizard/targetWizardPanel.webview.tsx',
   nodeConfigPanel: 'src/webviews/nodeConfig/nodeConfigPanel.webview.tsx',
   alarmDetailsPanel: 'src/webviews/alarmDetails/alarmDetailsPanel.webview.tsx',
+  deviationDetailsPanel: 'src/webviews/deviationDetails/deviationDetailsPanel.webview.tsx',
   transactionDetailsPanel: 'src/webviews/transactionDetails/transactionDetailsPanel.webview.tsx',
-  transactionDiffsPanel: 'src/webviews/transactionDiffs/transactionDiffsPanel.webview.tsx'
+  transactionDiffsPanel: 'src/webviews/transactionDiffs/transactionDiffsPanel.webview.tsx',
+  edaExplorerView: 'src/webviews/explorer/edaExplorerView.webview.tsx'
 };
 
 // Build webview entrypoints together so React/MUI dependencies are emitted once in shared chunks.

@@ -38,8 +38,8 @@ import { registerDashboardCommands } from './commands/dashboardCommands';
 import { registerApplyYamlFileCommand } from './commands/applyYamlFileCommand';
 import { registerResourceBrowserCommand } from './commands/resourceBrowserCommand';
 import { configureTargets, fetchClientSecretDirectly } from './webviews/targetWizard/targetWizardPanel';
+import { EdaExplorerViewProvider } from './webviews/explorer/edaExplorerViewProvider';
 import { setAuthLogger } from './clients/edaAuthClient';
-import type { TreeItemBase } from './providers/views/treeItem';
 import { EmbeddingSearchService } from './services/embeddingSearchService';
 
 export interface EdaTargetConfig {
@@ -377,100 +377,75 @@ async function initializeServiceArchitecture(
 
 async function initializeTreeViewsAndCommands(context: vscode.ExtensionContext): Promise<void> {
   const dashboardProvider = new DashboardProvider();
-  const dashboardTreeView = vscode.window.createTreeView('edaDashboards', {
-    treeDataProvider: dashboardProvider,
-    showCollapseAll: true,
-  });
 
   const namespaceProvider = new EdaNamespaceProvider();
-  void namespaceProvider.initialize();
-  const namespaceTreeView = vscode.window.createTreeView('edaNamespaces', {
-    treeDataProvider: namespaceProvider,
-    showCollapseAll: true
-  });
-  namespaceTreeView.onDidExpandElement(e => {
-    namespaceProvider.updateStreamExpansion(e.element as TreeItemBase, false);
-  });
-  namespaceTreeView.onDidCollapseElement(e => {
-    namespaceProvider.setExpandAll(false);
-    namespaceProvider.updateStreamExpansion(e.element as TreeItemBase, true);
+  void namespaceProvider.initialize().then(() => {
+    namespaceProvider.refresh();
+  }).catch((err: unknown) => {
+    log(`Failed to initialize namespace provider: ${String(err)}`, LogLevel.ERROR, true);
   });
 
   const alarmProvider = new EdaAlarmProvider();
-  void alarmProvider.initialize();
-  const alarmTreeView = vscode.window.createTreeView('edaAlarms', {
-    treeDataProvider: alarmProvider,
-    showCollapseAll: true
-  });
-  alarmTreeView.title = `Alarms (${alarmProvider.count})`;
-  alarmProvider.onAlarmCountChanged(count => {
-    alarmTreeView.title = `Alarms (${count})`;
+  void alarmProvider.initialize().then(() => {
+    alarmProvider.refresh();
+  }).catch((err: unknown) => {
+    log(`Failed to initialize alarm provider: ${String(err)}`, LogLevel.ERROR, true);
   });
 
   edaDeviationProvider = new EdaDeviationProvider();
-  void edaDeviationProvider.initialize();
-  const deviationTreeView = vscode.window.createTreeView('edaDeviations', {
-    treeDataProvider: edaDeviationProvider,
-    showCollapseAll: true
-  });
-  deviationTreeView.title = `Deviations (${edaDeviationProvider.count})`;
-  edaDeviationProvider.onDeviationCountChanged(count => {
-    deviationTreeView.title = `Deviations (${count})`;
+  void edaDeviationProvider.initialize().then(() => {
+    edaDeviationProvider.refresh();
+  }).catch((err: unknown) => {
+    log(`Failed to initialize deviation provider: ${String(err)}`, LogLevel.ERROR, true);
   });
 
   edaTransactionBasketProvider = new TransactionBasketProvider();
-  void edaTransactionBasketProvider.initialize();
-  const basketTreeView = vscode.window.createTreeView('edaTransactionBasket', {
-    treeDataProvider: edaTransactionBasketProvider,
-    showCollapseAll: true
-  });
-  basketTreeView.title = `Transaction Basket (${edaTransactionBasketProvider.count})`;
-  edaTransactionBasketProvider.onBasketCountChanged(count => {
-    basketTreeView.title = `Transaction Basket (${count})`;
+  void edaTransactionBasketProvider.initialize().then(() => {
+    edaTransactionBasketProvider.refresh();
+  }).catch((err: unknown) => {
+    log(`Failed to initialize transaction basket provider: ${String(err)}`, LogLevel.ERROR, true);
   });
 
   edaTransactionProvider = new EdaTransactionProvider();
-  void edaTransactionProvider.initialize();
-  const transactionTreeView = vscode.window.createTreeView('edaTransactions', {
-    treeDataProvider: edaTransactionProvider,
-    showCollapseAll: true
+  void edaTransactionProvider.initialize().then(() => {
+    edaTransactionProvider.refresh();
+  }).catch((err: unknown) => {
+    log(`Failed to initialize transaction provider: ${String(err)}`, LogLevel.ERROR, true);
   });
 
   const helpProvider = new HelpProvider();
-  const helpTreeView = vscode.window.createTreeView('edaHelp', {
-    treeDataProvider: helpProvider,
-    showCollapseAll: true
+
+  const explorerProvider = new EdaExplorerViewProvider(context, {
+    dashboardProvider,
+    namespaceProvider,
+    alarmProvider,
+    deviationProvider: edaDeviationProvider,
+    basketProvider: edaTransactionBasketProvider,
+    transactionProvider: edaTransactionProvider,
+    helpProvider
   });
 
-  const edaTreeViews = [
-    dashboardTreeView,
-    namespaceTreeView,
-    alarmTreeView,
-    deviationTreeView,
-    basketTreeView,
-    transactionTreeView,
-    helpTreeView
-  ];
+  const updateEdaExplorerVisibilityContext = (visible: boolean): void => {
+    void vscode.commands.executeCommand('setContext', 'edaExplorerVisible', visible);
+  };
 
-  const updateEdaExplorerVisibilityContext = () =>
-    vscode.commands.executeCommand(
-      'setContext',
-      'edaExplorerVisible',
-      edaTreeViews.some(view => view.visible)
-    );
+  updateEdaExplorerVisibilityContext(false);
 
-  edaTreeViews.forEach(treeView => {
-    context.subscriptions.push(
-      treeView.onDidChangeVisibility(() => {
-        updateEdaExplorerVisibilityContext();
-      })
-    );
-  });
-  updateEdaExplorerVisibilityContext();
+  context.subscriptions.push(
+    explorerProvider,
+    explorerProvider.onDidChangeVisibility(visible => {
+      updateEdaExplorerVisibilityContext(visible);
+    }),
+    vscode.window.registerWebviewViewProvider(EdaExplorerViewProvider.viewType, explorerProvider, {
+      webviewOptions: { retainContextWhenHidden: true }
+    }),
+    { dispose: () => namespaceProvider.dispose() },
+    { dispose: () => edaDeviationProvider.dispose() },
+    { dispose: () => edaTransactionBasketProvider.dispose?.() },
+    { dispose: () => edaTransactionProvider.dispose() }
+  );
 
   // Register filter commands
-  const allProviders = [dashboardProvider, namespaceProvider, alarmProvider, edaDeviationProvider, edaTransactionBasketProvider, edaTransactionProvider, helpProvider];
-
   const filterTreeCommand = async (prefill?: string) => {
     let filterText: string | undefined = typeof prefill === 'string' ? prefill : undefined;
     if (filterText === undefined) {
@@ -481,36 +456,22 @@ async function initializeTreeViewsAndCommands(context: vscode.ExtensionContext):
     }
     if (typeof filterText === 'string') {
       const text = filterText.trim();
-      allProviders.forEach(p => p.setTreeFilter(text));
-      await vscode.commands.executeCommand('setContext', 'edaTreeFilterActive', text.length > 0);
+      await explorerProvider.setFilter(text);
     }
   };
 
   context.subscriptions.push(
     vscode.commands.registerCommand('vscode-eda.filterTree', filterTreeCommand),
     vscode.commands.registerCommand('vscode-eda.filterTreeActive', filterTreeCommand),
-    vscode.commands.registerCommand('vscode-eda.clearFilter', () => {
-      allProviders.forEach(p => p.clearTreeFilter());
-      vscode.commands.executeCommand('setContext', 'edaTreeFilterActive', false);
+    vscode.commands.registerCommand('vscode-eda.clearFilter', async () => {
+      await explorerProvider.clearFilter();
     }),
-    vscode.commands.registerCommand('vscode-eda.expandAllNamespaces', async () => {
-      try {
-        namespaceProvider.setExpandAll(true);
-        await namespaceProvider.expandAllNamespaces(namespaceTreeView);
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        vscode.window.showErrorMessage(`Failed to expand namespaces: ${message}`);
-      }
+    vscode.commands.registerCommand('vscode-eda.expandAllNamespaces', () => {
+      namespaceProvider.setExpandAll(true);
+      namespaceProvider.refresh();
+      explorerProvider.expandAllResources();
     })
   );
-
-  context.subscriptions.push(dashboardTreeView);
-  context.subscriptions.push(namespaceTreeView);
-  context.subscriptions.push(alarmTreeView);
-  context.subscriptions.push(deviationTreeView, { dispose: () => edaDeviationProvider.dispose() });
-  context.subscriptions.push(basketTreeView, { dispose: () => edaTransactionBasketProvider.dispose?.() });
-  context.subscriptions.push(transactionTreeView, { dispose: () => edaTransactionProvider.dispose() });
-  context.subscriptions.push(helpTreeView);
 
   // Register document providers
   const crdFsProvider = new CrdDefinitionFileSystemProvider();
@@ -529,7 +490,7 @@ async function initializeTreeViewsAndCommands(context: vscode.ExtensionContext):
     vscode.workspace.registerFileSystemProvider('eda-deviation', deviationDetailsProviderLocal, { isCaseSensitive: true })
   );
 
-  registerViewCommands(context, crdFsProvider, deviationDetailsProviderLocal, basketProviderLocal);
+  registerViewCommands(context, crdFsProvider, basketProviderLocal);
   registerDeviationCommands(context);
   registerTransactionCommands(context);
   registerBasketCommands(context);

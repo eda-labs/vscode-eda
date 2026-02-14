@@ -31,13 +31,7 @@
   "license": "Apache-2.0",
   "activationEvents": [
     "onCommand:vscode-eda.configureTargets",
-    "onView:edaDashboards",
-    "onView:edaNamespaces",
-    "onView:edaAlarms",
-    "onView:edaDeviations",
-    "onView:edaTransactionBasket",
-    "onView:edaTransactions",
-    "onView:edaHelp",
+    "onView:edaExplorerWebview",
     "onCommand:vscode-eda.applyYamlFile",
     "onCommand:vscode-eda.applyYamlFile.dryRun",
     "onCommand:vscode-eda.addYamlToBasket",
@@ -57,32 +51,9 @@
     "views": {
       "edaExplorerViewContainer": [
         {
-          "id": "edaDashboards",
-          "name": "Dashboards"
-        },
-        {
-          "id": "edaNamespaces",
-          "name": "Resources"
-        },
-        {
-          "id": "edaAlarms",
-          "name": "Alarms"
-        },
-        {
-          "id": "edaDeviations",
-          "name": "Deviations"
-        },
-        {
-          "id": "edaTransactionBasket",
-          "name": "Transaction Basket"
-        },
-        {
-          "id": "edaTransactions",
-          "name": "Transactions"
-        },
-        {
-          "id": "edaHelp",
-          "name": "Help"
+          "id": "edaExplorerWebview",
+          "name": "Explorer",
+          "type": "webview"
         }
       ]
     },
@@ -219,18 +190,6 @@
       },
       {
         "command": "vscode-eda.acceptDeviation",
-        "title": "EDA: Accept Deviation"
-      },
-      {
-        "command": "vscode-eda.rejectDeviation",
-        "title": "EDA: Reject Deviation"
-      },
-      {
-        "command": "vscode-eda.rejectAllDeviations",
-        "title": "EDA: Reject All Deviations"
-      },
-      {
-        "command": "vscode-eda.acceptDeviation",
         "title": "EDA: Accept Deviation",
         "icon": "$(check)"
       },
@@ -345,245 +304,23 @@
       "view/title": [
         {
           "command": "vscode-eda.filterTree",
-          "when": "(view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions) && !edaTreeFilterActive",
+          "when": "view == edaExplorerWebview && !edaTreeFilterActive",
           "group": "navigation@1"
         },
         {
           "command": "vscode-eda.filterTreeActive",
-          "when": "(view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions) && edaTreeFilterActive",
+          "when": "view == edaExplorerWebview && edaTreeFilterActive",
           "group": "navigation@1"
         },
         {
           "command": "vscode-eda.clearFilter",
-          "when": "(view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions || view == edaSystem) && edaTreeFilterActive",
+          "when": "view == edaExplorerWebview && edaTreeFilterActive",
           "group": "navigation@2"
         },
         {
           "command": "vscode-eda.configureTargets",
-          "when": "view == edaDashboards || view == edaNamespaces || view == edaAlarms || view == edaDeviations || view == edaTransactionBasket || view == edaTransactions || view == edaSystem",
+          "when": "view == edaExplorerWebview",
           "group": "navigation@3"
-        },
-        {
-          "command": "vscode-eda.createResource",
-          "when": "view == edaNamespaces",
-          "group": "navigation@4"
-        },
-        {
-          "command": "vscode-eda.expandAllNamespaces",
-          "when": "view == edaNamespaces",
-          "group": "navigation@5"
-        },
-        {
-          "command": "vscode-eda.rejectAllDeviations",
-          "when": "view == edaDeviations",
-          "group": "navigation@5"
-        },
-        {
-          "command": "vscode-eda.setTransactionLimit",
-          "when": "view == edaTransactions",
-          "group": "navigation@6"
-        },
-        {
-          "command": "vscode-eda.commitBasket",
-          "when": "view == edaTransactionBasket",
-          "group": "navigation@7"
-        },
-        {
-          "command": "vscode-eda.dryRunBasket",
-          "when": "view == edaTransactionBasket",
-          "group": "navigation@8"
-        },
-        {
-          "command": "vscode-eda.discardBasket",
-          "when": "view == edaTransactionBasket",
-          "group": "navigation@9"
-        }
-      ],
-      "view/item/context": [
-        {
-          "command": "vscode-eda.logsPod",
-          "when": "viewItem == pod || viewItem == npp-pod",
-          "group": "inline"
-        },
-        {
-          "command": "vscode-eda.describePod",
-          "when": "viewItem == pod || viewItem == npp-pod",
-          "group": "inline"
-        },
-        {
-          "command": "vscode-eda.terminalPod",
-          "when": "viewItem == pod || viewItem == npp-pod",
-          "group": "inline"
-        },
-        {
-          "command": "vscode-eda.deletePod",
-          "when": "viewItem == pod || viewItem == npp-pod",
-          "group": "inline"
-        },
-        {
-          "command": "vscode-eda.logsPod",
-          "when": "viewItem == pod || viewItem == npp-pod",
-          "group": "navigation@1"
-        },
-        {
-          "command": "vscode-eda.describePod",
-          "when": "viewItem == pod || viewItem == npp-pod",
-          "group": "navigation@2"
-        },
-        {
-          "command": "vscode-eda.terminalPod",
-          "when": "viewItem == pod || viewItem == npp-pod",
-          "group": "navigation"
-        },
-        {
-          "command": "vscode-eda.deletePod",
-          "when": "viewItem == pod || viewItem == npp-pod",
-          "group": "navigation"
-        },
-        {
-          "command": "vscode-eda.viewResource",
-          "when": "viewItem =~ /pod|deployment|service|configmap|secret|crd-instance/",
-          "group": "inline"
-        },
-        {
-          "command": "vscode-eda.deleteResource",
-          "when": "viewItem == stream-item",
-          "group": "inline"
-        },
-        {
-          "command": "vscode-eda.switchToEditResource",
-          "when": "viewItem == stream-item",
-          "group": "inline"
-        },
-        {
-          "command": "vscode-eda.showCRDDefinition",
-          "when": "viewItem == crd-instance",
-          "group": "inline"
-        },
-        {
-          "command": "vscode-eda.showCRDDefinition",
-          "when": "viewItem == crd-instance",
-          "group": "navigation"
-        },
-        {
-          "command": "vscode-eda.viewStreamItem",
-          "when": "viewItem == stream-item",
-          "group": "navigation"
-        },
-        {
-          "command": "vscode-eda.viewNodeConfig",
-          "when": "viewItem == toponode",
-          "group": "inline"
-        },
-        {
-          "command": "vscode-eda.sshTopoNode",
-          "when": "viewItem == toponode",
-          "group": "inline"
-        },
-        {
-          "command": "vscode-eda.switchToEditResource",
-          "when": "viewItem == toponode",
-          "group": "inline"
-        },
-        {
-          "command": "vscode-eda.viewNodeConfig",
-          "when": "viewItem == toponode",
-          "group": "navigation"
-        },
-        {
-          "command": "vscode-eda.sshTopoNode",
-          "when": "viewItem == toponode",
-          "group": "navigation"
-        },
-        {
-          "command": "vscode-eda.deleteResource",
-          "when": "viewItem == toponode",
-          "group": "inline"
-        },
-        {
-          "command": "vscode-eda.deleteResource",
-          "when": "viewItem == toponode",
-          "group": "navigation"
-        },
-        {
-          "command": "vscode-eda.deleteResource",
-          "when": "viewItem == stream-item",
-          "group": "navigation"
-        },
-        {
-          "command": "vscode-eda.deleteResource",
-          "when": "viewItem == crd-instance",
-          "group": "inline"
-        },
-        {
-          "command": "vscode-eda.switchToEditResource",
-          "when": "viewItem == crd-instance",
-          "group": "inline"
-        },
-        {
-          "command": "vscode-eda.deleteResource",
-          "when": "viewItem == crd-instance",
-          "group": "navigation"
-        },
-        {
-          "command": "vscode-eda.restartDeployment",
-          "when": "viewItem == k8s-deployment-instance && view == edaNamespaces",
-          "group": "inline@5"
-        },
-        {
-          "command": "vscode-eda.restartDeployment",
-          "when": "viewItem == k8s-deployment-instance && view == edaNamespaces",
-          "group": "navigation"
-        },
-        {
-          "command": "vscode-eda.showAlarmDetails",
-          "when": "viewItem == eda-alarm",
-          "group": "navigation"
-        },
-        {
-          "command": "vscode-eda.showDeviationDetails",
-          "when": "viewItem == eda-deviation",
-          "group": "navigation"
-        },
-        {
-          "command": "vscode-eda.acceptDeviation",
-          "when": "viewItem == eda-deviation",
-          "group": "inline"
-        },
-        {
-          "command": "vscode-eda.rejectDeviation",
-          "when": "viewItem == eda-deviation",
-          "group": "inline"
-        },
-        {
-          "command": "vscode-eda.revertTransaction",
-          "when": "viewItem == transaction",
-          "group": "inline"
-        },
-        {
-          "command": "vscode-eda.restoreTransaction",
-          "when": "viewItem == transaction",
-          "group": "inline"
-        },
-        {
-          "command": "vscode-eda.removeBasketItem",
-          "when": "viewItem == basket-item && view == edaTransactionBasket",
-          "group": "inline"
-        },
-        {
-          "command": "vscode-eda.editBasketItem",
-          "when": "viewItem == basket-item && view == edaTransactionBasket",
-          "group": "inline"
-        },
-        {
-          "command": "vscode-eda.removeBasketItem",
-          "when": "viewItem == basket-item && view == edaTransactionBasket",
-          "group": "navigation"
-        },
-        {
-          "command": "vscode-eda.editBasketItem",
-          "when": "viewItem == basket-item && view == edaTransactionBasket",
-          "group": "navigation"
         }
       ],
       "editor/title": [
@@ -826,6 +563,7 @@
     "@mui/material": "^7.3.8",
     "@mui/x-charts": "^8.27.0",
     "@mui/x-data-grid": "^8.27.1",
+    "@mui/x-tree-view": "^8.27.1",
     "@xyflow/react": "^12.10.0",
     "bezier-js": "^6.1.4",
     "html-to-image": "^1.11.13",
