@@ -43,7 +43,7 @@ export class ResourceBrowserPanel extends BasePanel {
 
   protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'resourceBrowserPanel.js');
-    return `<script nonce="${nonce}" src="${scriptUri}"></script>`;
+    return `<script type="module" nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
   private async loadResources(): Promise<void> {

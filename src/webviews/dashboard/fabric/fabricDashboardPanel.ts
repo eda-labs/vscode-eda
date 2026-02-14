@@ -244,7 +244,8 @@ export class FabricDashboardPanel extends BasePanel {
   protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'fabricDashboard.js');
     const echartsUri = this.getResourceUri(RESOURCES_DIR, 'echarts.min.js');
-    return `<script nonce="${nonce}" data-echarts-uri="${echartsUri}" src="${scriptUri}"></script>`;
+    const bootstrapData = JSON.stringify({ echartsUri: echartsUri.toString() });
+    return `<script nonce="${nonce}">window.__EDA_BOOTSTRAP__=${bootstrapData};</script><script type="module" nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
   private async sendNamespaces(): Promise<void> {

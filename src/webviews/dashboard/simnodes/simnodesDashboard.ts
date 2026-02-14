@@ -65,6 +65,12 @@ export class SimnodesDashboardPanel extends BasePanel {
       }
     });
 
+    this.panel.onDidChangeViewState((event) => {
+      if (event.webviewPanel.visible) {
+        this.reloadPanelData();
+      }
+    });
+
     this.panel.webview.onDidReceiveMessage((msg: { command: string; namespace?: string; name?: string; operatingSystem?: string }) => {
       if (msg.command === 'ready') {
         this.sendNamespaces();
@@ -89,7 +95,7 @@ export class SimnodesDashboardPanel extends BasePanel {
 
   protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'simnodesDashboard.js');
-    return `<script nonce="${nonce}" src="${scriptUri}"></script>`;
+    return `<script type="module" nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
   private sendNamespaces(): void {
@@ -237,6 +243,11 @@ export class SimnodesDashboardPanel extends BasePanel {
     this.loadInitial(this.selectedNamespace);
   }
 
+  private reloadPanelData(): void {
+    this.sendNamespaces();
+    this.loadInitial(this.selectedNamespace);
+  }
+
   private postResults(): void {
     const coreNs = this.edaClient.getCoreNamespace();
     const namespaces =
@@ -324,8 +335,12 @@ export class SimnodesDashboardPanel extends BasePanel {
 
   static show(context: vscode.ExtensionContext, title: string): SimnodesDashboardPanel {
     if (SimnodesDashboardPanel.currentPanel) {
+      const wasVisible = SimnodesDashboardPanel.currentPanel.panel.visible;
       SimnodesDashboardPanel.currentPanel.panel.title = title;
       SimnodesDashboardPanel.currentPanel.panel.reveal(vscode.ViewColumn.Active);
+      if (wasVisible) {
+        SimnodesDashboardPanel.currentPanel.reloadPanelData();
+      }
       return SimnodesDashboardPanel.currentPanel;
     }
 

@@ -19,6 +19,7 @@ import DeviceNode, { type TopologyNode, type TopologyNodeData } from './nodes/De
 import NamespaceLabelNodeComponent, { type NamespaceLabelNode } from './nodes/NamespaceLabelNode';
 import LinkEdgeComponent, { type LinkEdge, type LinkEdgeData } from './edges/LinkEdge';
 import { getNodeRoleMonogram } from './nodes/icons';
+import { getNodeEdgePoint, createBezierPath } from './geometry';
 
 export type FlowNode = TopologyNode | NamespaceLabelNode;
 
@@ -62,86 +63,6 @@ export interface ExportOptions {
 const SVG_PADDING = 50;
 const NODE_WIDTH = 80;
 const NODE_HEIGHT = 80;
-const CONTROL_POINT_STEP = 40;
-const LABEL_OFFSET = 25;
-
-// Helper functions for SVG export
-function createBezierPath(
-  source: { x: number; y: number },
-  target: { x: number; y: number },
-  pairIndex: number,
-  totalInPair: number
-): { path: string; sourceLabel: { x: number; y: number }; targetLabel: { x: number; y: number } } {
-  const dx = target.x - source.x;
-  const dy = target.y - source.y;
-  const len = Math.sqrt(dx * dx + dy * dy) || 1;
-
-  const perpX = -dy / len;
-  const perpY = dx / len;
-
-  let offset = 0;
-  if (totalInPair > 1) {
-    const sign = pairIndex % 2 === 0 ? 1 : -1;
-    const magnitude = Math.floor(pairIndex / 2) + 1;
-    offset = sign * magnitude * CONTROL_POINT_STEP;
-  }
-
-  const midX = (source.x + target.x) / 2 + perpX * offset;
-  const midY = (source.y + target.y) / 2 + perpY * offset;
-
-  const path = `M ${source.x} ${source.y} Q ${midX} ${midY} ${target.x} ${target.y}`;
-
-  const normDx = dx / len;
-  const normDy = dy / len;
-
-  return {
-    path,
-    sourceLabel: {
-      x: source.x + normDx * LABEL_OFFSET + perpX * offset * 0.3,
-      y: source.y + normDy * LABEL_OFFSET + perpY * offset * 0.3,
-    },
-    targetLabel: {
-      x: target.x - normDx * LABEL_OFFSET + perpX * offset * 0.3,
-      y: target.y - normDy * LABEL_OFFSET + perpY * offset * 0.3,
-    },
-  };
-}
-
-function getNodeEdgePoint(
-  center: { x: number; y: number },
-  width: number,
-  height: number,
-  targetPoint: { x: number; y: number }
-): { x: number; y: number } {
-  const dx = targetPoint.x - center.x;
-  const dy = targetPoint.y - center.y;
-
-  if (dx === 0 && dy === 0) return center;
-
-  const halfW = width / 2;
-  const halfH = height / 2;
-
-  let t = Infinity;
-
-  if (dx > 0) {
-    const tRight = halfW / dx;
-    if (Math.abs(dy * tRight) <= halfH) t = Math.min(t, tRight);
-  }
-  if (dx < 0) {
-    const tLeft = -halfW / dx;
-    if (Math.abs(dy * tLeft) <= halfH) t = Math.min(t, tLeft);
-  }
-  if (dy > 0) {
-    const tBottom = halfH / dy;
-    if (Math.abs(dx * tBottom) <= halfW) t = Math.min(t, tBottom);
-  }
-  if (dy < 0) {
-    const tTop = -halfH / dy;
-    if (Math.abs(dx * tTop) <= halfW) t = Math.min(t, tTop);
-  }
-
-  return { x: center.x + dx * t, y: center.y + dy * t };
-}
 
 function escapeXml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -260,9 +181,18 @@ function TopologyFlowInner({
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<LinkEdge>(initialEdges);
 
-  // Update nodes and edges when props change
+  // Merge incoming nodes with existing positions to preserve user drag state
   useEffect(() => {
-    setNodes(initialNodes);
+    setNodes(currentNodes => {
+      const positionMap = new Map(currentNodes.map(n => [n.id, n.position]));
+      return initialNodes.map(node => {
+        const existingPos = positionMap.get(node.id);
+        if (existingPos) {
+          return { ...node, position: existingPos };
+        }
+        return node;
+      });
+    });
   }, [initialNodes, setNodes]);
 
   useEffect(() => {

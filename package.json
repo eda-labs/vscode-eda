@@ -43,7 +43,7 @@
     "onCommand:vscode-eda.addYamlToBasket",
     "onCommand:vscode-eda.openResourceBrowser"
   ],
-  "main": "./dist/extension",
+  "main": "./dist/extension.js",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -766,7 +766,7 @@
     "test": "mocha -r ts-node/register -r ./test/setup.ts test/**/*.test.ts",
     "stream:namespaces": "ts-node namespace-stream.ts",
     "compile-webpack": "npm run check-types && webpack --mode production",
-    "package": "rm -rf dist && npm run lint && npm run compile && vsce package"
+    "package": "rm -rf dist && npm run lint && npm run compile && vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/bezier-js": "^4.1.3",

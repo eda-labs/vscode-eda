@@ -21,7 +21,6 @@ export interface DataTableProps<T> {
   searchPlaceholder?: string;
   emptyMessage?: string;
   className?: string;
-  rowClassName?: string | ((row: T) => string);
 }
 
 type TableRow<T> = {

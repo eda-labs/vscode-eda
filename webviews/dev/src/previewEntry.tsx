@@ -1,6 +1,7 @@
 /* eslint-disable import-x/max-dependencies */
 
 import { applyDevTheme, isDevThemeId, type DevThemeId } from '../../../src/webviews/shared/theme';
+
 import { createMockHost } from './mockHost';
 import { DEV_WEBVIEWS, getDevWebviewLabel, isDevWebviewId, type DevWebviewId } from './webviewCatalog';
 

@@ -10,6 +10,7 @@ import {
   Alert,
   Box,
   Button,
+  ButtonGroup,
   FormControl,
   IconButton,
   InputAdornment,
@@ -229,6 +230,7 @@ function QueriesDashboard() {
   const postMessage = usePostMessage();
   useReadySignal();
   const { copied, copyToClipboard } = useCopyToClipboard({ successDuration: 1000 });
+  const controlHeight = 32;
 
   // Namespace state
   const [namespaces, setNamespaces] = useState<string[]>([]);
@@ -251,7 +253,6 @@ function QueriesDashboard() {
 
   const inputRef = useRef<HTMLInputElement>(null);
   const autocompleteRef = useRef<HTMLDivElement | null>(null);
-  const copyButtonRef = useRef<HTMLButtonElement | null>(null);
   const [copyMenuAnchor, setCopyMenuAnchor] = useState<HTMLElement | null>(null);
 
   useMessageListener<QueriesMessage>(useCallback((msg) => {
@@ -399,8 +400,8 @@ function QueriesDashboard() {
     }
   }, [autocomplete, queryType, insertAutocomplete, handleRunQuery]);
 
-  const handleCopy = useCallback(() => {
-    const text = formatForClipboard(copyFormat, columns, sortedRows);
+  const handleCopy = useCallback((format?: CopyFormat) => {
+    const text = formatForClipboard(format ?? copyFormat, columns, sortedRows);
     copyToClipboard(text).then((success) => {
       if (success) {
         setStatus('Copied to clipboard');
@@ -462,6 +463,8 @@ function QueriesDashboard() {
             <InputLabel id="query-type-label">Type</InputLabel>
             <Select
               labelId="query-type-label"
+              size="small"
+              sx={{ height: controlHeight, '& .MuiSelect-select': { height: controlHeight, display: 'flex', alignItems: 'center' } }}
               value={queryType}
               label="Type"
               onChange={(e) => setQueryType(e.target.value as QueryType)}
@@ -477,6 +480,7 @@ function QueriesDashboard() {
               inputRef={inputRef}
               fullWidth
               size="small"
+              sx={{ '& .MuiOutlinedInput-root': { minHeight: controlHeight, height: controlHeight } }}
               placeholder={queryPlaceholder}
               value={queryInput}
               onChange={handleQueryInputChange}
@@ -520,29 +524,44 @@ function QueriesDashboard() {
             )}
           </Box>
 
-          <Button variant="contained" startIcon={<PlayArrowIcon />} onClick={handleRunQuery}>
+          <Button
+            variant="contained"
+            size="small"
+            sx={{ minHeight: controlHeight, height: controlHeight }}
+            startIcon={<PlayArrowIcon />}
+            onClick={handleRunQuery}
+          >
             Run
           </Button>
 
-          <Button
-            ref={copyButtonRef}
+          <ButtonGroup
             variant="contained"
             color={copied ? 'success' : 'primary'}
-            startIcon={<ContentCopyIcon />}
-            endIcon={<ArrowDropDownIcon />}
-            onClick={handleCopy}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              setCopyMenuAnchor(event.currentTarget);
+            size="small"
+            sx={{
+              '& .MuiButton-root': {
+                minHeight: controlHeight,
+                height: controlHeight
+              }
             }}
           >
-            Copy
-          </Button>
-          <Tooltip title="Choose copy format">
-            <IconButton size="small" onClick={(event) => setCopyMenuAnchor(event.currentTarget)}>
-              <ArrowDropDownIcon />
-            </IconButton>
-          </Tooltip>
+            <Button
+              startIcon={<ContentCopyIcon />}
+              onClick={() => handleCopy()}
+            >
+              Copy
+            </Button>
+            <Tooltip title="Choose copy format">
+              <Button
+                size="small"
+                onClick={(event) => setCopyMenuAnchor(event.currentTarget)}
+                aria-haspopup="menu"
+                aria-label="Choose copy format"
+              >
+                <ArrowDropDownIcon />
+              </Button>
+            </Tooltip>
+          </ButtonGroup>
           <Menu
             anchorEl={copyMenuAnchor}
             open={Boolean(copyMenuAnchor)}
@@ -555,7 +574,7 @@ function QueriesDashboard() {
                 onClick={() => {
                   setCopyFormat(fmt);
                   setCopyMenuAnchor(null);
-                  handleCopy();
+                  handleCopy(fmt);
                 }}
               >
                 {fmt.toUpperCase()}
@@ -568,6 +587,8 @@ function QueriesDashboard() {
           <InputLabel id="query-namespace-label">Namespace</InputLabel>
           <Select
             labelId="query-namespace-label"
+            size="small"
+            sx={{ height: controlHeight, '& .MuiSelect-select': { height: controlHeight, display: 'flex', alignItems: 'center' } }}
             value={selectedNamespace}
             label="Namespace"
             onChange={(e) => setSelectedNamespace(String(e.target.value))}

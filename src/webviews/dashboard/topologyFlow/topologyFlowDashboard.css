@@ -11,16 +11,16 @@
   --color-link-up: var(--topology-link-up, #4ade80);
   --color-link-down: var(--topology-link-down, #f87171);
 
-  /* Node colors - Light mode defaults */
+  /* Node colors - Dark-safe defaults (VS Code vars override when available) */
   --color-node-border: var(--topology-node-border, #6872824C);
   --color-node-border-selected: var(--topology-node-border-selected, #6098FF);
-  --color-node-bg: var(--topology-node-bg, #F7F9FD);
-  --color-node-text: var(--topology-node-text, #2b2b2b);
+  --color-node-bg: var(--topology-node-bg, #252526);
+  --color-node-text: var(--topology-node-text, #cccccc);
   --color-handle-bg: var(--topology-handle-bg, #ffffff);
   --color-handle-border: var(--topology-handle-border, #6872824C);
 
   /* Icon colors */
-  --color-icon-bg: var(--topology-icon-bg, #707070);
+  --color-icon-bg: var(--topology-icon-bg, #5f6368);
   --color-icon-fg: var(--topology-icon-fg, #ffffff);
 }
 
@@ -36,6 +36,8 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
+  background-color: var(--topology-editor-bg, #1e1e1e);
+  color: var(--topology-foreground, #cccccc);
 }
 
 .header {
@@ -72,7 +74,7 @@
   flex: 4;
   border: 1px solid var(--topology-panel-border);
   border-radius: 8px;
-  background-color: var(--topology-editor-bg);
+  background-color: var(--topology-editor-bg, #1e1e1e);
   box-shadow: var(--topology-container-shadow);
   overflow: hidden;
   min-height: 400px;
@@ -142,14 +144,14 @@
    ============================================ */
 
 .react-flow {
-  --xy-background-color: var(--topology-editor-bg);
-  background-color: var(--topology-editor-bg);
+  --xy-background-color: var(--topology-editor-bg, #1e1e1e);
+  background-color: var(--topology-editor-bg, #1e1e1e);
   width: 100%;
   height: 100%;
 }
 
 .react-flow.dark {
-  --xy-background-color: var(--topology-editor-bg);
+  --xy-background-color: var(--topology-editor-bg, #1e1e1e);
 }
 
 /* ============================================
@@ -195,12 +197,18 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: 6px;
+  background-color: var(--color-icon-bg);
+  color: var(--color-icon-fg);
+  box-sizing: border-box;
 }
 
 .topology-node-icon svg {
-  width: 28px;
-  height: 28px;
+  width: 18px;
+  height: 18px;
   overflow: visible;
+  color: inherit;
+  fill: currentColor;
 }
 
 .topology-node-label {

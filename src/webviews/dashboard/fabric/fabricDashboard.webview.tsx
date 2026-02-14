@@ -67,6 +67,14 @@ interface EChartsStatic {
 
 declare const echarts: EChartsStatic | undefined;
 
+declare global {
+  interface Window {
+    __EDA_BOOTSTRAP__?: {
+      echartsUri?: string;
+    };
+  }
+}
+
 interface FabricMessage {
   command: string;
   namespaces?: string[];
@@ -510,9 +518,8 @@ function FabricDashboard() {
   );
 }
 
-// Get echartsUri from script tag before React takes over
-const currentScript = document.currentScript as HTMLScriptElement | null;
-const echartsUri = currentScript?.dataset.echartsUri || '';
+// Get bootstrap data injected by the panel host.
+const echartsUri = window.__EDA_BOOTSTRAP__?.echartsUri ?? '';
 
 // Load echarts first, then render React
 function loadEchartsAndRender() {

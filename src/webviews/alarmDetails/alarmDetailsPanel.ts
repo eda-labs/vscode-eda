@@ -48,7 +48,7 @@ export class AlarmDetailsPanel extends BasePanel {
 
   protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'alarmDetailsPanel.js');
-    return `<script nonce="${nonce}" src="${scriptUri}"></script>`;
+    return `<script type="module" nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
   static show(context: vscode.ExtensionContext, data: Record<string, unknown>): void {

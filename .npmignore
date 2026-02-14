@@ -1,14 +1,8 @@
-out
-dist
+# Keep dist packageable for VSCE; runtime pruning is handled by .vscodeignore.
 node_modules
 .vscode-test/
 *.vsix
 .vscode/**
-patch.sh
-test.yaml
-CLAUDE.md
-AGENTS.md
 screenshots/**
 *.clab.yml
 *.clab.yml.annotations.json
-topology.svg

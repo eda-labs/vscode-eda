@@ -60,6 +60,12 @@ interface EdgeInfo {
   type?: string;
 }
 
+// Info card state types
+type InfoCardState =
+  | { type: 'empty' }
+  | { type: 'node'; info: NodeInfo; raw: unknown }
+  | { type: 'edge'; info: EdgeInfo; raw: unknown; rawResource: unknown };
+
 // Helper to get nested property with fallback keys
 function getNestedProp(obj: Record<string, unknown> | undefined, ...keys: string[]): string | undefined {
   for (const key of keys) {
@@ -125,6 +131,98 @@ function extractEdgeInfo(raw: unknown, rawResource: unknown): EdgeInfo | null {
   };
 }
 
+// Info card helper: renders a table row if value is defined
+function InfoRow({ label, value }: Readonly<{ label: string; value: string | undefined }>) {
+  if (!value) return null;
+  return <tr><td>{label}</td><td>{value}</td></tr>;
+}
+
+function InfoSection({ title }: Readonly<{ title: string }>) {
+  return <tr className="section"><td colSpan={2}>{title}</td></tr>;
+}
+
+function InfoCardNode({
+  info,
+  raw,
+  onSsh,
+  onOpenResource
+}: Readonly<{
+  info: NodeInfo;
+  raw: unknown;
+  onSsh: (name: string, ns: string, nodeDetails?: string) => void;
+  onOpenResource: (raw: unknown, streamGroup: string) => void;
+}>) {
+  return (
+    <>
+      <h3>
+        <a className="node-link" href="#" onClick={(e) => { e.preventDefault(); onSsh(info.name, info.namespace, info.nodeDetails); }}>
+          {info.name}
+        </a>
+      </h3>
+      <table>
+        <tbody>
+          <InfoRow label="Namespace" value={info.namespace} />
+          <InfoRow label="Status" value={info.status} />
+          <InfoRow label="Sync" value={info.sync} />
+          <InfoRow label="Node Details" value={info.nodeDetails} />
+          <InfoRow label="Node State" value={info.nodeState} />
+          <InfoRow label="NPP State" value={info.nppState} />
+          <InfoRow label="Operating System" value={info.os} />
+          <InfoRow label="Platform" value={info.platform} />
+          <InfoRow label="Version" value={info.version} />
+          {info.labels && Object.keys(info.labels).length > 0 && (
+            <>
+              <InfoSection title="Labels" />
+              {Object.entries(info.labels).map(([k, v]) => (
+                <InfoRow key={k} label={k} value={v} />
+              ))}
+            </>
+          )}
+        </tbody>
+      </table>
+      <p style={{ marginTop: 12 }}>
+        <a className="link-resource" href="#" onClick={(e) => { e.preventDefault(); onOpenResource(raw, 'toponodes'); }}>
+          View Resource
+        </a>
+      </p>
+    </>
+  );
+}
+
+function InfoCardEdge({
+  info,
+  rawResource,
+  onOpenResource
+}: Readonly<{
+  info: EdgeInfo;
+  rawResource: unknown;
+  onOpenResource: (raw: unknown, streamGroup: string) => void;
+}>) {
+  return (
+    <>
+      <h3>
+        <a className="link-resource" href="#" onClick={(e) => { e.preventDefault(); onOpenResource(rawResource, 'topolinks'); }}>
+          {info.sourceNode} → {info.targetNode}
+        </a>
+      </h3>
+      <table>
+        <tbody>
+          <InfoRow label="Type" value={info.type} />
+          <InfoRow label="State" value={info.state} />
+          <InfoSection title="Local Endpoint" />
+          <InfoRow label="Node" value={info.sourceNode} />
+          <InfoRow label="Interface" value={info.sourceInterface} />
+          <InfoRow label="State" value={info.sourceState} />
+          <InfoSection title="Remote Endpoint" />
+          <InfoRow label="Node" value={info.targetNode} />
+          <InfoRow label="Interface" value={info.targetInterface} />
+          <InfoRow label="State" value={info.targetState} />
+        </tbody>
+      </table>
+    </>
+  );
+}
+
 // Layout constants
 const SPACING_X = 180;
 const SPACING_Y = 200;
@@ -161,7 +259,7 @@ function TopologyFlowDashboard() {
   const [edges, setEdges] = useState<TopologyEdge[]>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
-  const [infoCardContent, setInfoCardContent] = useState<string>('Select a node or link');
+  const [infoCard, setInfoCard] = useState<InfoCardState>({ type: 'empty' });
   const [colorMode, setColorMode] = useState<ColorMode>('system');
 
   // Export state
@@ -325,30 +423,7 @@ function TopologyFlowDashboard() {
 
     const info = extractNodeInfo(node.data.raw);
     if (info) {
-      const row = (label: string, value: string | undefined) =>
-        value ? `<tr><td>${label}</td><td>${value}</td></tr>` : '';
-      const section = (title: string) => `<tr class="section"><td colspan="2">${title}</td></tr>`;
-
-      let html = `<h3><a class="node-link" href="#" data-node="${info.name}" data-ns="${info.namespace}">${info.name}</a></h3>`;
-      html += '<table>';
-      html += row('Namespace', info.namespace);
-      html += row('Status', info.status);
-      html += row('Sync', info.sync);
-      html += row('Node Details', info.nodeDetails);
-      html += row('Node State', info.nodeState);
-      html += row('NPP State', info.nppState);
-      html += row('Operating System', info.os);
-      html += row('Platform', info.platform);
-      html += row('Version', info.version);
-      if (info.labels && Object.keys(info.labels).length > 0) {
-        html += section('Labels');
-        Object.entries(info.labels).forEach(([k, v]) => {
-          html += `<tr><td>${k}</td><td>${v}</td></tr>`;
-        });
-      }
-      html += '</table>';
-      html += `<p style="margin-top: 12px"><a class="link-resource" href="#" data-raw='${JSON.stringify(node.data.raw).replace(/'/g, '&#39;')}' data-stream="toponodes">View Resource</a></p>`;
-      setInfoCardContent(html);
+      setInfoCard({ type: 'node', info, raw: node.data.raw });
     }
   }, []);
 
@@ -359,24 +434,7 @@ function TopologyFlowDashboard() {
 
     const info = extractEdgeInfo(edge.data?.raw, edge.data?.rawResource);
     if (info) {
-      const row = (label: string, value: string | undefined) =>
-        value ? `<tr><td>${label}</td><td>${value}</td></tr>` : '';
-      const section = (title: string) => `<tr class="section"><td colspan="2">${title}</td></tr>`;
-
-      let html = `<h3><a class="link-resource" href="#" data-raw='${JSON.stringify(edge.data?.rawResource).replace(/'/g, '&#39;')}' data-stream="topolinks">${info.sourceNode} → ${info.targetNode}</a></h3>`;
-      html += '<table>';
-      html += row('Type', info.type);
-      html += row('State', info.state);
-      html += section('Local Endpoint');
-      html += row('Node', info.sourceNode);
-      html += row('Interface', info.sourceInterface);
-      html += row('State', info.sourceState);
-      html += section('Remote Endpoint');
-      html += row('Node', info.targetNode);
-      html += row('Interface', info.targetInterface);
-      html += row('State', info.targetState);
-      html += '</table>';
-      setInfoCardContent(html);
+      setInfoCard({ type: 'edge', info, raw: edge.data?.raw, rawResource: edge.data?.rawResource });
     }
   }, []);
 
@@ -397,7 +455,7 @@ function TopologyFlowDashboard() {
   const handleBackgroundClick = useCallback(() => {
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
-    setInfoCardContent('Select a node or link');
+    setInfoCard({ type: 'empty' });
   }, []);
 
   // Handle namespace change
@@ -407,39 +465,20 @@ function TopologyFlowDashboard() {
     postMessage({ command: 'setNamespace', namespace: ns });
   }, [postMessage]);
 
-  // Handle info card click events
-  const handleInfoCardClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement;
-    if (target.classList.contains('node-link')) {
-      e.preventDefault();
-      const name = target.dataset.node;
-      const namespace = target.dataset.ns;
-      if (name && namespace) {
-        const node = nodes.find(n => n.type === 'deviceNode' && n.data.label === name);
-        if (node) {
-          const info = extractNodeInfo(node.data.raw);
-          postMessage({
-            command: 'sshTopoNode',
-            name,
-            namespace,
-            nodeDetails: info?.nodeDetails
-          });
-        }
-      }
-    } else if (target.classList.contains('link-resource')) {
-      e.preventDefault();
-      const rawStr = target.dataset.raw;
-      const streamGroup = target.dataset.stream;
-      if (rawStr && streamGroup) {
-        try {
-          const raw: unknown = JSON.parse(rawStr);
-          postMessage({ command: 'openResource', raw, streamGroup });
-        } catch {
-          // ignore parse errors
-        }
-      }
-    }
-  }, [nodes, postMessage]);
+  // Handle SSH to node
+  const handleSshToNode = useCallback((name: string, namespace: string, nodeDetails?: string) => {
+    postMessage({
+      command: 'sshTopoNode',
+      name,
+      namespace,
+      nodeDetails
+    });
+  }, [postMessage]);
+
+  // Handle opening a resource
+  const handleOpenResource = useCallback((raw: unknown, streamGroup: string) => {
+    postMessage({ command: 'openResource', raw, streamGroup });
+  }, [postMessage]);
 
   // Show export popup with theme-appropriate defaults
   const showExportPopupWithDefaults = useCallback(() => {
@@ -501,11 +540,24 @@ function TopologyFlowDashboard() {
             selectedEdgeId={selectedEdgeId}
           />
         </div>
-        <div
-          className="info-card"
-          onClick={handleInfoCardClick}
-          dangerouslySetInnerHTML={{ __html: infoCardContent }}
-        />
+        <div className="info-card">
+          {infoCard.type === 'empty' && <span>Select a node or link</span>}
+          {infoCard.type === 'node' && (
+            <InfoCardNode
+              info={infoCard.info}
+              raw={infoCard.raw}
+              onSsh={handleSshToNode}
+              onOpenResource={handleOpenResource}
+            />
+          )}
+          {infoCard.type === 'edge' && (
+            <InfoCardEdge
+              info={infoCard.info}
+              rawResource={infoCard.rawResource}
+              onOpenResource={handleOpenResource}
+            />
+          )}
+        </div>
       </div>
       {showExportPopup && (
         <div className="export-popup">

@@ -184,6 +184,14 @@ export function createVsCodeMuiTheme(themeClass: VSCodeThemeClass): Theme {
   const buttonBorder = getCssVar('--vscode-button-border', border);
   const badgeBg = getCssVar('--vscode-badge-background', listActiveBg);
   const editorLineFg = getCssVar('--vscode-editorLineNumber-foreground', descriptionFg);
+  const iconFg = getCssVar('--vscode-icon-foreground', editorFg);
+  let topologyIconAlpha = 0.14;
+  if (highContrast) {
+    topologyIconAlpha = 0.28;
+  } else if (dark) {
+    topologyIconAlpha = 0.2;
+  }
+  const topologyIconBg = alpha(iconFg, topologyIconAlpha);
 
   const chartPurple = getCssVar('--vscode-charts-purple', fallbacks.chartPurple);
   const chartBlue = getCssVar('--vscode-charts-blue', fallbacks.chartBlue);
@@ -281,8 +289,8 @@ export function createVsCodeMuiTheme(themeClass: VSCodeThemeClass): Theme {
         nodeText: editorFg,
         handleBackground: topologyNodeBg,
         handleBorder: topologyNodeBorder,
-        iconBackground: primary,
-        iconForeground: primaryContrast
+        iconBackground: topologyIconBg,
+        iconForeground: iconFg
       }
     },
     components: {

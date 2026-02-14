@@ -367,7 +367,7 @@ function TargetForm({
         />
       </FormField>
 
-      <FormField label="Client Secret" required error={errors.clientSecret} hint={formUI.clientSecretHint}>
+      <FormField label="Client Secret" error={errors.clientSecret} hint={formUI.clientSecretHint}>
         <Stack direction="row" spacing={1}>
           <Box sx={{ flex: 1 }}>
             <PasswordInput
@@ -460,7 +460,6 @@ function TargetWizardPanel() {
     if (!formData.coreNs.trim()) newErrors.coreNs = FIELD_REQUIRED_ERROR;
     if (!formData.edaUser.trim()) newErrors.edaUser = FIELD_REQUIRED_ERROR;
     if (!formData.edaPass.trim()) newErrors.edaPass = FIELD_REQUIRED_ERROR;
-    if (!formData.clientSecret.trim()) newErrors.clientSecret = FIELD_REQUIRED_ERROR;
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   }, [formData]);

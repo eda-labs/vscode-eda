@@ -63,15 +63,15 @@ function SchemaProp({ name, node, isRequired }: Readonly<{ name: string; node: S
     if (expandTrigger < 0) setIsOpen(false);
   }, [expandTrigger]);
 
-  const hasChildren = Boolean(node.properties || node.items?.properties);
+  const hasExpandableContent = Boolean(node.description || node.properties || node.items?.properties);
 
   return (
     <Box sx={{ ml: 2, mb: 1 }}>
       <Stack direction="row" spacing={1} alignItems="center">
         <IconButton
           size="small"
-          onClick={() => setIsOpen(!isOpen)}
-          disabled={!hasChildren}
+          onClick={() => setIsOpen(prev => !prev)}
+          disabled={!hasExpandableContent}
           sx={{ transform: isOpen ? 'rotate(180deg)' : 'none' }}
         >
           <ExpandMoreIcon fontSize="small" />
@@ -259,11 +259,11 @@ function ResourceBrowserPanel() {
         )}
 
         <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
-          <VSCodeButton variant="secondary" size="sm" onClick={handleExpandAll}>
+          <VSCodeButton variant="primary" size="sm" onClick={handleExpandAll}>
             <UnfoldMoreIcon fontSize="small" sx={{ mr: 0.5 }} />
             Expand All
           </VSCodeButton>
-          <VSCodeButton variant="secondary" size="sm" onClick={handleCollapseAll}>
+          <VSCodeButton variant="primary" size="sm" onClick={handleCollapseAll}>
             <UnfoldLessIcon fontSize="small" sx={{ mr: 0.5 }} />
             Collapse All
           </VSCodeButton>

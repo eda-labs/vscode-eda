@@ -1,14 +1,34 @@
 /* eslint-env node */
 import { build } from 'esbuild';
 
-// Common options for webview builds
+const webviewEntryPoints = {
+  toponodesDashboard: 'src/webviews/dashboard/toponodes/toponodesDashboard.webview.tsx',
+  simnodesDashboard: 'src/webviews/dashboard/simnodes/simnodesDashboard.webview.tsx',
+  resourceBrowserPanel: 'src/webviews/dashboard/resource/resourceBrowserPanel.webview.tsx',
+  fabricDashboard: 'src/webviews/dashboard/fabric/fabricDashboard.webview.tsx',
+  queriesDashboard: 'src/webviews/dashboard/queries/queriesDashboard.webview.tsx',
+  topologyFlowDashboard: 'src/webviews/dashboard/topologyFlow/topologyFlowDashboard.webview.tsx',
+  targetWizardPanel: 'src/webviews/targetWizard/targetWizardPanel.webview.tsx',
+  nodeConfigPanel: 'src/webviews/nodeConfig/nodeConfigPanel.webview.tsx',
+  alarmDetailsPanel: 'src/webviews/alarmDetails/alarmDetailsPanel.webview.tsx',
+  transactionDetailsPanel: 'src/webviews/transactionDetails/transactionDetailsPanel.webview.tsx',
+  transactionDiffsPanel: 'src/webviews/transactionDiffs/transactionDiffsPanel.webview.tsx'
+};
+
+// Build webview entrypoints together so React/MUI dependencies are emitted once in shared chunks.
 const webviewOptions = {
   bundle: true,
   platform: 'browser',
-  format: 'iife',
+  format: 'esm',
+  splitting: true,
   sourcemap: false,
+  minify: true,
+  treeShaking: true,
   jsx: 'automatic',
-  jsxImportSource: 'react'
+  jsxImportSource: 'react',
+  entryNames: '[name]',
+  chunkNames: 'chunks/[name]-[hash]',
+  outdir: 'dist'
 };
 
 async function run() {
@@ -25,69 +45,8 @@ async function run() {
   });
 
   await build({
-    entryPoints: ['src/webviews/dashboard/toponodes/toponodesDashboard.webview.tsx'],
-    ...webviewOptions,
-    outfile: 'dist/toponodesDashboard.js'
-  });
-
-  await build({
-    entryPoints: ['src/webviews/dashboard/simnodes/simnodesDashboard.webview.tsx'],
-    ...webviewOptions,
-    outfile: 'dist/simnodesDashboard.js'
-  });
-
-  await build({
-    entryPoints: ['src/webviews/dashboard/resource/resourceBrowserPanel.webview.tsx'],
-    ...webviewOptions,
-    outfile: 'dist/resourceBrowserPanel.js'
-  });
-
-  await build({
-    entryPoints: ['src/webviews/dashboard/fabric/fabricDashboard.webview.tsx'],
-    ...webviewOptions,
-    outfile: 'dist/fabricDashboard.js'
-  });
-
-  await build({
-    entryPoints: ['src/webviews/dashboard/queries/queriesDashboard.webview.tsx'],
-    ...webviewOptions,
-    outfile: 'dist/queriesDashboard.js'
-  });
-
-  await build({
-    entryPoints: ['src/webviews/dashboard/topologyFlow/topologyFlowDashboard.webview.tsx'],
-    ...webviewOptions,
-    outfile: 'dist/topologyFlowDashboard.js'
-  });
-
-  await build({
-    entryPoints: ['src/webviews/targetWizard/targetWizardPanel.webview.tsx'],
-    ...webviewOptions,
-    outfile: 'dist/targetWizardPanel.js'
-  });
-
-  await build({
-    entryPoints: ['src/webviews/nodeConfig/nodeConfigPanel.webview.tsx'],
-    ...webviewOptions,
-    outfile: 'dist/nodeConfigPanel.js'
-  });
-
-  await build({
-    entryPoints: ['src/webviews/alarmDetails/alarmDetailsPanel.webview.tsx'],
-    ...webviewOptions,
-    outfile: 'dist/alarmDetailsPanel.js'
-  });
-
-  await build({
-    entryPoints: ['src/webviews/transactionDetails/transactionDetailsPanel.webview.tsx'],
-    ...webviewOptions,
-    outfile: 'dist/transactionDetailsPanel.js'
-  });
-
-  await build({
-    entryPoints: ['src/webviews/transactionDiffs/transactionDiffsPanel.webview.tsx'],
-    ...webviewOptions,
-    outfile: 'dist/transactionDiffsPanel.js'
+    entryPoints: webviewEntryPoints,
+    ...webviewOptions
   });
 }
 

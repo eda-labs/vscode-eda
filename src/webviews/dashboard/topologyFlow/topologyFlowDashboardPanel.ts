@@ -166,13 +166,14 @@ export class TopologyFlowDashboardPanel extends BasePanel {
   private linkMap: Map<string, TopoLink[]> = new Map();
   private groupings: TierSelector[] = [];
   private selectedNamespace = ALL_NAMESPACES;
+  private postGraphTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(context: vscode.ExtensionContext, title: string) {
     super(context, 'topologyFlowDashboard', title, undefined, BasePanel.getEdaIconPath(context));
 
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
 
-    this.edaClient.onStreamMessage((stream, msg: unknown) => {
+    const streamDisposable = this.edaClient.onStreamMessage((stream, msg: unknown) => {
       const payload = msg as StreamMessagePayload;
       if (stream === 'toponodes') {
         this.handleTopoNodeStream(payload);
@@ -182,6 +183,8 @@ export class TopologyFlowDashboardPanel extends BasePanel {
     });
 
     this.panel.onDidDispose(() => {
+      streamDisposable.dispose();
+      if (this.postGraphTimer) clearTimeout(this.postGraphTimer);
       this.edaClient.closeTopoNodeStream();
       this.edaClient.closeTopoLinkStream();
     });
@@ -222,7 +225,7 @@ export class TopologyFlowDashboardPanel extends BasePanel {
 
   protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'topologyFlowDashboard.js');
-    return `<script nonce="${nonce}" src="${scriptUri}"></script>`;
+    return `<script type="module" nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
   protected buildHtml(): string {
@@ -431,6 +434,11 @@ export class TopologyFlowDashboardPanel extends BasePanel {
     return edges;
   }
 
+  private schedulePostGraph(): void {
+    if (this.postGraphTimer) clearTimeout(this.postGraphTimer);
+    this.postGraphTimer = setTimeout(() => this.postGraph(), 50);
+  }
+
   private postGraph(): void {
     const namespaces = this.getTargetNamespaces();
     const nodes: NodeData[] = [];
@@ -479,7 +487,7 @@ export class TopologyFlowDashboardPanel extends BasePanel {
       if (!ids) continue;
       this.processNodeUpdate(up, ids.name, ids.ns);
     }
-    this.postGraph();
+    this.schedulePostGraph();
   }
 
   private processLinkUpdate(up: StreamUpdate, name: string, ns: string): void {
@@ -520,7 +528,7 @@ export class TopologyFlowDashboardPanel extends BasePanel {
       if (!ids) continue;
       this.processLinkUpdate(up, ids.name, ids.ns);
     }
-    this.postGraph();
+    this.schedulePostGraph();
   }
 
   static show(context: vscode.ExtensionContext, title: string): TopologyFlowDashboardPanel {

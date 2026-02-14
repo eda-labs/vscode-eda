@@ -147,7 +147,7 @@ export class TargetWizardPanel extends BasePanel {
 
   protected getScriptTags(nonce: string): string {
     const scriptUri = this.getResourceUri('dist', 'targetWizardPanel.js');
-    return `<script nonce="${nonce}" src="${scriptUri}"></script>`;
+    return `<script type="module" nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
   private async saveConfiguration(msg: { command: string; [key: string]: unknown }, close: boolean): Promise<void> {
