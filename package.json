@@ -43,7 +43,7 @@
       "activitybar": [
         {
           "id": "edaExplorerViewContainer",
-          "title": "EDA Explorer",
+          "title": "EDA",
           "icon": "resources/eda-icon-black.svg"
         }
       ]
@@ -301,28 +301,7 @@
           "when": "editorLangId == yaml"
         }
       ],
-      "view/title": [
-        {
-          "command": "vscode-eda.filterTree",
-          "when": "view == edaExplorerWebview && !edaTreeFilterActive",
-          "group": "navigation@1"
-        },
-        {
-          "command": "vscode-eda.filterTreeActive",
-          "when": "view == edaExplorerWebview && edaTreeFilterActive",
-          "group": "navigation@1"
-        },
-        {
-          "command": "vscode-eda.clearFilter",
-          "when": "view == edaExplorerWebview && edaTreeFilterActive",
-          "group": "navigation@2"
-        },
-        {
-          "command": "vscode-eda.configureTargets",
-          "when": "view == edaExplorerWebview",
-          "group": "navigation@3"
-        }
-      ],
+      "view/title": [],
       "editor/title": [
         {
           "command": "vscode-eda.applyResourceChanges",

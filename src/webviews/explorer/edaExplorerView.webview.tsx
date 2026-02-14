@@ -272,6 +272,44 @@ interface SectionTreeProps {
   onInvokeAction: (action: ExplorerAction) => void;
 }
 
+interface SectionToolbarActionsProps {
+  actions: ExplorerAction[];
+  onInvokeAction: (action: ExplorerAction) => void;
+}
+
+interface SectionCollapseToggleButtonProps {
+  sectionLabel: string;
+  isCollapsed: boolean;
+  onToggle: (event: MouseEvent<HTMLElement>) => void;
+}
+
+interface ResourceSectionToggleButtonProps {
+  section: ExplorerSectionSnapshot;
+  expandedItems: string[];
+  onEnsureResourcesSectionExpanded: () => void;
+  onExpandAllInSection: (sectionId: ExplorerTabId, nodes: ExplorerNode[]) => void;
+  onCollapseAllInSection: (sectionId: ExplorerTabId) => void;
+}
+
+interface ExplorerSectionCardProps {
+  section: ExplorerSectionSnapshot;
+  expandedItems: string[];
+  isCollapsed: boolean;
+  isDropTarget: boolean;
+  isBeingDragged: boolean;
+  onSetSectionRef: (sectionId: ExplorerTabId, element: HTMLDivElement | null) => void;
+  onSectionDragStart: (sectionId: ExplorerTabId) => (event: DragEvent<HTMLDivElement>) => void;
+  onSectionDragOver: (sectionId: ExplorerTabId) => (event: DragEvent<HTMLDivElement>) => void;
+  onSectionDrop: (sectionId: ExplorerTabId) => (event: DragEvent<HTMLDivElement>) => void;
+  onSectionDragEnd: () => void;
+  onToggleSectionCollapsed: (sectionId: ExplorerTabId) => void;
+  onInvokeAction: (action: ExplorerAction) => void;
+  onExpandedItemsChange: (sectionId: ExplorerTabId, itemIds: string[]) => void;
+  onEnsureResourcesSectionExpanded: () => void;
+  onExpandAllInSection: (sectionId: ExplorerTabId, nodes: ExplorerNode[]) => void;
+  onCollapseAllInSection: (sectionId: ExplorerTabId) => void;
+}
+
 function renderTreeNodes(nodes: ExplorerNode[], onInvokeAction: (action: ExplorerAction) => void): ReactNode[] {
   return nodes.map(node => (
     <TreeItem
@@ -309,6 +347,199 @@ function SectionTree({ section, expandedItems, onExpandedItemsChange, onInvokeAc
     >
       {renderTreeNodes(section.nodes, onInvokeAction)}
     </SimpleTreeView>
+  );
+}
+
+function getSectionPaperSx(isDropTarget: boolean) {
+  return {
+    flexShrink: 0,
+    overflow: 'hidden',
+    borderColor: isDropTarget ? COLOR_PRIMARY_MAIN : COLOR_DIVIDER,
+    transition: 'border-color 0.12s ease, box-shadow 0.12s ease',
+    boxShadow: isDropTarget
+      ? (theme: Theme) => `inset 0 0 0 1px ${alpha(theme.palette.primary.main, 0.35)}`
+      : 'none'
+  };
+}
+
+function getSectionHeaderSx(isCollapsed: boolean, isBeingDragged: boolean) {
+  return {
+    px: 1,
+    py: 0.75,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 0.5,
+    borderBottom: isCollapsed ? 'none' : '1px solid',
+    borderColor: COLOR_DIVIDER,
+    cursor: isBeingDragged ? 'grabbing' : 'grab',
+    userSelect: 'none',
+    bgcolor: (theme: Theme) => isBeingDragged
+      ? alpha(theme.palette.primary.main, 0.1)
+      : alpha(theme.palette.background.default, 0.55)
+  };
+}
+
+function areAllNodesExpanded(nodes: ExplorerNode[], expandedItems: string[]): boolean {
+  const nodeIds = flattenNodeIds(nodes);
+  return nodeIds.length > 0 && nodeIds.every(id => expandedItems.includes(id));
+}
+
+function SectionToolbarActions({ actions, onInvokeAction }: Readonly<SectionToolbarActionsProps>) {
+  return (
+    <Stack direction="row" spacing={0.25}>
+      {actions.map(action => {
+        const iconId = toolbarActionIconId(action);
+        if (!iconId) {
+          return null;
+        }
+
+        const IconComponent = TOOLBAR_ACTION_ICONS[iconId];
+        return (
+          <Tooltip key={action.id} title={action.label}>
+            <IconButton
+              size="small"
+              aria-label={action.label}
+              sx={TOOLBAR_ICON_BUTTON_SX}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onInvokeAction(action);
+              }}
+            >
+              <IconComponent fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        );
+      })}
+    </Stack>
+  );
+}
+
+function SectionCollapseToggleButton({ sectionLabel, isCollapsed, onToggle }: Readonly<SectionCollapseToggleButtonProps>) {
+  return (
+    <IconButton
+      size="small"
+      onClick={onToggle}
+      aria-label={isCollapsed ? `Expand ${sectionLabel}` : `Collapse ${sectionLabel}`}
+      sx={{ color: COLOR_TEXT_PRIMARY }}
+    >
+      {isCollapsed ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+    </IconButton>
+  );
+}
+
+function ResourceSectionToggleButton({
+  section,
+  expandedItems,
+  onEnsureResourcesSectionExpanded,
+  onExpandAllInSection,
+  onCollapseAllInSection
+}: Readonly<ResourceSectionToggleButtonProps>) {
+  if (section.id !== 'resources') {
+    return null;
+  }
+
+  const areAllResourcesExpanded = areAllNodesExpanded(section.nodes, expandedItems);
+  return (
+    <Tooltip title={areAllResourcesExpanded ? 'Collapse All Resources' : 'Expand All Resources'}>
+      <IconButton
+        size="small"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+
+          if (areAllResourcesExpanded) {
+            onCollapseAllInSection(section.id);
+            return;
+          }
+
+          onEnsureResourcesSectionExpanded();
+          onExpandAllInSection(section.id, section.nodes);
+        }}
+        aria-label={areAllResourcesExpanded ? 'Collapse all resources' : 'Expand all resources'}
+        sx={{ color: COLOR_TEXT_PRIMARY }}
+      >
+        {areAllResourcesExpanded ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+      </IconButton>
+    </Tooltip>
+  );
+}
+
+function ExplorerSectionCard({
+  section,
+  expandedItems,
+  isCollapsed,
+  isDropTarget,
+  isBeingDragged,
+  onSetSectionRef,
+  onSectionDragStart,
+  onSectionDragOver,
+  onSectionDrop,
+  onSectionDragEnd,
+  onToggleSectionCollapsed,
+  onInvokeAction,
+  onExpandedItemsChange,
+  onEnsureResourcesSectionExpanded,
+  onExpandAllInSection,
+  onCollapseAllInSection
+}: Readonly<ExplorerSectionCardProps>) {
+  return (
+    <Paper
+      variant="outlined"
+      ref={(element: HTMLDivElement | null) => {
+        onSetSectionRef(section.id, element);
+      }}
+      sx={getSectionPaperSx(isDropTarget)}
+    >
+      <Box
+        draggable
+        onDragStart={onSectionDragStart(section.id)}
+        onDragOver={onSectionDragOver(section.id)}
+        onDrop={onSectionDrop(section.id)}
+        onDragEnd={onSectionDragEnd}
+        sx={getSectionHeaderSx(isCollapsed, isBeingDragged)}
+      >
+        <SectionCollapseToggleButton
+          sectionLabel={section.label}
+          isCollapsed={isCollapsed}
+          onToggle={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onToggleSectionCollapsed(section.id);
+          }}
+        />
+        <Box
+          onClick={() => onToggleSectionCollapsed(section.id)}
+          sx={{ minWidth: 0, flex: 1, cursor: 'pointer' }}
+        >
+          <Typography variant="subtitle2" noWrap sx={{ fontWeight: 700 }}>
+            {formatSectionTitle(section)}
+          </Typography>
+        </Box>
+        <SectionToolbarActions
+          actions={section.toolbarActions}
+          onInvokeAction={onInvokeAction}
+        />
+        <ResourceSectionToggleButton
+          section={section}
+          expandedItems={expandedItems}
+          onEnsureResourcesSectionExpanded={onEnsureResourcesSectionExpanded}
+          onExpandAllInSection={onExpandAllInSection}
+          onCollapseAllInSection={onCollapseAllInSection}
+        />
+      </Box>
+
+      {!isCollapsed && (
+        <Box sx={{ p: 1 }}>
+          <SectionTree
+            section={section}
+            expandedItems={expandedItems}
+            onExpandedItemsChange={(itemIds) => onExpandedItemsChange(section.id, itemIds)}
+            onInvokeAction={onInvokeAction}
+          />
+        </Box>
+      )}
+    </Paper>
   );
 }
 
@@ -512,6 +743,17 @@ function EdaExplorerView() {
     }));
   }, []);
 
+  const ensureResourcesSectionExpanded = useCallback(() => {
+    setCollapsedBySection(current => ({
+      ...current,
+      resources: false
+    }));
+  }, []);
+
+  const setSectionRef = useCallback((sectionId: ExplorerTabId, element: HTMLDivElement | null) => {
+    sectionRefs.current[sectionId] = element;
+  }, []);
+
   const focusBasketSection = useCallback(() => {
     setCollapsedBySection(current => ({
       ...current,
@@ -659,147 +901,27 @@ function EdaExplorerView() {
           </Paper>
         )}
 
-        {orderedSections.map(section => {
-          const isCollapsed = collapsedBySection[section.id] ?? false;
-          const isDropTarget = dragOverSection === section.id && draggingSection !== section.id;
-          const isBeingDragged = draggingSection === section.id;
-          const expandedItems = expandedByTab[section.id] ?? [];
-
-          return (
-            <Paper
-              key={section.id}
-              variant="outlined"
-              ref={(element: HTMLDivElement | null) => {
-                sectionRefs.current[section.id] = element;
-              }}
-              sx={{
-                flexShrink: 0,
-                overflow: 'hidden',
-                borderColor: isDropTarget ? COLOR_PRIMARY_MAIN : COLOR_DIVIDER,
-                transition: 'border-color 0.12s ease, box-shadow 0.12s ease',
-                boxShadow: isDropTarget
-                  ? (theme) => `inset 0 0 0 1px ${alpha(theme.palette.primary.main, 0.35)}`
-                  : 'none'
-              }}
-            >
-              <Box
-                draggable
-                onDragStart={handleSectionDragStart(section.id)}
-                onDragOver={handleSectionDragOver(section.id)}
-                onDrop={handleSectionDrop(section.id)}
-                onDragEnd={handleSectionDragEnd}
-                sx={{
-                  px: 1,
-                  py: 0.75,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 0.5,
-                  borderBottom: isCollapsed ? 'none' : '1px solid',
-                  borderColor: COLOR_DIVIDER,
-                  cursor: isBeingDragged ? 'grabbing' : 'grab',
-                  userSelect: 'none',
-                  bgcolor: (theme) => isBeingDragged
-                    ? alpha(theme.palette.primary.main, 0.1)
-                    : alpha(theme.palette.background.default, 0.55)
-                }}
-              >
-                <IconButton
-                  size="small"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    toggleSectionCollapsed(section.id);
-                  }}
-                  aria-label={isCollapsed ? `Expand ${section.label}` : `Collapse ${section.label}`}
-                  sx={{ color: COLOR_TEXT_PRIMARY }}
-                >
-                  {isCollapsed ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-                </IconButton>
-                <Box
-                  onClick={() => toggleSectionCollapsed(section.id)}
-                  sx={{ minWidth: 0, flex: 1, cursor: 'pointer' }}
-                >
-                  <Typography variant="subtitle2" noWrap sx={{ fontWeight: 700 }}>
-                    {formatSectionTitle(section)}
-                  </Typography>
-                </Box>
-                <Stack direction="row" spacing={0.25}>
-                  {section.toolbarActions.map(action => {
-                    const iconId = toolbarActionIconId(action);
-                    if (!iconId) {
-                      return null;
-                    }
-                    const IconComponent = TOOLBAR_ACTION_ICONS[iconId];
-
-                    return (
-                      <Tooltip key={action.id} title={action.label}>
-                        <IconButton
-                          size="small"
-                          aria-label={action.label}
-                          sx={TOOLBAR_ICON_BUTTON_SX}
-                          onClick={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            invokeAction(action);
-                          }}
-                        >
-                          <IconComponent fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    );
-                  })}
-                </Stack>
-                {section.id === 'resources' && (
-                  <Stack direction="row" spacing={0.25}>
-                    <Tooltip title="Expand All Resources">
-                      <IconButton
-                        size="small"
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          setCollapsedBySection(current => ({
-                            ...current,
-                            resources: false
-                          }));
-                          expandAllInSection(section.id, section.nodes);
-                        }}
-                        aria-label="Expand all resources"
-                        sx={{ color: COLOR_TEXT_PRIMARY }}
-                      >
-                        <ExpandMoreIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Collapse All Resources">
-                      <IconButton
-                        size="small"
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          collapseAllInSection(section.id);
-                        }}
-                        aria-label="Collapse all resources"
-                        sx={{ color: COLOR_TEXT_PRIMARY }}
-                      >
-                        <ChevronRightIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </Stack>
-                )}
-              </Box>
-
-              {!isCollapsed && (
-                <Box sx={{ p: 1 }}>
-                  <SectionTree
-                    section={section}
-                    expandedItems={expandedItems}
-                    onExpandedItemsChange={(itemIds) => handleExpandedItemsChange(section.id, itemIds)}
-                    onInvokeAction={invokeAction}
-                  />
-                </Box>
-              )}
-            </Paper>
-          );
-        })}
+        {orderedSections.map(section => (
+          <ExplorerSectionCard
+            key={section.id}
+            section={section}
+            expandedItems={expandedByTab[section.id] ?? []}
+            isCollapsed={collapsedBySection[section.id] ?? false}
+            isDropTarget={dragOverSection === section.id && draggingSection !== section.id}
+            isBeingDragged={draggingSection === section.id}
+            onSetSectionRef={setSectionRef}
+            onSectionDragStart={handleSectionDragStart}
+            onSectionDragOver={handleSectionDragOver}
+            onSectionDrop={handleSectionDrop}
+            onSectionDragEnd={handleSectionDragEnd}
+            onToggleSectionCollapsed={toggleSectionCollapsed}
+            onInvokeAction={invokeAction}
+            onExpandedItemsChange={handleExpandedItemsChange}
+            onEnsureResourcesSectionExpanded={ensureResourcesSectionExpanded}
+            onExpandAllInSection={expandAllInSection}
+            onCollapseAllInSection={collapseAllInSection}
+          />
+        ))}
       </Stack>
     </Box>
   );
