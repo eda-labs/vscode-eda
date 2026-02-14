@@ -18,7 +18,8 @@ Then open the printed local URL (default `http://localhost:5173`).
 
 ## Features
 
-- Select any webview entrypoint from a menu.
+- EDA Explorer is always rendered in a fixed left pane.
+- Select any other webview entrypoint for the right-side preview pane.
 - Switch between `VS Code Dark` and `VS Code Light` dev themes.
 - Mocked extension `postMessage` bridge with fixture data for each webview.
 

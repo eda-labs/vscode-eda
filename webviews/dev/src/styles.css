@@ -71,8 +71,31 @@ body {
 }
 
 .dev-shell__content {
+  display: grid;
+  grid-template-columns: minmax(320px, 440px) minmax(0, 1fr);
   min-height: 0;
-  padding: 0;
+}
+
+.dev-shell__pane {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 0;
+}
+
+.dev-shell__pane--explorer {
+  border-right: 1px solid var(--vscode-panel-border);
+}
+
+.dev-shell__pane-title {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground);
+  border-bottom: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-panel-background);
 }
 
 .dev-shell__iframe {
@@ -98,5 +121,15 @@ body {
   .dev-shell__field select {
     width: 100%;
     min-width: 0;
+  }
+
+  .dev-shell__content {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(300px, 45vh) minmax(0, 1fr);
+  }
+
+  .dev-shell__pane--explorer {
+    border-right: 0;
+    border-bottom: 1px solid var(--vscode-panel-border);
   }
 }

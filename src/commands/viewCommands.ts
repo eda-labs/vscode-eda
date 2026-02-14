@@ -8,11 +8,10 @@ import { serviceManager } from '../services/serviceManager';
 import type { KubernetesClient } from '../clients/kubernetesClient';
 import { edaOutputChannel } from '../extension';
 import type { CrdDefinitionFileSystemProvider } from '../providers/documents/crdDefinitionProvider';
-import type { DeviationDetailsDocumentProvider } from '../providers/documents/deviationDetailsProvider';
 import type { BasketTransactionDocumentProvider } from '../providers/documents/basketTransactionProvider';
-import { loadTemplate } from '../utils/templateLoader';
 import { TransactionDetailsPanel } from '../webviews/transactionDetails/transactionDetailsPanel';
 import { AlarmDetailsPanel } from '../webviews/alarmDetails/alarmDetailsPanel';
+import { DeviationDetailsPanel } from '../webviews/deviationDetails/deviationDetailsPanel';
 
 // ============================================================================
 // Type definitions for EDA API responses
@@ -218,7 +217,6 @@ async function fetchDeviationYaml(
 export function registerViewCommands(
   context: vscode.ExtensionContext,
   crdFsProvider: CrdDefinitionFileSystemProvider,
-  deviationDetailsProvider: DeviationDetailsDocumentProvider,
   basketProvider: BasketTransactionDocumentProvider
 ) {
   // Show transaction details command
@@ -368,7 +366,7 @@ export function registerViewCommands(
     AlarmDetailsPanel.show(context, data);
   });
 
-  // Show deviation details using markdown template
+  // Show deviation details using a webview
   vscode.commands.registerCommand('vscode-eda.showDeviationDetails', async (deviation: Deviation) => {
     if (!deviation) {
       vscode.window.showErrorMessage('No deviation details available.');
@@ -379,37 +377,32 @@ export function registerViewCommands(
       const { name, namespace } = extractDeviationIdentity(deviation);
       const edaClient = serviceManager.getClient<EdaClient>('eda');
 
-      // Prepare base template variables
-      const templateVars: Record<string, unknown> = {
+      const panelData: Record<string, unknown> = {
         name,
         kind: deviation.kind ?? 'Deviation',
         apiVersion: deviation.apiVersion ?? 'v1',
-        namespace
+        namespace,
+        status: typeof (deviation as Record<string, unknown>).status === 'string'
+          ? (deviation as Record<string, unknown>).status
+          : 'Unknown',
+        rawJson: JSON.stringify(deviation, null, 2)
       };
 
       // Compute diff between intended and running values if present
       const valueDiff = computeValuesDiff(deviation);
       if (valueDiff) {
-        templateVars.valueDiff = valueDiff;
+        panelData.valueDiff = valueDiff;
       }
 
       // Fetch the YAML for the deviation
       const yamlResult = await fetchDeviationYaml(edaClient, name, namespace);
       if (yamlResult.yaml) {
-        templateVars.resourceYaml = yamlResult.yaml;
+        panelData.resourceYaml = yamlResult.yaml;
       } else if (yamlResult.error) {
-        templateVars.errorMessage = yamlResult.error;
+        panelData.errorMessage = yamlResult.error;
       }
 
-      // Load and process the template using Handlebars
-      const detailsText = loadTemplate('deviation', context, templateVars);
-
-      // Create a unique URI for this deviation document
-      const docUri = vscode.Uri.parse(`eda-deviation:/${name}?ts=${Date.now()}`);
-      deviationDetailsProvider.setDeviationContent(docUri, detailsText);
-
-      // Open markdown preview
-      await vscode.commands.executeCommand("markdown.showPreview", docUri);
+      DeviationDetailsPanel.show(context, panelData);
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
       vscode.window.showErrorMessage(`Failed to load deviation details: ${errMsg}`);

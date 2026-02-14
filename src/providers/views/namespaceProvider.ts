@@ -323,23 +323,6 @@ constructor() {
   }
 
   /**
-   * Update the icon for a stream item based on expansion state
-   */
-  public updateStreamExpansion(item: TreeItemBase, collapsed: boolean): void {
-    if (item.contextValue === 'stream') {
-      const key = `${item.namespace}/${item.streamGroup}/${item.label}`;
-      if (collapsed) {
-        this.expandedStreams.delete(key);
-        item.iconPath = this.collapsedStreamIcon;
-      } else {
-        this.expandedStreams.add(key);
-        item.iconPath = this.expandedStreamIcon;
-      }
-      this._onDidChangeTreeData.fire(item);
-    }
-  }
-
-  /**
    * Set filter text for searching categories/types/instances
   */
   public setTreeFilter(filterText: string): void {
@@ -553,13 +536,6 @@ constructor() {
       return streamItems.find(s => s.label === element.resourceType);
     }
     return null;
-  }
-
-  public async expandAllNamespaces(treeView: vscode.TreeView<TreeItemBase>): Promise<void> {
-    const roots = this.getChildren();
-    await Promise.all(
-      roots.map(item => treeView.reveal(item, { expand: 3 }))
-    );
   }
 
   /**

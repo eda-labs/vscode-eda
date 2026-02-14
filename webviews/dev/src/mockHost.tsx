@@ -1,10 +1,29 @@
 /* eslint-disable sonarjs/no-duplicate-string, sonarjs/no-hardcoded-passwords */
 
-import type { DevWebviewId } from './webviewCatalog';
+import {
+  EXPLORER_TAB_LABELS,
+  type ExplorerAction,
+  type ExplorerNode,
+  type ExplorerSectionSnapshot,
+  type ExplorerTabId
+} from '../../../src/webviews/shared/explorer/types';
+
+import type { DevPreviewWebviewId, DevWebviewId } from './webviewCatalog';
 
 const ALL_NAMESPACES = 'All Namespaces';
 const DEFAULT_NAMESPACES = [ALL_NAMESPACES, 'fabric-a', 'fabric-b'];
 const DEFAULT_CLIENT_SECRET = 'dev-client-secret-1234';
+const OPEN_PREVIEW_EVENT_SOURCE = 'eda-webviews-dev';
+const DASHBOARD_PREVIEW_BY_NAME: Readonly<Record<string, DevPreviewWebviewId>> = {
+  Fabric: 'fabricDashboard',
+  Nodes: 'toponodesDashboard',
+  Queries: 'queriesDashboard',
+  'Resource Browser': 'resourceBrowser',
+  Simnodes: 'simnodesDashboard',
+  Topology: 'topologyFlowDashboard'
+};
+
+const DEV_DEVIATION_KEY = 'fabric-a/leaf02-bgp-hold-time';
 
 interface WebviewCommand {
   command: string;
@@ -16,6 +35,10 @@ type SendMessage = (message: Record<string, unknown>) => void;
 export interface MockHost {
   onMessage: (message: WebviewCommand) => void;
   dispose: () => void;
+}
+
+export interface MockHostOptions {
+  previewParams: URLSearchParams;
 }
 
 interface DiffResource {
@@ -65,6 +88,18 @@ interface FabricSnapshot {
   trafficBaseOut: number;
 }
 
+interface DeviationDetailsFixture {
+  name: string;
+  namespace: string;
+  kind: string;
+  apiVersion: string;
+  status: string;
+  valueDiff?: string;
+  resourceYaml?: string;
+  errorMessage?: string;
+  rawJson: string;
+}
+
 const alarmFixture = {
   name: 'LinkDown-Spine01-Leaf01',
   kind: 'Alarm',
@@ -93,6 +128,40 @@ const alarmFixture = {
       operationalState: 'down'
     }
   })
+};
+
+const alarmInterfaceFixture = {
+  name: 'InterfaceDown-Leaf11-E1/53',
+  kind: 'Alarm',
+  type: 'Interface',
+  severity: 'Minor',
+  namespace: 'fabric-b',
+  group: 'core.eda.nokia.com',
+  sourceGroup: 'interfaces',
+  sourceKind: 'Interface',
+  sourceResource: 'leaf11-ethernet-1-53',
+  parentAlarm: 'None',
+  clusterSpecific: 'false',
+  jspath: '$.status.operationalState',
+  resource: 'interfaces/fabric-b/leaf11-ethernet-1-53',
+  probableCause: 'Interface transitioned to down state.',
+  remedialAction: 'Validate remote endpoint and optics on ethernet-1/53.',
+  description: 'Leaf11 interface ethernet-1/53 is down.',
+  rawJson: stringifyFixture({
+    name: 'InterfaceDown-Leaf11-E1/53',
+    state: 'Active',
+    raisedAt: '2026-02-13T08:25:19Z',
+    severity: 'Minor',
+    details: {
+      source: 'leaf11:ethernet-1/53',
+      operationalState: 'down'
+    }
+  })
+};
+
+const alarmFixtureByName: Readonly<Record<string, typeof alarmFixture>> = {
+  [alarmFixture.name]: alarmFixture,
+  [alarmInterfaceFixture.name]: alarmInterfaceFixture
 };
 
 const nodeConfigFixtureText = `system {
@@ -237,6 +306,87 @@ const transactionDetailsFixture = {
   })
 };
 
+const transactionDetailsRunningFixture = {
+  id: '1041',
+  state: 'Running',
+  success: 'No',
+  username: 'automation',
+  dryRun: 'Yes',
+  description: 'Sync topology intent',
+  deleteResources: [],
+  inputCrs: [
+    {
+      name: {
+        namespace: 'fabric-b',
+        gvk: { kind: 'TopoLink' },
+        name: 'superspine01--leaf11'
+      }
+    }
+  ],
+  changedCrs: [
+    {
+      namespace: 'fabric-b',
+      gvk: { kind: 'TopoLink' },
+      names: ['superspine01--leaf11']
+    }
+  ],
+  nodesWithConfigChanges: [
+    {
+      name: 'leaf11',
+      namespace: 'fabric-b',
+      errors: []
+    }
+  ],
+  intentsRun: [],
+  rawJson: stringifyFixture({
+    id: '1041',
+    state: 'Running',
+    dryRun: true,
+    timestamp: '2026-02-13T10:39:12Z'
+  })
+};
+
+const transactionDetailsFixtureById: Readonly<Record<string, typeof transactionDetailsFixture>> = {
+  [transactionDetailsFixture.id]: transactionDetailsFixture,
+  [transactionDetailsRunningFixture.id]: transactionDetailsRunningFixture
+};
+
+const deviationDetailsFixtureByKey: Readonly<Record<string, DeviationDetailsFixture>> = {
+  [DEV_DEVIATION_KEY]: {
+    name: 'leaf02-bgp-hold-time',
+    namespace: 'fabric-a',
+    kind: 'Deviation',
+    apiVersion: 'routing.eda.nokia.com/v1alpha1',
+    status: 'Pending',
+    valueDiff: [
+      '- hold-time: 180',
+      '+ hold-time: 90'
+    ].join('\n'),
+    resourceYaml: [
+      'apiVersion: routing.eda.nokia.com/v1alpha1',
+      'kind: BgpNeighbor',
+      'metadata:',
+      '  name: leaf02-peer-spine01',
+      '  namespace: fabric-a',
+      'spec:',
+      '  peerAddress: 10.0.0.2',
+      '  peerAs: 65000',
+      '  holdTime: 180'
+    ].join('\n'),
+    rawJson: stringifyFixture({
+      name: 'leaf02-bgp-hold-time',
+      namespace: 'fabric-a',
+      kind: 'Deviation',
+      apiVersion: 'routing.eda.nokia.com/v1alpha1',
+      status: 'Pending',
+      metadata: {
+        name: 'leaf02-bgp-hold-time',
+        namespace: 'fabric-a'
+      }
+    })
+  }
+};
+
 const transactionDiffListFixture = {
   diffs: [
     {
@@ -260,6 +410,27 @@ const transactionDiffListFixture = {
       namespace: 'fabric-a'
     }
   ]
+};
+
+const transactionDiffListFixtureById: Readonly<Record<string, typeof transactionDiffListFixture>> = {
+  '1042': transactionDiffListFixture,
+  '1041': {
+    diffs: [
+      {
+        group: 'core.eda.nokia.com',
+        version: 'v1',
+        kind: 'TopoLink',
+        name: 'superspine01--leaf11',
+        namespace: 'fabric-b'
+      }
+    ],
+    nodes: [
+      {
+        name: 'leaf11',
+        namespace: 'fabric-b'
+      }
+    ]
+  }
 };
 
 const transactionDiffPayloads: Readonly<Record<string, { before: { data: string }; after: { data: string } }>> = {
@@ -549,30 +720,549 @@ const fabricSnapshotByNamespace: Readonly<Record<string, FabricSnapshot>> = {
   }
 };
 
-export function createMockHost(webviewId: DevWebviewId, send: SendMessage): MockHost {
+const explorerSectionsFixture: ReadonlyArray<ExplorerSectionSnapshot> = [
+  createExplorerSection(
+    'dashboards',
+    [
+      createExplorerNode('dashboards/fabric', 'Fabric', {
+        contextValue: 'eda-dashboard',
+        primaryAction: createExplorerAction(
+          'open-dashboard-fabric',
+          'Open Dashboard',
+          'vscode-eda.showDashboard',
+          ['Fabric']
+        )
+      }),
+      createExplorerNode('dashboards/nodes', 'Nodes', {
+        contextValue: 'eda-dashboard',
+        primaryAction: createExplorerAction(
+          'open-dashboard-nodes',
+          'Open Dashboard',
+          'vscode-eda.showDashboard',
+          ['Nodes']
+        )
+      }),
+      createExplorerNode('dashboards/queries', 'Queries', {
+        contextValue: 'eda-dashboard',
+        primaryAction: createExplorerAction(
+          'open-dashboard-queries',
+          'Open Dashboard',
+          'vscode-eda.showDashboard',
+          ['Queries']
+        )
+      }),
+      createExplorerNode('dashboards/resource-browser', 'Resource Browser', {
+        contextValue: 'eda-dashboard',
+        primaryAction: createExplorerAction(
+          'open-dashboard-resource-browser',
+          'Open Dashboard',
+          'vscode-eda.showDashboard',
+          ['Resource Browser']
+        )
+      }),
+      createExplorerNode('dashboards/simnodes', 'Simnodes', {
+        contextValue: 'eda-dashboard',
+        primaryAction: createExplorerAction(
+          'open-dashboard-simnodes',
+          'Open Dashboard',
+          'vscode-eda.showDashboard',
+          ['Simnodes']
+        )
+      }),
+      createExplorerNode('dashboards/topology', 'Topology', {
+        contextValue: 'eda-dashboard',
+        primaryAction: createExplorerAction(
+          'open-dashboard-topology',
+          'Open Dashboard',
+          'vscode-eda.showDashboard',
+          ['Topology']
+        )
+      })
+    ],
+    []
+  ),
+  createExplorerSection(
+    'resources',
+    [
+      createExplorerNode('resources/fabric-a', 'fabric-a', {
+        contextValue: 'namespace',
+        children: [
+          createExplorerNode('resources/fabric-a/core', 'core', {
+            contextValue: 'stream-group',
+            children: [
+              createExplorerNode('resources/fabric-a/core/toponodes', 'toponodes', {
+                contextValue: 'stream',
+                children: [
+                  createStreamResourceNode('resources/fabric-a/core/toponodes/spine01', 'spine01', {
+                    namespace: 'fabric-a',
+                    streamGroup: 'core',
+                    resourceType: 'toponodes',
+                    kind: 'TopoNode',
+                    contextValue: 'toponode',
+                    statusIndicator: 'green',
+                    statusDescription: 'Ready - InSync'
+                  }),
+                  createStreamResourceNode('resources/fabric-a/core/toponodes/leaf01', 'leaf01', {
+                    namespace: 'fabric-a',
+                    streamGroup: 'core',
+                    resourceType: 'toponodes',
+                    kind: 'TopoNode',
+                    contextValue: 'toponode',
+                    statusIndicator: 'green',
+                    statusDescription: 'Ready - InSync'
+                  }),
+                  createStreamResourceNode('resources/fabric-a/core/toponodes/leaf02', 'leaf02', {
+                    namespace: 'fabric-a',
+                    streamGroup: 'core',
+                    resourceType: 'toponodes',
+                    kind: 'TopoNode',
+                    contextValue: 'toponode',
+                    statusIndicator: 'yellow',
+                    statusDescription: 'Warning - Drifted'
+                  })
+                ]
+              }),
+              createExplorerNode('resources/fabric-a/core/topolinks', 'topolinks', {
+                contextValue: 'stream',
+                children: [
+                  createStreamResourceNode('resources/fabric-a/core/topolinks/spine01--leaf01', 'spine01--leaf01', {
+                    namespace: 'fabric-a',
+                    streamGroup: 'core',
+                    resourceType: 'topolinks',
+                    kind: 'TopoLink',
+                    contextValue: 'stream-item',
+                    statusIndicator: 'red',
+                    statusDescription: 'Down'
+                  })
+                ]
+              })
+            ]
+          }),
+          createExplorerNode('resources/fabric-a/routing', 'routing', {
+            contextValue: 'stream-group',
+            children: [
+              createExplorerNode('resources/fabric-a/routing/bgpneighbors', 'bgpneighbors', {
+                contextValue: 'stream',
+                children: [
+                  createStreamResourceNode('resources/fabric-a/routing/bgpneighbors/leaf01-peer-spine01', 'leaf01-peer-spine01', {
+                    namespace: 'fabric-a',
+                    streamGroup: 'routing',
+                    resourceType: 'bgpneighbors',
+                    kind: 'BgpNeighbor',
+                    contextValue: 'stream-item',
+                    statusIndicator: 'green',
+                    statusDescription: 'Established'
+                  }),
+                  createStreamResourceNode('resources/fabric-a/routing/bgpneighbors/leaf02-peer-spine01', 'leaf02-peer-spine01', {
+                    namespace: 'fabric-a',
+                    streamGroup: 'routing',
+                    resourceType: 'bgpneighbors',
+                    kind: 'BgpNeighbor',
+                    contextValue: 'stream-item',
+                    statusIndicator: 'yellow',
+                    statusDescription: 'Idle'
+                  })
+                ]
+              })
+            ]
+          })
+        ]
+      }),
+      createExplorerNode('resources/fabric-b', 'fabric-b', {
+        contextValue: 'namespace',
+        children: [
+          createExplorerNode('resources/fabric-b/core', 'core', {
+            contextValue: 'stream-group',
+            children: [
+              createExplorerNode('resources/fabric-b/core/toponodes', 'toponodes', {
+                contextValue: 'stream',
+                children: [
+                  createStreamResourceNode('resources/fabric-b/core/toponodes/superspine01', 'superspine01', {
+                    namespace: 'fabric-b',
+                    streamGroup: 'core',
+                    resourceType: 'toponodes',
+                    kind: 'TopoNode',
+                    contextValue: 'toponode',
+                    statusIndicator: 'green',
+                    statusDescription: 'Ready - InSync'
+                  }),
+                  createStreamResourceNode('resources/fabric-b/core/toponodes/leaf11', 'leaf11', {
+                    namespace: 'fabric-b',
+                    streamGroup: 'core',
+                    resourceType: 'toponodes',
+                    kind: 'TopoNode',
+                    contextValue: 'toponode',
+                    statusIndicator: 'green',
+                    statusDescription: 'Ready - InSync'
+                  })
+                ]
+              }),
+              createExplorerNode('resources/fabric-b/core/topolinks', 'topolinks', {
+                contextValue: 'stream',
+                children: [
+                  createStreamResourceNode('resources/fabric-b/core/topolinks/superspine01--leaf11', 'superspine01--leaf11', {
+                    namespace: 'fabric-b',
+                    streamGroup: 'core',
+                    resourceType: 'topolinks',
+                    kind: 'TopoLink',
+                    contextValue: 'stream-item',
+                    statusIndicator: 'green',
+                    statusDescription: 'Up'
+                  })
+                ]
+              })
+            ]
+          }),
+          createExplorerNode('resources/fabric-b/routing', 'routing', {
+            contextValue: 'stream-group',
+            children: [
+              createExplorerNode('resources/fabric-b/routing/bgpneighbors', 'bgpneighbors', {
+                contextValue: 'stream',
+                children: [
+                  createStreamResourceNode('resources/fabric-b/routing/bgpneighbors/leaf11-peer-superspine01', 'leaf11-peer-superspine01', {
+                    namespace: 'fabric-b',
+                    streamGroup: 'routing',
+                    resourceType: 'bgpneighbors',
+                    kind: 'BgpNeighbor',
+                    contextValue: 'stream-item',
+                    statusIndicator: 'green',
+                    statusDescription: 'Established'
+                  })
+                ]
+              })
+            ]
+          })
+        ]
+      }),
+      createExplorerNode('resources/kubernetes', 'Kubernetes', {
+        contextValue: 'k8s-root',
+        children: [
+          createExplorerNode('resources/kubernetes/eda-system', 'eda-system', {
+            contextValue: 'k8s-namespace',
+            children: [
+              createExplorerNode('resources/kubernetes/eda-system/pods', 'pods', {
+                contextValue: 'stream',
+                children: [
+                  createStreamResourceNode('resources/kubernetes/eda-system/pods/eda-api-6fcb99f586-r87gs', 'eda-api-6fcb99f586-r87gs', {
+                    namespace: 'eda-system',
+                    streamGroup: 'kubernetes',
+                    resourceType: 'pods',
+                    kind: 'Pod',
+                    contextValue: 'pod',
+                    statusIndicator: 'green',
+                    statusDescription: 'Running'
+                  }),
+                  createStreamResourceNode('resources/kubernetes/eda-system/pods/eda-controller-6989cd4d6f-pzkm9', 'eda-controller-6989cd4d6f-pzkm9', {
+                    namespace: 'eda-system',
+                    streamGroup: 'kubernetes',
+                    resourceType: 'pods',
+                    kind: 'Pod',
+                    contextValue: 'pod',
+                    statusIndicator: 'green',
+                    statusDescription: 'Running'
+                  })
+                ]
+              }),
+              createExplorerNode('resources/kubernetes/eda-system/deployments', 'deployments', {
+                contextValue: 'stream',
+                children: [
+                  createStreamResourceNode('resources/kubernetes/eda-system/deployments/eda-controller', 'eda-controller', {
+                    namespace: 'eda-system',
+                    streamGroup: 'kubernetes',
+                    resourceType: 'deployments',
+                    kind: 'Deployment',
+                    contextValue: 'k8s-deployment-instance',
+                    statusIndicator: 'green',
+                    statusDescription: 'Available'
+                  })
+                ]
+              })
+            ]
+          })
+        ]
+      })
+    ],
+    [createExplorerAction('create-resource', 'Create Resource', 'vscode-eda.createResource')]
+  ),
+  createExplorerSection(
+    'alarms',
+    [
+      createExplorerNode('alarms/linkdown-spine01-leaf01', 'MAJOR - Connectivity', {
+        contextValue: 'eda-alarm',
+        description: 'ns: fabric-a',
+        statusIndicator: 'red',
+        statusDescription: 'Major',
+        primaryAction: createExplorerAction(
+          'open-alarm-linkdown-spine01-leaf01',
+          'Show Alarm Details',
+          'vscode-eda.showAlarmDetails',
+          [alarmFixture]
+        )
+      }),
+      createExplorerNode('alarms/interface-down-leaf11', 'MINOR - Interface', {
+        contextValue: 'eda-alarm',
+        description: 'ns: fabric-b',
+        statusIndicator: 'yellow',
+        statusDescription: 'Minor',
+        primaryAction: createExplorerAction(
+          'open-alarm-interface-down-leaf11',
+          'Show Alarm Details',
+          'vscode-eda.showAlarmDetails',
+          [alarmInterfaceFixture]
+        )
+      })
+    ],
+    []
+  ),
+  createExplorerSection(
+    'deviations',
+    [
+      createExplorerNode('deviations/leaf02-bgp-hold-time', 'leaf02-bgp-hold-time', {
+        contextValue: 'eda-deviation',
+        description: 'ns: fabric-a (Pending)',
+        statusIndicator: 'yellow',
+        statusDescription: 'Drifted',
+        primaryAction: createExplorerAction(
+          'open-deviation-leaf02-bgp-hold-time',
+          'Show Deviation Details',
+          'vscode-eda.showDeviationDetails',
+          [
+            {
+              name: 'leaf02-bgp-hold-time',
+              namespace: 'fabric-a',
+              kind: 'Deviation',
+              apiVersion: 'routing.eda.nokia.com/v1alpha1',
+              status: 'Pending',
+              metadata: {
+                name: 'leaf02-bgp-hold-time',
+                namespace: 'fabric-a'
+              }
+            }
+          ]
+        )
+      })
+    ],
+    [createExplorerAction('reject-all-deviations', 'Reject All Deviations', 'vscode-eda.rejectAllDeviations')]
+  ),
+  createExplorerSection(
+    'basket',
+    [
+      createExplorerNode('basket/leaf01-bgp-policy', 'leaf01-bgp-policy', {
+        description: 'BgpNeighbor / fabric-a',
+        statusIndicator: 'blue',
+        primaryAction: createExplorerAction(
+          'edit-basket-leaf01-bgp-policy',
+          'Edit Draft',
+          'vscode-eda.basket.edit',
+          ['leaf01-bgp-policy']
+        )
+      }),
+      createExplorerNode('basket/leaf11-uplink-desc', 'leaf11-uplink-desc', {
+        description: 'InterfaceConfig / fabric-b',
+        statusIndicator: 'blue',
+        primaryAction: createExplorerAction(
+          'edit-basket-leaf11-uplink-desc',
+          'Edit Draft',
+          'vscode-eda.basket.edit',
+          ['leaf11-uplink-desc']
+        )
+      })
+    ],
+    [
+      createExplorerAction('commit-basket', 'Commit Basket', 'vscode-eda.commitBasket'),
+      createExplorerAction('dry-run-basket', 'Dry Run Basket', 'vscode-eda.dryRunBasket'),
+      createExplorerAction('discard-basket', 'Discard Basket', 'vscode-eda.discardBasket')
+    ]
+  ),
+  createExplorerSection(
+    'transactions',
+    [
+      createExplorerNode('transactions/1042', '1042 - admin', {
+        contextValue: 'transaction',
+        description: 'Completed - 2026-02-13T10:42:00Z',
+        statusIndicator: 'green',
+        statusDescription: 'Completed',
+        primaryAction: createExplorerAction(
+          'open-transaction-1042',
+          'Show Transaction Details',
+          'vscode-eda.showTransactionDetails',
+          ['1042']
+        )
+      }),
+      createExplorerNode('transactions/1041', '1041 - automation', {
+        contextValue: 'transaction',
+        description: 'Running - 2026-02-13T10:39:12Z',
+        statusIndicator: 'yellow',
+        statusDescription: 'Running',
+        primaryAction: createExplorerAction(
+          'open-transaction-1041',
+          'Show Transaction Details',
+          'vscode-eda.showTransactionDetails',
+          ['1041']
+        )
+      })
+    ],
+    [createExplorerAction('set-transaction-limit', 'Set Transaction Limit', 'vscode-eda.setTransactionLimit')]
+  ),
+  createExplorerSection(
+    'help',
+    [
+      createExplorerNode('help/open-docs', 'Open Documentation', {
+        description: 'EDA extension usage guides',
+        primaryAction: createExplorerAction(
+          'open-help-docs',
+          'Open Documentation',
+          'vscode-eda.help.docs'
+        )
+      }),
+      createExplorerNode('help/configure-targets', 'Configure Targets', {
+        description: 'Manage API endpoints and credentials',
+        primaryAction: createExplorerAction(
+          'open-configure-targets',
+          'Configure Targets',
+          'vscode-eda.configureTargets'
+        )
+      })
+    ],
+    []
+  )
+];
+
+export function createMockHost(
+  webviewId: DevWebviewId,
+  send: SendMessage,
+  options: MockHostOptions = { previewParams: new URLSearchParams() }
+): MockHost {
   const factory = mockFactoryByWebview[webviewId];
-  return factory(send);
+  return factory(send, options);
 }
 
-const mockFactoryByWebview: Readonly<Record<DevWebviewId, (send: SendMessage) => MockHost>> = {
+const mockFactoryByWebview: Readonly<Record<DevWebviewId, (send: SendMessage, options: MockHostOptions) => MockHost>> = {
+  edaExplorer: (send) => createExplorerMock(send),
   alarmDetails: createAlarmMock,
-  nodeConfig: createNodeConfigMock,
-  targetWizard: createTargetWizardMock,
+  deviationDetails: createDeviationDetailsMock,
+  nodeConfig: (send) => createNodeConfigMock(send),
+  targetWizard: (send) => createTargetWizardMock(send),
   transactionDetails: createTransactionDetailsMock,
   transactionDiffs: createTransactionDiffsMock,
-  fabricDashboard: createFabricDashboardMock,
-  queriesDashboard: createQueriesDashboardMock,
-  resourceBrowser: createResourceBrowserMock,
+  fabricDashboard: (send) => createFabricDashboardMock(send),
+  queriesDashboard: (send) => createQueriesDashboardMock(send),
+  resourceBrowser: (send) => createResourceBrowserMock(send),
   simnodesDashboard: (send) => createDataGridMock(send, simnodesFixture),
-  topologyFlowDashboard: createTopologyFlowMock,
+  topologyFlowDashboard: (send) => createTopologyFlowMock(send),
   toponodesDashboard: (send) => createDataGridMock(send, toponodesFixture)
 };
 
-function createAlarmMock(send: SendMessage): MockHost {
+function createExplorerMock(send: SendMessage): MockHost {
+  let filterText = '';
+
+  const sendSnapshot = (): void => {
+    send({
+      command: 'snapshot',
+      filterText,
+      sections: buildExplorerSections(filterText)
+    });
+  };
+
+  const handleSetFilter = (value: unknown): void => {
+    if (typeof value !== 'string') {
+      return;
+    }
+
+    filterText = value;
+    send({ command: 'filterState', filterText });
+
+    try {
+      sendSnapshot();
+    } catch {
+      send({ command: 'error', message: 'Invalid regular expression for filter.' });
+    }
+  };
+
+  const handleInvokeCommand = (commandId: unknown, args: unknown): void => {
+    if (typeof commandId !== 'string') {
+      return;
+    }
+
+    const commandHandlers: Record<string, (value: unknown) => void> = {
+      'vscode-eda.showDashboard': (value) => {
+        const dashboardName = firstStringArgument(value);
+        const previewWebview = dashboardName ? DASHBOARD_PREVIEW_BY_NAME[dashboardName] : undefined;
+        if (previewWebview) {
+          notifyParentToOpenPreview(previewWebview);
+        }
+      },
+      'vscode-eda.showAlarmDetails': (value) => {
+        const alarm = firstObjectArgument(value);
+        const alarmName = stringField(alarm, 'name');
+        notifyParentToOpenPreview('alarmDetails', alarmName ? { alarm: alarmName } : undefined);
+      },
+      'vscode-eda.showDeviationDetails': (value) => {
+        const deviation = firstObjectArgument(value);
+        const key = buildDeviationKey(deviation);
+        notifyParentToOpenPreview('deviationDetails', key ? { deviation: key } : undefined);
+      },
+      'vscode-eda.showTransactionDetails': (value) => {
+        const transactionId = firstStringArgument(value);
+        notifyParentToOpenPreview('transactionDetails', transactionId ? { transactionId } : undefined);
+      },
+      'vscode-eda.viewStreamItem': () => {
+        notifyParentToOpenPreview('resourceBrowser');
+      },
+      'vscode-eda.configureTargets': () => {
+        notifyParentToOpenPreview('targetWizard');
+      }
+    };
+
+    const handler = commandHandlers[commandId];
+    if (handler) {
+      handler(args);
+    }
+  };
+
+  return {
+    onMessage: (message) => {
+      switch (message.command) {
+        case 'ready':
+        case 'requestRefresh':
+          sendSnapshot();
+          return;
+        case 'setFilter':
+          handleSetFilter(message.value);
+          return;
+        case 'invokeCommand':
+          handleInvokeCommand(message.commandId, message.args);
+          return;
+        default:
+          return;
+      }
+    },
+    dispose: () => {}
+  };
+}
+
+function createAlarmMock(send: SendMessage, options: MockHostOptions): MockHost {
+  const alarmName = options.previewParams.get('alarm');
+  const alarmData = alarmName ? alarmFixtureByName[alarmName] ?? alarmFixture : alarmFixture;
+
   return {
     onMessage: (message) => {
       if (message.command === 'ready') {
-        send({ command: 'init', data: alarmFixture });
+        send({ command: 'init', data: alarmData });
+      }
+    },
+    dispose: () => {}
+  };
+}
+
+function createDeviationDetailsMock(send: SendMessage, options: MockHostOptions): MockHost {
+  const deviationKey = options.previewParams.get('deviation') ?? DEV_DEVIATION_KEY;
+  const details = deviationDetailsFixtureByKey[deviationKey] ?? deviationDetailsFixtureByKey[DEV_DEVIATION_KEY];
+
+  return {
+    onMessage: (message) => {
+      if (message.command === 'ready') {
+        send({ command: 'init', data: details });
       }
     },
     dispose: () => {}
@@ -639,25 +1329,37 @@ function createTargetWizardMock(send: SendMessage): MockHost {
   };
 }
 
-function createTransactionDetailsMock(send: SendMessage): MockHost {
+function createTransactionDetailsMock(send: SendMessage, options: MockHostOptions): MockHost {
+  const transactionId = options.previewParams.get('transactionId') ?? transactionDetailsFixture.id;
+  const data = transactionDetailsFixtureById[transactionId] ?? transactionDetailsFixture;
+  const effectiveTransactionId = String(data.id ?? transactionId);
+
   return {
     onMessage: (message) => {
       if (message.command === 'ready') {
-        send({ command: 'init', data: transactionDetailsFixture });
+        send({ command: 'init', data });
+        return;
+      }
+
+      if (message.command === 'showDiffs') {
+        notifyParentToOpenPreview('transactionDiffs', { transactionId: effectiveTransactionId });
       }
     },
     dispose: () => {}
   };
 }
 
-function createTransactionDiffsMock(send: SendMessage): MockHost {
+function createTransactionDiffsMock(send: SendMessage, options: MockHostOptions): MockHost {
+  const transactionId = options.previewParams.get('transactionId') ?? transactionDetailsFixture.id;
+  const diffsFixture = transactionDiffListFixtureById[transactionId] ?? transactionDiffListFixture;
+
   return {
     onMessage: (message) => {
       if (message.command === 'ready') {
         send({
           command: 'diffs',
-          diffs: transactionDiffListFixture.diffs,
-          nodes: transactionDiffListFixture.nodes
+          diffs: diffsFixture.diffs,
+          nodes: diffsFixture.nodes
         });
       }
 
@@ -1074,6 +1776,253 @@ function createTopologyEdge(
       }
     }
   };
+}
+
+function createExplorerAction(id: string, label: string, command: string, args?: unknown[]): ExplorerAction {
+  if (!args) {
+    return { id, label, command };
+  }
+
+  return { id, label, command, args };
+}
+
+interface ExplorerNodeOptions {
+  description?: string;
+  tooltip?: string;
+  contextValue?: string;
+  statusIndicator?: string;
+  statusDescription?: string;
+  primaryAction?: ExplorerAction;
+  actions?: ExplorerAction[];
+  children?: ExplorerNode[];
+}
+
+function createExplorerNode(id: string, label: string, options: ExplorerNodeOptions = {}): ExplorerNode {
+  return {
+    id,
+    label,
+    description: options.description,
+    tooltip: options.tooltip,
+    contextValue: options.contextValue,
+    statusIndicator: options.statusIndicator,
+    statusDescription: options.statusDescription,
+    primaryAction: options.primaryAction,
+    actions: options.actions ?? (options.primaryAction ? [options.primaryAction] : []),
+    children: options.children ?? []
+  };
+}
+
+interface StreamResourceNodeOptions {
+  namespace: string;
+  streamGroup: string;
+  resourceType: string;
+  kind: string;
+  contextValue: string;
+  statusIndicator: string;
+  statusDescription: string;
+}
+
+function createStreamResourceNode(id: string, label: string, options: StreamResourceNodeOptions): ExplorerNode {
+  return createExplorerNode(id, label, {
+    contextValue: options.contextValue,
+    statusIndicator: options.statusIndicator,
+    statusDescription: options.statusDescription,
+    primaryAction: createExplorerAction(
+      `open-resource-${id}`,
+      'View Stream Item',
+      'vscode-eda.viewStreamItem',
+      [createMockResourceCommandArgument(label, options)]
+    )
+  });
+}
+
+function createMockResourceCommandArgument(
+  label: string,
+  options: StreamResourceNodeOptions
+): Record<string, unknown> {
+  const raw = {
+    apiVersion: inferApiVersion(options.kind),
+    kind: options.kind,
+    metadata: {
+      name: label,
+      namespace: options.namespace
+    }
+  };
+
+  return {
+    label,
+    name: label,
+    namespace: options.namespace,
+    resourceType: options.resourceType,
+    streamGroup: options.streamGroup,
+    contextValue: options.contextValue,
+    kind: options.kind,
+    resource: {
+      name: label,
+      namespace: options.namespace,
+      resourceType: options.resourceType,
+      streamGroup: options.streamGroup,
+      kind: options.kind,
+      raw
+    },
+    rawResource: raw
+  };
+}
+
+function inferApiVersion(kind: string): string {
+  if (kind === 'TopoNode' || kind === 'TopoLink') {
+    return 'core.eda.nokia.com/v1';
+  }
+
+  if (kind === 'BgpNeighbor') {
+    return 'routing.eda.nokia.com/v1alpha1';
+  }
+
+  if (kind === 'Pod' || kind === 'Deployment') {
+    return 'v1';
+  }
+
+  return 'v1';
+}
+
+function createExplorerSection(
+  id: ExplorerTabId,
+  nodes: ExplorerNode[],
+  toolbarActions: ExplorerAction[]
+): ExplorerSectionSnapshot {
+  return {
+    id,
+    label: EXPLORER_TAB_LABELS[id],
+    count: countExplorerLeafNodes(nodes),
+    nodes,
+    toolbarActions
+  };
+}
+
+function buildExplorerSections(filterText: string): ExplorerSectionSnapshot[] {
+  const trimmedFilter = filterText.trim();
+  const sections = explorerSectionsFixture.map(cloneExplorerSection);
+
+  if (trimmedFilter.length === 0) {
+    return sections;
+  }
+
+  let matcher: RegExp;
+  try {
+    matcher = new RegExp(trimmedFilter, 'i');
+  } catch {
+    throw new Error('invalid-regex');
+  }
+
+  return sections.map(section => {
+    const nodes = filterExplorerNodes(section.nodes, matcher);
+    return {
+      ...section,
+      nodes,
+      count: countExplorerLeafNodes(nodes)
+    };
+  });
+}
+
+function cloneExplorerSection(section: ExplorerSectionSnapshot): ExplorerSectionSnapshot {
+  return {
+    ...section,
+    nodes: cloneExplorerNodes(section.nodes),
+    toolbarActions: section.toolbarActions.map(action => ({ ...action }))
+  };
+}
+
+function cloneExplorerNodes(nodes: ExplorerNode[]): ExplorerNode[] {
+  return nodes.map(node => ({
+    ...node,
+    primaryAction: node.primaryAction ? { ...node.primaryAction } : undefined,
+    actions: node.actions.map(action => ({ ...action })),
+    children: cloneExplorerNodes(node.children)
+  }));
+}
+
+function filterExplorerNodes(nodes: ExplorerNode[], matcher: RegExp): ExplorerNode[] {
+  return nodes.flatMap(node => {
+    const filteredChildren = filterExplorerNodes(node.children, matcher);
+    const matchesSelf = matcher.test(node.label)
+      || matcher.test(node.description ?? '')
+      || matcher.test(node.tooltip ?? '')
+      || matcher.test(node.statusDescription ?? '');
+
+    if (!matchesSelf && filteredChildren.length === 0) {
+      return [];
+    }
+
+    return [{ ...node, children: filteredChildren }];
+  });
+}
+
+function countExplorerLeafNodes(nodes: ExplorerNode[]): number {
+  return nodes.reduce((count, node) => {
+    if (node.children.length === 0) {
+      return count + 1;
+    }
+    return count + countExplorerLeafNodes(node.children);
+  }, 0);
+}
+
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
+}
+
+function firstStringArgument(args: unknown): string | null {
+  if (!isUnknownArray(args) || args.length === 0) {
+    return null;
+  }
+
+  return typeof args[0] === 'string' ? args[0] : null;
+}
+
+function firstObjectArgument(args: unknown): Record<string, unknown> | null {
+  if (!isUnknownArray(args) || args.length === 0) {
+    return null;
+  }
+
+  const value = args[0];
+  return value && typeof value === 'object' ? value as Record<string, unknown> : null;
+}
+
+function stringField(value: Record<string, unknown> | null, field: string): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const fieldValue = value[field];
+  return typeof fieldValue === 'string' ? fieldValue : null;
+}
+
+function buildDeviationKey(value: Record<string, unknown> | null): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const name = stringField(value, 'name')
+    ?? stringField((value.metadata as Record<string, unknown> | undefined) ?? null, 'name');
+  const namespace = stringField(value, 'namespace')
+    ?? stringField((value.metadata as Record<string, unknown> | undefined) ?? null, 'namespace');
+
+  if (!name || !namespace) {
+    return null;
+  }
+
+  return `${namespace}/${name}`;
+}
+
+function notifyParentToOpenPreview(webviewId: DevPreviewWebviewId, params?: Record<string, string>): void {
+  window.parent.postMessage(
+    {
+      source: OPEN_PREVIEW_EVENT_SOURCE,
+      command: 'openPreview',
+      webview: webviewId,
+      params
+    },
+    window.location.origin
+  );
 }
 
 function stringifyFixture(value: unknown): string { return JSON.stringify(value, null, 2); }

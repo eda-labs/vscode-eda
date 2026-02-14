@@ -3,7 +3,12 @@
 import { applyDevTheme, isDevThemeId, type DevThemeId } from '../../../src/webviews/shared/theme';
 
 import { createMockHost } from './mockHost';
-import { DEV_WEBVIEWS, getDevWebviewLabel, isDevWebviewId, type DevWebviewId } from './webviewCatalog';
+import {
+  DEV_PREVIEW_WEBVIEWS,
+  getDevWebviewLabel,
+  isDevWebviewId,
+  type DevWebviewId
+} from './webviewCatalog';
 
 interface VsCodeApi {
   postMessage: (message: unknown) => void;
@@ -17,7 +22,9 @@ interface WebviewCommand {
 }
 
 const WEBVIEW_LOADERS: Readonly<Record<DevWebviewId, () => Promise<unknown>>> = {
+  edaExplorer: () => import('../../../src/webviews/explorer/edaExplorerView.webview'),
   alarmDetails: () => import('../../../src/webviews/alarmDetails/alarmDetailsPanel.webview'),
+  deviationDetails: () => import('../../../src/webviews/deviationDetails/deviationDetailsPanel.webview'),
   nodeConfig: () => import('../../../src/webviews/nodeConfig/nodeConfigPanel.webview'),
   targetWizard: () => import('../../../src/webviews/targetWizard/targetWizardPanel.webview'),
   transactionDetails: () => import('../../../src/webviews/transactionDetails/transactionDetailsPanel.webview'),
@@ -35,7 +42,7 @@ function parseWebviewId(value: string | null): DevWebviewId {
     return value;
   }
 
-  return DEV_WEBVIEWS[0].id;
+  return DEV_PREVIEW_WEBVIEWS[0].id;
 }
 
 function parseThemeId(value: string | null): DevThemeId {
@@ -95,7 +102,7 @@ async function bootstrap(): Promise<void> {
   applyDevTheme(themeId);
   document.title = `${getDevWebviewLabel(webviewId)} Preview`;
 
-  const host = createMockHost(webviewId, dispatchToWebview);
+  const host = createMockHost(webviewId, dispatchToWebview, { previewParams: params });
   installVsCodeApiBridge(host.onMessage);
 
   window.addEventListener('beforeunload', () => {
