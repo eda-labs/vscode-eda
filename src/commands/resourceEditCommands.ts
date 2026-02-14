@@ -924,14 +924,14 @@ export function registerResourceEditCommands(
   resourceEditProvider: ResourceEditDocumentProvider,
   resourceViewProvider: ResourceViewDocumentProvider
 ) {
-  const edaClient = serviceManager.getClient<EdaClient>('eda');
+  const getEdaClient = () => serviceManager.getClient<EdaClient>('eda');
 
   // Switch from read-only view to editable
   const switchToEditCommand = vscode.commands.registerCommand(
     CMD_SWITCH_TO_EDIT,
     async (arg: CommandInput) => {
       try {
-        await executeSwitchToEdit(arg, edaClient, resourceEditProvider, context);
+        await executeSwitchToEdit(arg, getEdaClient(), resourceEditProvider, context);
       } catch (error) {
         vscode.window.showErrorMessage(`Failed to switch to edit mode: ${error}`);
         log(`Error in switchToEditResource: ${error}`, LogLevel.ERROR, true);
@@ -976,7 +976,7 @@ export function registerResourceEditCommands(
         // Handle skip prompt mode (direct apply or dry run)
         if (options.skipPrompt) {
           await handleSkipPromptApply(
-            options, edaClient, resourceEditProvider, resourceViewProvider,
+            options, getEdaClient(), resourceEditProvider, resourceViewProvider,
             documentUri, resource, resourceKey
           );
           return;
@@ -991,7 +991,7 @@ export function registerResourceEditCommands(
 
         // Handle the selected action
         await handleApplyAction(
-          action, isEda, edaClient, resourceEditProvider, resourceViewProvider,
+          action, isEda, getEdaClient(), resourceEditProvider, resourceViewProvider,
           documentUri, resource, resourceKey
         );
       } catch (error) {

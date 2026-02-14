@@ -69,11 +69,7 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
     super();
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
-    this.edaClient.onStreamMessage((stream, msg) => {
-      if (stream === 'summary') {
-        this.processTransactionMessage(msg as StreamMessageEnvelope);
-      }
-    });
+    this.setupStreamListener();
   }
 
   /**
@@ -81,6 +77,15 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
    */
   public async initialize(): Promise<void> {
     await this.edaClient.streamEdaTransactions(this.transactionLimit);
+  }
+
+  public async reconnect(): Promise<void> {
+    this.edaClient = serviceManager.getClient<EdaClient>('eda');
+    this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
+    this.cachedTransactions = [];
+    this.setupStreamListener();
+    this.refresh();
+    await this.initialize();
   }
 
   public getTransactionLimit(): number {
@@ -99,6 +104,14 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
 
   public dispose(): void {
     this.edaClient.closeTransactionStream();
+  }
+
+  private setupStreamListener(): void {
+    this.edaClient.onStreamMessage((stream, msg) => {
+      if (stream === 'summary') {
+        this.processTransactionMessage(msg as StreamMessageEnvelope);
+      }
+    });
   }
 
 

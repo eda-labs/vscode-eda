@@ -161,8 +161,6 @@ async function editBasketItem(item: unknown): Promise<vscode.Disposable | undefi
 }
 
 export function registerBasketCommands(context: vscode.ExtensionContext): void {
-  const edaClient = serviceManager.getClient<EdaClient>('eda');
-
   const discardCmd = vscode.commands.registerCommand('vscode-eda.discardBasket', () => {
     discardBasket().catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
@@ -170,12 +168,14 @@ export function registerBasketCommands(context: vscode.ExtensionContext): void {
     });
   });
   const commitCmd = vscode.commands.registerCommand('vscode-eda.commitBasket', () => {
+    const edaClient = serviceManager.getClient<EdaClient>('eda');
     runBasket(edaClient, false).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
       log(`Failed to commit basket: ${message}`, LogLevel.ERROR, true);
     });
   });
   const dryRunCmd = vscode.commands.registerCommand('vscode-eda.dryRunBasket', () => {
+    const edaClient = serviceManager.getClient<EdaClient>('eda');
     runBasket(edaClient, true).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
       log(`Failed to dry run basket: ${message}`, LogLevel.ERROR, true);

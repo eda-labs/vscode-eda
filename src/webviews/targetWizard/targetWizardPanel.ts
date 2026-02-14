@@ -89,7 +89,6 @@ export class TargetWizardPanel extends BasePanel {
     coreNamespace?: string;
   }[];
   private selected: number;
-  private resolve: (value: void | PromiseLike<void>) => void;
 
   constructor(
     context: vscode.ExtensionContext,
@@ -118,13 +117,14 @@ export class TargetWizardPanel extends BasePanel {
     const message = msg as { command: string; [key: string]: unknown };
     const handlers: Record<string, () => PromiseLike<void> | void> = {
       ready: () => this.sendInitialData(),
-      save: () => this.saveConfiguration(message, true),
-      add: () => this.saveConfiguration(message, false),
+      save: () => this.saveConfiguration(message),
+      add: () => this.saveConfiguration(message),
       delete: () => this.deleteTarget(message.url as string),
       confirmDelete: () => this.confirmDelete(message.index as number, message.url as string),
       commit: () => this.commitTargets(message.targets as unknown[]),
       select: () => this.context.globalState.update('selectedEdaTarget', message.index),
-      close: () => this.showReload(),
+      switchTarget: () => this.switchTarget(message.index as number),
+      close: () => this.closePanel(),
       retrieveClientSecret: () => this.retrieveClientSecret(message.url as string)
     };
 
@@ -150,7 +150,7 @@ export class TargetWizardPanel extends BasePanel {
     return `<script nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
-  private async saveConfiguration(msg: { command: string; [key: string]: unknown }, close: boolean): Promise<void> {
+  private async saveConfiguration(msg: { command: string; [key: string]: unknown }): Promise<void> {
     const config = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
     const current = config.get<Record<string, unknown>>('edaTargets') || {};
     const url = msg.url as string;
@@ -187,9 +187,6 @@ export class TargetWizardPanel extends BasePanel {
       await this.cleanupSecrets(originalUrl);
     }
 
-    if (close) {
-      this.showReload();
-    }
   }
 
   private async cleanupSecrets(url: string): Promise<void> {
@@ -245,24 +242,26 @@ export class TargetWizardPanel extends BasePanel {
     await Promise.all(cleanupPromises);
   }
 
-  private showReload(): void {
-    vscode.window
-      .showInformationMessage('EDA targets updated. Reload window to apply changes.', 'Reload')
-      .then(selection => {
-        if (selection === 'Reload') {
-          void vscode.commands.executeCommand('workbench.action.reloadWindow');
-        }
-      });
-
-    this.dispose();
-    if (this.resolve) {
-      this.resolve();
+  private async switchTarget(index: number): Promise<void> {
+    const config = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
+    const targetsMap = config.get<Record<string, unknown>>('edaTargets') || {};
+    const entries = Object.entries(targetsMap);
+    if (!Number.isInteger(index) || index < 0 || index >= entries.length) {
+      return;
     }
+
+    await vscode.commands.executeCommand('vscode-eda.applyTargetSwitch', index);
+    this.selected = index;
+    await this.context.globalState.update('selectedEdaTarget', index);
+    this.panel.webview.postMessage({ command: 'switchComplete', index });
+  }
+
+  private closePanel(): void {
+    this.dispose();
   }
 
   public waitForClose(): Promise<void> {
     return new Promise(resolve => {
-      this.resolve = resolve;
       this.panel.onDidDispose(() => resolve());
     });
   }

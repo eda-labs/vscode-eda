@@ -53,12 +53,7 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
     super();
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
-
-    this.edaClient.onStreamMessage((stream, msg) => {
-      if (stream === 'current-alarms') {
-        this.processAlarmMessage(msg);
-      }
-    });
+    this.setupStreamListener();
 
     // Emit initial count
     this._onAlarmCountChanged.fire(this.count);
@@ -69,6 +64,24 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
    */
   public async initialize(): Promise<void> {
     await this.edaClient.streamEdaAlarms();
+  }
+
+  public async reconnect(): Promise<void> {
+    this.edaClient = serviceManager.getClient<EdaClient>('eda');
+    this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
+    this.alarms.clear();
+    this.setupStreamListener();
+    this.refresh();
+    this._onAlarmCountChanged.fire(this.count);
+    await this.initialize();
+  }
+
+  private setupStreamListener(): void {
+    this.edaClient.onStreamMessage((stream, msg) => {
+      if (stream === 'current-alarms') {
+        this.processAlarmMessage(msg);
+      }
+    });
   }
 
 

@@ -100,8 +100,6 @@ async function promptRejectAllChoice(count: number): Promise<{ confirmed: boolea
 export function registerDeviationCommands(
   context: vscode.ExtensionContext,
 ): void {
-  const edaClient = serviceManager.getClient<EdaClient>('eda');
-
   async function handleAction(
     dev: Deviation,
     action: 'setAccept' | 'reject',
@@ -130,6 +128,7 @@ export function registerDeviationCommands(
       },
     };
     try {
+      const edaClient = serviceManager.getClient<EdaClient>('eda');
       await edaClient.createDeviationAction(details.namespace, body);
       if (!silent) {
         vscode.window.showInformationMessage(
@@ -198,6 +197,7 @@ export function registerDeviationCommands(
           title: `Rejecting ${crs.length} deviations`,
         },
         async () => {
+          const edaClient = serviceManager.getClient<EdaClient>('eda');
           await edaClient.runTransaction(tx);
         }
       );

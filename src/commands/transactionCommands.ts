@@ -28,8 +28,6 @@ function extractTransactionId(treeItem: TransactionTreeItemData | undefined): st
 }
 
 export function registerTransactionCommands(context: vscode.ExtensionContext): void {
-  const edaClient = serviceManager.getClient<EdaClient>('eda');
-
   const revertCmd = vscode.commands.registerCommand('vscode-eda.revertTransaction', async (treeItem: TransactionTreeItemData | undefined) => {
     const transactionId = extractTransactionId(treeItem);
     if (!transactionId) {
@@ -46,6 +44,7 @@ export function registerTransactionCommands(context: vscode.ExtensionContext): v
       return;
     }
     try {
+      const edaClient = serviceManager.getClient<EdaClient>('eda');
       log(`Executing revert for transaction ${transactionId}`, LogLevel.INFO, true);
       const result: unknown = await edaClient.revertTransaction(transactionId);
       vscode.window.showInformationMessage(`Transaction ${transactionId} revert submitted.`);
@@ -73,6 +72,7 @@ export function registerTransactionCommands(context: vscode.ExtensionContext): v
       return;
     }
     try {
+      const edaClient = serviceManager.getClient<EdaClient>('eda');
       log(`Executing restore for transaction ${transactionId}`, LogLevel.INFO, true);
       const result: unknown = await edaClient.restoreTransaction(transactionId);
       vscode.window.showInformationMessage(`Transaction ${transactionId} restore submitted.`);

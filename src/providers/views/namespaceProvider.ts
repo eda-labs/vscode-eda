@@ -81,7 +81,7 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
   private refreshHandle?: ReturnType<typeof setTimeout>;
   private pendingSummary?: string;
 
-constructor() {
+  constructor() {
     super();
     this.kubernetesIcon = new vscode.ThemeIcon('layers');
     log('EdaNamespaceProvider constructor starting', LogLevel.DEBUG);
@@ -180,6 +180,24 @@ constructor() {
     await this.loadStreams();
     await this.initializeKubernetesNamespaces();
     await this.edaClient.streamEdaNamespaces();
+  }
+
+  public async reconnect(): Promise<void> {
+    this.disposeRuntimeListeners();
+    this.cachedNamespaces = [];
+    this.cachedStreamGroups = {};
+    this.streamData.clear();
+    this.k8sStreams = [];
+    this.pendingSummary = undefined;
+
+    this.initializeKubernetesClient();
+    this.initializeServices();
+    this.setupEventListeners();
+    this.logKubernetesClientStatus();
+    this.initializeNamespaceCache();
+    this.setupStreamMessageHandler();
+    await this.initialize();
+    this.refresh();
   }
 
   /**
@@ -920,6 +938,10 @@ constructor() {
   }
 
   public dispose(): void {
+    this.disposeRuntimeListeners();
+  }
+
+  private disposeRuntimeListeners(): void {
     for (const d of this.disposables) {
       try {
         d.dispose();
@@ -928,6 +950,11 @@ constructor() {
       }
     }
     this.disposables = [];
+
+    if (this.refreshHandle) {
+      clearTimeout(this.refreshHandle);
+      this.refreshHandle = undefined;
+    }
   }
 }
 

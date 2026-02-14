@@ -133,18 +133,30 @@ function handleClientSecretRetrievedMessage(
   setFormUI(prev => ({ ...prev, clientSecretHint: 'Client secret retrieved successfully' }));
 }
 
+function handleSwitchCompleteMessage(
+  msg: TargetWizardMessage,
+  setSelectedIdx: React.Dispatch<React.SetStateAction<number>>,
+  setDefaultIdx: React.Dispatch<React.SetStateAction<number>>,
+  setMode: React.Dispatch<React.SetStateAction<Mode>>
+): void {
+  const idx = msg.index ?? 0;
+  setSelectedIdx(idx);
+  setDefaultIdx(idx);
+  setMode('view');
+}
+
 function TargetItem({
   target,
   isSelected,
   isDefault,
   onClick,
-  onSetDefault
+  onSwitchTo
 }: Readonly<{
   target: Target;
   isSelected: boolean;
   isDefault: boolean;
   onClick: () => void;
-  onSetDefault: () => void;
+  onSwitchTo: () => void;
 }>) {
   return (
     <ListItemButton selected={isSelected} onClick={onClick} divider>
@@ -157,7 +169,7 @@ function TargetItem({
         secondary={
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.25, flexWrap: 'wrap' }}>
             {target.context && <Typography variant="caption" sx={{ fontStyle: 'italic' }}>{target.context}</Typography>}
-            {isDefault && <Chip size="small" color="primary" label="Default" />}
+            {isDefault && <Chip size="small" color="primary" label="Current" />}
             {target.skipTlsVerify && <Chip size="small" variant="outlined" label="Skip TLS" />}
             {!isDefault && (
               <Button
@@ -165,10 +177,10 @@ function TargetItem({
                 variant="contained"
                 onClick={(event) => {
                   event.stopPropagation();
-                  onSetDefault();
+                  onSwitchTo();
                 }}
               >
-                Set as Default
+                Switch To
               </Button>
             )}
           </Stack>
@@ -447,6 +459,9 @@ function TargetWizardPanel() {
       case 'clientSecretRetrieved':
         handleClientSecretRetrievedMessage(msg, setFormData, setFormUI);
         break;
+      case 'switchComplete':
+        handleSwitchCompleteMessage(msg, setSelectedIdx, setDefaultIdx, setMode);
+        break;
     }
   }, []));
 
@@ -470,9 +485,8 @@ function TargetWizardPanel() {
     setSelectedIdx(idx);
   }, [mode]);
 
-  const handleSetDefault = useCallback((idx: number) => {
-    setDefaultIdx(idx);
-    postMessage({ command: 'select', index: idx });
+  const handleSwitchTarget = useCallback((idx: number) => {
+    postMessage({ command: 'switchTarget', index: idx });
   }, [postMessage]);
 
   const handleAddNew = useCallback(() => {
@@ -612,7 +626,7 @@ function TargetWizardPanel() {
                     isSelected={idx === selectedIdx}
                     isDefault={idx === defaultIdx}
                     onClick={() => handleSelectTarget(idx)}
-                    onSetDefault={() => handleSetDefault(idx)}
+                    onSwitchTo={() => handleSwitchTarget(idx)}
                   />
                 ))}
               </List>

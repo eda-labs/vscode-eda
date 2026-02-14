@@ -57,11 +57,7 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
     super();
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
-    this.edaClient.onStreamMessage((stream, msg) => {
-      if (stream === 'deviations') {
-        this.processDeviationMessage(msg as DeviationStreamMessage);
-      }
-    });
+    this.setupStreamListener();
 
     // Emit initial count
     this._onDeviationCountChanged.fire(this.count);
@@ -74,8 +70,26 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
     await this.edaClient.streamEdaDeviations();
   }
 
+  public async reconnect(): Promise<void> {
+    this.edaClient = serviceManager.getClient<EdaClient>('eda');
+    this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
+    this.deviations.clear();
+    this.setupStreamListener();
+    this.refresh();
+    this._onDeviationCountChanged.fire(this.count);
+    await this.initialize();
+  }
+
   public dispose(): void {
     this.edaClient.closeDeviationStream();
+  }
+
+  private setupStreamListener(): void {
+    this.edaClient.onStreamMessage((stream, msg) => {
+      if (stream === 'deviations') {
+        this.processDeviationMessage(msg as DeviationStreamMessage);
+      }
+    });
   }
 
 
