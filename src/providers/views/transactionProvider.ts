@@ -83,6 +83,18 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
     await this.edaClient.streamEdaTransactions(this.transactionLimit);
   }
 
+  public async reloadForTargetSwitch(): Promise<void> {
+    this.cachedTransactions = [];
+    this.refresh();
+    try {
+      const transactions = await this.edaClient.getEdaTransactions(this.transactionLimit);
+      this.mergeTransactions(transactions as Transaction[]);
+    } catch (err) {
+      log(`Failed to reload transactions after target switch: ${err}`, LogLevel.WARN);
+    }
+    this.refresh();
+  }
+
   public getTransactionLimit(): number {
     return this.transactionLimit;
   }

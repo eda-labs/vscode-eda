@@ -1,5 +1,6 @@
 /* eslint-disable import-x/max-dependencies -- Extension entry point requires many imports */
 import * as vscode from 'vscode';
+import { fetch } from 'undici';
 
 import { KubernetesClient } from './clients/kubernetesClient';
 import { EdaClient } from './clients/edaClient';
@@ -39,8 +40,10 @@ import { registerApplyYamlFileCommand } from './commands/applyYamlFileCommand';
 import { registerResourceBrowserCommand } from './commands/resourceBrowserCommand';
 import { configureTargets, fetchClientSecretDirectly } from './webviews/targetWizard/targetWizardPanel';
 import { EdaExplorerViewProvider } from './webviews/explorer/edaExplorerViewProvider';
-import { setAuthLogger } from './clients/edaAuthClient';
+import { EdaAuthClient, setAuthLogger } from './clients/edaAuthClient';
 import { EmbeddingSearchService } from './services/embeddingSearchService';
+
+const EXTENSION_CONFIG_SECTION = 'vscode-eda';
 
 export interface EdaTargetConfig {
   context?: string;
@@ -96,6 +99,9 @@ export let podDescribeProvider: PodDescribeDocumentProvider;
 export let edaOutputChannel: vscode.OutputChannel;
 export let currentLogLevel: LogLevel = LogLevel.INFO;
 let contextStatusBarItem: vscode.StatusBarItem;
+let namespaceProviderInstance: EdaNamespaceProvider | undefined;
+let alarmProviderInstance: EdaAlarmProvider | undefined;
+let targetSwitchInFlight: Promise<void> | undefined;
 
 interface TargetConfigResult {
   edaUrl: string;
@@ -207,47 +213,177 @@ function createStatusBarItem(context: vscode.ExtensionContext): vscode.StatusBar
   return statusBarItem;
 }
 
-function registerSwitchContextCommand(
+interface SwitchTargetOptions {
+  showNotification?: boolean;
+}
+
+async function verifyTargetReachability(
+  edaUrl: string,
+  clientId: string,
+  clientSecret: string,
+  edaUsername: string,
+  edaPassword: string,
+  skipTlsVerify: boolean
+): Promise<void> {
+  const authClient = new EdaAuthClient(edaUrl, {
+    clientId,
+    clientSecret,
+    edaUsername,
+    edaPassword,
+    skipTlsVerify
+  });
+
+  try {
+    await authClient.waitForAuth();
+    const openApiUrl = `${authClient.getBaseUrl()}/openapi/v3`;
+    const res = await fetch(openApiUrl, {
+      headers: authClient.getHeaders(),
+      dispatcher: authClient.getAgent()
+    });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Target is not reachable (${edaUrl}): ${message}`);
+  } finally {
+    authClient.dispose();
+  }
+}
+
+async function switchEdaTarget(
   context: vscode.ExtensionContext,
-  config: vscode.WorkspaceConfiguration
+  targetIndex: number,
+  options: SwitchTargetOptions = {}
+): Promise<void> {
+  if (targetSwitchInFlight) {
+    await targetSwitchInFlight;
+  }
+
+  const runSwitch = async () => {
+    const config = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
+    const targetsMap = config.get<Record<string, EdaTargetValue>>('edaTargets') || {};
+    const targetEntries = Object.entries(targetsMap);
+    if (targetEntries.length === 0) {
+      throw new Error('No EDA targets configured.');
+    }
+
+    const index = Math.max(0, Math.min(targetIndex, targetEntries.length - 1));
+    const targetConfig = loadTargetConfig(config, targetEntries, index);
+    const { edaUrl, edaContext, edaUsername, skipTlsVerify, coreNamespace, clientId } = targetConfig;
+    const hostKey = getHostFromUrl(edaUrl);
+
+    const { edaPassword, clientSecret } = await loadCredentials(
+      context,
+      hostKey,
+      edaUrl,
+      targetConfig.edaPasswordFromSettings,
+      targetConfig.kcUsername,
+      targetConfig.kcPassword
+    );
+
+    if (!clientSecret) {
+      throw new Error('Client secret is required. Please configure target credentials.');
+    }
+    if (!edaPassword) {
+      throw new Error('EDA password is required. Please configure target credentials.');
+    }
+
+    await verifyTargetReachability(
+      edaUrl,
+      clientId,
+      clientSecret,
+      edaUsername,
+      edaPassword,
+      skipTlsVerify
+    );
+
+    if (!serviceManager.getClientNames().includes('eda')) {
+      await context.globalState.update('selectedEdaTarget', index);
+      return;
+    }
+
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Switching EDA target to ${edaUrl}`,
+      },
+      async () => {
+        const edaClient = serviceManager.getClient<EdaClient>('eda');
+        await edaClient.reconfigure(edaUrl, {
+          clientId,
+          clientSecret,
+          edaUsername,
+          edaPassword,
+          skipTlsVerify,
+          coreNamespace
+        });
+
+        if (serviceManager.getClientNames().includes('kubernetes') && edaContext) {
+          const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
+          k8sClient.switchContext(edaContext);
+          await verifyKubernetesContext(edaClient, k8sClient);
+        }
+
+        await context.globalState.update('selectedEdaTarget', index);
+
+        if (contextStatusBarItem) {
+          const host = getHostFromUrl(edaUrl);
+          const ctxText = edaContext ? ` (${edaContext})` : '';
+          contextStatusBarItem.text = `$(server) ${host}${ctxText}`;
+        }
+
+        if (namespaceProviderInstance) {
+          await namespaceProviderInstance.reloadForTargetSwitch();
+        }
+        if (alarmProviderInstance) {
+          alarmProviderInstance.resetForTargetSwitch();
+        }
+        try {
+          edaDeviationProvider.resetForTargetSwitch();
+        } catch {
+          // provider not initialized yet
+        }
+        try {
+          await edaTransactionProvider.reloadForTargetSwitch();
+        } catch {
+          // provider not initialized yet
+        }
+        try {
+          await edaTransactionBasketProvider.reloadForTargetSwitch();
+        } catch {
+          // provider not initialized yet
+        }
+      }
+    );
+
+    if (options.showNotification !== false) {
+      const host = getHostFromUrl(edaUrl);
+      vscode.window.showInformationMessage(`Switched EDA target to ${host}.`);
+    }
+  };
+
+  targetSwitchInFlight = runSwitch();
+  try {
+    await targetSwitchInFlight;
+  } finally {
+    targetSwitchInFlight = undefined;
+  }
+}
+
+async function openConfigureTargetsPanel(context: vscode.ExtensionContext): Promise<void> {
+  await configureTargets(context, {
+    onSwitchTarget: async (index: number) => {
+      await switchEdaTarget(context, index, { showNotification: false });
+    }
+  });
+}
+
+function registerSwitchContextCommand(
+  context: vscode.ExtensionContext
 ): void {
   const switchCmd = vscode.commands.registerCommand('vscode-eda.switchContext', async () => {
-    const targetsMap = config.get<Record<string, string | EdaTargetConfig | undefined>>('edaTargets') || {};
-    const entries = Object.entries(targetsMap);
-    if (entries.length === 0) {
-      vscode.window.showInformationMessage('No EDA targets configured.');
-      return;
-    }
-    const items = entries.map(([url, val], i) => {
-      const ctx = typeof val === 'string' ? val : val?.context;
-      return {
-        label: url,
-        description: ctx ? `context: ${ctx}` : 'no kubernetes',
-        index: i
-      };
-    });
-
-    const choice = await vscode.window.showQuickPick(items, {
-      placeHolder: 'Select the EDA API URL and optional context'
-    });
-    if (!choice) {
-      return;
-    }
-
-    await context.globalState.update('selectedEdaTarget', choice.index);
-    if (contextStatusBarItem) {
-      const ctxVal = entries[choice.index][1];
-      const ctx = typeof ctxVal === 'string' ? ctxVal : ctxVal?.context;
-      const host = getHostFromUrl(entries[choice.index][0]);
-      const ctxText = ctx ? ` (${ctx})` : '';
-      contextStatusBarItem.text = `$(server) ${host}${ctxText}`;
-    }
-
-    vscode.window.showInformationMessage('EDA target updated. Reload window to apply.', 'Reload').then(value => {
-      if (value === 'Reload') {
-        vscode.commands.executeCommand('workbench.action.reloadWindow');
-      }
-    });
+    await openConfigureTargetsPanel(context);
   });
   context.subscriptions.push(switchCmd);
 }
@@ -379,6 +515,7 @@ async function initializeTreeViewsAndCommands(context: vscode.ExtensionContext):
   const dashboardProvider = new DashboardProvider();
 
   const namespaceProvider = new EdaNamespaceProvider();
+  namespaceProviderInstance = namespaceProvider;
   void namespaceProvider.initialize().then(() => {
     namespaceProvider.refresh();
   }).catch((err: unknown) => {
@@ -386,6 +523,7 @@ async function initializeTreeViewsAndCommands(context: vscode.ExtensionContext):
   });
 
   const alarmProvider = new EdaAlarmProvider();
+  alarmProviderInstance = alarmProvider;
   void alarmProvider.initialize().then(() => {
     alarmProvider.refresh();
   }).catch((err: unknown) => {
@@ -583,7 +721,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Initialize filter context
   await vscode.commands.executeCommand('setContext', 'edaTreeFilterActive', false);
 
-  const config = vscode.workspace.getConfiguration('vscode-eda');
+  const config = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
   currentLogLevel = parseLogLevel(config.get('logLevel'));
 
   log('EDA extension activating...', LogLevel.INFO, true);
@@ -594,16 +732,22 @@ export async function activate(context: vscode.ExtensionContext) {
     log(`Failed to initialize embeddingsearch: ${error}`, LogLevel.ERROR);
   });
 
-  const edaTargetsCfg = config.get<Record<string, string | EdaTargetConfig | undefined>>('edaTargets');
-  const targetEntries = edaTargetsCfg ? Object.entries(edaTargetsCfg) : [];
+  let edaTargetsCfg = config.get<Record<string, string | EdaTargetConfig | undefined>>('edaTargets');
+  let targetEntries = edaTargetsCfg ? Object.entries(edaTargetsCfg) : [];
   if (targetEntries.length === 0) {
-    await configureTargets(context);
-    return;
+    await openConfigureTargetsPanel(context);
+    edaTargetsCfg = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION)
+      .get<Record<string, string | EdaTargetConfig | undefined>>('edaTargets');
+    targetEntries = edaTargetsCfg ? Object.entries(edaTargetsCfg) : [];
+    if (targetEntries.length === 0) {
+      return;
+    }
   }
 
   // Load target configuration
+  const runtimeConfig = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
   const selectedIndex = context.globalState.get<number>('selectedEdaTarget', 0) ?? 0;
-  const targetConfig = loadTargetConfig(config, targetEntries, selectedIndex);
+  const targetConfig = loadTargetConfig(runtimeConfig, targetEntries, selectedIndex);
   const { edaUrl, edaContext, edaUsername, skipTlsVerify, coreNamespace, clientId } = targetConfig;
   const hostKey = getHostFromUrl(edaUrl);
 
@@ -625,22 +769,22 @@ export async function activate(context: vscode.ExtensionContext) {
 
   if (!clientSecret) {
     vscode.window.showErrorMessage('Client secret is required. Please configure EDA targets.');
-    await configureTargets(context);
+    await openConfigureTargetsPanel(context);
     return;
   }
 
   if (!edaPassword) {
     vscode.window.showErrorMessage('EDA password is required. Please configure EDA targets.');
-    await configureTargets(context);
+    await openConfigureTargetsPanel(context);
     return;
   }
 
   // Create status bar and register commands
   contextStatusBarItem = createStatusBarItem(context);
-  registerSwitchContextCommand(context, config);
+  registerSwitchContextCommand(context);
 
   const configCmd = vscode.commands.registerCommand('vscode-eda.configureTargets', async () => {
-    await configureTargets(context);
+    await openConfigureTargetsPanel(context);
   });
   context.subscriptions.push(configCmd);
 

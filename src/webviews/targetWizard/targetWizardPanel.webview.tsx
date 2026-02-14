@@ -51,6 +51,7 @@ interface TargetWizardMessage {
   logoUri?: string;
   index?: number;
   clientSecret?: string;
+  error?: string;
 }
 
 type Mode = 'view' | 'edit' | 'new';
@@ -94,14 +95,14 @@ function handleInitMessage(
   msg: TargetWizardMessage,
   setTargets: React.Dispatch<React.SetStateAction<Target[]>>,
   setSelectedIdx: React.Dispatch<React.SetStateAction<number>>,
-  setDefaultIdx: React.Dispatch<React.SetStateAction<number>>,
+  setActiveIdx: React.Dispatch<React.SetStateAction<number>>,
   setContexts: React.Dispatch<React.SetStateAction<string[]>>,
   setLogoUri: React.Dispatch<React.SetStateAction<string>>
 ): void {
   const selected = msg.selected ?? 0;
   setTargets(msg.targets ?? []);
   setSelectedIdx(selected);
-  setDefaultIdx(selected);
+  setActiveIdx(selected);
   setContexts(msg.contexts ?? []);
   setLogoUri(msg.logoUri ?? '');
 }
@@ -110,7 +111,7 @@ function handleDeleteConfirmedMessage(
   msg: TargetWizardMessage,
   setTargets: React.Dispatch<React.SetStateAction<Target[]>>,
   setSelectedIdx: React.Dispatch<React.SetStateAction<number>>,
-  setDefaultIdx: React.Dispatch<React.SetStateAction<number>>,
+  setActiveIdx: React.Dispatch<React.SetStateAction<number>>,
   setMode: React.Dispatch<React.SetStateAction<Mode>>
 ): void {
   const idx = msg.index ?? 0;
@@ -120,7 +121,7 @@ function handleDeleteConfirmedMessage(
     return newTargets;
   });
   setSelectedIdx(prev => Math.max(0, prev >= idx ? prev - 1 : prev));
-  setDefaultIdx(prev => Math.max(0, prev >= idx ? prev - 1 : prev));
+  setActiveIdx(prev => Math.max(0, prev >= idx ? prev - 1 : prev));
   setMode('view');
 }
 
@@ -136,15 +137,17 @@ function handleClientSecretRetrievedMessage(
 function TargetItem({
   target,
   isSelected,
-  isDefault,
+  isActive,
+  isSwitching,
   onClick,
-  onSetDefault
+  onSwitch
 }: Readonly<{
   target: Target;
   isSelected: boolean;
-  isDefault: boolean;
+  isActive: boolean;
+  isSwitching: boolean;
   onClick: () => void;
-  onSetDefault: () => void;
+  onSwitch: () => void;
 }>) {
   return (
     <ListItemButton selected={isSelected} onClick={onClick} divider>
@@ -157,18 +160,19 @@ function TargetItem({
         secondary={
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.25, flexWrap: 'wrap' }}>
             {target.context && <Typography variant="caption" sx={{ fontStyle: 'italic' }}>{target.context}</Typography>}
-            {isDefault && <Chip size="small" color="primary" label="Default" />}
+            {isActive && <Chip size="small" color="primary" label="Active" />}
             {target.skipTlsVerify && <Chip size="small" variant="outlined" label="Skip TLS" />}
-            {!isDefault && (
+            {!isActive && (
               <Button
                 size="small"
                 variant="contained"
+                disabled={isSwitching}
                 onClick={(event) => {
                   event.stopPropagation();
-                  onSetDefault();
+                  onSwitch();
                 }}
               >
-                Set as Default
+                Switch To
               </Button>
             )}
           </Stack>
@@ -259,11 +263,14 @@ function PasswordInput({ value, onChange, showPassword, onToggleShow, hasError, 
 
 interface TargetDetailsViewProps {
   target: Target;
+  isActive: boolean;
+  isSwitching: boolean;
+  onSwitch: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }
 
-function TargetDetailsView({ target, onEdit, onDelete }: Readonly<TargetDetailsViewProps>) {
+function TargetDetailsView({ target, isActive, isSwitching, onSwitch, onEdit, onDelete }: Readonly<TargetDetailsViewProps>) {
   return (
     <Stack spacing={2.25} sx={{ maxWidth: 760 }}>
       <ReadOnlyField label="EDA API URL" value={target.url} />
@@ -277,6 +284,11 @@ function TargetDetailsView({ target, onEdit, onDelete }: Readonly<TargetDetailsV
       <Divider />
 
       <Stack direction="row" spacing={1.5} justifyContent="flex-end">
+        {!isActive && (
+          <Button variant="contained" onClick={onSwitch} disabled={isSwitching}>
+            Switch To
+          </Button>
+        )}
         <Button variant="contained" startIcon={<EditIcon />} onClick={onEdit}>
           Edit Target
         </Button>
@@ -423,11 +435,12 @@ function TargetWizardPanel() {
   const postMessage = usePostMessage();
   const [targets, setTargets] = useState<Target[]>([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
-  const [defaultIdx, setDefaultIdx] = useState(0);
+  const [activeIdx, setActiveIdx] = useState(0);
   const [contexts, setContexts] = useState<string[]>([]);
   const [logoUri, setLogoUri] = useState('');
   const [mode, setMode] = useState<Mode>('view');
   const [editIndex, setEditIndex] = useState<number | null>(null);
+  const [isSwitching, setIsSwitching] = useState(false);
 
   // Consolidated form state
   const [formData, setFormData] = useState<FormData>(initialFormData);
@@ -439,13 +452,25 @@ function TargetWizardPanel() {
   useMessageListener<TargetWizardMessage>(useCallback((msg) => {
     switch (msg.command) {
       case 'init':
-        handleInitMessage(msg, setTargets, setSelectedIdx, setDefaultIdx, setContexts, setLogoUri);
+        handleInitMessage(msg, setTargets, setSelectedIdx, setActiveIdx, setContexts, setLogoUri);
+        setIsSwitching(false);
         break;
       case 'deleteConfirmed':
-        handleDeleteConfirmedMessage(msg, setTargets, setSelectedIdx, setDefaultIdx, setMode);
+        handleDeleteConfirmedMessage(msg, setTargets, setSelectedIdx, setActiveIdx, setMode);
         break;
       case 'clientSecretRetrieved':
         handleClientSecretRetrievedMessage(msg, setFormData, setFormUI);
+        break;
+      case 'switched':
+        if (typeof msg.index === 'number') {
+          setSelectedIdx(msg.index);
+          setActiveIdx(msg.index);
+        }
+        setIsSwitching(false);
+        break;
+      case 'switchError':
+        setIsSwitching(false);
+        window.alert(msg.error ?? 'Failed to switch target');
         break;
     }
   }, []));
@@ -469,10 +494,13 @@ function TargetWizardPanel() {
     setSelectedIdx(idx);
   }, [mode]);
 
-  const handleSetDefault = useCallback((idx: number) => {
-    setDefaultIdx(idx);
-    postMessage({ command: 'select', index: idx });
-  }, [postMessage]);
+  const handleSwitch = useCallback((idx: number) => {
+    if (isSwitching || idx === activeIdx) {
+      return;
+    }
+    setIsSwitching(true);
+    postMessage({ command: 'switchTo', index: idx });
+  }, [activeIdx, isSwitching, postMessage]);
 
   const handleAddNew = useCallback(() => {
     setMode('new');
@@ -535,7 +563,7 @@ function TargetWizardPanel() {
 
     let newTargets = [...targets];
     let newSelectedIdx = selectedIdx;
-    let newDefaultIdx = defaultIdx;
+    let newActiveIdx = activeIdx;
 
     if (editIndex !== null) {
       newTargets[editIndex] = newTarget;
@@ -555,7 +583,7 @@ function TargetWizardPanel() {
       newTargets.push(newTarget);
       newSelectedIdx = newTargets.length - 1;
       if (targets.length === 0) {
-        newDefaultIdx = newSelectedIdx;
+        newActiveIdx = newSelectedIdx;
         postMessage({ command: 'select', index: newSelectedIdx });
       }
       postMessage({
@@ -574,10 +602,10 @@ function TargetWizardPanel() {
     postMessage({ command: 'commit', targets: newTargets });
     setTargets(newTargets);
     setSelectedIdx(newSelectedIdx);
-    setDefaultIdx(newDefaultIdx);
+    setActiveIdx(newActiveIdx);
     setMode('view');
     setEditIndex(null);
-  }, [validateForm, formData, targets, editIndex, selectedIdx, defaultIdx, postMessage]);
+  }, [validateForm, formData, targets, editIndex, selectedIdx, activeIdx, postMessage]);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -609,9 +637,10 @@ function TargetWizardPanel() {
                     key={idx}
                     target={target}
                     isSelected={idx === selectedIdx}
-                    isDefault={idx === defaultIdx}
+                    isActive={idx === activeIdx}
+                    isSwitching={isSwitching}
                     onClick={() => handleSelectTarget(idx)}
-                    onSetDefault={() => handleSetDefault(idx)}
+                    onSwitch={() => handleSwitch(idx)}
                   />
                 ))}
               </List>
@@ -634,6 +663,9 @@ function TargetWizardPanel() {
                 {currentTarget ? (
                   <TargetDetailsView
                     target={currentTarget}
+                    isActive={selectedIdx === activeIdx}
+                    isSwitching={isSwitching}
+                    onSwitch={() => handleSwitch(selectedIdx)}
                     onEdit={() => handleEdit(selectedIdx)}
                     onDelete={() => handleDelete(selectedIdx)}
                   />

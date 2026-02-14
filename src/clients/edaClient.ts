@@ -199,18 +199,28 @@ export class EdaClient {
   constructor(baseUrl: string, opts: EdaClientOptions) {
     log('Initializing EdaClient with new architecture', LogLevel.DEBUG);
 
-    // Initialize sub-clients
-    this.authClient = new EdaAuthClient(baseUrl, opts);
-    this.apiClient = new EdaApiClient(this.authClient);
     this.streamClient = new EdaStreamClient();
-    this.specManager = new EdaSpecManager(this.apiClient, opts.coreNamespace);
-    this.apiClient.setSpecManager(this.specManager);
+    const { authClient, apiClient, specManager } = this.createClientStack(baseUrl, opts);
+    this.authClient = authClient;
+    this.apiClient = apiClient;
+    this.specManager = specManager;
 
     // Connect components
     this.streamClient.setAuthClient(this.authClient);
 
     // Start async initialization
     this.startInitialization();
+  }
+
+  private createClientStack(
+    baseUrl: string,
+    opts: EdaClientOptions
+  ): { authClient: EdaAuthClient; apiClient: EdaApiClient; specManager: EdaSpecManager } {
+    const authClient = new EdaAuthClient(baseUrl, opts);
+    const apiClient = new EdaApiClient(authClient);
+    const specManager = new EdaSpecManager(apiClient, opts.coreNamespace);
+    apiClient.setSpecManager(specManager);
+    return { authClient, apiClient, specManager };
   }
 
   /**
@@ -221,6 +231,40 @@ export class EdaClient {
     this.initPromise = this.specManager.waitForInit().then(() => {
       this.streamClient.setStreamEndpoints(this.specManager.getStreamEndpoints());
     });
+  }
+
+  public async reconfigure(baseUrl: string, opts: EdaClientOptions): Promise<void> {
+    log(`Reconfiguring EdaClient to ${baseUrl}`, LogLevel.INFO);
+
+    const previousAuthClient = this.authClient;
+    const previousApiClient = this.apiClient;
+    const previousSpecManager = this.specManager;
+
+    const { authClient, apiClient, specManager } = this.createClientStack(baseUrl, opts);
+    specManager.startInitialization();
+    await specManager.waitForInit();
+
+    this.authClient = authClient;
+    this.apiClient = apiClient;
+    this.specManager = specManager;
+    this.initPromise = Promise.resolve();
+
+    try {
+      this.streamClient.setAuthClient(this.authClient);
+      this.streamClient.setStreamEndpoints(this.specManager.getStreamEndpoints());
+      await this.streamClient.reconnect(false);
+      previousAuthClient.dispose();
+    } catch (error) {
+      this.authClient = previousAuthClient;
+      this.apiClient = previousApiClient;
+      this.specManager = previousSpecManager;
+      this.streamClient.setAuthClient(this.authClient);
+      this.streamClient.setStreamEndpoints(this.specManager.getStreamEndpoints());
+      this.initPromise = Promise.resolve();
+      authClient.dispose();
+      await this.streamClient.reconnect(false).catch(() => { /* keep previous session if possible */ });
+      throw error;
+    }
   }
 
   private incrementRefCount(map: Map<string, number>, key: string): boolean {

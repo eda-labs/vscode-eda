@@ -74,6 +74,12 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
     await this.edaClient.streamEdaDeviations();
   }
 
+  public resetForTargetSwitch(): void {
+    this.deviations.clear();
+    this.refresh();
+    this._onDeviationCountChanged.fire(this.count);
+  }
+
   public dispose(): void {
     this.edaClient.closeDeviationStream();
   }

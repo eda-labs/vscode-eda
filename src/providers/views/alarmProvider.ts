@@ -73,6 +73,14 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
     await this.edaClient.streamEdaAlarms();
   }
 
+  public resetForTargetSwitch(): void {
+    this.alarms.clear();
+    this.alarmIdToKey.clear();
+    this.alarmKeyRefCount.clear();
+    this.refresh();
+    this._onAlarmCountChanged.fire(this.count);
+  }
+
 
   getTreeItem(element: TreeItemBase): vscode.TreeItem {
     return element;

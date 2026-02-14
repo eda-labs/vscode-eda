@@ -107,6 +107,13 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     await this.edaClient.streamUserStorageFile('Transactions');
   }
 
+  public async reloadForTargetSwitch(): Promise<void> {
+    this.items = [];
+    this.refresh();
+    this._onBasketCountChanged.fire(this.count);
+    await this.loadBasket();
+  }
+
   /** Set up the stream message listener for basket updates */
   private setupStreamListener(): void {
     this.edaClient.onStreamMessage((stream, msg: unknown) => {

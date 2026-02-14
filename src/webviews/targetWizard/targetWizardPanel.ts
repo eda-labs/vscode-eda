@@ -77,6 +77,10 @@ export interface TargetWizardResult {
   coreNamespace?: string;
 }
 
+export interface ConfigureTargetsOptions {
+  onSwitchTarget?: (index: number) => Promise<void>;
+}
+
 export class TargetWizardPanel extends BasePanel {
   private contexts: string[];
   private targets: {
@@ -89,6 +93,7 @@ export class TargetWizardPanel extends BasePanel {
     coreNamespace?: string;
   }[];
   private selected: number;
+  private onSwitchTarget: ((index: number) => Promise<void>) | undefined;
   private resolve: (value: void | PromiseLike<void>) => void;
 
   constructor(
@@ -103,12 +108,14 @@ export class TargetWizardPanel extends BasePanel {
       skipTlsVerify?: boolean;
       coreNamespace?: string;
     }[],
-    selected: number
+    selected: number,
+    options?: ConfigureTargetsOptions
   ) {
     super(context, 'edaTargetWizard', 'Configure EDA Targets');
     this.contexts = contexts;
     this.targets = targets;
     this.selected = selected;
+    this.onSwitchTarget = options?.onSwitchTarget;
     this.panel.webview.html = this.buildHtml();
 
     this.panel.webview.onDidReceiveMessage((msg: unknown) => this.handleMessage(msg));
@@ -118,13 +125,14 @@ export class TargetWizardPanel extends BasePanel {
     const message = msg as { command: string; [key: string]: unknown };
     const handlers: Record<string, () => PromiseLike<void> | void> = {
       ready: () => this.sendInitialData(),
-      save: () => this.saveConfiguration(message, true),
-      add: () => this.saveConfiguration(message, false),
+      save: () => this.saveConfiguration(message),
+      add: () => this.saveConfiguration(message),
       delete: () => this.deleteTarget(message.url as string),
       confirmDelete: () => this.confirmDelete(message.index as number, message.url as string),
       commit: () => this.commitTargets(message.targets as unknown[]),
       select: () => this.context.globalState.update('selectedEdaTarget', message.index),
-      close: () => this.showReload(),
+      close: () => this.closePanel(),
+      switchTo: () => this.switchToTarget(message.index as number),
       retrieveClientSecret: () => this.retrieveClientSecret(message.url as string)
     };
 
@@ -150,7 +158,7 @@ export class TargetWizardPanel extends BasePanel {
     return `<script type="module" nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
-  private async saveConfiguration(msg: { command: string; [key: string]: unknown }, close: boolean): Promise<void> {
+  private async saveConfiguration(msg: { command: string; [key: string]: unknown }): Promise<void> {
     const config = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
     const current = config.get<Record<string, unknown>>('edaTargets') || {};
     const url = msg.url as string;
@@ -187,9 +195,6 @@ export class TargetWizardPanel extends BasePanel {
       await this.cleanupSecrets(originalUrl);
     }
 
-    if (close) {
-      this.showReload();
-    }
   }
 
   private async cleanupSecrets(url: string): Promise<void> {
@@ -245,18 +250,40 @@ export class TargetWizardPanel extends BasePanel {
     await Promise.all(cleanupPromises);
   }
 
-  private showReload(): void {
-    vscode.window
-      .showInformationMessage('EDA targets updated. Reload window to apply changes.', 'Reload')
-      .then(selection => {
-        if (selection === 'Reload') {
-          void vscode.commands.executeCommand('workbench.action.reloadWindow');
-        }
-      });
-
+  private closePanel(): void {
     this.dispose();
     if (this.resolve) {
       this.resolve();
+    }
+  }
+
+  private async switchToTarget(index: number): Promise<void> {
+    if (index < 0 || index >= this.targets.length) {
+      this.panel.webview.postMessage({
+        command: 'switchError',
+        error: 'Selected target does not exist.'
+      });
+      return;
+    }
+
+    try {
+      if (this.onSwitchTarget) {
+        await this.onSwitchTarget(index);
+      } else {
+        await this.context.globalState.update('selectedEdaTarget', index);
+      }
+      this.selected = index;
+      this.panel.webview.postMessage({
+        command: 'switched',
+        index
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      vscode.window.showErrorMessage(`Failed to switch target: ${message}`);
+      this.panel.webview.postMessage({
+        command: 'switchError',
+        error: message
+      });
     }
   }
 
@@ -339,7 +366,7 @@ export class TargetWizardPanel extends BasePanel {
     return fetchClientSecretDirectly(baseUrl, kcUsername, kcPassword);
   }
 
-  static async show(context: vscode.ExtensionContext): Promise<void> {
+  static async show(context: vscode.ExtensionContext, options?: ConfigureTargetsOptions): Promise<void> {
     const k8sClient = new KubernetesClient();
     const contexts = k8sClient.getAvailableContexts();
     const config = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
@@ -347,7 +374,7 @@ export class TargetWizardPanel extends BasePanel {
 
     const targets = await loadTargetsFromConfig(context, targetsMap);
     const selected = context.globalState.get<number>('selectedEdaTarget', 0) ?? 0;
-    const panel = new TargetWizardPanel(context, contexts, targets, selected);
+    const panel = new TargetWizardPanel(context, contexts, targets, selected, options);
     return panel.waitForClose();
   }
 }
@@ -439,6 +466,9 @@ export async function fetchClientSecretDirectly(
   return secretData.value || '';
 }
 
-export async function configureTargets(context: vscode.ExtensionContext): Promise<void> {
-  return TargetWizardPanel.show(context);
+export async function configureTargets(
+  context: vscode.ExtensionContext,
+  options?: ConfigureTargetsOptions
+): Promise<void> {
+  return TargetWizardPanel.show(context, options);
 }

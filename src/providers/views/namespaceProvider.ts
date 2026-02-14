@@ -194,6 +194,28 @@ constructor() {
     await this.edaClient.streamEdaNamespaces();
   }
 
+  public async reloadForTargetSwitch(): Promise<void> {
+    if (this.refreshHandle) {
+      clearTimeout(this.refreshHandle);
+      this.refreshHandle = undefined;
+    }
+    this.pendingSummary = undefined;
+    this.streamData.clear();
+    this.cachedStreamGroups = {};
+    this.cachedNamespaces = [];
+
+    this.initializeNamespaceCache();
+
+    try {
+      await this.loadStreams();
+      await this.initializeKubernetesNamespaces();
+    } catch (err) {
+      log(`Failed to reload namespace provider after target switch: ${err}`, LogLevel.WARN);
+    }
+
+    this.refresh();
+  }
+
   private async subscribeToKnownEdaStreams(): Promise<void> {
     const streams = new Set<string>();
     for (const [group, names] of Object.entries(this.cachedStreamGroups)) {
