@@ -16,6 +16,7 @@ const STREAM_CURRENT_ALARMS = 'current-alarms';
 const MSG_TYPE_NEXT = 'next';
 const MSG_TYPE_CLOSE = 'close';
 const MSG_TYPE_REGISTER = 'register';
+const DEFAULT_NEXT_INTERVAL_MS = 25;
 
 export interface StreamEndpoint {
   path: string;
@@ -90,7 +91,7 @@ export class EdaStreamClient {
   private lastNextTimestamps: Map<string, number> = new Map();
   private pendingNextMessages: Set<string> = new Set();
   private pendingNextTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
-  private messageIntervalMs = 500;
+  private messageIntervalMs = DEFAULT_NEXT_INTERVAL_MS;
   private streamAbortControllers: Map<string, AbortController> = new Map();
   private streamPromises: Map<string, Promise<void>> = new Map();
   private summaryAbortController: AbortController | undefined;
@@ -128,6 +129,10 @@ export class EdaStreamClient {
 
   constructor() {
     this.disposed = false;
+    const envInterval = Number(process.env.EDA_STREAM_NEXT_INTERVAL_MS);
+    if (!Number.isNaN(envInterval) && envInterval >= 0) {
+      this.messageIntervalMs = envInterval;
+    }
     log('EdaStreamClient initialized', LogLevel.DEBUG);
   }
 
@@ -199,29 +204,30 @@ export class EdaStreamClient {
     }
   }
 
-  private restartActiveNamespacedStreams(client: string): void {
-    for (const streamName of this.activeStreams) {
-      const endpoint = this.streamEndpoints.find(ep => ep.stream === streamName);
-      if (!endpoint || !endpoint.namespaced) {
-        continue;
-      }
-      this.startNamespacedEndpointStreams(client, endpoint);
-      this.sendNextForLogicalStream(streamName);
-    }
-  }
-
   public setNamespaces(namespaces: string[]): void {
     const previousNamespaces = new Set(this.getKnownNamespaces());
     const updated = this.normalizeNamespaces(namespaces);
     this.namespaces = updated;
 
+    const addedNamespaces = Array.from(updated).filter((namespace) => !previousNamespaces.has(namespace));
     const removedNamespaces = Array.from(previousNamespaces).filter((namespace) => !updated.has(namespace));
     this.stopRemovedNamespacedStreams(removedNamespaces);
 
     if (this.eventSocket?.readyState !== WebSocket.OPEN || !this.eventClient) {
       return;
     }
-    this.restartActiveNamespacedStreams(this.eventClient);
+    if (addedNamespaces.length === 0) {
+      return;
+    }
+
+    for (const streamName of this.activeStreams) {
+      const endpoint = this.streamEndpoints.find(ep => ep.stream === streamName);
+      if (!endpoint || !endpoint.namespaced) {
+        continue;
+      }
+      this.startNamespacedEndpointStreams(this.eventClient, endpoint, addedNamespaces);
+      this.sendNextForLogicalStream(streamName);
+    }
   }
 
   public setEqlQuery(query: string, namespaces?: string, streamName = 'eql'): void {
@@ -312,11 +318,16 @@ export class EdaStreamClient {
     return resolved.includes('{') ? undefined : resolved;
   }
 
-  private startNamespacedEndpointStreams(client: string, endpoint: StreamEndpoint): void {
+  private startNamespacedEndpointStreams(
+    client: string,
+    endpoint: StreamEndpoint,
+    namespaces?: readonly string[]
+  ): void {
     if (!this.authClient) {
       return;
     }
-    for (const namespace of this.getKnownNamespaces()) {
+    const targetNamespaces = namespaces ?? this.getKnownNamespaces();
+    for (const namespace of targetNamespaces) {
       const path = this.resolveNamespacedPath(endpoint, namespace);
       if (!path) {
         log(`Failed to resolve namespaced stream path for ${endpoint.stream}: ${endpoint.path}`, LogLevel.DEBUG);
@@ -936,6 +947,11 @@ export class EdaStreamClient {
     if (!res) {
       return;
     }
+    if (!res.ok && res.status === 409) {
+      // Already registered for this event client/stream alias; no need to retry.
+      log(`[STREAM:${streamName}] already registered (HTTP 409), skipping duplicate start`, LogLevel.DEBUG);
+      return;
+    }
 
     log(`[STREAM:${streamName}] connected → ${url}`, LogLevel.DEBUG);
 
@@ -1004,6 +1020,10 @@ export class EdaStreamClient {
         return undefined;
       }
       if (this.isSuccessfulResponse(result)) {
+        return result.response;
+      }
+      if (result.response?.status === 409) {
+        // Conflict commonly means the stream alias is already active server-side.
         return result.response;
       }
 
@@ -1264,6 +1284,11 @@ export class EdaStreamClient {
    */
   private scheduleNextMessage(stream: string): void {
     if (!this.isLogicalStreamActive(stream)) {
+      return;
+    }
+
+    if (this.messageIntervalMs <= 0) {
+      this.sendNextMessage(stream);
       return;
     }
 

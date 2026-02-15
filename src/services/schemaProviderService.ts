@@ -107,6 +107,9 @@ export class SchemaProviderService extends CoreService {
   private schemaCacheDir: string;
   private disposables: vscode.Disposable[] = [];
   private schemaCache = new Map<string, string>();
+  private clusterSchemaCache = new Map<string, JsonSchema>();
+  private customResourceDefinitionsCache: EdaCrd[] | undefined;
+  private customResourceDefinitionsPromise: Promise<EdaCrd[]> | undefined;
   private yamlApi: YamlExtensionApi | null = null;
 
   constructor() {
@@ -184,6 +187,9 @@ export class SchemaProviderService extends CoreService {
 
   private async loadSchemas(): Promise<void> {
     this.schemaCache.clear();
+    this.clusterSchemaCache.clear();
+    this.customResourceDefinitionsCache = undefined;
+    this.customResourceDefinitionsPromise = undefined;
     if (!fs.existsSync(this.schemaCacheDir)) {
       fs.mkdirSync(this.schemaCacheDir, { recursive: true });
     }
@@ -368,7 +374,7 @@ export class SchemaProviderService extends CoreService {
 
   /** Load CRDs from local OpenAPI spec files */
   private async loadCrdsFromSpecs(specDir: string): Promise<EdaCrd[]> {
-    const results: EdaCrd[] = [];
+    const specFiles: string[] = [];
     try {
       const categories = await fs.promises.readdir(specDir, { withFileTypes: true });
       for (const cat of categories) {
@@ -377,15 +383,15 @@ export class SchemaProviderService extends CoreService {
         const files = await fs.promises.readdir(catDir);
         for (const file of files) {
           if (!file.endsWith('.json')) continue;
-          const specPath = path.join(catDir, file);
-          const crds = await this.loadCrdsFromSpecFile(specPath);
-          results.push(...crds);
+          specFiles.push(path.join(catDir, file));
         }
       }
+      const batches = await Promise.all(specFiles.map(specPath => this.loadCrdsFromSpecFile(specPath)));
+      return batches.flat();
     } catch (err) {
       log(`Failed to load CRD definitions: ${err}`, LogLevel.WARN);
     }
-    return results;
+    return [];
   }
 
   /**
@@ -441,7 +447,12 @@ export class SchemaProviderService extends CoreService {
     const results: EdaCrd[] = [];
     try {
       const k8sClient = serviceManager.getClient<KubernetesClient>('kubernetes');
-      const crds = (await k8sClient.listCrds()) as K8sCrd[];
+      const cached = k8sClient.getCachedCrds();
+      const crds = (
+        cached.length > 0
+          ? cached
+          : await k8sClient.listCrds()
+      ) as K8sCrd[];
       for (const crd of crds) {
         const extracted = this.extractCrdFromK8s(crd);
         if (!extracted) continue;
@@ -450,7 +461,7 @@ export class SchemaProviderService extends CoreService {
         if (existing.has(key)) continue;
         existing.add(key);
         if (schema) {
-          await this.cacheSchema(crdData.kind, schema);
+          this.clusterSchemaCache.set(crdData.kind, schema);
         }
         results.push(crdData);
       }
@@ -460,19 +471,51 @@ export class SchemaProviderService extends CoreService {
     return results;
   }
 
+  private static cloneCrdDefinitions(definitions: EdaCrd[]): EdaCrd[] {
+    return definitions.map(def => ({ ...def }));
+  }
+
   /** Return CRD metadata discovered from cached OpenAPI specs */
-  public async getCustomResourceDefinitions(): Promise<EdaCrd[]> {
-    const specDir = await this.findSpecDir();
-    const results = await this.loadCrdsFromSpecs(specDir);
-    const existing = new Set(results.map(r => `${r.group}/${r.kind}`));
-    const clusterCrds = await this.loadCrdsFromCluster(existing);
-    results.push(...clusterCrds);
-    results.sort((a, b) => a.kind.localeCompare(b.kind));
-    return results;
+  public async getCustomResourceDefinitions(forceRefresh = false): Promise<EdaCrd[]> {
+    if (!forceRefresh && this.customResourceDefinitionsCache) {
+      return SchemaProviderService.cloneCrdDefinitions(this.customResourceDefinitionsCache);
+    }
+    if (!forceRefresh && this.customResourceDefinitionsPromise) {
+      const shared = await this.customResourceDefinitionsPromise;
+      return SchemaProviderService.cloneCrdDefinitions(shared);
+    }
+
+    const loader = (async (): Promise<EdaCrd[]> => {
+      const specDir = await this.findSpecDir();
+      const results = await this.loadCrdsFromSpecs(specDir);
+      const existing = new Set(results.map(r => `${r.group}/${r.kind}`));
+      const clusterCrds = await this.loadCrdsFromCluster(existing);
+      results.push(...clusterCrds);
+      results.sort((a, b) => a.kind.localeCompare(b.kind));
+      return results;
+    })();
+    this.customResourceDefinitionsPromise = loader;
+
+    try {
+      const loaded = await loader;
+      this.customResourceDefinitionsCache = loaded;
+      return SchemaProviderService.cloneCrdDefinitions(loaded);
+    } finally {
+      this.customResourceDefinitionsPromise = undefined;
+    }
+  }
+
+  private getClusterSchemaForKind(kind: string): JsonSchema | null {
+    return this.clusterSchemaCache.get(kind) ?? null;
   }
 
   /** Get JSON schema for a given resource kind */
   public async getSchemaForKind(kind: string): Promise<JsonSchema | null> {
+    const clusterSchema = this.getClusterSchemaForKind(kind);
+    if (clusterSchema) {
+      return clusterSchema;
+    }
+
     if (!this.schemaCache.has(kind)) {
       return null;
     }

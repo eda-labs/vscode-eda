@@ -38,6 +38,7 @@ interface K8sMetadata {
   uid?: string;
   resourceVersion?: string;
   labels?: Record<string, string>;
+  annotations?: Record<string, string>;
   [key: string]: unknown;
 }
 
@@ -201,7 +202,7 @@ constructor() {
         continue;
       }
       for (const stream of names) {
-        if (!STREAM_SUBSCRIBE_EXCLUDE.has(stream)) {
+        if (!STREAM_SUBSCRIBE_EXCLUDE.has(stream) && !stream.startsWith('_')) {
           streams.add(stream);
         }
       }
@@ -938,6 +939,11 @@ constructor() {
     const out: TreeItemBase[] = [];
     const parentMatched = this.isParentFilterMatched(stream, streamGroup);
     for (const resource of items) {
+      // Kubernetes watch bookmarks can include an "initial-events-end" marker object
+      // without resource identity; skip these synthetic entries.
+      if (resource.metadata?.annotations?.['k8s.io/initial-events-end'] === 'true') {
+        continue;
+      }
       const name = resource.metadata?.name;
       if (!name) {
         log(`Resource in stream ${stream} missing name: ${JSON.stringify(resource).slice(0, 200)}`, LogLevel.DEBUG);
