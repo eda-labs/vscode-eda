@@ -124,6 +124,7 @@ export class TargetWizardPanel extends BasePanel {
       confirmDelete: () => this.confirmDelete(message.index as number, message.url as string),
       commit: () => this.commitTargets(message.targets as unknown[]),
       select: () => this.context.globalState.update('selectedEdaTarget', message.index),
+      switchTarget: () => this.switchTarget(message.index as number),
       close: () => this.showReload(),
       retrieveClientSecret: () => this.retrieveClientSecret(message.url as string)
     };
@@ -243,6 +244,15 @@ export class TargetWizardPanel extends BasePanel {
       .filter(url => !updated[url])
       .map(url => this.cleanupSecrets(url));
     await Promise.all(cleanupPromises);
+  }
+
+  private async switchTarget(index: number): Promise<void> {
+    await this.context.globalState.update('selectedEdaTarget', index);
+    vscode.window.showInformationMessage('EDA target updated. Reload window to apply.', 'Reload').then(value => {
+      if (value === 'Reload') {
+        void vscode.commands.executeCommand('workbench.action.reloadWindow');
+      }
+    });
   }
 
   private showReload(): void {
