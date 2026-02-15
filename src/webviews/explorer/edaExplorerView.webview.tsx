@@ -212,6 +212,7 @@ function ExplorerNodeLabel({ node, onInvokeAction }: Readonly<ExplorerNodeLabelP
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const hasActions = node.actions.length > 0;
+  const hasEntryTooltip = Boolean(node.tooltip) && node.children.length === 0;
 
   const handleMenuOpen = useCallback((event: MouseEvent<HTMLElement>) => {
     event.preventDefault();
@@ -282,7 +283,20 @@ function ExplorerNodeLabel({ node, onInvokeAction }: Readonly<ExplorerNodeLabelP
           cursor: node.primaryAction ? 'pointer' : 'default'
         }}
       >
-        <Tooltip title={node.tooltip || ''} enterDelay={400}>
+        <Tooltip
+          title={hasEntryTooltip ? node.tooltip : ''}
+          placement="right-start"
+          enterDelay={400}
+          leaveDelay={0}
+          disableInteractive
+          disableHoverListener={!hasEntryTooltip}
+          disableFocusListener={!hasEntryTooltip}
+          disableTouchListener={!hasEntryTooltip}
+          slotProps={{
+            popper: { sx: { pointerEvents: 'none' }, modifiers: [{ name: 'flip', options: { fallbackPlacements: ['left-start', 'top-start', 'bottom-start'] } }, { name: 'preventOverflow', options: { padding: 8, altAxis: true } }] },
+            tooltip: { sx: { maxWidth: 'calc(100vw - 24px)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }
+          }}
+        >
           <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
             {node.statusIndicator && (
               <Box
