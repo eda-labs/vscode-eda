@@ -33,6 +33,7 @@ const WEBVIEW_LOADERS: Readonly<Record<DevWebviewId, () => Promise<unknown>>> = 
   queriesDashboard: () => import('../../../src/webviews/dashboard/queries/queriesDashboard.webview'),
   resourceBrowser: () => import('../../../src/webviews/dashboard/resource/resourceBrowserPanel.webview'),
   simnodesDashboard: () => import('../../../src/webviews/dashboard/simnodes/simnodesDashboard.webview'),
+  topobuilderDashboard: () => import('../../../src/webviews/dashboard/topobuilder/topobuilderDashboard.webview'),
   topologyFlowDashboard: () => import('../../../src/webviews/dashboard/topologyFlow/topologyFlowDashboard.webview'),
   toponodesDashboard: () => import('../../../src/webviews/dashboard/toponodes/toponodesDashboard.webview'),
   workflowsDashboard: () => import('../../../src/webviews/dashboard/workflows/workflowsDashboard.webview')
@@ -87,12 +88,10 @@ function installVsCodeApiBridge(onWebviewMessage: (message: WebviewCommand) => v
 }
 
 async function loadExtraStyles(webviewId: DevWebviewId): Promise<void> {
-  if (webviewId !== 'topologyFlowDashboard') {
-    return;
+  if (webviewId === 'topologyFlowDashboard') {
+    await import('../../../src/webviews/dashboard/topologyFlow/topologyFlowDashboard.css');
+    await import('@xyflow/react/dist/style.css');
   }
-
-  await import('../../../src/webviews/dashboard/topologyFlow/topologyFlowDashboard.css');
-  await import('@xyflow/react/dist/style.css');
 }
 
 async function bootstrap(): Promise<void> {

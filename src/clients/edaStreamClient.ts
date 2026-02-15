@@ -20,6 +20,8 @@ const MSG_TYPE_REGISTER = 'register';
 export interface StreamEndpoint {
   path: string;
   stream: string;
+  namespaced?: boolean;
+  namespaceParam?: string;
 }
 
 /** Generic stream message payload - the actual content varies by stream type */
@@ -108,6 +110,9 @@ export class EdaStreamClient {
 
   private authClient: EdaAuthClient | undefined;
   private streamEndpoints: StreamEndpoint[] = [];
+  private streamAliases: Map<string, string> = new Map();
+  private namespaces: Set<string> = new Set();
+  private coreNamespace = 'eda-system';
 
   // Stream names that should not be automatically subscribed to
   private static readonly AUTO_EXCLUDE = new Set([
@@ -152,6 +157,73 @@ export class EdaStreamClient {
     this.streamEndpoints = endpoints;
   }
 
+  public setCoreNamespace(namespace: string): void {
+    if (!namespace) {
+      return;
+    }
+    this.coreNamespace = namespace;
+    if (this.namespaces.size === 0) {
+      this.namespaces.add(namespace);
+    }
+  }
+
+  private normalizeNamespaces(namespaces: string[]): Set<string> {
+    const updated = new Set<string>();
+    for (const namespace of namespaces) {
+      if (typeof namespace === 'string' && namespace.length > 0) {
+        updated.add(namespace);
+      }
+    }
+    if (this.coreNamespace) {
+      updated.add(this.coreNamespace);
+    }
+    return updated;
+  }
+
+  private stopRemovedNamespacedStreams(removedNamespaces: string[]): void {
+    if (removedNamespaces.length === 0) {
+      return;
+    }
+    for (const streamName of this.activeStreams) {
+      const endpoint = this.streamEndpoints.find(ep => ep.stream === streamName);
+      if (!endpoint || !endpoint.namespaced) {
+        continue;
+      }
+      for (const namespace of removedNamespaces) {
+        const alias = this.getNamespacedAlias(streamName, namespace);
+        this.clearPendingNextTimer(alias);
+        this.sendCloseMessage(alias);
+        this.clearManagedStreamState(alias);
+        this.streamAliases.delete(alias);
+      }
+    }
+  }
+
+  private restartActiveNamespacedStreams(client: string): void {
+    for (const streamName of this.activeStreams) {
+      const endpoint = this.streamEndpoints.find(ep => ep.stream === streamName);
+      if (!endpoint || !endpoint.namespaced) {
+        continue;
+      }
+      this.startNamespacedEndpointStreams(client, endpoint);
+      this.sendNextForLogicalStream(streamName);
+    }
+  }
+
+  public setNamespaces(namespaces: string[]): void {
+    const previousNamespaces = new Set(this.getKnownNamespaces());
+    const updated = this.normalizeNamespaces(namespaces);
+    this.namespaces = updated;
+
+    const removedNamespaces = Array.from(previousNamespaces).filter((namespace) => !updated.has(namespace));
+    this.stopRemovedNamespacedStreams(removedNamespaces);
+
+    if (this.eventSocket?.readyState !== WebSocket.OPEN || !this.eventClient) {
+      return;
+    }
+    this.restartActiveNamespacedStreams(this.eventClient);
+  }
+
   public setEqlQuery(query: string, namespaces?: string, streamName = 'eql'): void {
     this.eqlStreams.set(streamName, { query, namespaces });
   }
@@ -193,6 +265,71 @@ export class EdaStreamClient {
     this.pendingNextTimers.clear();
     this.pendingNextMessages.clear();
     this.lastNextTimestamps.clear();
+  }
+
+  private getLogicalStreamName(stream: string): string {
+    return this.streamAliases.get(stream) ?? stream;
+  }
+
+  private isLogicalStreamActive(stream: string): boolean {
+    return this.activeStreams.has(this.getLogicalStreamName(stream));
+  }
+
+  private getPhysicalStreamsForLogicalStream(streamName: string): string[] {
+    const physical = new Set<string>([streamName]);
+    for (const [alias, logical] of this.streamAliases.entries()) {
+      if (logical === streamName) {
+        physical.add(alias);
+      }
+    }
+    return Array.from(physical);
+  }
+
+  private sendNextForLogicalStream(streamName: string): void {
+    for (const physicalStream of this.getPhysicalStreamsForLogicalStream(streamName)) {
+      this.sendNextMessage(physicalStream);
+    }
+  }
+
+  private getKnownNamespaces(): string[] {
+    if (this.namespaces.size > 0) {
+      return Array.from(this.namespaces);
+    }
+    return this.coreNamespace ? [this.coreNamespace] : [];
+  }
+
+  private getNamespacedAlias(stream: string, namespace: string): string {
+    return `${stream}__ns__${namespace}`;
+  }
+
+  private resolveNamespacedPath(endpoint: StreamEndpoint, namespace: string): string | undefined {
+    const namespaceParam = endpoint.namespaceParam ?? 'namespace';
+    const token = `{${namespaceParam}}`;
+    if (!endpoint.path.includes(token)) {
+      return undefined;
+    }
+    const resolved = endpoint.path.replace(token, encodeURIComponent(namespace));
+    return resolved.includes('{') ? undefined : resolved;
+  }
+
+  private startNamespacedEndpointStreams(client: string, endpoint: StreamEndpoint): void {
+    if (!this.authClient) {
+      return;
+    }
+    for (const namespace of this.getKnownNamespaces()) {
+      const path = this.resolveNamespacedPath(endpoint, namespace);
+      if (!path) {
+        log(`Failed to resolve namespaced stream path for ${endpoint.stream}: ${endpoint.path}`, LogLevel.DEBUG);
+        continue;
+      }
+      const alias = this.getNamespacedAlias(endpoint.stream, namespace);
+      this.streamAliases.set(alias, endpoint.stream);
+      const url =
+        `${this.authClient.getBaseUrl()}${path}` +
+        `?eventclient=${encodeURIComponent(client)}` +
+        `&stream=${encodeURIComponent(alias)}`;
+      this.startManagedStream(alias, endpoint.stream, url);
+    }
   }
 
   private startManagedStream(
@@ -432,7 +569,7 @@ export class EdaStreamClient {
 
     if (this.eventSocket?.readyState === WebSocket.OPEN && this.eventClient) {
       this.startStreamByName(this.eventClient, streamName);
-      this.sendNextMessage(streamName);
+      this.sendNextForLogicalStream(streamName);
     }
   }
 
@@ -534,13 +671,19 @@ export class EdaStreamClient {
    */
   public unsubscribeFromStream(streamName: string): void {
     this.activeStreams.delete(streamName);
-    this.clearPendingNextTimer(streamName);
+    const physicalStreams = this.getPhysicalStreamsForLogicalStream(streamName);
+    for (const physicalStream of physicalStreams) {
+      this.clearPendingNextTimer(physicalStream);
+      this.sendCloseMessage(physicalStream);
+      this.clearManagedStreamState(physicalStream);
+      if (physicalStream !== streamName) {
+        this.streamAliases.delete(physicalStream);
+      }
+    }
 
-    this.sendCloseMessage(streamName);
     this.clearSummaryStreamState(streamName);
     this.clearEqlStreamState(streamName);
     this.clearNqlStreamState(streamName);
-    this.clearManagedStreamState(streamName);
     if (streamName === STREAM_FILE) {
       this.clearFileManagedStreams();
     }
@@ -642,6 +785,7 @@ export class EdaStreamClient {
     this.eventClient = undefined;
     if (clearStreams) {
       this.activeStreams.clear();
+      this.streamAliases.clear();
     }
   }
 
@@ -969,6 +1113,11 @@ export class EdaStreamClient {
       return;
     }
 
+    if (endpoint.namespaced) {
+      this.startNamespacedEndpointStreams(client, endpoint);
+      return;
+    }
+
     const url =
       `${this.authClient.getBaseUrl()}${endpoint.path}` +
       `?eventclient=${encodeURIComponent(client)}` +
@@ -1088,7 +1237,10 @@ export class EdaStreamClient {
         log(`Stream ${msg.stream} event received`, LogLevel.DEBUG);
       }
       if (msg.stream) {
-        this._onStreamMessage.fire({ stream: msg.stream, message: msg });
+        const physicalStream = msg.stream;
+        const logicalStream = this.getLogicalStreamName(physicalStream);
+        const forwardedMessage = logicalStream === physicalStream ? msg : { ...msg, stream: logicalStream };
+        this._onStreamMessage.fire({ stream: logicalStream, message: forwardedMessage });
 
         // Send 'next' after processing messages to indicate we're ready for more
         // This includes 'update' messages, 'details' messages, and initial stream registration confirmations
@@ -1096,10 +1248,10 @@ export class EdaStreamClient {
         // Skip only 'register' type messages
         if (
           msg.type !== MSG_TYPE_REGISTER &&
-          this.activeStreams.has(msg.stream) &&
+          this.isLogicalStreamActive(physicalStream) &&
           this.eventSocket?.readyState === WebSocket.OPEN
         ) {
-          this.scheduleNextMessage(msg.stream);
+          this.scheduleNextMessage(physicalStream);
         }
       }
     } catch (err) {
@@ -1111,7 +1263,7 @@ export class EdaStreamClient {
    * Schedule a 'next' message with rate limiting
    */
   private scheduleNextMessage(stream: string): void {
-    if (!this.activeStreams.has(stream)) {
+    if (!this.isLogicalStreamActive(stream)) {
       return;
     }
 
@@ -1131,7 +1283,7 @@ export class EdaStreamClient {
       const timer = setTimeout(() => {
         this.pendingNextMessages.delete(stream);
         this.pendingNextTimers.delete(stream);
-        if (this.activeStreams.has(stream) && this.eventSocket?.readyState === WebSocket.OPEN) {
+        if (this.isLogicalStreamActive(stream) && this.eventSocket?.readyState === WebSocket.OPEN) {
           this.sendNextMessage(stream);
         }
       }, delay);
@@ -1144,7 +1296,7 @@ export class EdaStreamClient {
    * Send a 'next' message and update timestamp
    */
   private sendNextMessage(stream: string): void {
-    if (!this.activeStreams.has(stream)) {
+    if (!this.isLogicalStreamActive(stream)) {
       return;
     }
     if (this.eventSocket?.readyState === WebSocket.OPEN) {

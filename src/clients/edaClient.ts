@@ -3,6 +3,7 @@ import { LogLevel, log } from '../extension';
 import type { EdaAuthOptions } from './edaAuthClient';
 import { EdaAuthClient } from './edaAuthClient';
 import { EdaApiClient } from './edaApiClient';
+import type { WorkflowGetInputsRespElem, WorkflowInputDataElem } from './edaApiClient';
 import type { StreamMessage } from './edaStreamClient';
 import { EdaStreamClient } from './edaStreamClient';
 import { EdaSpecManager } from './edaSpecManager';
@@ -220,6 +221,8 @@ export class EdaClient {
     this.specManager.startInitialization();
     this.initPromise = this.specManager.waitForInit().then(() => {
       this.streamClient.setStreamEndpoints(this.specManager.getStreamEndpoints());
+      this.streamClient.setCoreNamespace(this.specManager.getCoreNamespace());
+      this.streamClient.setNamespaces(this.specManager.getCachedNamespaces());
     });
   }
 
@@ -539,32 +542,17 @@ export class EdaClient {
     return this.apiClient.listNamespaces();
   }
 
-  public async listWorkflows(namespace?: string): Promise<K8sResource[]> {
-    await this.initPromise;
-    return this.apiClient.listWorkflows(namespace) as Promise<K8sResource[]>;
-  }
-
-  public async listWorkflowDefinitions(namespace?: string): Promise<K8sResource[]> {
-    await this.initPromise;
-    return this.apiClient.listWorkflowDefinitions(namespace) as Promise<K8sResource[]>;
-  }
-
-  public async createWorkflow(namespace: string, workflow: K8sResource): Promise<K8sResource> {
-    await this.initPromise;
-    return this.apiClient.createWorkflow(namespace, workflow) as Promise<K8sResource>;
-  }
-
-  public async listWorkflowBackedResources(
+  public async listResources(
     group: string,
     version: string,
     kind: string,
     namespace?: string
   ): Promise<K8sResource[]> {
     await this.initPromise;
-    return this.apiClient.listWorkflowBackedResources(group, version, kind, namespace) as Promise<K8sResource[]>;
+    return this.apiClient.listResources(group, version, kind, namespace) as Promise<K8sResource[]>;
   }
 
-  public async createWorkflowBackedResource(
+  public async createResource(
     group: string,
     version: string,
     kind: string,
@@ -572,10 +560,25 @@ export class EdaClient {
     namespace?: string
   ): Promise<K8sResource> {
     await this.initPromise;
-    return this.apiClient.createWorkflowBackedResource(group, version, kind, resource, namespace) as Promise<K8sResource>;
+    return this.apiClient.createResource(group, version, kind, resource, namespace) as Promise<K8sResource>;
   }
 
-  public async getWorkflowBackedResourceYaml(
+  public async getWorkflowInputs(path: string): Promise<WorkflowGetInputsRespElem[]> {
+    await this.initPromise;
+    return this.apiClient.getWorkflowInputs(path);
+  }
+
+  public async submitWorkflowInput(path: string, data: WorkflowInputDataElem[]): Promise<void> {
+    await this.initPromise;
+    await this.apiClient.submitWorkflowInput(path, data);
+  }
+
+  public async getResource(path: string): Promise<K8sResource> {
+    await this.initPromise;
+    return this.apiClient.fetchJSON<K8sResource>(path);
+  }
+
+  public async getResourceYaml(
     group: string,
     version: string,
     kind: string,
@@ -583,7 +586,7 @@ export class EdaClient {
     namespace?: string
   ): Promise<string> {
     await this.initPromise;
-    return this.apiClient.getWorkflowBackedResourceYaml(group, version, kind, name, namespace);
+    return this.apiClient.getResourceYaml(group, version, kind, name, namespace);
   }
 
   public async listTopologies(): Promise<Topology[]> {
@@ -616,6 +619,7 @@ export class EdaClient {
 
   public setCachedNamespaces(names: string[]): void {
     this.specManager.setCachedNamespaces(names);
+    this.streamClient.setNamespaces(names);
   }
 
   public getCoreNamespace(): string {

@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- workflows dashboard includes table load, stream refresh, and create workflow flows */
 import * as os from 'os';
 import * as path from 'path';
 
@@ -12,6 +11,8 @@ import type { EdaClient } from '../../../clients/edaClient';
 import { kindToPlural } from '../../../utils/pluralUtils';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
 import { getUpdates } from '../../../utils/streamMessageUtils';
+
+const CORE_EDA_GROUP = 'core.eda.nokia.com';
 
 /** Webview message received from the React frontend */
 interface WebviewMessage {
@@ -66,6 +67,10 @@ interface WorkflowTargetRef {
   kind: string;
 }
 
+interface WorkflowBackedTarget extends WorkflowTargetRef {
+  definitionName: string;
+}
+
 interface WorkflowDraftContext {
   definitionName: string;
   namespace: string;
@@ -88,18 +93,6 @@ interface WorkflowStreamUpdate {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function addNamespaceIfPresent(namespaces: Set<string>, namespace: string | undefined): void {
-  if (namespace) {
-    namespaces.add(namespace);
-  }
-}
-
-function addNamespaces(namespaces: Set<string>, values: Iterable<string | undefined>): void {
-  for (const value of values) {
-    addNamespaceIfPresent(namespaces, value);
-  }
 }
 
 function countRows<T>(rowMap: Map<string, Map<string, T>>): number {
@@ -309,28 +302,6 @@ export class WorkflowsDashboardPanel extends BasePanel {
     this.scheduleStreamRefresh();
   }
 
-  private async getAllKnownNamespaces(extraNamespaces: string[] = []): Promise<string[]> {
-    const namespaces = new Set<string>();
-    addNamespaceIfPresent(namespaces, this.edaClient.getCoreNamespace());
-    addNamespaces(namespaces, this.edaClient.getCachedNamespaces());
-    addNamespaces(namespaces, this.rowMap.keys());
-    addNamespaces(namespaces, extraNamespaces);
-
-    if (this.selectedNamespace !== ALL_NAMESPACES) {
-      namespaces.add(this.selectedNamespace);
-    }
-
-    if (this.edaClient.getCachedNamespaces().length === 0 || namespaces.size <= 1) {
-      try {
-        addNamespaces(namespaces, await this.edaClient.listNamespaces());
-      } catch {
-        // Ignore namespace listing failures and use available best-effort values.
-      }
-    }
-
-    return Array.from(namespaces).sort((a, b) => a.localeCompare(b));
-  }
-
   private flattenObject(obj: Record<string, unknown>, prefix = ''): FlattenedRow {
     const result: FlattenedRow = {};
     for (const [key, value] of Object.entries(obj)) {
@@ -482,39 +453,13 @@ export class WorkflowsDashboardPanel extends BasePanel {
     }
   }
 
-  private getDefinitionCandidateNamespaces(): string[] {
-    return Array.from(new Set([
-      this.edaClient.getCoreNamespace(),
-      ...this.edaClient.getCachedNamespaces()
-    ]));
-  }
-
-  private async listWorkflowDefinitionsWithFallback(
-    namespace: string | undefined
-  ): Promise<WorkflowDefinitionResource[] | undefined> {
-    try {
-      const definitions = await this.edaClient.listWorkflowDefinitions(namespace);
-      return definitions as WorkflowDefinitionResource[];
-    } catch {
-      return undefined;
-    }
-  }
-
   private async getWorkflowDefinitions(): Promise<WorkflowDefinitionResource[]> {
     const merged = new Map<string, WorkflowDefinitionResource>();
-    const allNamespaces = await this.listWorkflowDefinitionsWithFallback(undefined);
-    if (allNamespaces) {
-      this.mergeWorkflowDefinitions(merged, allNamespaces);
-    }
-
-    if (merged.size === 0) {
-      for (const namespace of this.getDefinitionCandidateNamespaces()) {
-        const definitions = await this.listWorkflowDefinitionsWithFallback(namespace);
-        if (!definitions) {
-          continue;
-        }
-        this.mergeWorkflowDefinitions(merged, definitions);
-      }
+    try {
+      const definitions = await this.edaClient.listResources(CORE_EDA_GROUP, 'v1', 'WorkflowDefinition');
+      this.mergeWorkflowDefinitions(merged, definitions as WorkflowDefinitionResource[]);
+    } catch {
+      return [];
     }
 
     return Array.from(merged.values());
@@ -716,7 +661,7 @@ export class WorkflowsDashboardPanel extends BasePanel {
     const namespace = prepared.metadata?.namespace ?? draft.namespace;
 
     if (draft.target) {
-      await this.edaClient.createWorkflowBackedResource(
+      await this.edaClient.createResource(
         draft.target.group,
         draft.target.version,
         draft.target.kind,
@@ -724,7 +669,7 @@ export class WorkflowsDashboardPanel extends BasePanel {
         namespace
       );
     } else {
-      await this.edaClient.createWorkflow(namespace, prepared);
+      await this.edaClient.createResource(CORE_EDA_GROUP, 'v1', 'Workflow', prepared, namespace);
     }
 
     const resourceName = prepared.metadata?.name ?? 'workflow';
@@ -881,7 +826,11 @@ export class WorkflowsDashboardPanel extends BasePanel {
 
     const workflowId = meta.annotations?.['workflows.core.eda.nokia.com/id'];
     if (typeof workflowId === 'string' && workflowId) {
-      result['workflow-id'] = workflowId;
+      if (/^(0|[1-9]\d*)$/.test(workflowId)) {
+        result['workflow-id'] = Number(workflowId);
+      } else {
+        result['workflow-id'] = workflowId;
+      }
     }
   }
 
@@ -951,51 +900,27 @@ export class WorkflowsDashboardPanel extends BasePanel {
   }
 
   private async loadCoreWorkflowResources(ns: string): Promise<void> {
-    if (ns === ALL_NAMESPACES) {
-      try {
-        const workflows = await this.edaClient.listWorkflows() as K8sResourceData[];
-        for (const workflow of workflows) {
-          this.addWorkflowRow(workflow);
-        }
-        return;
-      } catch {
-        // Fall back to namespace-by-namespace reads.
+    try {
+      const workflows = await this.edaClient.listResources(
+        CORE_EDA_GROUP, 'v1', 'Workflow',
+        ns === ALL_NAMESPACES ? undefined : ns
+      ) as K8sResourceData[];
+      for (const workflow of workflows) {
+        this.addWorkflowRow(
+          workflow,
+          undefined,
+          ns === ALL_NAMESPACES ? undefined : ns
+        );
       }
-    }
-
-    const targetNamespaces =
-      ns === ALL_NAMESPACES
-        ? await this.getAllKnownNamespaces()
-        : [ns];
-
-    for (const namespace of targetNamespaces) {
-      try {
-        const workflows = await this.edaClient.listWorkflows(namespace) as K8sResourceData[];
-        for (const workflow of workflows) {
-          this.addWorkflowRow(workflow, undefined, namespace);
-        }
-      } catch {
-        // Ignore namespace failures.
-      }
+    } catch {
+      // Ignore workflow list failures.
     }
   }
 
-  private async loadWorkflowBackedResources(ns: string): Promise<void> {
-    const definitions = await this.getWorkflowDefinitions();
-    const definitionNamespaces = definitions
-      .map(definition => definition.metadata?.namespace)
-      .filter((namespace): namespace is string => typeof namespace === 'string' && namespace.length > 0);
-    const fallbackNamespaces =
-      ns === ALL_NAMESPACES
-        ? await this.getAllKnownNamespaces(definitionNamespaces)
-        : [ns];
-
-    const flowTargetMap = new Map<string, {
-      group: string;
-      version: string;
-      kind: string;
-      definitionName: string;
-    }>();
+  private collectWorkflowBackedTargets(
+    definitions: WorkflowDefinitionResource[]
+  ): { flowTargetMap: Map<string, WorkflowBackedTarget>; flowStreamNames: Set<string> } {
+    const flowTargetMap = new Map<string, WorkflowBackedTarget>();
     const flowStreamNames = new Set<string>();
 
     for (const definition of definitions) {
@@ -1021,53 +946,23 @@ export class WorkflowsDashboardPanel extends BasePanel {
       }
       flowStreamNames.add(kindToPlural(flowDef.kind));
     }
+
+    return { flowTargetMap, flowStreamNames };
+  }
+
+  private async loadWorkflowBackedResources(ns: string): Promise<void> {
+    const definitions = await this.getWorkflowDefinitions();
+    const { flowTargetMap, flowStreamNames } = this.collectWorkflowBackedTargets(definitions);
     this.ensureWorkflowStreams(flowStreamNames);
-
-    const fetchTargetResources = async (target: {
-      group: string;
-      version: string;
-      kind: string;
-      definitionName: string;
-    }): Promise<K8sResourceData[]> => {
-      if (ns !== ALL_NAMESPACES) {
-        const singleNs = await this.edaClient.listWorkflowBackedResources(
-          target.group,
-          target.version,
-          target.kind,
-          ns
-        );
-        return singleNs as K8sResourceData[];
-      }
-
-      try {
-        const allNs = await this.edaClient.listWorkflowBackedResources(
-          target.group,
-          target.version,
-          target.kind
-        );
-        return allNs as K8sResourceData[];
-      } catch {
-        const collected: K8sResourceData[] = [];
-        for (const namespace of fallbackNamespaces) {
-          try {
-            const perNs = await this.edaClient.listWorkflowBackedResources(
-              target.group,
-              target.version,
-              target.kind,
-              namespace
-            );
-            collected.push(...(perNs as K8sResourceData[]));
-          } catch {
-            // Ignore per-namespace failures.
-          }
-        }
-        return collected;
-      }
-    };
 
     for (const target of flowTargetMap.values()) {
       try {
-        const resources = await fetchTargetResources(target);
+        const resources = await this.edaClient.listResources(
+          target.group,
+          target.version,
+          target.kind,
+          ns === ALL_NAMESPACES ? undefined : ns
+        ) as K8sResourceData[];
         for (const resource of resources) {
           this.addWorkflowRow(
             resource,
@@ -1169,7 +1064,7 @@ export class WorkflowsDashboardPanel extends BasePanel {
       let yaml: string;
       if (kind && apiVersion && apiVersion.includes('/') && kind.toLowerCase() !== 'workflow') {
         const [group, version] = apiVersion.split('/');
-        yaml = await this.edaClient.getWorkflowBackedResourceYaml(
+        yaml = await this.edaClient.getResourceYaml(
           group,
           version,
           kind,

@@ -21,6 +21,7 @@ const DASHBOARD_PREVIEW_BY_NAME: Readonly<Record<string, DevPreviewWebviewId>> =
   'Resource Browser': 'resourceBrowser',
   Simnodes: 'simnodesDashboard',
   Topology: 'topologyFlowDashboard',
+  'Topo Builder': 'topobuilderDashboard',
   Workflows: 'workflowsDashboard'
 };
 
@@ -792,6 +793,15 @@ const explorerSectionsFixture: ReadonlyArray<ExplorerSectionSnapshot> = [
           ['Topology']
         )
       }),
+      createExplorerNode('dashboards/topobuilder', 'Topo Builder', {
+        contextValue: 'eda-dashboard',
+        primaryAction: createExplorerAction(
+          'open-dashboard-topobuilder',
+          'Open Dashboard',
+          'vscode-eda.showDashboard',
+          ['Topo Builder']
+        )
+      }),
       createExplorerNode('dashboards/workflows', 'Workflows', {
         contextValue: 'eda-dashboard',
         primaryAction: createExplorerAction(
@@ -1172,6 +1182,7 @@ const mockFactoryByWebview: Readonly<Record<DevWebviewId, (send: SendMessage, op
   queriesDashboard: (send) => createQueriesDashboardMock(send),
   resourceBrowser: (send) => createResourceBrowserMock(send),
   simnodesDashboard: (send) => createDataGridMock(send, simnodesFixture),
+  topobuilderDashboard: (send) => createTopoBuilderMock(send),
   topologyFlowDashboard: (send) => createTopologyFlowMock(send),
   toponodesDashboard: (send) => createDataGridMock(send, toponodesFixture),
   workflowsDashboard: (send) => createWorkflowsDashboardMock(send)
@@ -1603,6 +1614,13 @@ function createDataGridMock(send: SendMessage, fixture: DataGridFixture): MockHo
         sendResults();
       }
     },
+    dispose: () => {}
+  };
+}
+
+function createTopoBuilderMock(_send: SendMessage): MockHost {
+  return {
+    onMessage: () => {},
     dispose: () => {}
   };
 }

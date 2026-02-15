@@ -5,6 +5,7 @@ import { QueriesDashboardPanel } from '../webviews/dashboard/queries/queriesDash
 import { ToponodesDashboardPanel } from '../webviews/dashboard/toponodes/toponodesDashboard';
 import { SimnodesDashboardPanel } from '../webviews/dashboard/simnodes/simnodesDashboard';
 import { TopologyFlowDashboardPanel } from '../webviews/dashboard/topologyFlow/topologyFlowDashboardPanel';
+import { TopoBuilderDashboardPanel } from '../webviews/dashboard/topobuilder/topobuilderDashboardPanel';
 import { ResourceBrowserPanel } from '../webviews/dashboard/resource/resourceBrowserPanel';
 import { WorkflowsDashboardPanel } from '../webviews/dashboard/workflows/workflowsDashboard';
 
@@ -18,6 +19,8 @@ export function registerDashboardCommands(context: vscode.ExtensionContext): voi
       SimnodesDashboardPanel.show(context, name);
     } else if (name === 'Topology') {
       TopologyFlowDashboardPanel.show(context, name);
+    } else if (name === 'Topo Builder') {
+      TopoBuilderDashboardPanel.show(context, name);
     } else if (name === 'Resource Browser') {
       ResourceBrowserPanel.show(context, name);
     } else if (name === 'Workflows') {
