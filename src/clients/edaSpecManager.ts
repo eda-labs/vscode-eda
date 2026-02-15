@@ -13,6 +13,7 @@ import type { StreamEndpoint } from './edaStreamClient';
 const SERVER_RELATIVE_URL = 'serverRelativeURL';
 const OPERATION_ID = 'operationId';
 const X_EDA_NOKIA_COM = 'x-eda-nokia-com';
+const NAMESPACE_PARAM_PATTERN = /^(namespace|nsname)$/i;
 
 interface NamespaceData {
   name?: string;
@@ -265,17 +266,54 @@ export class EdaSpecManager {
       if (!get) continue;
       const params: OpenApiParameter[] = Array.isArray(get.parameters) ? get.parameters : [];
       const names = params.map((prm) => prm.name);
-      // Skip endpoints with required parameters (other than eventclient/stream)
-      const hasRequiredParams = params.some((prm) =>
-        prm.required && prm.name !== 'eventclient' && prm.name !== 'stream'
+      const requiredParamNames = params
+        .filter(prm => prm.required)
+        .map(prm => prm.name);
+      // Skip endpoints with required parameters (other than eventclient/stream/namespace)
+      const hasUnsupportedRequiredParams = requiredParamNames.some((name) =>
+        name !== 'eventclient' && name !== 'stream' && !NAMESPACE_PARAM_PATTERN.test(name)
       );
-      if (hasRequiredParams) continue;
-      if (names.includes('eventclient') && names.includes('stream') && !p.includes('{')) {
+      if (hasUnsupportedRequiredParams) continue;
+
+      const placeholders = this.extractPathPlaceholders(p);
+      const hasUnsupportedPlaceholders = placeholders.some((name) => !NAMESPACE_PARAM_PATTERN.test(name));
+      if (hasUnsupportedPlaceholders) continue;
+
+      if (names.includes('eventclient') && names.includes('stream')) {
         const stream = p.split('/').filter(Boolean).pop() ?? 'unknown';
-        eps.push({ path: p, stream });
+        const namespaceParam = placeholders.find(name => NAMESPACE_PARAM_PATTERN.test(name));
+        eps.push({
+          path: p,
+          stream,
+          namespaced: placeholders.length > 0,
+          namespaceParam
+        });
       }
     }
     return eps;
+  }
+
+  private extractPathPlaceholders(pathTemplate: string): string[] {
+    const placeholders: string[] = [];
+    let searchFrom = 0;
+
+    while (searchFrom < pathTemplate.length) {
+      const open = pathTemplate.indexOf('{', searchFrom);
+      if (open === -1) {
+        break;
+      }
+      const close = pathTemplate.indexOf('}', open + 1);
+      if (close === -1) {
+        break;
+      }
+      const name = pathTemplate.slice(open + 1, close).trim();
+      if (name) {
+        placeholders.push(name);
+      }
+      searchFrom = close + 1;
+    }
+
+    return placeholders;
   }
 
   /** Collect operationId to path mappings */
@@ -290,7 +328,7 @@ export class EdaSpecManager {
     }
   }
 
-  /** Deduplicate endpoints, preferring '/apps' paths when duplicates exist */
+  /** Deduplicate endpoints, preferring namespaced and '/apps' paths */
   private deduplicateEndpoints(endpoints: StreamEndpoint[]): StreamEndpoint[] {
     const result = new Map<string, StreamEndpoint>();
     for (const ep of endpoints) {
@@ -299,7 +337,18 @@ export class EdaSpecManager {
         result.set(ep.stream, ep);
         continue;
       }
-      if (!existing.path.startsWith('/apps') && ep.path.startsWith('/apps')) {
+      const existingHasPathParams = existing.path.includes('{');
+      const endpointHasPathParams = ep.path.includes('{');
+
+      // Prefer namespaced (path-param) variants as all-namespaces
+      // endpoints may not return data for all API groups.
+      if (!existingHasPathParams && endpointHasPathParams) {
+        result.set(ep.stream, ep);
+        continue;
+      }
+      if (existingHasPathParams === endpointHasPathParams
+        && !existing.path.startsWith('/apps')
+        && ep.path.startsWith('/apps')) {
         result.set(ep.stream, ep);
       }
     }

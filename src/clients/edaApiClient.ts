@@ -263,7 +263,7 @@ export class EdaApiClient {
     return Array.from(new Set(filtered));
   }
 
-  private buildWorkflowOperationIds(group: string, version: string, kind: string): {
+  private buildOperationIds(group: string, version: string, kind: string): {
     listNamespaced: string[];
     listAll: string[];
     createNamespaced: string[];
@@ -308,6 +308,99 @@ export class EdaApiClient {
         `read${groupPascal}${versionPascal}${pluralPascal}`
       ])
     };
+  }
+
+  private buildResourceKey(resource: K8sResource, source: string, index: number): string {
+    const name = resource.metadata?.name;
+    const namespace = resource.metadata?.namespace ?? '';
+    const uid = resource.metadata?.uid;
+    const apiVersion = resource.apiVersion ?? '';
+    const kind = resource.kind ?? '';
+
+    if (typeof name === 'string' && name.length > 0) {
+      return `${apiVersion}/${kind}/${namespace}/${name}`;
+    }
+    if (typeof uid === 'string' && uid.length > 0) {
+      return `uid:${uid}`;
+    }
+    return `anon:${source}:${index}`;
+  }
+
+  private mergeResourceList(
+    merged: Map<string, K8sResource>,
+    resources: K8sResource[],
+    source: string
+  ): void {
+    resources.forEach((resource, index) => {
+      merged.set(this.buildResourceKey(resource, source, index), resource);
+    });
+  }
+
+  private async getKnownNamespaces(): Promise<string[]> {
+    const namespaces = new Set<string>();
+
+    if (this.specManager) {
+      namespaces.add(this.specManager.getCoreNamespace());
+      for (const namespace of this.specManager.getCachedNamespaces()) {
+        namespaces.add(namespace);
+      }
+    }
+
+    if (namespaces.size <= 1) {
+      try {
+        for (const namespace of await this.listNamespaces()) {
+          namespaces.add(namespace);
+        }
+      } catch {
+        // Ignore namespace list failures and keep what we have.
+      }
+    }
+
+    return Array.from(namespaces).sort((a, b) => a.localeCompare(b));
+  }
+
+  private async listWithNamespacedSupplement(
+    allNamespacesFetcher: () => Promise<K8sResource[]>,
+    namespacedFetcher: (namespace: string) => Promise<K8sResource[]>
+  ): Promise<K8sResource[]> {
+    const merged = new Map<string, K8sResource>();
+    let allNamespaces: K8sResource[] = [];
+
+    try {
+      allNamespaces = await allNamespacesFetcher();
+      this.mergeResourceList(merged, allNamespaces, 'all');
+    } catch {
+      // Ignore all-namespaces failures and continue with per-namespace reads.
+    }
+
+    const namespaces = await this.getKnownNamespaces();
+    if (namespaces.length === 0) {
+      return allNamespaces;
+    }
+
+    const namespacesFromAll = new Set<string>();
+    for (const resource of allNamespaces) {
+      const namespace = resource.metadata?.namespace;
+      if (typeof namespace === 'string' && namespace.length > 0) {
+        namespacesFromAll.add(namespace);
+      }
+    }
+
+    const namespacesToFetch =
+      allNamespaces.length === 0
+        ? namespaces
+        : namespaces.filter((namespace) => !namespacesFromAll.has(namespace));
+
+    for (const namespace of namespacesToFetch) {
+      try {
+        const resources = await namespacedFetcher(namespace);
+        this.mergeResourceList(merged, resources, namespace);
+      } catch {
+        // Ignore per-namespace failures.
+      }
+    }
+
+    return Array.from(merged.values());
   }
 
   /**
@@ -722,120 +815,46 @@ export class EdaApiClient {
   }
 
   /**
-   * List Workflows in a namespace
+   * List resources for the given G/V/K.
+   * Discovers endpoints via operation IDs and supplements with per-namespace reads.
    */
-  public async listWorkflows(namespace?: string): Promise<K8sResource[]> {
-    const namespaced = typeof namespace === 'string' && namespace.length > 0;
-
-    const path = await this.resolvePathFromOperationIds(
-      namespaced
-        ? [
-            'wfListCoreEdaNokiaComV1NamespaceWorkflows',
-            'listCoreEdaNokiaComV1NamespacedWorkflow',
-            'listCoreEdaNokiaComV1NamespaceWorkflows'
-          ]
-        : [
-            'wfListCoreEdaNokiaComV1Workflows',
-            'listCoreEdaNokiaComV1WorkflowForAllNamespaces',
-            'listCoreEdaNokiaComV1Workflows'
-          ],
-      namespaced ? { [PARAM_NAMESPACE]: namespace } : {}
-    );
-
-    const resolvedPath = path ?? (
-      namespaced
-        ? `/apps/core.eda.nokia.com/v1/namespaces/${namespace}/workflows`
-        : '/apps/core.eda.nokia.com/v1/workflows'
-    );
-
-    const data = await this.fetchJSON<K8sResourceList>(resolvedPath);
-    return Array.isArray(data.items) ? data.items : [];
-  }
-
-  /**
-   * List WorkflowDefinitions.
-   * If namespace is omitted, returns definitions across all namespaces when supported.
-   */
-  public async listWorkflowDefinitions(namespace?: string): Promise<K8sResource[]> {
-    const namespaced = typeof namespace === 'string' && namespace.length > 0;
-
-    const path = await this.resolvePathFromOperationIds(
-      namespaced
-        ? [
-            'listCoreEdaNokiaComV1NamespacedWorkflowDefinition',
-            'listCoreEdaNokiaComV1NamespaceWorkflowdefinitions'
-          ]
-        : [
-            'listCoreEdaNokiaComV1WorkflowDefinitionForAllNamespaces',
-            'listCoreEdaNokiaComV1Workflowdefinitions'
-          ],
-      namespaced ? { [PARAM_NAMESPACE]: namespace } : {}
-    );
-
-    const resolvedPath = path ?? (
-      namespaced
-        ? `/apps/core.eda.nokia.com/v1/namespaces/${namespace}/workflowdefinitions`
-        : '/apps/core.eda.nokia.com/v1/workflowdefinitions'
-    );
-
-    const data = await this.fetchJSON<K8sResourceList>(resolvedPath);
-    return Array.isArray(data.items) ? data.items : [];
-  }
-
-  /**
-   * Create a Workflow in a namespace.
-   */
-  public async createWorkflow(namespace: string, workflow: K8sResource): Promise<K8sResource> {
-    const path = await this.resolvePathFromOperationIds(
-      [
-        'wfCreateCoreEdaNokiaComV1NamespaceWorkflows',
-        'createCoreEdaNokiaComV1NamespacedWorkflow',
-        'createCoreEdaNokiaComV1NamespaceWorkflows'
-      ],
-      { [PARAM_NAMESPACE]: namespace }
-    );
-
-    const resolvedPath = path ?? `/apps/core.eda.nokia.com/v1/namespaces/${namespace}/workflows`;
-
-    return this.requestJSON<K8sResource>('POST', resolvedPath, workflow);
-  }
-
-  /**
-   * List workflow-backed resources for the given G/V/K.
-   * Uses /workflows/v1 endpoints discovered via operation IDs.
-   */
-  public async listWorkflowBackedResources(
+  public async listResources(
     group: string,
     version: string,
     kind: string,
     namespace?: string
   ): Promise<K8sResource[]> {
     const plural = kindToPlural(kind);
-    const ids = this.buildWorkflowOperationIds(group, version, kind);
+    const ids = this.buildOperationIds(group, version, kind);
     const namespaced = typeof namespace === 'string' && namespace.length > 0;
 
-    const path = await this.resolvePathFromOperationIds(
-      namespaced
-        ? [...ids.listNamespaced, ...ids.listAll]
-        : ids.listAll,
-      namespaced ? { [PARAM_NAMESPACE]: namespace } : {}
-    );
+    if (namespaced) {
+      const path = await this.resolvePathFromOperationIds(
+        [...ids.listNamespaced, ...ids.listAll],
+        { [PARAM_NAMESPACE]: namespace }
+      );
 
-    const resolvedPath = path ?? (
-      namespaced
-        ? `/apps/${group}/${version}/namespaces/${namespace}/${plural}`
-        : `/apps/${group}/${version}/${plural}`
-    );
+      const resolvedPath = path ?? `/apps/${group}/${version}/namespaces/${namespace}/${plural}`;
+      const data = await this.fetchJSON<K8sResourceList>(resolvedPath);
+      return Array.isArray(data.items) ? data.items : [];
+    }
 
-    const data = await this.fetchJSON<K8sResourceList>(resolvedPath);
-    return Array.isArray(data.items) ? data.items : [];
+    return this.listWithNamespacedSupplement(
+      async () => {
+        const path = await this.resolvePathFromOperationIds(ids.listAll);
+        const resolvedPath = path ?? `/apps/${group}/${version}/${plural}`;
+        const data = await this.fetchJSON<K8sResourceList>(resolvedPath);
+        return Array.isArray(data.items) ? data.items : [];
+      },
+      async (targetNamespace) => this.listResources(group, version, kind, targetNamespace)
+    );
   }
 
   /**
-   * Create a workflow-backed resource for the given G/V/K.
-   * Uses /workflows/v1 endpoints discovered via operation IDs.
+   * Create a resource for the given G/V/K.
+   * Discovers endpoints via operation IDs.
    */
-  public async createWorkflowBackedResource(
+  public async createResource(
     group: string,
     version: string,
     kind: string,
@@ -843,7 +862,7 @@ export class EdaApiClient {
     namespace?: string
   ): Promise<K8sResource> {
     const plural = kindToPlural(kind);
-    const ids = this.buildWorkflowOperationIds(group, version, kind);
+    const ids = this.buildOperationIds(group, version, kind);
     const namespaced = typeof namespace === 'string' && namespace.length > 0;
 
     const path = await this.resolvePathFromOperationIds(
@@ -863,9 +882,9 @@ export class EdaApiClient {
   }
 
   /**
-   * Get workflow-backed resource YAML for the given G/V/K and name.
+   * Get resource YAML for the given G/V/K and name.
    */
-  public async getWorkflowBackedResourceYaml(
+  public async getResourceYaml(
     group: string,
     version: string,
     kind: string,
@@ -873,7 +892,7 @@ export class EdaApiClient {
     namespace?: string
   ): Promise<string> {
     const plural = kindToPlural(kind);
-    const ids = this.buildWorkflowOperationIds(group, version, kind);
+    const ids = this.buildOperationIds(group, version, kind);
     const namespaced = typeof namespace === 'string' && namespace.length > 0;
 
     const path = await this.resolvePathFromOperationIds(

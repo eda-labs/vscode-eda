@@ -538,6 +538,39 @@ constructor() {
     return null;
   }
 
+  private createNamespaceNodeId(namespace: string): string {
+    return `namespace:${encodeURIComponent(namespace)}`;
+  }
+
+  private createKubernetesRootNodeId(): string {
+    return 'k8s-root';
+  }
+
+  private createKubernetesNamespaceNodeId(namespace: string): string {
+    return `k8s-namespace:${encodeURIComponent(namespace)}`;
+  }
+
+  private createStreamGroupNodeId(namespace: string, group: string): string {
+    return `stream-group:${encodeURIComponent(namespace)}/${encodeURIComponent(group)}`;
+  }
+
+  private createStreamNodeId(namespace: string, group: string, stream: string): string {
+    return `stream:${encodeURIComponent(namespace)}/${encodeURIComponent(group)}/${encodeURIComponent(stream)}`;
+  }
+
+  private createStreamItemNodeId(
+    namespace: string,
+    stream: string,
+    streamGroup: string | undefined,
+    resource: K8sResource,
+    name: string
+  ): string {
+    const identity = resource.metadata?.uid
+      ?? `${resource.apiVersion ?? ''}|${resource.kind ?? ''}|${resource.metadata?.name ?? name}`;
+    const group = streamGroup ?? '';
+    return `stream-item:${encodeURIComponent(namespace)}/${encodeURIComponent(group)}/${encodeURIComponent(stream)}/${encodeURIComponent(identity)}`;
+  }
+
   /**
    * Build the list of namespaces - never hidden by filter
    */
@@ -565,6 +598,7 @@ constructor() {
       );
       treeItem.iconPath = new vscode.ThemeIcon('package');
       treeItem.namespace = ns;
+      treeItem.id = this.createNamespaceNodeId(ns);
       items.push(treeItem);
     }
     return items;
@@ -584,6 +618,7 @@ constructor() {
         : vscode.TreeItemCollapsibleState.Collapsed,
       'k8s-root'
     );
+    item.id = this.createKubernetesRootNodeId();
     item.iconPath = this.kubernetesIcon;
     return item;
   }
@@ -616,6 +651,7 @@ constructor() {
       );
       item.iconPath = this.kubernetesIcon;
       item.namespace = ns;
+      item.id = this.createKubernetesNamespaceNodeId(ns);
       items.push(item);
     }
     return items;
@@ -633,7 +669,7 @@ constructor() {
 
   /** Create a stream tree item */
   private createStreamTreeItem(namespace: string, group: string, stream: string): TreeItemBase {
-    const key = `${namespace}/${group}/${stream}`;
+    const key = this.createStreamNodeId(namespace, group, stream);
     const isExpanded = this.expandAll || this.expandedStreams.has(key);
     const collapsible = isExpanded
       ? vscode.TreeItemCollapsibleState.Expanded
@@ -652,6 +688,7 @@ constructor() {
       ? vscode.TreeItemCollapsibleState.Expanded
       : vscode.TreeItemCollapsibleState.Collapsed;
     const ti = new TreeItemBase(group, collapsible, CONTEXT_STREAM_GROUP);
+    ti.id = this.createStreamGroupNodeId(namespace, group);
     ti.iconPath = new vscode.ThemeIcon('folder-library');
     ti.namespace = namespace;
     ti.streamGroup = group;
@@ -699,7 +736,7 @@ constructor() {
       if (this.treeFilter && !this.streamMatches(namespace, s)) {
         continue;
       }
-      const key = `${namespace}/${group}/${s}`;
+      const key = this.createStreamNodeId(namespace, group, s);
       const isExpanded = this.expandAll || this.expandedStreams.has(key);
       const collapsible = isExpanded
         ? vscode.TreeItemCollapsibleState.Expanded
@@ -723,10 +760,15 @@ constructor() {
       return;
     }
     log(`[STREAM:${stream}] Processing ${updates.length} updates`, LogLevel.DEBUG);
+    let namespacesChanged = false;
     for (const up of updates) {
       const { name, namespace } = this.extractNames(up);
       if (!namespace || !name) {
         continue;
+      }
+      if (!this.cachedNamespaces.includes(namespace)) {
+        this.cachedNamespaces.push(namespace);
+        namespacesChanged = true;
       }
       const key = `${stream}:${namespace}`;
       let map = this.streamData.get(key);
@@ -739,6 +781,9 @@ constructor() {
       } else if (up.data) {
         map.set(name, up.data);
       }
+    }
+    if (namespacesChanged) {
+      this.syncNamespacesWithK8s();
     }
     this.refresh();
   }
@@ -870,6 +915,7 @@ constructor() {
     streamGroup?: string
   ): TreeItemBase {
     const ti = new TreeItemBase(name, vscode.TreeItemCollapsibleState.None, CONTEXT_STREAM_ITEM, resource);
+    ti.id = this.createStreamItemNodeId(namespace, stream, streamGroup, resource, name);
     ti.contextValue = this.getStreamItemContextValue(stream, streamGroup);
     ti.namespace = namespace;
     ti.resourceType = stream;

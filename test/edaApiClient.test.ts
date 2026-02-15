@@ -7,6 +7,9 @@ import { EdaApiClient } from '../src/clients/edaApiClient';
 import type { EdaAuthClient } from '../src/clients/edaAuthClient';
 import * as extension from '../src/extension';
 
+const CORE_EDA_GROUP = 'core.eda.nokia.com';
+const CORE_NAMESPACE = 'eda-system';
+
 /** Helper to create a mock fetch response */
 function mockResponse(status: number, body: any) {
   return Promise.resolve({
@@ -106,7 +109,7 @@ describe('EdaApiClient token refresh', () => {
     const client = new EdaApiClient(authClient);
     client.setSpecManager(specManager);
 
-    const workflows = await client.listWorkflows('fabric-a');
+    const workflows = await client.listResources(CORE_EDA_GROUP, 'v1', 'Workflow', 'fabric-a');
 
     expect(workflows).to.have.length(1);
     expect(fetchStub.firstCall.args[0]).to.equal('https://api/apis/core.eda.nokia.com/v1/namespaces/fabric-a/workflows');
@@ -114,7 +117,9 @@ describe('EdaApiClient token refresh', () => {
 
   it('lists workflow definitions across namespaces using operationId', async () => {
     const specManager = {
-      getPathByOperationId: sinon.stub()
+      getPathByOperationId: sinon.stub(),
+      getCoreNamespace: () => CORE_NAMESPACE,
+      getCachedNamespaces: () => []
     } as any;
     specManager.getPathByOperationId
       .withArgs('listCoreEdaNokiaComV1WorkflowDefinitionForAllNamespaces')
@@ -125,7 +130,7 @@ describe('EdaApiClient token refresh', () => {
     const client = new EdaApiClient(authClient);
     client.setSpecManager(specManager);
 
-    const definitions = await client.listWorkflowDefinitions();
+    const definitions = await client.listResources(CORE_EDA_GROUP, 'v1', 'WorkflowDefinition');
 
     expect(definitions).to.have.length(1);
     expect(fetchStub.firstCall.args[0]).to.equal('https://api/apis/core.eda.nokia.com/v1/workflowdefinitions');
@@ -156,7 +161,7 @@ describe('EdaApiClient token refresh', () => {
     const client = new EdaApiClient(authClient);
     client.setSpecManager(specManager);
 
-    const result = await client.createWorkflow('fabric-a', workflow);
+    const result = await client.createResource(CORE_EDA_GROUP, 'v1', 'Workflow', workflow, 'fabric-a');
     const requestInit = fetchStub.firstCall.args[1] as { method?: string; body?: string };
 
     expect(result).to.deep.equal(workflow);
@@ -178,11 +183,11 @@ describe('EdaApiClient token refresh', () => {
     const client = new EdaApiClient(authClient);
     client.setSpecManager(specManager);
 
-    const resources = await client.listWorkflowBackedResources(
+    const resources = await client.listResources(
       'appstore.eda.nokia.com',
       'v1',
       'AppInstaller',
-      'eda-system'
+      CORE_NAMESPACE
     );
 
     expect(resources).to.have.length(1);
@@ -191,9 +196,11 @@ describe('EdaApiClient token refresh', () => {
     );
   });
 
-  it('falls back to apps path when workflow-backed all-namespace operationId is unavailable', async () => {
+  it('falls back to apps path when all-namespace operationId is unavailable', async () => {
     const specManager = {
-      getPathByOperationId: sinon.stub().rejects(new Error('not found'))
+      getPathByOperationId: sinon.stub().rejects(new Error('not found')),
+      getCoreNamespace: () => CORE_NAMESPACE,
+      getCachedNamespaces: () => []
     } as any;
 
     fetchStub.returns(mockResponse(200, { items: [] }));
@@ -201,7 +208,7 @@ describe('EdaApiClient token refresh', () => {
     const client = new EdaApiClient(authClient);
     client.setSpecManager(specManager);
 
-    const resources = await client.listWorkflowBackedResources(
+    const resources = await client.listResources(
       'topologies.eda.nokia.com',
       'v1alpha1',
       'NetworkTopology'
