@@ -1,11 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PlayArrow as PlayArrowIcon } from '@mui/icons-material';
-import { Alert, Box, Divider, IconButton, Tooltip } from '@mui/material';
+import {
+  Alert,
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  IconButton,
+  Tooltip
+} from '@mui/material';
 import type { Theme, ThemeOptions } from '@mui/material/styles';
 import { createTheme, useTheme } from '@mui/material/styles';
 import Editor, { loader, type Monaco, type OnMount } from '@monaco-editor/react';
 import * as monacoEditor from 'monaco-editor';
 import type { editor } from 'monaco-editor';
+import * as yaml from 'js-yaml';
 import { TopologyEditor, exportToYaml, useTopologyStore } from '@eda-labs/topo-builder';
 import { createPortal } from 'react-dom';
 import '@eda-labs/topo-builder/styles.css';
@@ -24,6 +36,31 @@ loader.config({ monaco: monacoEditor });
 function readCssVariable(name: string, fallback: string): string {
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   return value || fallback;
+}
+
+type RiskyWorkflowOperation = 'replace' | 'replaceAll';
+
+function getWorkflowOperationForConfirmation(yamlText: string): RiskyWorkflowOperation | null {
+  try {
+    const parsed = yaml.load(yamlText);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return null;
+    }
+
+    const spec = (parsed as Record<string, unknown>).spec;
+    if (typeof spec !== 'object' || spec === null || Array.isArray(spec)) {
+      return null;
+    }
+
+    const operation = (spec as Record<string, unknown>).operation;
+    if (operation === 'replace' || operation === 'replaceAll') {
+      return operation;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }
 
 type TopoBuilderWorkflowAction = 'run';
@@ -110,7 +147,9 @@ function VsCodeYamlPanel({
   const refreshTimeoutRef = useRef<number | null>(null);
   const [transactionStatus, setTransactionStatus] = useState<TransactionStatus | null>(null);
   const [pendingAction, setPendingAction] = useState<TopoBuilderWorkflowAction | null>(null);
+  const [confirmOperation, setConfirmOperation] = useState<RiskyWorkflowOperation | null>(null);
   const pendingRequestIdRef = useRef<string | null>(null);
+  const pendingConfirmYamlRef = useRef<string | null>(null);
   const applyTimeoutRef = useRef<number | null>(null);
   const statusDismissTimeoutRef = useRef<number | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
@@ -119,7 +158,6 @@ function VsCodeYamlPanel({
   const applyMonacoTheme = useCallback((monaco: Monaco) => {
     const editorBackground = readCssVariable('--vscode-editor-background', theme.vscode.topology.editorBackground);
     const editorForeground = readCssVariable('--vscode-editor-foreground', theme.vscode.topology.foreground);
-    const editorBorder = readCssVariable('--vscode-panel-border', theme.vscode.topology.panelBorder);
     const lineNumber = readCssVariable('--vscode-editorLineNumber-foreground', theme.vscode.topology.editorLineForeground);
     const activeLineNumber = readCssVariable('--vscode-editorLineNumber-activeForeground', editorForeground);
     const cursor = readCssVariable('--vscode-editorCursor-foreground', editorForeground);
@@ -128,8 +166,6 @@ function VsCodeYamlPanel({
     const inactiveSelection = readCssVariable('--vscode-editor-inactiveSelectionBackground', selection);
     const lineHighlightFallback = theme.palette.mode === 'light' ? '#0000000A' : '#FFFFFF0A';
     const lineHighlight = readCssVariable('--vscode-editor-lineHighlightBackground', lineHighlightFallback);
-    const indentGuide = readCssVariable('--vscode-editorIndentGuide-background1', editorBorder);
-    const activeIndentGuide = readCssVariable('--vscode-editorIndentGuide-activeBackground1', theme.palette.text.secondary);
     const whitespace = readCssVariable('--vscode-editorWhitespace-foreground', theme.palette.text.secondary);
 
     monaco.editor.defineTheme(MONACO_THEME_NAME, {
@@ -146,8 +182,6 @@ function VsCodeYamlPanel({
         'editor.selectionBackground': selection,
         'editor.inactiveSelectionBackground': inactiveSelection,
         'editor.lineHighlightBackground': lineHighlight,
-        'editorIndentGuide.background1': indentGuide,
-        'editorIndentGuide.activeBackground1': activeIndentGuide,
         'editorWhitespace.foreground': whitespace,
       }
     });
@@ -247,8 +281,7 @@ function VsCodeYamlPanel({
     };
   }, []);
 
-  const handleWorkflowAction = useCallback(() => {
-    const yamlToSubmit = editorRef.current?.getValue() ?? latestYamlRef.current;
+  const submitWorkflowRun = useCallback((yamlToSubmit: string) => {
     if (!yamlToSubmit.trim()) {
       setTransactionStatus({
         severity: 'error',
@@ -271,6 +304,31 @@ function VsCodeYamlPanel({
       yaml: yamlToSubmit
     });
   }, [postMessage]);
+
+  const closeConfirmationDialog = useCallback(() => {
+    pendingConfirmYamlRef.current = null;
+    setConfirmOperation(null);
+  }, []);
+
+  const confirmWorkflowRun = useCallback(() => {
+    const yamlToSubmit = pendingConfirmYamlRef.current;
+    closeConfirmationDialog();
+    if (!yamlToSubmit) {
+      return;
+    }
+    submitWorkflowRun(yamlToSubmit);
+  }, [closeConfirmationDialog, submitWorkflowRun]);
+
+  const handleWorkflowAction = useCallback(() => {
+    const yamlToSubmit = editorRef.current?.getValue() ?? latestYamlRef.current;
+    const riskyOperation = getWorkflowOperationForConfirmation(yamlToSubmit);
+    if (riskyOperation) {
+      pendingConfirmYamlRef.current = yamlToSubmit;
+      setConfirmOperation(riskyOperation);
+      return;
+    }
+    submitWorkflowRun(yamlToSubmit);
+  }, [submitWorkflowRun]);
 
   const isSubmitting = pendingAction !== null;
 
@@ -333,7 +391,14 @@ function VsCodeYamlPanel({
             tabSize: 2,
             lineNumbers: 'on',
             renderLineHighlight: 'all',
-            bracketPairColorization: { enabled: true },
+            bracketPairColorization: { enabled: false },
+            guides: {
+              indentation: true,
+              highlightActiveIndentation: false,
+              bracketPairs: false,
+              bracketPairsHorizontal: false,
+              highlightActiveBracketPair: false
+            },
             fontFamily: theme.vscode.fonts.editorFamily,
             fontSize: theme.vscode.fonts.editorSize,
             scrollbar: {
@@ -343,6 +408,32 @@ function VsCodeYamlPanel({
           }}
         />
       </Box>
+      <Dialog
+        open={confirmOperation !== null}
+        onClose={closeConfirmationDialog}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Confirm Workflow Run</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning">
+            This workflow uses <code>spec.operation: {confirmOperation}</code>. Running it can replace existing
+            resources.
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            variant="outlined"
+            onClick={closeConfirmationDialog}
+            sx={{ color: 'text.primary', borderColor: 'divider' }}
+          >
+            Cancel
+          </Button>
+          <Button variant="contained" color="warning" onClick={confirmWorkflowRun}>
+            Run Workflow
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
