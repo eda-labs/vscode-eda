@@ -103,7 +103,8 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
   }
 
   private createAlarmItem(alarm: EdaAlarm): TreeItemBase {
-    const label = `${(alarm.severity || 'info').toUpperCase()} - ${alarm.type ?? 'unknown'}`;
+    const severity = alarm.severity || 'INFO';
+    const label = `${severity.toUpperCase()} - ${alarm.type ?? 'unknown'}`;
     const item = new TreeItemBase(label, vscode.TreeItemCollapsibleState.None, 'eda-alarm', { metadata: { name: alarm.name } });
     const ns =
       alarm['.namespace.name'] ||
@@ -117,7 +118,11 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
       `Resource: ${alarm.resource || 'Unknown'}`,
       `Severity: ${alarm.severity ?? 'unknown'}`
     ].join('\n');
-    item.iconPath = this.statusService.getAlarmThemeIcon(alarm.severity || 'INFO');
+    item.iconPath = this.statusService.getAlarmThemeIcon(severity);
+    item.status = {
+      indicator: this.statusService.getAlarmStatusIndicator(severity),
+      description: severity.toUpperCase()
+    };
     item.command = {
       command: 'vscode-eda.showAlarmDetails',
       title: 'Show Alarm Details',
