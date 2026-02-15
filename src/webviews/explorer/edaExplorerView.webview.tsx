@@ -19,7 +19,6 @@ import {
 import {
   Alert,
   Badge,
-  Button,
   Box,
   IconButton,
   InputAdornment,
@@ -66,23 +65,7 @@ const COLOR_TEXT_PRIMARY = 'text.primary';
 const COLOR_PRIMARY_MAIN = 'primary.main';
 const COLOR_DIVIDER = 'divider';
 const DEFAULT_EXPANDED_SECTIONS = new Set<ExplorerTabId>(['dashboards', 'resources']);
-
-const TOOLBAR_BUTTON_SX = {
-  minHeight: 28,
-  px: 1.25,
-  py: 0.25,
-  flexShrink: 0,
-  whiteSpace: 'nowrap',
-  borderRadius: 1,
-  border: '1px solid',
-  borderColor: COLOR_DIVIDER,
-  color: COLOR_TEXT_PRIMARY,
-  bgcolor: (theme: Theme) => alpha(theme.palette.background.default, 0.45),
-  '&:hover': {
-    borderColor: COLOR_PRIMARY_MAIN,
-    bgcolor: (theme: Theme) => alpha(theme.palette.primary.main, 0.14)
-  }
-} as const;
+const FILTER_UPDATE_DEBOUNCE_MS = 250;
 
 const TOOLBAR_ICON_BUTTON_SX = {
   width: 24,
@@ -718,11 +701,20 @@ function EdaExplorerView() {
   const sectionRefs = useRef<Partial<Record<ExplorerTabId, HTMLDivElement | null>>>({});
   const resourcesExpandedBeforeFilterRef = useRef<string[] | null>(null);
   const resourcesCollapsedBeforeFilterRef = useRef<boolean | null>(null);
+  const pendingFilterSyncRef = useRef<string | null>(null);
 
   useReadySignal();
 
   useMessageListener<ExplorerIncomingMessage>(useCallback((message) => {
     if (message.command === 'snapshot') {
+      const pendingFilter = pendingFilterSyncRef.current;
+      if (pendingFilter !== null && message.filterText !== pendingFilter) {
+        return;
+      }
+      if (pendingFilter !== null && message.filterText === pendingFilter) {
+        pendingFilterSyncRef.current = null;
+      }
+
       const filterActive = message.filterText.length > 0;
       const resourceNodes = getSectionById(message.sections, 'resources')?.nodes ?? [];
 
@@ -769,6 +761,14 @@ function EdaExplorerView() {
     }
 
     if (message.command === 'filterState') {
+      const pendingFilter = pendingFilterSyncRef.current;
+      if (pendingFilter !== null && message.filterText !== pendingFilter) {
+        return;
+      }
+      if (pendingFilter !== null && message.filterText === pendingFilter) {
+        pendingFilterSyncRef.current = null;
+      }
+
       setFilterText(message.filterText);
       return;
     }
@@ -807,6 +807,7 @@ function EdaExplorerView() {
   }, [sectionOrder, sectionsById]);
 
   const basketCount = useMemo(() => sectionsById.get('basket')?.count ?? 0, [sectionsById]);
+  const filterUpdateTimeoutRef = useRef<number | null>(null);
 
   const invokeAction = useCallback((action: ExplorerAction) => {
     postMessage({
@@ -818,11 +819,35 @@ function EdaExplorerView() {
 
   const handleFilterChange = useCallback((value: string) => {
     setFilterText(value);
-    postMessage({
-      command: 'setFilter',
-      value
-    });
+    pendingFilterSyncRef.current = value;
+
+    if (filterUpdateTimeoutRef.current !== null) {
+      window.clearTimeout(filterUpdateTimeoutRef.current);
+      filterUpdateTimeoutRef.current = null;
+    }
+
+    if (value.length === 0) {
+      postMessage({
+        command: 'setFilter',
+        value
+      });
+      return;
+    }
+
+    filterUpdateTimeoutRef.current = window.setTimeout(() => {
+      filterUpdateTimeoutRef.current = null;
+      postMessage({
+        command: 'setFilter',
+        value
+      });
+    }, FILTER_UPDATE_DEBOUNCE_MS);
   }, [postMessage]);
+
+  useEffect(() => () => {
+    if (filterUpdateTimeoutRef.current !== null) {
+      window.clearTimeout(filterUpdateTimeoutRef.current);
+    }
+  }, []);
 
   const handleExpandedItemsChange = useCallback((sectionId: ExplorerTabId, itemIds: string[]) => {
     setExpandedByTab(current => ({
@@ -956,7 +981,22 @@ function EdaExplorerView() {
                 <InputAdornment position="start">
                   <SearchIcon fontSize="small" />
                 </InputAdornment>
-              )
+              ),
+              endAdornment: filterText.length > 0
+                ? (
+                  <InputAdornment position="end">
+                    <IconButton
+                      size="small"
+                      aria-label="Clear filter"
+                      edge="end"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={clearFilter}
+                    >
+                      <CloseIcon fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                )
+                : undefined
             }
           }}
         />
@@ -1003,14 +1043,6 @@ function EdaExplorerView() {
           </IconButton>
         </Tooltip>
       </Stack>
-
-      {filterText.length > 0 && (
-        <Stack direction="row" spacing={1} useFlexGap alignItems="center" sx={{ flexWrap: 'wrap' }}>
-          <Button size="small" onClick={clearFilter} sx={TOOLBAR_BUTTON_SX}>
-            Clear Filter
-          </Button>
-        </Stack>
-      )}
 
       <Stack spacing={1} sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', pr: 0.2 }}>
         {orderedSections.length === 0 && (
