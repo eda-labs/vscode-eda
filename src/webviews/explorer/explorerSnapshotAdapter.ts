@@ -305,6 +305,10 @@ function getSectionActions(
   return [];
 }
 
+function includeTooltipForSection(sectionId: ExplorerTabId): boolean {
+  return sectionId !== 'dashboards' && sectionId !== 'help';
+}
+
 function getProviderChildren(provider: ExplorerTreeProvider, element?: TreeItemBase): TreeItemBase[] {
   const result = provider.getChildren(element);
   if (Array.isArray(result)) {
@@ -321,7 +325,7 @@ function buildNode(
 ): ExplorerNode {
   const label = labelToText(item.label);
   const description = descriptionToText(item.description);
-  const tooltip = tooltipToText(item.tooltip);
+  const tooltip = includeTooltipForSection(sectionId) ? tooltipToText(item.tooltip) : undefined;
   const commandArg = buildResourceCommandArgument(item);
   const primaryAction = primaryActionFromTreeItem(item);
 

@@ -285,7 +285,7 @@ function ExplorerNodeLabel({ node, onInvokeAction }: Readonly<ExplorerNodeLabelP
       >
         <Tooltip
           title={hasEntryTooltip ? node.tooltip : ''}
-          placement="right-start"
+          placement="bottom"
           enterDelay={400}
           leaveDelay={0}
           disableInteractive
@@ -293,8 +293,8 @@ function ExplorerNodeLabel({ node, onInvokeAction }: Readonly<ExplorerNodeLabelP
           disableFocusListener={!hasEntryTooltip}
           disableTouchListener={!hasEntryTooltip}
           slotProps={{
-            popper: { sx: { pointerEvents: 'none' }, modifiers: [{ name: 'flip', options: { fallbackPlacements: ['left-start', 'top-start', 'bottom-start'] } }, { name: 'preventOverflow', options: { padding: 8, altAxis: true } }] },
-            tooltip: { sx: { maxWidth: 'calc(100vw - 24px)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }
+            popper: { sx: { pointerEvents: 'none' }, modifiers: [{ name: 'offset', options: { offset: [0, 6] } }, { name: 'flip', options: { fallbackPlacements: ['top'] } }, { name: 'preventOverflow', options: { padding: 8, altAxis: true } }] },
+            tooltip: { sx: { maxWidth: 'min(320px, calc(100vw - 24px))', whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }
           }}
         >
           <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
