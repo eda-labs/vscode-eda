@@ -1964,6 +1964,12 @@ function createStreamResourceNode(id: string, label: string, options: StreamReso
     contextValue: options.contextValue,
     statusIndicator: options.statusIndicator,
     statusDescription: options.statusDescription,
+    tooltip: [
+      `${options.kind} (${options.resourceType})`,
+      `namespace: ${options.namespace}`,
+      `group: ${options.streamGroup}`,
+      `status: ${options.statusDescription}`
+    ].join('\n'),
     primaryAction: createExplorerAction(
       `open-resource-${id}`,
       'View Stream Item',

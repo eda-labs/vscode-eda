@@ -3,22 +3,26 @@ import {
   ChevronRight as ChevronRightIcon,
   Close as CloseIcon,
   DeleteOutline as DeleteOutlineIcon,
+  Edit as EditIcon,
   ExpandMore as ExpandMoreIcon,
   FactCheck as FactCheckIcon,
   MoreVert as MoreVertIcon,
+  OpenInNew as OpenInNewIcon,
   PlayArrow as PlayArrowIcon,
+  RestartAlt as RestartAltIcon,
   Search as SearchIcon,
   Settings as SettingsIcon,
   ShoppingBasket as ShoppingBasketIcon,
+  Terminal as TerminalIcon,
   type SvgIconComponent
 } from '@mui/icons-material';
 import {
   Alert,
   Badge,
-  Button,
   Box,
   IconButton,
   InputAdornment,
+  ListItemIcon,
   Menu,
   MenuItem,
   Paper,
@@ -30,7 +34,7 @@ import {
 import { alpha, type Theme } from '@mui/material/styles';
 import { SimpleTreeView } from '@mui/x-tree-view/SimpleTreeView';
 import { TreeItem } from '@mui/x-tree-view/TreeItem';
-import { useCallback, useMemo, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from 'react';
 
 import { useMessageListener, usePostMessage, useReadySignal } from '../shared/hooks';
 import {
@@ -48,9 +52,10 @@ interface ExplorerNodeLabelProps {
   onInvokeAction: (action: ExplorerAction) => void;
 }
 
+const COLOR_ERROR_MAIN = 'error.main';
 const STATUS_COLOR_MAP: Record<string, string> = {
   green: 'success.main',
-  red: 'error.main',
+  red: COLOR_ERROR_MAIN,
   yellow: 'warning.main',
   blue: 'info.main',
   gray: 'text.disabled'
@@ -60,27 +65,11 @@ const COLOR_TEXT_PRIMARY = 'text.primary';
 const COLOR_PRIMARY_MAIN = 'primary.main';
 const COLOR_DIVIDER = 'divider';
 const DEFAULT_EXPANDED_SECTIONS = new Set<ExplorerTabId>(['dashboards', 'resources']);
-
-const TOOLBAR_BUTTON_SX = {
-  minHeight: 28,
-  px: 1.25,
-  py: 0.25,
-  flexShrink: 0,
-  whiteSpace: 'nowrap',
-  borderRadius: 1,
-  border: '1px solid',
-  borderColor: COLOR_DIVIDER,
-  color: COLOR_TEXT_PRIMARY,
-  bgcolor: (theme: Theme) => alpha(theme.palette.background.default, 0.45),
-  '&:hover': {
-    borderColor: COLOR_PRIMARY_MAIN,
-    bgcolor: (theme: Theme) => alpha(theme.palette.primary.main, 0.14)
-  }
-} as const;
+const FILTER_UPDATE_DEBOUNCE_MS = 250;
 
 const TOOLBAR_ICON_BUTTON_SX = {
-  width: 28,
-  height: 28,
+  width: 24,
+  height: 24,
   borderRadius: 1,
   border: '1px solid',
   borderColor: COLOR_DIVIDER,
@@ -171,18 +160,80 @@ function toolbarActionIconId(action: ExplorerAction): ToolbarActionIconId | unde
   return undefined;
 }
 
+function entryActionIcon(action: ExplorerAction): SvgIconComponent {
+  const command = action.command.toLowerCase();
+
+  if (command.includes('create')) {
+    return AddIcon;
+  }
+  if (command.includes('edit') || command.includes('switchtoedit')) {
+    return EditIcon;
+  }
+  if (command.includes('delete') || command.includes('discard') || command.includes('remove')) {
+    return DeleteOutlineIcon;
+  }
+  if (command.includes('reject')) {
+    return CloseIcon;
+  }
+  if (command.includes('accept') || command.includes('commit')) {
+    return PlayArrowIcon;
+  }
+  if (command.includes('showdashboard')) {
+    return OpenInNewIcon;
+  }
+  if (command.includes('dryrun')) {
+    return FactCheckIcon;
+  }
+  if (command.includes('view') || command.includes('show') || command.includes('describe') || command.includes('logs')) {
+    return SearchIcon;
+  }
+  if (command.includes('terminal') || command.includes('ssh')) {
+    return TerminalIcon;
+  }
+  if (command.includes('restart') || command.includes('revert') || command.includes('restore')) {
+    return RestartAltIcon;
+  }
+  if (command.includes('settransactionlimit')) {
+    return SettingsIcon;
+  }
+
+  return MoreVertIcon;
+}
+
+function isDestructiveEntryAction(action: ExplorerAction): boolean {
+  const command = action.command.toLowerCase();
+  return command.includes('delete')
+    || command.includes('discard')
+    || command.includes('remove')
+    || command.includes('reject');
+}
+
 function ExplorerNodeLabel({ node, onInvokeAction }: Readonly<ExplorerNodeLabelProps>) {
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const hasActions = node.actions.length > 0;
+  const hasEntryTooltip = Boolean(node.tooltip) && node.children.length === 0;
 
   const handleMenuOpen = useCallback((event: MouseEvent<HTMLElement>) => {
     event.preventDefault();
     event.stopPropagation();
     setAnchorEl(event.currentTarget);
+    setMenuPosition(null);
   }, []);
+
+  const handleRowContextMenu = useCallback((event: MouseEvent<HTMLElement>) => {
+    if (!hasActions) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    setAnchorEl(null);
+    setMenuPosition({ top: event.clientY + 2, left: event.clientX + 2 });
+  }, [hasActions]);
 
   const handleMenuClose = useCallback(() => {
     setAnchorEl(null);
+    setMenuPosition(null);
   }, []);
 
   const handlePrimaryAction = useCallback((event: MouseEvent<HTMLElement>) => {
@@ -194,10 +245,36 @@ function ExplorerNodeLabel({ node, onInvokeAction }: Readonly<ExplorerNodeLabelP
     onInvokeAction(node.primaryAction);
   }, [node.primaryAction, onInvokeAction]);
 
-  const menuOpen = Boolean(anchorEl);
+  const menuOpen = Boolean(anchorEl || menuPosition);
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        handleMenuClose();
+      }
+    };
+
+    window.addEventListener('blur', handleMenuClose);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('blur', handleMenuClose);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [menuOpen, handleMenuClose]);
 
   return (
-    <Stack direction="row" alignItems="center" spacing={1} sx={{ width: '100%' }}>
+    <Stack
+      direction="row"
+      alignItems="center"
+      spacing={0.75}
+      onContextMenu={handleRowContextMenu}
+      sx={{ width: '100%' }}
+    >
       <Box
         onClick={handlePrimaryAction}
         sx={{
@@ -206,7 +283,20 @@ function ExplorerNodeLabel({ node, onInvokeAction }: Readonly<ExplorerNodeLabelP
           cursor: node.primaryAction ? 'pointer' : 'default'
         }}
       >
-        <Tooltip title={node.tooltip || ''} enterDelay={400}>
+        <Tooltip
+          title={hasEntryTooltip ? node.tooltip : ''}
+          placement="bottom"
+          enterDelay={400}
+          leaveDelay={0}
+          disableInteractive
+          disableHoverListener={!hasEntryTooltip}
+          disableFocusListener={!hasEntryTooltip}
+          disableTouchListener={!hasEntryTooltip}
+          slotProps={{
+            popper: { sx: { pointerEvents: 'none' }, modifiers: [{ name: 'offset', options: { offset: [0, 6] } }, { name: 'flip', options: { fallbackPlacements: ['top'] } }, { name: 'preventOverflow', options: { padding: 8, altAxis: true } }] },
+            tooltip: { sx: { maxWidth: 'min(320px, calc(100vw - 24px))', whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }
+          }}
+        >
           <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
             {node.statusIndicator && (
               <Box
@@ -237,27 +327,52 @@ function ExplorerNodeLabel({ node, onInvokeAction }: Readonly<ExplorerNodeLabelP
             size="small"
             onClick={handleMenuOpen}
             aria-label={`Actions for ${node.label}`}
+            sx={{ width: 22, height: 22, p: 0.25, color: COLOR_TEXT_PRIMARY }}
           >
             <MoreVertIcon fontSize="small" />
           </IconButton>
           <Menu
             anchorEl={anchorEl}
+            anchorReference={menuPosition ? 'anchorPosition' : 'anchorEl'}
+            anchorPosition={menuPosition ?? undefined}
             open={menuOpen}
             onClose={handleMenuClose}
             onClick={handleMenuClose}
+            slotProps={{
+              list: { dense: true },
+              paper: {
+                sx: {
+                  minWidth: 210,
+                  border: '1px solid',
+                  borderColor: COLOR_DIVIDER,
+                  '& .MuiMenuItem-root': {
+                    minHeight: 30,
+                    py: 0.25
+                  }
+                }
+              }
+            }}
           >
-            {node.actions.map(action => (
-              <MenuItem
-                key={action.id}
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onInvokeAction(action);
-                }}
-              >
-                {action.label}
-              </MenuItem>
-            ))}
+            {node.actions.map(action => {
+              const IconComponent = entryActionIcon(action);
+              const isDestructive = isDestructiveEntryAction(action);
+              return (
+                <MenuItem
+                  key={action.id}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onInvokeAction(action);
+                  }}
+                  sx={isDestructive ? { color: COLOR_ERROR_MAIN } : undefined}
+                >
+                  <ListItemIcon sx={{ minWidth: 24, color: isDestructive ? COLOR_ERROR_MAIN : COLOR_TEXT_PRIMARY }}>
+                    <IconComponent fontSize="small" />
+                  </ListItemIcon>
+                  <Typography variant="body2">{action.label}</Typography>
+                </MenuItem>
+              );
+            })}
           </Menu>
         </>
       )}
@@ -331,6 +446,8 @@ function SectionTree({ section, expandedItems, onExpandedItemsChange, onInvokeAc
     );
   }
 
+  const contentRowPaddingY = section.id === 'dashboards' ? 0.1 : 0.3;
+
   return (
     <SimpleTreeView
       expandedItems={expandedItems}
@@ -341,7 +458,7 @@ function SectionTree({ section, expandedItems, onExpandedItemsChange, onInvokeAc
       }}
       sx={{
         minHeight: 0,
-        '& .MuiTreeItem-content': { py: 0.3 },
+        '& .MuiTreeItem-content': { py: contentRowPaddingY },
         '& .MuiTreeItem-label': { width: '100%' }
       }}
     >
@@ -364,11 +481,11 @@ function getSectionPaperSx(isDropTarget: boolean) {
 
 function getSectionHeaderSx(isCollapsed: boolean, isBeingDragged: boolean) {
   return {
-    px: 1,
-    py: 0.75,
+    px: 0.75,
+    py: 0.4,
     display: 'flex',
     alignItems: 'center',
-    gap: 0.5,
+    gap: 0.35,
     borderBottom: isCollapsed ? 'none' : '1px solid',
     borderColor: COLOR_DIVIDER,
     cursor: isBeingDragged ? 'grabbing' : 'grab',
@@ -421,7 +538,7 @@ function SectionCollapseToggleButton({ sectionLabel, isCollapsed, onToggle }: Re
       size="small"
       onClick={onToggle}
       aria-label={isCollapsed ? `Expand ${sectionLabel}` : `Collapse ${sectionLabel}`}
-      sx={{ color: COLOR_TEXT_PRIMARY }}
+      sx={{ color: COLOR_TEXT_PRIMARY, p: 0.25 }}
     >
       {isCollapsed ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
     </IconButton>
@@ -512,7 +629,7 @@ function ExplorerSectionCard({
           onClick={() => onToggleSectionCollapsed(section.id)}
           sx={{ minWidth: 0, flex: 1, cursor: 'pointer' }}
         >
-          <Typography variant="subtitle2" noWrap sx={{ fontWeight: 700 }}>
+          <Typography variant="body2" noWrap sx={{ fontSize: '0.8rem', fontWeight: 600, lineHeight: 1.2 }}>
             {formatSectionTitle(section)}
           </Typography>
         </Box>
@@ -598,11 +715,20 @@ function EdaExplorerView() {
   const sectionRefs = useRef<Partial<Record<ExplorerTabId, HTMLDivElement | null>>>({});
   const resourcesExpandedBeforeFilterRef = useRef<string[] | null>(null);
   const resourcesCollapsedBeforeFilterRef = useRef<boolean | null>(null);
+  const pendingFilterSyncRef = useRef<string | null>(null);
 
   useReadySignal();
 
   useMessageListener<ExplorerIncomingMessage>(useCallback((message) => {
     if (message.command === 'snapshot') {
+      const pendingFilter = pendingFilterSyncRef.current;
+      if (pendingFilter !== null && message.filterText !== pendingFilter) {
+        return;
+      }
+      if (pendingFilter !== null && message.filterText === pendingFilter) {
+        pendingFilterSyncRef.current = null;
+      }
+
       const filterActive = message.filterText.length > 0;
       const resourceNodes = getSectionById(message.sections, 'resources')?.nodes ?? [];
 
@@ -649,6 +775,14 @@ function EdaExplorerView() {
     }
 
     if (message.command === 'filterState') {
+      const pendingFilter = pendingFilterSyncRef.current;
+      if (pendingFilter !== null && message.filterText !== pendingFilter) {
+        return;
+      }
+      if (pendingFilter !== null && message.filterText === pendingFilter) {
+        pendingFilterSyncRef.current = null;
+      }
+
       setFilterText(message.filterText);
       return;
     }
@@ -687,6 +821,7 @@ function EdaExplorerView() {
   }, [sectionOrder, sectionsById]);
 
   const basketCount = useMemo(() => sectionsById.get('basket')?.count ?? 0, [sectionsById]);
+  const filterUpdateTimeoutRef = useRef<number | null>(null);
 
   const invokeAction = useCallback((action: ExplorerAction) => {
     postMessage({
@@ -698,11 +833,35 @@ function EdaExplorerView() {
 
   const handleFilterChange = useCallback((value: string) => {
     setFilterText(value);
-    postMessage({
-      command: 'setFilter',
-      value
-    });
+    pendingFilterSyncRef.current = value;
+
+    if (filterUpdateTimeoutRef.current !== null) {
+      window.clearTimeout(filterUpdateTimeoutRef.current);
+      filterUpdateTimeoutRef.current = null;
+    }
+
+    if (value.length === 0) {
+      postMessage({
+        command: 'setFilter',
+        value
+      });
+      return;
+    }
+
+    filterUpdateTimeoutRef.current = window.setTimeout(() => {
+      filterUpdateTimeoutRef.current = null;
+      postMessage({
+        command: 'setFilter',
+        value
+      });
+    }, FILTER_UPDATE_DEBOUNCE_MS);
   }, [postMessage]);
+
+  useEffect(() => () => {
+    if (filterUpdateTimeoutRef.current !== null) {
+      window.clearTimeout(filterUpdateTimeoutRef.current);
+    }
+  }, []);
 
   const handleExpandedItemsChange = useCallback((sectionId: ExplorerTabId, itemIds: string[]) => {
     setExpandedByTab(current => ({
@@ -836,7 +995,22 @@ function EdaExplorerView() {
                 <InputAdornment position="start">
                   <SearchIcon fontSize="small" />
                 </InputAdornment>
-              )
+              ),
+              endAdornment: filterText.length > 0
+                ? (
+                  <InputAdornment position="end">
+                    <IconButton
+                      size="small"
+                      aria-label="Clear filter"
+                      edge="end"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={clearFilter}
+                    >
+                      <CloseIcon fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                )
+                : undefined
             }
           }}
         />
@@ -883,14 +1057,6 @@ function EdaExplorerView() {
           </IconButton>
         </Tooltip>
       </Stack>
-
-      {filterText.length > 0 && (
-        <Stack direction="row" spacing={1} useFlexGap alignItems="center" sx={{ flexWrap: 'wrap' }}>
-          <Button size="small" onClick={clearFilter} sx={TOOLBAR_BUTTON_SX}>
-            Clear Filter
-          </Button>
-        </Stack>
-      )}
 
       <Stack spacing={1} sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', pr: 0.2 }}>
         {orderedSections.length === 0 && (

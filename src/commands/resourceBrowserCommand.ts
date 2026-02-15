@@ -1,8 +1,6 @@
 import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
 
-import { ResourceBrowserPanel } from '../webviews/dashboard/resource/resourceBrowserPanel';
-
 interface ResourceTarget {
   group: string;
   kind: string;
@@ -60,6 +58,7 @@ export function registerResourceBrowserCommand(
     'vscode-eda.openResourceBrowser',
     async (resource?: vscode.Uri) => {
       const target = await resolveResourceTarget(resource);
+      const { ResourceBrowserPanel } = await import('../webviews/dashboard/resource/resourceBrowserPanel');
       ResourceBrowserPanel.show(context, 'Resource Browser', target);
     }
   );

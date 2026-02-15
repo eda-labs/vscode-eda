@@ -164,6 +164,10 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
 
       const success = !!t.success;
       item.iconPath = this.statusService.getTransactionStatusIcon(t.state, success);
+      item.status = {
+        indicator: this.statusService.getTransactionStatusIndicator(t.state, success),
+        description: t.state || ''
+      };
       item.command = {
         command: 'vscode-eda.showTransactionDetails',
         title: 'Show Transaction Details',

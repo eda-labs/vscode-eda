@@ -2,6 +2,7 @@ import React, { useState, useCallback, useMemo } from 'react';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
+import SyncAltIcon from '@mui/icons-material/SyncAlt';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import {
@@ -22,6 +23,7 @@ import {
   MenuItem,
   Stack,
   TextField,
+  Tooltip,
   Typography
 } from '@mui/material';
 
@@ -136,15 +138,15 @@ function handleClientSecretRetrievedMessage(
 function TargetItem({
   target,
   isSelected,
-  isDefault,
+  isCurrent,
   onClick,
-  onSetDefault
+  onSwitchTo
 }: Readonly<{
   target: Target;
   isSelected: boolean;
-  isDefault: boolean;
+  isCurrent: boolean;
   onClick: () => void;
-  onSetDefault: () => void;
+  onSwitchTo: () => void;
 }>) {
   return (
     <ListItemButton selected={isSelected} onClick={onClick} divider>
@@ -157,19 +159,31 @@ function TargetItem({
         secondary={
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.25, flexWrap: 'wrap' }}>
             {target.context && <Typography variant="caption" sx={{ fontStyle: 'italic' }}>{target.context}</Typography>}
-            {isDefault && <Chip size="small" color="primary" label="Default" />}
+            {isCurrent && <Chip size="small" color="primary" label="Current" />}
             {target.skipTlsVerify && <Chip size="small" variant="outlined" label="Skip TLS" />}
-            {!isDefault && (
-              <Button
-                size="small"
-                variant="contained"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onSetDefault();
-                }}
-              >
-                Set as Default
-              </Button>
+            {!isCurrent && (
+              <Tooltip title="Switch to">
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={<SyncAltIcon fontSize="small" />}
+                  aria-label="Switch to target"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSwitchTo();
+                  }}
+                  sx={{
+                    '& .MuiChip-label': {
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      px: 0.5,
+                      py: 0
+                    }
+                  }}
+                  clickable
+                />
+              </Tooltip>
             )}
           </Stack>
         }
@@ -259,11 +273,13 @@ function PasswordInput({ value, onChange, showPassword, onToggleShow, hasError, 
 
 interface TargetDetailsViewProps {
   target: Target;
+  isCurrent: boolean;
+  onSwitchTo: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }
 
-function TargetDetailsView({ target, onEdit, onDelete }: Readonly<TargetDetailsViewProps>) {
+function TargetDetailsView({ target, isCurrent, onSwitchTo, onEdit, onDelete }: Readonly<TargetDetailsViewProps>) {
   return (
     <Stack spacing={2.25} sx={{ maxWidth: 760 }}>
       <ReadOnlyField label="EDA API URL" value={target.url} />
@@ -277,6 +293,9 @@ function TargetDetailsView({ target, onEdit, onDelete }: Readonly<TargetDetailsV
       <Divider />
 
       <Stack direction="row" spacing={1.5} justifyContent="flex-end">
+        <Button variant="contained" startIcon={<SyncAltIcon />} onClick={onSwitchTo} disabled={isCurrent}>
+          Switch to
+        </Button>
         <Button variant="contained" startIcon={<EditIcon />} onClick={onEdit}>
           Edit Target
         </Button>
@@ -469,9 +488,10 @@ function TargetWizardPanel() {
     setSelectedIdx(idx);
   }, [mode]);
 
-  const handleSetDefault = useCallback((idx: number) => {
+  const handleSwitchTarget = useCallback((idx: number) => {
+    setSelectedIdx(idx);
     setDefaultIdx(idx);
-    postMessage({ command: 'select', index: idx });
+    postMessage({ command: 'switchTarget', index: idx });
   }, [postMessage]);
 
   const handleAddNew = useCallback(() => {
@@ -609,9 +629,9 @@ function TargetWizardPanel() {
                     key={idx}
                     target={target}
                     isSelected={idx === selectedIdx}
-                    isDefault={idx === defaultIdx}
+                    isCurrent={idx === defaultIdx}
                     onClick={() => handleSelectTarget(idx)}
-                    onSetDefault={() => handleSetDefault(idx)}
+                    onSwitchTo={() => handleSwitchTarget(idx)}
                   />
                 ))}
               </List>
@@ -634,6 +654,8 @@ function TargetWizardPanel() {
                 {currentTarget ? (
                   <TargetDetailsView
                     target={currentTarget}
+                    isCurrent={selectedIdx === defaultIdx}
+                    onSwitchTo={() => handleSwitchTarget(selectedIdx)}
                     onEdit={() => handleEdit(selectedIdx)}
                     onDelete={() => handleDelete(selectedIdx)}
                   />

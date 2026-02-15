@@ -37,10 +37,8 @@ import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand'
 import { registerDashboardCommands } from './commands/dashboardCommands';
 import { registerApplyYamlFileCommand } from './commands/applyYamlFileCommand';
 import { registerResourceBrowserCommand } from './commands/resourceBrowserCommand';
-import { configureTargets, fetchClientSecretDirectly } from './webviews/targetWizard/targetWizardPanel';
 import { EdaExplorerViewProvider } from './webviews/explorer/edaExplorerViewProvider';
 import { setAuthLogger } from './clients/edaAuthClient';
-import { EmbeddingSearchService } from './services/embeddingSearchService';
 
 export interface EdaTargetConfig {
   context?: string;
@@ -183,6 +181,7 @@ async function loadCredentials(
 
   if (!clientSecret && kcUsername && kcPassword) {
     try {
+      const { fetchClientSecretDirectly } = await import('./services/clientSecretService');
       clientSecret = await fetchClientSecretDirectly(edaUrl, kcUsername, kcPassword);
       if (clientSecret) {
         await context.secrets.store(`clientSecret:${hostKey}`, clientSecret);
@@ -193,6 +192,19 @@ async function loadCredentials(
   }
 
   return { edaPassword, clientSecret };
+}
+
+async function configureTargetsFromWizard(context: vscode.ExtensionContext): Promise<void> {
+  const { configureTargets } = await import('./webviews/targetWizard/targetWizardPanel');
+  await configureTargets(context);
+}
+
+function initializeEmbeddingSearchInBackground(): void {
+  void import('./services/embeddingSearchService').then(({ EmbeddingSearchService }) => {
+    return EmbeddingSearchService.getInstance().initialize();
+  }).catch(error => {
+    log(`Failed to initialize embeddingsearch: ${error}`, LogLevel.ERROR);
+  });
 }
 
 function createStatusBarItem(context: vscode.ExtensionContext): vscode.StatusBarItem {
@@ -317,19 +329,14 @@ async function initializeServiceArchitecture(
     k8sClient.switchContext(edaContext);
   }
 
-  // 4) Verify context
-  if (k8sClient) {
-    await verifyKubernetesContext(edaClient, k8sClient);
-  }
-
-  // 5) Update status bar
+  // 4) Update status bar
   if (contextStatusBarItem) {
     const host = getHostFromUrl(edaUrl);
     const ctxText = edaContext ? ` (${edaContext})` : '';
     contextStatusBarItem.text = `$(server) ${host}${ctxText}`;
   }
 
-  // 6) Register services
+  // 5) Register services
   const resourceStatusService = new ResourceStatusService();
   serviceManager.registerService('resource-status', resourceStatusService);
   resourceStatusService.initialize(context);
@@ -339,7 +346,7 @@ async function initializeServiceArchitecture(
     serviceManager.registerService('kubernetes-resources', resourceService);
   }
 
-  // 7) Register file system providers
+  // 6) Register file system providers
   resourceViewProvider = new ResourceViewDocumentProvider();
   context.subscriptions.push(
     vscode.workspace.registerFileSystemProvider('k8s-view', resourceViewProvider, { isCaseSensitive: true })
@@ -369,10 +376,18 @@ async function initializeServiceArchitecture(
 
   const schemaProviderService = new SchemaProviderService();
   serviceManager.registerService('schema-provider', schemaProviderService);
-  await schemaProviderService.initialize(context);
 
-  // 8) Create tree providers and register remaining commands
+  // 7) Create tree providers and register remaining commands
   await initializeTreeViewsAndCommands(context);
+
+  // 8) Run non-critical activation work in background.
+  void schemaProviderService.initialize(context).catch(err => {
+    log(`Failed to initialize schema provider service: ${String(err)}`, LogLevel.ERROR, true);
+  });
+
+  if (k8sClient) {
+    void verifyKubernetesContext(edaClient, k8sClient);
+  }
 }
 
 async function initializeTreeViewsAndCommands(context: vscode.ExtensionContext): Promise<void> {
@@ -589,15 +604,12 @@ export async function activate(context: vscode.ExtensionContext) {
   log('EDA extension activating...', LogLevel.INFO, true);
 
   // Initialize embeddingsearch service in background
-  const embeddingSearchService = EmbeddingSearchService.getInstance();
-  embeddingSearchService.initialize().catch(error => {
-    log(`Failed to initialize embeddingsearch: ${error}`, LogLevel.ERROR);
-  });
+  initializeEmbeddingSearchInBackground();
 
   const edaTargetsCfg = config.get<Record<string, string | EdaTargetConfig | undefined>>('edaTargets');
   const targetEntries = edaTargetsCfg ? Object.entries(edaTargetsCfg) : [];
   if (targetEntries.length === 0) {
-    await configureTargets(context);
+    await configureTargetsFromWizard(context);
     return;
   }
 
@@ -625,13 +637,13 @@ export async function activate(context: vscode.ExtensionContext) {
 
   if (!clientSecret) {
     vscode.window.showErrorMessage('Client secret is required. Please configure EDA targets.');
-    await configureTargets(context);
+    await configureTargetsFromWizard(context);
     return;
   }
 
   if (!edaPassword) {
     vscode.window.showErrorMessage('EDA password is required. Please configure EDA targets.');
-    await configureTargets(context);
+    await configureTargetsFromWizard(context);
     return;
   }
 
@@ -640,7 +652,7 @@ export async function activate(context: vscode.ExtensionContext) {
   registerSwitchContextCommand(context, config);
 
   const configCmd = vscode.commands.registerCommand('vscode-eda.configureTargets', async () => {
-    await configureTargets(context);
+    await configureTargetsFromWizard(context);
   });
   context.subscriptions.push(configCmd);
 

@@ -205,26 +205,35 @@ export class ResourceStatusService extends CoreService {
    * Get transaction icon based on transaction state string
    */
   public getTransactionStatusIcon(state: string | undefined, success?: boolean): vscode.Uri {
+    const indicator = this.getTransactionStatusIndicator(state, success);
+    return this.getTransactionIconByColor(indicator);
+  }
+
+  /**
+   * Get transaction status indicator color based on state string
+   * (green, red, yellow)
+   */
+  public getTransactionStatusIndicator(state: string | undefined, success?: boolean): string {
     const s = (state || '').toLowerCase();
     if (s.includes('running')) {
-      return this.getTransactionIconByColor('yellow');
+      return 'yellow';
     }
     if (s.includes('complete')) {
       if (success === false) {
-        return this.getTransactionIconByColor('red');
+        return 'red';
       }
-      return this.getTransactionIconByColor('green');
+      return 'green';
     }
     if (s.includes('success') || s.includes('succeeded')) {
-      return this.getTransactionIconByColor('green');
+      return 'green';
     }
     if (s.includes('fail') || s.includes('error')) {
-      return this.getTransactionIconByColor('red');
+      return 'red';
     }
     if (success !== undefined) {
-      return this.getTransactionIcon(success);
+      return success ? 'green' : 'red';
     }
-    return this.getTransactionIconByColor('red');
+    return 'red';
   }
 
   /**
