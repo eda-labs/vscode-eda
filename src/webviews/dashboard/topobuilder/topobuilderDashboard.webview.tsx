@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PlayArrow as PlayArrowIcon } from '@mui/icons-material';
+import { FactCheck as FactCheckIcon, PlayArrow as PlayArrowIcon } from '@mui/icons-material';
 import {
   Alert,
   Box,
@@ -10,6 +10,9 @@ import {
   DialogTitle,
   Divider,
   IconButton,
+  Step,
+  StepLabel,
+  Stepper,
   Tooltip
 } from '@mui/material';
 import type { Theme, ThemeOptions } from '@mui/material/styles';
@@ -40,19 +43,23 @@ function readCssVariable(name: string, fallback: string): string {
 
 type RiskyWorkflowOperation = 'replace' | 'replaceAll';
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function getWorkflowOperationForConfirmation(yamlText: string): RiskyWorkflowOperation | null {
   try {
     const parsed = yaml.load(yamlText);
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    if (!isObject(parsed)) {
       return null;
     }
 
-    const spec = (parsed as Record<string, unknown>).spec;
-    if (typeof spec !== 'object' || spec === null || Array.isArray(spec)) {
+    const spec = parsed.spec;
+    if (!isObject(spec)) {
       return null;
     }
 
-    const operation = (spec as Record<string, unknown>).operation;
+    const operation = spec.operation;
     if (operation === 'replace' || operation === 'replaceAll') {
       return operation;
     }
@@ -61,6 +68,21 @@ function getWorkflowOperationForConfirmation(yamlText: string): RiskyWorkflowOpe
   }
 
   return null;
+}
+
+function injectDryRunCheck(yamlText: string): string {
+  const parsed = yaml.load(yamlText);
+  if (!isObject(parsed)) {
+    throw new Error('YAML root must be an object.');
+  }
+
+  const spec = isObject(parsed.spec) ? parsed.spec : {};
+  const checks = isObject(spec.checks) ? spec.checks : {};
+  checks.dryRun = true;
+  spec.checks = checks;
+  parsed.spec = spec;
+
+  return yaml.dump(parsed, { indent: 2, lineWidth: -1, noRefs: true });
 }
 
 type TopoBuilderWorkflowAction = 'run';
@@ -80,10 +102,60 @@ interface TopoBuilderWorkflowResult {
   message: string;
 }
 
+interface WorkflowIdentifier {
+  group: string;
+  kind: string;
+  name: string;
+  namespace?: string;
+  version: string;
+}
+
+interface WorkflowInputRequest extends WorkflowIdentifier {
+  ackPrompt?: string;
+}
+
+interface TopoBuilderInputRequired {
+  command: 'topobuilderInputRequired';
+  requestId: string;
+  inputs: WorkflowInputRequest[];
+}
+
+interface TopoBuilderConfirmInput {
+  command: 'topobuilderConfirmInput';
+  requestId: string;
+  ack: boolean;
+  subflows: WorkflowIdentifier[];
+}
+
+interface TopoBuilderWorkflowComplete {
+  command: 'topobuilderWorkflowComplete';
+  requestId: string;
+  success: boolean;
+  message: string;
+}
+
+type TopoBuilderOutgoingMessage = TopoBuilderWorkflowRequest | TopoBuilderConfirmInput;
+type TopoBuilderIncomingMessage =
+  | TopoBuilderWorkflowResult
+  | TopoBuilderInputRequired
+  | TopoBuilderWorkflowComplete;
+
 type TransactionStatus = {
   severity: 'success' | 'error' | 'info';
   message: string;
 };
+
+type WorkflowProgressPhase = 'idle' | 'submitting' | 'running' | 'waitingInput' | 'success' | 'failed';
+
+type WorkflowProgressState = {
+  phase: WorkflowProgressPhase;
+  requestId: string | null;
+  message: string;
+};
+
+const WORKFLOW_DRY_RUN_SUBMIT_MESSAGE = 'Submitting workflow dry run...';
+const WORKFLOW_CONFIRM_SUBMITTED_MESSAGE = 'Confirmation submitted. Waiting for the next workflow step...';
+const WORKFLOW_REJECT_SUBMITTED_MESSAGE = 'Rejection submitted. Waiting for workflow completion...';
 
 let transactionRequestCounter = 0;
 
@@ -91,8 +163,31 @@ function getActionLabel(): string {
   return 'workflow run';
 }
 
+function getWorkflowProgressSeverity(phase: WorkflowProgressPhase): 'info' | 'success' | 'error' {
+  if (phase === 'failed') {
+    return 'error';
+  }
+  if (phase === 'success') {
+    return 'success';
+  }
+  return 'info';
+}
+
+function getWorkflowProgressTitle(phase: WorkflowProgressPhase): string {
+  if (phase === 'success') {
+    return 'Workflow Completed';
+  }
+  if (phase === 'failed') {
+    return 'Workflow Failed';
+  }
+  if (phase === 'waitingInput') {
+    return 'Workflow Confirmation Required';
+  }
+  return 'Workflow Running';
+}
+
 interface VsCodeYamlPanelProps {
-  readonly onRunWorkflowActionChange: (action: (() => void) | null) => void;
+  readonly onRunWorkflowActionChange: (action: ((dryRun: boolean) => void) | null) => void;
   readonly onSubmittingChange: (submitting: boolean) => void;
 }
 
@@ -148,12 +243,43 @@ function VsCodeYamlPanel({
   const [transactionStatus, setTransactionStatus] = useState<TransactionStatus | null>(null);
   const [pendingAction, setPendingAction] = useState<TopoBuilderWorkflowAction | null>(null);
   const [confirmOperation, setConfirmOperation] = useState<RiskyWorkflowOperation | null>(null);
+  const [pendingWorkflowInputs, setPendingWorkflowInputs] = useState<TopoBuilderInputRequired | null>(null);
+  const [isSubmittingWorkflowInput, setIsSubmittingWorkflowInput] = useState(false);
+  const [sawWorkflowInputStep, setSawWorkflowInputStep] = useState(false);
+  const [workflowProgress, setWorkflowProgress] = useState<WorkflowProgressState>({
+    phase: 'idle',
+    requestId: null,
+    message: ''
+  });
   const pendingRequestIdRef = useRef<string | null>(null);
+  const activeWorkflowRequestIdRef = useRef<string | null>(null);
   const pendingConfirmYamlRef = useRef<string | null>(null);
+  const pendingConfirmDryRunRef = useRef(false);
   const applyTimeoutRef = useRef<number | null>(null);
   const statusDismissTimeoutRef = useRef<number | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
-  const postMessage = usePostMessage<TopoBuilderWorkflowRequest>();
+  const postMessage = usePostMessage<TopoBuilderOutgoingMessage>();
+
+  const setWorkflowProgressForRequest = useCallback((
+    requestId: string,
+    phase: WorkflowProgressPhase,
+    message: string
+  ) => {
+    setWorkflowProgress(current => {
+      if (current.requestId && current.requestId !== requestId) {
+        return current;
+      }
+      return { phase, requestId, message };
+    });
+  }, []);
+
+  const closeWorkflowProgressDialog = useCallback(() => {
+    setWorkflowProgress({
+      phase: 'idle',
+      requestId: null,
+      message: ''
+    });
+  }, []);
 
   const applyMonacoTheme = useCallback((monaco: Monaco) => {
     const editorBackground = readCssVariable('--vscode-editor-background', theme.vscode.topology.editorBackground);
@@ -195,21 +321,76 @@ function VsCodeYamlPanel({
     latestYamlRef.current = editorInstance.getValue();
   }, [applyMonacoTheme]);
 
-  useMessageListener<TopoBuilderWorkflowResult>(useCallback((message) => {
-    if (message.command !== 'topobuilderWorkflowResult') {
-      return;
-    }
-    if (pendingRequestIdRef.current !== message.requestId) {
+  useMessageListener<TopoBuilderIncomingMessage>(useCallback((message) => {
+    if (message.command === 'topobuilderWorkflowResult') {
+      if (pendingRequestIdRef.current !== message.requestId) {
+        return;
+      }
+
+      pendingRequestIdRef.current = null;
+      setPendingAction(null);
+      if (!message.success && activeWorkflowRequestIdRef.current === message.requestId) {
+        activeWorkflowRequestIdRef.current = null;
+      }
+      setWorkflowProgressForRequest(
+        message.requestId,
+        message.success ? 'running' : 'failed',
+        message.success
+          ? 'Workflow submitted. Waiting for workflow progress...'
+          : message.message
+      );
+      setTransactionStatus({
+        severity: message.success ? 'success' : 'error',
+        message: message.message
+      });
       return;
     }
 
-    pendingRequestIdRef.current = null;
-    setPendingAction(null);
-    setTransactionStatus({
-      severity: message.success ? 'success' : 'error',
-      message: message.message
-    });
-  }, []));
+    if (message.command === 'topobuilderInputRequired') {
+      if (activeWorkflowRequestIdRef.current && activeWorkflowRequestIdRef.current !== message.requestId) {
+        return;
+      }
+      if (message.inputs.length === 0) {
+        return;
+      }
+
+      activeWorkflowRequestIdRef.current = message.requestId;
+      setIsSubmittingWorkflowInput(false);
+      setSawWorkflowInputStep(true);
+      setPendingWorkflowInputs(message);
+      setWorkflowProgressForRequest(
+        message.requestId,
+        'waitingInput',
+        'Workflow is waiting for confirmation input.'
+      );
+      setTransactionStatus({
+        severity: 'info',
+        message: 'Workflow is waiting for confirmation input.'
+      });
+      return;
+    }
+
+    if (message.command === 'topobuilderWorkflowComplete') {
+      if (activeWorkflowRequestIdRef.current && activeWorkflowRequestIdRef.current !== message.requestId) {
+        return;
+      }
+
+      activeWorkflowRequestIdRef.current = null;
+      pendingRequestIdRef.current = null;
+      setPendingAction(null);
+      setIsSubmittingWorkflowInput(false);
+      setPendingWorkflowInputs(null);
+      setWorkflowProgressForRequest(
+        message.requestId,
+        message.success ? 'success' : 'failed',
+        message.message
+      );
+      setTransactionStatus({
+        severity: message.success ? 'success' : 'error',
+        message: message.message
+      });
+    }
+  }, [setWorkflowProgressForRequest]));
 
   useEffect(() => {
     if (!editorRef.current) {
@@ -281,7 +462,7 @@ function VsCodeYamlPanel({
     };
   }, []);
 
-  const submitWorkflowRun = useCallback((yamlToSubmit: string) => {
+  const submitWorkflowRun = useCallback((yamlToSubmit: string, dryRun: boolean) => {
     if (!yamlToSubmit.trim()) {
       setTransactionStatus({
         severity: 'error',
@@ -292,10 +473,19 @@ function VsCodeYamlPanel({
 
     const requestId = `topobuilder-${Date.now()}-${transactionRequestCounter++}`;
     pendingRequestIdRef.current = requestId;
+    activeWorkflowRequestIdRef.current = requestId;
     setPendingAction('run');
+    setPendingWorkflowInputs(null);
+    setIsSubmittingWorkflowInput(false);
+    setSawWorkflowInputStep(false);
+    setWorkflowProgress({
+      phase: 'submitting',
+      requestId,
+      message: dryRun ? WORKFLOW_DRY_RUN_SUBMIT_MESSAGE : `Submitting ${getActionLabel()}...`
+    });
     setTransactionStatus({
       severity: 'info',
-      message: `Submitting ${getActionLabel()}...`
+      message: dryRun ? WORKFLOW_DRY_RUN_SUBMIT_MESSAGE : `Submitting ${getActionLabel()}...`
     });
     postMessage({
       command: 'topobuilderWorkflowAction',
@@ -307,30 +497,77 @@ function VsCodeYamlPanel({
 
   const closeConfirmationDialog = useCallback(() => {
     pendingConfirmYamlRef.current = null;
+    pendingConfirmDryRunRef.current = false;
     setConfirmOperation(null);
   }, []);
 
   const confirmWorkflowRun = useCallback(() => {
     const yamlToSubmit = pendingConfirmYamlRef.current;
+    const dryRun = pendingConfirmDryRunRef.current;
     closeConfirmationDialog();
     if (!yamlToSubmit) {
       return;
     }
-    submitWorkflowRun(yamlToSubmit);
+    submitWorkflowRun(yamlToSubmit, dryRun);
   }, [closeConfirmationDialog, submitWorkflowRun]);
 
-  const handleWorkflowAction = useCallback(() => {
-    const yamlToSubmit = editorRef.current?.getValue() ?? latestYamlRef.current;
+  const handleWorkflowAction = useCallback((dryRun: boolean) => {
+    let yamlToSubmit = editorRef.current?.getValue() ?? latestYamlRef.current;
+    if (dryRun) {
+      try {
+        yamlToSubmit = injectDryRunCheck(yamlToSubmit);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        setTransactionStatus({
+          severity: 'error',
+          message: `Failed to enable dry run: ${message}`
+        });
+        return;
+      }
+    }
+
     const riskyOperation = getWorkflowOperationForConfirmation(yamlToSubmit);
     if (riskyOperation) {
       pendingConfirmYamlRef.current = yamlToSubmit;
+      pendingConfirmDryRunRef.current = dryRun;
       setConfirmOperation(riskyOperation);
       return;
     }
-    submitWorkflowRun(yamlToSubmit);
+    submitWorkflowRun(yamlToSubmit, dryRun);
   }, [submitWorkflowRun]);
 
-  const isSubmitting = pendingAction !== null;
+  const submitWorkflowInputResponse = useCallback((ack: boolean) => {
+    if (!pendingWorkflowInputs) {
+      return;
+    }
+    const requestId = pendingWorkflowInputs.requestId;
+    setIsSubmittingWorkflowInput(true);
+    setPendingWorkflowInputs(null);
+    postMessage({
+      command: 'topobuilderConfirmInput',
+      requestId,
+      ack,
+      subflows: pendingWorkflowInputs.inputs.map((input) => ({
+        group: input.group,
+        kind: input.kind,
+        name: input.name,
+        namespace: input.namespace,
+        version: input.version
+      }))
+    });
+    const submittedMessage = ack ? WORKFLOW_CONFIRM_SUBMITTED_MESSAGE : WORKFLOW_REJECT_SUBMITTED_MESSAGE;
+    setWorkflowProgressForRequest(requestId, 'running', submittedMessage);
+    setTransactionStatus({
+      severity: 'info',
+      message: submittedMessage
+    });
+  }, [pendingWorkflowInputs, postMessage, setWorkflowProgressForRequest]);
+
+  const isWorkflowRunning = workflowProgress.phase === 'submitting'
+    || workflowProgress.phase === 'running'
+    || workflowProgress.phase === 'waitingInput';
+  const isWorkflowFinished = workflowProgress.phase === 'success' || workflowProgress.phase === 'failed';
+  const isSubmitting = pendingAction !== null || isSubmittingWorkflowInput || isWorkflowRunning;
 
   useEffect(() => {
     onRunWorkflowActionChange(handleWorkflowAction);
@@ -362,6 +599,29 @@ function VsCodeYamlPanel({
       statusDismissTimeoutRef.current = null;
     }, 3000);
   }, [transactionStatus]);
+
+  const workflowInputPrompts = pendingWorkflowInputs
+    ? pendingWorkflowInputs.inputs
+      .map((input) => (typeof input.ackPrompt === 'string' ? input.ackPrompt.trim() : ''))
+      .filter((prompt) => prompt.length > 0)
+    : [];
+  const canCloseWorkflowProgress = pendingWorkflowInputs === null;
+  const workflowProgressOpen = workflowProgress.phase !== 'idle';
+  const outlinedActionButtonSx = { color: 'text.primary', borderColor: 'divider' } as const;
+  const workflowProgressActiveStep = (() => {
+    if (workflowProgress.phase === 'submitting') {
+      return 0;
+    }
+    if (workflowProgress.phase === 'waitingInput') {
+      return 1;
+    }
+    if (workflowProgress.phase === 'running') {
+      return 2;
+    }
+    return 3;
+  })();
+  const workflowProgressSeverity = getWorkflowProgressSeverity(workflowProgress.phase);
+  const workflowProgressTitle = getWorkflowProgressTitle(workflowProgress.phase);
 
   return (
     <Box className="topobuilder-vscode-yaml-panel">
@@ -409,6 +669,107 @@ function VsCodeYamlPanel({
         />
       </Box>
       <Dialog
+        open={workflowProgressOpen}
+        onClose={() => {
+          if (canCloseWorkflowProgress) {
+            closeWorkflowProgressDialog();
+          }
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>{workflowProgressTitle}</DialogTitle>
+        <DialogContent>
+          <Stepper
+            activeStep={workflowProgressActiveStep}
+            alternativeLabel
+            sx={{
+              mb: 2,
+              '& .MuiStepLabel-label': {
+                color: 'text.secondary'
+              },
+              '& .MuiStepLabel-label.Mui-active, & .MuiStepLabel-label.Mui-completed': {
+                color: 'text.primary'
+              },
+              '& .MuiStepIcon-root': {
+                color: theme.palette.action.disabledBackground
+              },
+              '& .MuiStepIcon-root.Mui-active, & .MuiStepIcon-root.Mui-completed': {
+                color: theme.palette.info.main
+              },
+              '& .MuiStepIcon-root.Mui-error': {
+                color: theme.palette.error.main
+              },
+              '& .MuiStepConnector-line': {
+                borderColor: 'divider'
+              },
+              '& .MuiStepConnector-root.Mui-active .MuiStepConnector-line, & .MuiStepConnector-root.Mui-completed .MuiStepConnector-line': {
+                borderColor: theme.palette.info.main
+              }
+            }}
+          >
+            <Step completed={workflowProgress.phase !== 'idle'}>
+              <StepLabel>Submitted</StepLabel>
+            </Step>
+            <Step completed={sawWorkflowInputStep}>
+              <StepLabel optional="If required">Confirmation</StepLabel>
+            </Step>
+            <Step completed={isWorkflowFinished}>
+              <StepLabel>Running</StepLabel>
+            </Step>
+            <Step completed={isWorkflowFinished}>
+              <StepLabel error={workflowProgress.phase === 'failed'}>Completed</StepLabel>
+            </Step>
+          </Stepper>
+          <Alert severity={workflowProgressSeverity} sx={{ mb: workflowInputPrompts.length > 0 ? 1 : 0 }}>
+            {workflowProgress.message || 'Workflow is in progress.'}
+          </Alert>
+          {pendingWorkflowInputs && (
+            workflowInputPrompts.length > 0 ? (
+              workflowInputPrompts.map((prompt, index) => (
+                <Alert severity="warning" key={`${prompt}-${index}`} sx={{ mb: index < workflowInputPrompts.length - 1 ? 1 : 0 }}>
+                  {prompt}
+                </Alert>
+              ))
+            ) : (
+              <Alert severity="warning">
+                The workflow is waiting for confirmation input.
+              </Alert>
+            )
+          )}
+        </DialogContent>
+        <DialogActions>
+          {pendingWorkflowInputs && (
+            <>
+              <Button
+                variant="outlined"
+                onClick={() => submitWorkflowInputResponse(false)}
+                disabled={isSubmittingWorkflowInput}
+                sx={outlinedActionButtonSx}
+              >
+                Reject
+              </Button>
+              <Button
+                variant="contained"
+                onClick={() => submitWorkflowInputResponse(true)}
+                disabled={isSubmittingWorkflowInput}
+              >
+                Confirm
+              </Button>
+            </>
+          )}
+          {canCloseWorkflowProgress && (
+            <Button
+              variant={isWorkflowFinished ? 'contained' : 'outlined'}
+              onClick={closeWorkflowProgressDialog}
+              sx={isWorkflowFinished ? undefined : outlinedActionButtonSx}
+            >
+              Close
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+      <Dialog
         open={confirmOperation !== null}
         onClose={closeConfirmationDialog}
         maxWidth="xs"
@@ -425,7 +786,7 @@ function VsCodeYamlPanel({
           <Button
             variant="outlined"
             onClick={closeConfirmationDialog}
-            sx={{ color: 'text.primary', borderColor: 'divider' }}
+            sx={outlinedActionButtonSx}
           >
             Cancel
           </Button>
@@ -440,11 +801,11 @@ function VsCodeYamlPanel({
 
 function TopoBuilderDashboard() {
   const theme = useTheme();
-  const [runWorkflowAction, setRunWorkflowAction] = useState<(() => void) | null>(null);
+  const [runWorkflowAction, setRunWorkflowAction] = useState<((dryRun: boolean) => void) | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [navbarActionHost, setNavbarActionHost] = useState<HTMLElement | null>(null);
 
-  const handleRunWorkflowActionChange = useCallback((action: (() => void) | null) => {
+  const handleRunWorkflowActionChange = useCallback((action: ((dryRun: boolean) => void) | null) => {
     setRunWorkflowAction(() => action);
   }, []);
 
@@ -454,7 +815,13 @@ function TopoBuilderDashboard() {
 
   const handleRunWorkflow = useCallback(() => {
     if (runWorkflowAction) {
-      runWorkflowAction();
+      runWorkflowAction(false);
+    }
+  }, [runWorkflowAction]);
+
+  const handleDryRunWorkflow = useCallback(() => {
+    if (runWorkflowAction) {
+      runWorkflowAction(true);
     }
   }, [runWorkflowAction]);
 
@@ -576,6 +943,21 @@ function TopoBuilderDashboard() {
                 sx={{ color: 'inherit' }}
               >
                 <PlayArrowIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          </Tooltip>
+          <Tooltip title={isSubmitting ? 'Submitting workflow dry run...' : 'Dry Run'}>
+            <Box component="span" sx={{ display: 'inline-flex', order: -1 }}>
+              <IconButton
+                size="small"
+                onClick={handleDryRunWorkflow}
+                disabled={!runWorkflowAction || isSubmitting}
+                sx={{
+                  color: 'inherit',
+                  ml: 0.5
+                }}
+              >
+                <FactCheckIcon fontSize="small" />
               </IconButton>
             </Box>
           </Tooltip>

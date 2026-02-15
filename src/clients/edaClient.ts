@@ -3,6 +3,7 @@ import { LogLevel, log } from '../extension';
 import type { EdaAuthOptions } from './edaAuthClient';
 import { EdaAuthClient } from './edaAuthClient';
 import { EdaApiClient } from './edaApiClient';
+import type { WorkflowGetInputsRespElem, WorkflowInputDataElem } from './edaApiClient';
 import type { StreamMessage } from './edaStreamClient';
 import { EdaStreamClient } from './edaStreamClient';
 import { EdaSpecManager } from './edaSpecManager';
@@ -560,6 +561,21 @@ export class EdaClient {
   ): Promise<K8sResource> {
     await this.initPromise;
     return this.apiClient.createResource(group, version, kind, resource, namespace) as Promise<K8sResource>;
+  }
+
+  public async getWorkflowInputs(path: string): Promise<WorkflowGetInputsRespElem[]> {
+    await this.initPromise;
+    return this.apiClient.getWorkflowInputs(path);
+  }
+
+  public async submitWorkflowInput(path: string, data: WorkflowInputDataElem[]): Promise<void> {
+    await this.initPromise;
+    await this.apiClient.submitWorkflowInput(path, data);
+  }
+
+  public async getResource(path: string): Promise<K8sResource> {
+    await this.initPromise;
+    return this.apiClient.fetchJSON<K8sResource>(path);
   }
 
   public async getResourceYaml(

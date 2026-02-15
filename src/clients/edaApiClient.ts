@@ -98,6 +98,28 @@ export interface DeviationAction extends K8sResource {
   };
 }
 
+/** Workflow identifier object used by workflow input APIs */
+export interface WorkflowIdentifier {
+  group: string;
+  kind: string;
+  name: string;
+  namespace?: string;
+  version: string;
+}
+
+/** Workflow input request returned by workflow _input GET endpoints */
+export interface WorkflowGetInputsRespElem extends WorkflowIdentifier {
+  ackPrompt?: string;
+  schemaPrompt?: Record<string, unknown>;
+}
+
+/** Workflow input payload element for workflow _input PUT endpoints */
+export interface WorkflowInputDataElem {
+  ack?: boolean;
+  input?: Record<string, unknown>;
+  subflow?: WorkflowIdentifier;
+}
+
 /**
  * Client for EDA REST API operations
  */
@@ -190,7 +212,12 @@ export class EdaApiClient {
       return undefined as T;
     }
 
-    return (await res.json()) as T;
+    const text = await res.text();
+    if (!text) {
+      return undefined as T;
+    }
+
+    return JSON.parse(text) as T;
   }
 
   /**
@@ -879,6 +906,21 @@ export class EdaApiClient {
     );
 
     return this.requestJSON<K8sResource>('POST', resolvedPath, resource);
+  }
+
+  /**
+   * Read requested workflow inputs from a workflow _input endpoint.
+   */
+  public async getWorkflowInputs(path: string): Promise<WorkflowGetInputsRespElem[]> {
+    const response = await this.requestJSON<unknown>('GET', path);
+    return Array.isArray(response) ? response as WorkflowGetInputsRespElem[] : [];
+  }
+
+  /**
+   * Submit workflow input to a workflow _input endpoint.
+   */
+  public async submitWorkflowInput(path: string, data: WorkflowInputDataElem[]): Promise<void> {
+    await this.requestJSON('PUT', path, data);
   }
 
   /**
