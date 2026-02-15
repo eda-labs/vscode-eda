@@ -9,9 +9,6 @@ import type { KubernetesClient } from '../clients/kubernetesClient';
 import { edaOutputChannel } from '../extension';
 import type { CrdDefinitionFileSystemProvider } from '../providers/documents/crdDefinitionProvider';
 import type { BasketTransactionDocumentProvider } from '../providers/documents/basketTransactionProvider';
-import { TransactionDetailsPanel } from '../webviews/transactionDetails/transactionDetailsPanel';
-import { AlarmDetailsPanel } from '../webviews/alarmDetails/alarmDetailsPanel';
-import { DeviationDetailsPanel } from '../webviews/deviationDetails/deviationDetailsPanel';
 
 // ============================================================================
 // Type definitions for EDA API responses
@@ -277,6 +274,7 @@ export function registerViewCommands(
         };
 
         // Generate transaction details webview
+        const { TransactionDetailsPanel } = await import('../webviews/transactionDetails/transactionDetailsPanel');
         TransactionDetailsPanel.show(context, templateVars);
       } catch (err: unknown) {
         const errMsg = err instanceof Error ? err.message : String(err);
@@ -332,7 +330,7 @@ export function registerViewCommands(
   );
 
   // Show alarm details using a webview
-  vscode.commands.registerCommand('vscode-eda.showAlarmDetails', (arg: Alarm | AlarmArg) => {
+  const showAlarmDetailsCommand = vscode.commands.registerCommand('vscode-eda.showAlarmDetails', async (arg: Alarm | AlarmArg) => {
     // arg may be an Alarm directly or an object wrapping it in .alarm
     const alarm: Alarm | undefined = (arg as AlarmArg).alarm ?? (arg as Alarm);
     if (!alarm) {
@@ -363,6 +361,7 @@ export function registerViewCommands(
       rawJson: JSON.stringify(alarm, null, 2)
     };
 
+    const { AlarmDetailsPanel } = await import('../webviews/alarmDetails/alarmDetailsPanel');
     AlarmDetailsPanel.show(context, data);
   });
 
@@ -402,6 +401,7 @@ export function registerViewCommands(
         panelData.errorMessage = yamlResult.error;
       }
 
+      const { DeviationDetailsPanel } = await import('../webviews/deviationDetails/deviationDetailsPanel');
       DeviationDetailsPanel.show(context, panelData);
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : String(error);
@@ -421,5 +421,10 @@ export function registerViewCommands(
     await vscode.window.showTextDocument(doc, { preview: true });
   });
 
-  context.subscriptions.push(showTransactionDetailsCommand, showCRDDefinitionCommand, showBasketTxCommand);
+  context.subscriptions.push(
+    showTransactionDetailsCommand,
+    showCRDDefinitionCommand,
+    showAlarmDetailsCommand,
+    showBasketTxCommand
+  );
 }
