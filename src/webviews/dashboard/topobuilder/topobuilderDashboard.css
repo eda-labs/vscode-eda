@@ -182,19 +182,16 @@
 .topobuilder-vscode-yaml-editor {
   flex: 1 1 auto;
   min-height: 0;
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: 4px;
+  overflow: hidden;
 }
 
-.topobuilder-vscode-yaml-editor .MuiInputBase-root {
-  align-items: stretch;
+.topobuilder-vscode-yaml-editor > div {
   height: 100%;
 }
 
-.topobuilder-vscode-yaml-editor .MuiInputBase-inputMultiline {
-  box-sizing: border-box;
-  height: 100% !important;
-  min-height: 0 !important;
-  overflow: auto !important;
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 12px;
-  line-height: 1.4;
+.topobuilder-vscode-yaml-editor .monaco-editor .margin,
+.topobuilder-vscode-yaml-editor .monaco-editor .monaco-editor-background {
+  background-color: var(--vscode-editor-background);
 }

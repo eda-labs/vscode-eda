@@ -38,7 +38,8 @@ const webviewOptions = {
   },
   loader: {
     '.svg': 'text',
-    '.yaml': 'text'
+    '.yaml': 'text',
+    '.ttf': 'file'
   },
   entryNames: '[name]',
   chunkNames: 'chunks/[name]-[hash]',

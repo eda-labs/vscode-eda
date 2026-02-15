@@ -1,8 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Box, Button, Stack, TextField, Typography } from '@mui/material';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { PlayArrow as PlayArrowIcon } from '@mui/icons-material';
+import { Alert, Box, Divider, IconButton, Tooltip } from '@mui/material';
 import type { Theme, ThemeOptions } from '@mui/material/styles';
 import { createTheme, useTheme } from '@mui/material/styles';
+import Editor, { loader, type Monaco, type OnMount } from '@monaco-editor/react';
+import * as monacoEditor from 'monaco-editor';
+import type { editor } from 'monaco-editor';
 import { TopologyEditor, exportToYaml, useTopologyStore } from '@eda-labs/topo-builder';
+import { createPortal } from 'react-dom';
 import '@eda-labs/topo-builder/styles.css';
 import './topobuilderDashboard.css';
 
@@ -11,6 +16,15 @@ import { mountWebview } from '../../shared/utils';
 
 const TOPOBUILDER_LOGO_URL =
   (globalThis as { __TOPOBUILDER_LOGO_URI__?: string }).__TOPOBUILDER_LOGO_URI__ ?? '/eda.svg';
+
+const MONACO_THEME_NAME = 'topobuilder-vscode-theme';
+
+loader.config({ monaco: monacoEditor });
+
+function readCssVariable(name: string, fallback: string): string {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
 
 type TopoBuilderWorkflowAction = 'run';
 
@@ -40,7 +54,16 @@ function getActionLabel(): string {
   return 'workflow run';
 }
 
-function VsCodeYamlPanel() {
+interface VsCodeYamlPanelProps {
+  readonly onRunWorkflowActionChange: (action: (() => void) | null) => void;
+  readonly onSubmittingChange: (submitting: boolean) => void;
+}
+
+function VsCodeYamlPanel({
+  onRunWorkflowActionChange,
+  onSubmittingChange
+}: VsCodeYamlPanelProps) {
+  const theme = useTheme();
   const topologyName = useTopologyStore(state => state.topologyName);
   const namespace = useTopologyStore(state => state.namespace);
   const operation = useTopologyStore(state => state.operation);
@@ -50,6 +73,7 @@ function VsCodeYamlPanel() {
   const linkTemplates = useTopologyStore(state => state.linkTemplates);
   const simulation = useTopologyStore(state => state.simulation);
   const annotations = useTopologyStore(state => state.annotations);
+  const yamlRefreshCounter = useTopologyStore(state => state.yamlRefreshCounter);
   const importFromYaml = useTopologyStore(state => state.importFromYaml);
   const error = useTopologyStore(state => state.error);
   const setError = useTopologyStore(state => state.setError);
@@ -79,13 +103,63 @@ function VsCodeYamlPanel() {
     ]
   );
 
-  const [draftYaml, setDraftYaml] = useState('');
-  const [manualMode, setManualMode] = useState(false);
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const latestYamlRef = useRef(generatedYaml);
+  const lastHandledRefreshCounterRef = useRef(yamlRefreshCounter);
+  const isRefreshingRef = useRef(false);
+  const refreshTimeoutRef = useRef<number | null>(null);
   const [transactionStatus, setTransactionStatus] = useState<TransactionStatus | null>(null);
   const [pendingAction, setPendingAction] = useState<TopoBuilderWorkflowAction | null>(null);
   const pendingRequestIdRef = useRef<string | null>(null);
   const applyTimeoutRef = useRef<number | null>(null);
+  const statusDismissTimeoutRef = useRef<number | null>(null);
+  const monacoRef = useRef<Monaco | null>(null);
   const postMessage = usePostMessage<TopoBuilderWorkflowRequest>();
+
+  const applyMonacoTheme = useCallback((monaco: Monaco) => {
+    const editorBackground = readCssVariable('--vscode-editor-background', theme.vscode.topology.editorBackground);
+    const editorForeground = readCssVariable('--vscode-editor-foreground', theme.vscode.topology.foreground);
+    const editorBorder = readCssVariable('--vscode-panel-border', theme.vscode.topology.panelBorder);
+    const lineNumber = readCssVariable('--vscode-editorLineNumber-foreground', theme.vscode.topology.editorLineForeground);
+    const activeLineNumber = readCssVariable('--vscode-editorLineNumber-activeForeground', editorForeground);
+    const cursor = readCssVariable('--vscode-editorCursor-foreground', editorForeground);
+    const selectionFallback = theme.palette.mode === 'light' ? '#ADD6FF' : '#264F78';
+    const selection = readCssVariable('--vscode-editor-selectionBackground', selectionFallback);
+    const inactiveSelection = readCssVariable('--vscode-editor-inactiveSelectionBackground', selection);
+    const lineHighlightFallback = theme.palette.mode === 'light' ? '#0000000A' : '#FFFFFF0A';
+    const lineHighlight = readCssVariable('--vscode-editor-lineHighlightBackground', lineHighlightFallback);
+    const indentGuide = readCssVariable('--vscode-editorIndentGuide-background1', editorBorder);
+    const activeIndentGuide = readCssVariable('--vscode-editorIndentGuide-activeBackground1', theme.palette.text.secondary);
+    const whitespace = readCssVariable('--vscode-editorWhitespace-foreground', theme.palette.text.secondary);
+
+    monaco.editor.defineTheme(MONACO_THEME_NAME, {
+      base: theme.palette.mode === 'light' ? 'vs' : 'vs-dark',
+      inherit: true,
+      rules: [],
+      colors: {
+        'editor.background': editorBackground,
+        'editor.foreground': editorForeground,
+        'editorGutter.background': editorBackground,
+        'editorLineNumber.foreground': lineNumber,
+        'editorLineNumber.activeForeground': activeLineNumber,
+        'editorCursor.foreground': cursor,
+        'editor.selectionBackground': selection,
+        'editor.inactiveSelectionBackground': inactiveSelection,
+        'editor.lineHighlightBackground': lineHighlight,
+        'editorIndentGuide.background1': indentGuide,
+        'editorIndentGuide.activeBackground1': activeIndentGuide,
+        'editorWhitespace.foreground': whitespace,
+      }
+    });
+    monaco.editor.setTheme(MONACO_THEME_NAME);
+  }, [theme]);
+
+  const handleEditorMount = useCallback<OnMount>((editorInstance, monaco) => {
+    monacoRef.current = monaco;
+    applyMonacoTheme(monaco);
+    editorRef.current = editorInstance;
+    latestYamlRef.current = editorInstance.getValue();
+  }, [applyMonacoTheme]);
 
   useMessageListener<TopoBuilderWorkflowResult>(useCallback((message) => {
     if (message.command !== 'topobuilderWorkflowResult') {
@@ -104,16 +178,46 @@ function VsCodeYamlPanel() {
   }, []));
 
   useEffect(() => {
-    if (!manualMode) {
-      setDraftYaml(generatedYaml);
+    if (!editorRef.current) {
+      return;
     }
-  }, [generatedYaml, manualMode]);
+    if (yamlRefreshCounter === lastHandledRefreshCounterRef.current) {
+      return;
+    }
+    lastHandledRefreshCounterRef.current = yamlRefreshCounter;
+    if (editorRef.current.getValue() === generatedYaml) {
+      latestYamlRef.current = generatedYaml;
+      return;
+    }
 
-  const handleYamlChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const nextValue = event.target.value;
-    setManualMode(true);
+    isRefreshingRef.current = true;
+    editorRef.current.setValue(generatedYaml);
+    latestYamlRef.current = generatedYaml;
+
+    if (refreshTimeoutRef.current !== null) {
+      window.clearTimeout(refreshTimeoutRef.current);
+    }
+    refreshTimeoutRef.current = window.setTimeout(() => {
+      isRefreshingRef.current = false;
+      refreshTimeoutRef.current = null;
+    }, 0);
+  }, [generatedYaml, yamlRefreshCounter]);
+
+  useEffect(() => {
+    if (monacoRef.current) {
+      applyMonacoTheme(monacoRef.current);
+    }
+  }, [applyMonacoTheme]);
+
+  const handleYamlChange = useCallback((value: string | undefined) => {
+    const nextValue = value ?? '';
+    if (isRefreshingRef.current) {
+      latestYamlRef.current = nextValue;
+      return;
+    }
+
     setTransactionStatus(null);
-    setDraftYaml(nextValue);
+    latestYamlRef.current = nextValue;
     if (error) {
       setError(null);
     }
@@ -123,7 +227,6 @@ function VsCodeYamlPanel() {
     applyTimeoutRef.current = window.setTimeout(() => {
       const imported = importFromYaml(nextValue);
       if (imported) {
-        setManualMode(false);
         setError(null);
       }
       applyTimeoutRef.current = null;
@@ -135,11 +238,18 @@ function VsCodeYamlPanel() {
       if (applyTimeoutRef.current !== null) {
         window.clearTimeout(applyTimeoutRef.current);
       }
+      if (statusDismissTimeoutRef.current !== null) {
+        window.clearTimeout(statusDismissTimeoutRef.current);
+      }
+      if (refreshTimeoutRef.current !== null) {
+        window.clearTimeout(refreshTimeoutRef.current);
+      }
     };
   }, []);
 
   const handleWorkflowAction = useCallback(() => {
-    if (!draftYaml.trim()) {
+    const yamlToSubmit = editorRef.current?.getValue() ?? latestYamlRef.current;
+    if (!yamlToSubmit.trim()) {
       setTransactionStatus({
         severity: 'error',
         message: 'Topology YAML is empty.'
@@ -158,28 +268,45 @@ function VsCodeYamlPanel() {
       command: 'topobuilderWorkflowAction',
       action: 'run',
       requestId,
-      yaml: draftYaml
+      yaml: yamlToSubmit
     });
-  }, [draftYaml, postMessage]);
+  }, [postMessage]);
 
   const isSubmitting = pendingAction !== null;
 
+  useEffect(() => {
+    onRunWorkflowActionChange(handleWorkflowAction);
+    return () => {
+      onRunWorkflowActionChange(null);
+    };
+  }, [handleWorkflowAction, onRunWorkflowActionChange]);
+
+  useEffect(() => {
+    onSubmittingChange(isSubmitting);
+  }, [isSubmitting, onSubmittingChange]);
+
+  useEffect(() => {
+    if (statusDismissTimeoutRef.current !== null) {
+      window.clearTimeout(statusDismissTimeoutRef.current);
+      statusDismissTimeoutRef.current = null;
+    }
+    if (transactionStatus?.severity !== 'success') {
+      return;
+    }
+
+    statusDismissTimeoutRef.current = window.setTimeout(() => {
+      setTransactionStatus(current => {
+        if (current?.severity !== 'success') {
+          return current;
+        }
+        return null;
+      });
+      statusDismissTimeoutRef.current = null;
+    }, 3000);
+  }, [transactionStatus]);
+
   return (
     <Box className="topobuilder-vscode-yaml-panel">
-      <Stack direction="row" spacing={1} className="topobuilder-vscode-yaml-actions">
-        <Button
-          variant="contained"
-          color="primary"
-          size="small"
-          onClick={() => { handleWorkflowAction(); }}
-          disabled={isSubmitting}
-        >
-          {pendingAction === 'run' ? 'Submitting...' : 'Run Workflow'}
-        </Button>
-      </Stack>
-      <Typography variant="caption" className="topobuilder-vscode-yaml-caption">
-        YAML edits are applied automatically when valid. Run Workflow submits the current YAML.
-      </Typography>
       {transactionStatus && (
         <Alert severity={transactionStatus.severity} className="topobuilder-vscode-yaml-alert">
           {transactionStatus.message}
@@ -190,37 +317,81 @@ function VsCodeYamlPanel() {
           {error}
         </Alert>
       )}
-      <TextField
-        multiline
-        fullWidth
-        minRows={18}
-        value={draftYaml}
-        onChange={handleYamlChange}
-        className="topobuilder-vscode-yaml-editor"
-      />
+      <Box className="topobuilder-vscode-yaml-editor">
+        <Editor
+          height="100%"
+          language="yaml"
+          theme={MONACO_THEME_NAME}
+          defaultValue={generatedYaml}
+          onMount={handleEditorMount}
+          onChange={handleYamlChange}
+          options={{
+            minimap: { enabled: false },
+            automaticLayout: true,
+            scrollBeyondLastLine: false,
+            wordWrap: 'on',
+            tabSize: 2,
+            lineNumbers: 'on',
+            renderLineHighlight: 'all',
+            bracketPairColorization: { enabled: true },
+            fontFamily: theme.vscode.fonts.editorFamily,
+            fontSize: theme.vscode.fonts.editorSize,
+            scrollbar: {
+              verticalScrollbarSize: 10,
+              horizontalScrollbarSize: 10
+            }
+          }}
+        />
+      </Box>
     </Box>
   );
 }
 
 function TopoBuilderDashboard() {
   const theme = useTheme();
+  const [runWorkflowAction, setRunWorkflowAction] = useState<(() => void) | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [navbarActionHost, setNavbarActionHost] = useState<HTMLElement | null>(null);
+
+  const handleRunWorkflowActionChange = useCallback((action: (() => void) | null) => {
+    setRunWorkflowAction(() => action);
+  }, []);
+
+  const handleSubmittingChange = useCallback((submitting: boolean) => {
+    setIsSubmitting(submitting);
+  }, []);
+
+  const handleRunWorkflow = useCallback(() => {
+    if (runWorkflowAction) {
+      runWorkflowAction();
+    }
+  }, [runWorkflowAction]);
+
   useEffect(() => {
     const root = document.querySelector('.topobuilder-dashboard-root');
     if (!root) {
       return;
     }
 
-    const applyLogo = () => {
+    const syncNavbar = () => {
       const logos = root.querySelectorAll('img[alt="EDA"]');
       logos.forEach(logo => {
         if (logo.getAttribute('src') !== TOPOBUILDER_LOGO_URL) {
           logo.setAttribute('src', TOPOBUILDER_LOGO_URL);
         }
       });
+
+      const nextHost = root.querySelector<HTMLElement>('.MuiAppBar-root .MuiToolbar-root > .MuiBox-root:last-child');
+      setNavbarActionHost(currentHost => {
+        if (currentHost === nextHost) {
+          return currentHost;
+        }
+        return nextHost;
+      });
     };
 
-    applyLogo();
-    const observer = new MutationObserver(applyLogo);
+    syncNavbar();
+    const observer = new MutationObserver(syncNavbar);
     observer.observe(root, {
       childList: true,
       subtree: true,
@@ -228,9 +399,17 @@ function TopoBuilderDashboard() {
       attributeFilter: ['src']
     });
 
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      setNavbarActionHost(null);
+    };
   }, []);
-  const renderYamlPanel = useCallback(() => <VsCodeYamlPanel />, []);
+  const renderYamlPanel = useCallback(() => (
+    <VsCodeYamlPanel
+      onRunWorkflowActionChange={handleRunWorkflowActionChange}
+      onSubmittingChange={handleSubmittingChange}
+    />
+  ), [handleRunWorkflowActionChange, handleSubmittingChange]);
   const topologyThemeOptions = useMemo<ThemeOptions>(() => {
     const { topology, fonts } = theme.vscode;
     return {
@@ -295,6 +474,24 @@ function TopoBuilderDashboard() {
 
   return (
     <Box className="topobuilder-dashboard-root">
+      {navbarActionHost && createPortal(
+        <>
+          <Tooltip title={isSubmitting ? 'Submitting workflow run...' : 'Run Workflow'}>
+            <Box component="span" sx={{ display: 'inline-flex', order: -1 }}>
+              <IconButton
+                size="small"
+                onClick={handleRunWorkflow}
+                disabled={!runWorkflowAction || isSubmitting}
+                sx={{ color: 'inherit' }}
+              >
+                <PlayArrowIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          </Tooltip>
+          <Divider orientation="vertical" flexItem sx={{ borderColor: 'divider', my: 0.5, order: -1 }} />
+        </>,
+        navbarActionHost
+      )}
       <TopologyEditor
         renderYamlPanel={renderYamlPanel}
         theme={topologyTheme}

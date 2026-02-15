@@ -77,7 +77,7 @@ export class TopoBuilderDashboardPanel extends BasePanel {
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${csp} https: data:; style-src ${csp} 'unsafe-inline'; font-src ${csp} https: data:; script-src 'nonce-${nonce}' ${csp};">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${csp} https: data:; style-src ${csp} 'unsafe-inline'; font-src ${csp} https: data:; script-src 'nonce-${nonce}' ${csp} 'unsafe-eval'; worker-src ${csp} blob:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link href="${packageStylesUri}" rel="stylesheet">
   <style>${styles}</style>
