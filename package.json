@@ -526,7 +526,7 @@
     "ts-loader": "^9.5.4",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.55.0",
+    "typescript-eslint": "^8.56.0",
     "undici": "^7.22.0",
     "undici-types": "^7.22.0",
     "utf-8-validate": "^6.0.6",
