@@ -506,7 +506,7 @@
     "chai-http": "^5.1.2",
     "diff": "^8.0.3",
     "esbuild": "^0.27.3",
-    "eslint": "^9.39.2",
+    "eslint": "^10.0.0",
     "eslint-plugin-boundaries": "^5.4.0",
     "eslint-plugin-import-x": "^4.16.1",
     "eslint-plugin-react": "^7.37.5",
