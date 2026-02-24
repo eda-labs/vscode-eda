@@ -46,6 +46,7 @@ import {
   type ExplorerTabId
 } from '../shared/explorer/types';
 import { mountWebview } from '../shared/utils';
+import { ResourceSectionTree } from './resourceSectionTree';
 
 interface ExplorerNodeLabelProps {
   node: ExplorerNode;
@@ -552,124 +553,6 @@ interface AlarmSectionListProps {
   enableEntryTooltip: boolean;
   onInvokeAction: (action: ExplorerAction) => void;
 }
-interface ResourceVisibleNode { node: ExplorerNode; depth: number; }
-
-interface ResourceSectionTreeProps {
-  nodes: ExplorerNode[];
-  expandedItems: string[];
-  onExpandedItemsChange: (itemIds: string[]) => void;
-  enableEntryTooltip: boolean;
-  onInvokeAction: (action: ExplorerAction) => void;
-}
-function flattenVisibleResourceNodes(nodes: ExplorerNode[], expandedSet: ReadonlySet<string>): ResourceVisibleNode[] {
-  const visible: ResourceVisibleNode[] = [];
-  const stack: Array<{ node: ExplorerNode; depth: number }> = [];
-  for (let index = nodes.length - 1; index >= 0; index -= 1) {
-    stack.push({ node: nodes[index], depth: 0 });
-  }
-  while (stack.length > 0) {
-    const next = stack.pop();
-    if (!next) {
-      continue;
-    }
-    visible.push({ node: next.node, depth: next.depth });
-    if (!expandedSet.has(next.node.id) || next.node.children.length === 0) {
-      continue;
-    }
-    for (let index = next.node.children.length - 1; index >= 0; index -= 1) {
-      stack.push({ node: next.node.children[index], depth: next.depth + 1 });
-    }
-  }
-  return visible;
-}
-
-const ResourceSectionTree = memo(function ResourceSectionTree({
-  nodes,
-  expandedItems,
-  onExpandedItemsChange,
-  enableEntryTooltip,
-  onInvokeAction
-}: Readonly<ResourceSectionTreeProps>) {
-  const expandedSet = useMemo(() => new Set(expandedItems), [expandedItems]);
-  const visibleRows = useMemo(() => flattenVisibleResourceNodes(nodes, expandedSet), [nodes, expandedSet]);
-  return (
-    <Box role="tree" sx={{ minHeight: 0 }}>
-      {visibleRows.map(({ node, depth }) => {
-        const primaryAction = resolveNodePrimaryAction(node);
-        const hasChildren = node.children.length > 0;
-        const isExpanded = hasChildren && expandedSet.has(node.id);
-        const hasEntryTooltip = enableEntryTooltip && Boolean(node.tooltip) && !hasChildren;
-        const indentation = depth * 1.6;
-        return (
-          <Box
-            key={node.id}
-            role="treeitem"
-            aria-expanded={hasChildren ? isExpanded : undefined}
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              minHeight: 24,
-              py: 0.2,
-              pl: 0.4 + indentation,
-              pr: 0.4,
-              contentVisibility: 'auto',
-              containIntrinsicSize: '24px'
-            }}
-          >
-            {hasChildren ? (
-              <IconButton
-                size="small"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  const next = new Set(expandedItems);
-                  if (next.has(node.id)) {
-                    next.delete(node.id);
-                  } else {
-                    next.add(node.id);
-                  }
-                  onExpandedItemsChange(Array.from(next));
-                }}
-                sx={{ p: 0.2, mr: 0.2 }}
-                aria-label={isExpanded ? `Collapse ${node.label}` : `Expand ${node.label}`}
-              >
-                {isExpanded ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
-              </IconButton>
-            ) : (
-              <Box sx={{ width: 22, height: 22, mr: 0.2 }} />
-            )}
-            <Box
-              onClick={(event) => {
-                if (!primaryAction) {
-                  return;
-                }
-                event.preventDefault();
-                event.stopPropagation();
-                onInvokeAction(primaryAction);
-              }}
-              sx={{
-                minWidth: 0,
-                flex: 1,
-                cursor: primaryAction ? 'pointer' : 'default'
-              }}
-            >
-              <ExplorerNodePrimaryLabel
-                node={node}
-                hasEntryTooltip={hasEntryTooltip}
-                primaryAction={primaryAction}
-              />
-              {(node.description || node.statusDescription) && (
-                <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
-                  {node.description || node.statusDescription}
-                </Typography>
-              )}
-            </Box>
-          </Box>
-        );
-      })}
-    </Box>
-  );
-});
 
 const AlarmSectionList = memo(function AlarmSectionList({
   nodes,
@@ -777,6 +660,19 @@ const SectionTree = memo(function SectionTree({
         onExpandedItemsChange={onExpandedItemsChange}
         enableEntryTooltip={renderOptions.enableEntryTooltip}
         onInvokeAction={onInvokeAction}
+        onOpenActionMenu={onOpenActionMenu}
+        resolveNodePrimaryAction={resolveNodePrimaryAction}
+        canBuildResourceActions={canBuildResourceActions}
+        getNodeActionList={getNodeActionList}
+        renderPrimaryLabel={(node, hasEntryTooltip, primaryAction) => (
+          <ExplorerNodePrimaryLabel
+            node={node}
+            hasEntryTooltip={hasEntryTooltip}
+            primaryAction={primaryAction}
+          />
+        )}
+        colorTextPrimary={COLOR_TEXT_PRIMARY}
+        showResourceActionButtons={SHOW_RESOURCE_ACTION_BUTTONS}
       />
     );
   }
