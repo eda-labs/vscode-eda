@@ -58,6 +58,7 @@ interface K8sMetadata {
   namespace?: string;
   uid?: string;
   resourceVersion?: string;
+  annotations?: Record<string, string>;
   [key: string]: unknown;
 }
 
@@ -631,9 +632,18 @@ export class KubernetesClient {
     }
     const newResourceVersion = obj.metadata?.resourceVersion ?? currentResourceVersion;
 
+    // Watch control markers carry stream progress, not concrete resources.
+    if (
+      evt.type === 'BOOKMARK'
+      || obj.metadata?.annotations?.['k8s.io/initial-events-end'] === 'true'
+    ) {
+      return newResourceVersion;
+    }
+
     if (!obj.metadata?.name) {
       const snippet = JSON.stringify(obj).slice(0, 200);
       log(`Received ${def.name} event without name: ${snippet}`, LogLevel.DEBUG);
+      return newResourceVersion;
     }
 
     if (def.namespaced && namespace) {
