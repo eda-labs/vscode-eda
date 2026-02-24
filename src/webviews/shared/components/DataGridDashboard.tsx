@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useState, useCallback, useMemo, memo } from 'react';
+import { useState, useCallback, useMemo, useTransition, memo } from 'react';
 import { Box, FormControl, InputLabel, MenuItem, Select, Stack, Typography } from '@mui/material';
 import type { GridColDef, GridSortModel } from '@mui/x-data-grid';
 
@@ -60,7 +60,6 @@ export interface DataGridToolbarContext extends DataGridContext {
 interface DashboardRow {
   id: string;
   raw: unknown[];
-  [key: string]: unknown;
 }
 
 function formatGridCellValue(value: unknown): string {
@@ -89,31 +88,10 @@ function formatGridCellValue(value: unknown): string {
   return String(value);
 }
 
-function longestLineLength(value: string): number {
-  const lines = value.split('\n');
-  let max = 0;
-  for (const line of lines) {
-    if (line.length > max) {
-      max = line.length;
-    }
-  }
-  return max;
-}
-
-function estimateColumnWidth(header: string, rows: unknown[][], columnIndex: number): number {
-  const sampleSize = Math.min(rows.length, 300);
-  let maxChars = header.length;
-
-  for (let i = 0; i < sampleSize; i += 1) {
-    const formatted = formatGridCellValue(rows[i]?.[columnIndex]);
-    const length = longestLineLength(formatted);
-    if (length > maxChars) {
-      maxChars = length;
-    }
-  }
-
-  const estimated = (maxChars * 7) + 48;
-  return Math.max(140, Math.min(520, estimated));
+function estimateColumnWidth(header: string): number {
+  const normalizedHeaderLength = header.trim().length;
+  const estimated = (Math.min(normalizedHeaderLength, 32) * 7) + 56;
+  return Math.max(140, Math.min(320, estimated));
 }
 
 function DataGridDashboardInner<T extends DataGridMessage>({
@@ -132,6 +110,7 @@ function DataGridDashboardInner<T extends DataGridMessage>({
   const [rows, setRows] = useState<unknown[][]>([]);
   const [hasKubernetesContext, setHasKubernetesContext] = useState(true);
   const [sortModel, setSortModel] = useState<GridSortModel>([]);
+  const [, startTransition] = useTransition();
 
   useReadySignal();
 
@@ -153,31 +132,34 @@ function DataGridDashboardInner<T extends DataGridMessage>({
       setSortModel([]);
     } else if (msg.command === 'results') {
       const newColumns = msg.columns ?? [];
-      setColumns(prev => {
-        const colsChanged = !shallowArrayEquals(prev, newColumns);
-        if (colsChanged) {
-          const preferredColumns = [defaultSortColumn, 'name'];
-          let sortField: string | undefined;
-          for (const preferredColumn of preferredColumns) {
-            if (!preferredColumn) {
-              continue;
+      const newRows = msg.rows ?? [];
+      startTransition(() => {
+        setColumns(prev => {
+          const colsChanged = !shallowArrayEquals(prev, newColumns);
+          if (colsChanged) {
+            const preferredColumns = [defaultSortColumn, 'name'];
+            let sortField: string | undefined;
+            for (const preferredColumn of preferredColumns) {
+              if (!preferredColumn) {
+                continue;
+              }
+              const columnIndex = newColumns.indexOf(preferredColumn);
+              if (columnIndex >= 0) {
+                sortField = `col_${columnIndex}`;
+                break;
+              }
             }
-            const columnIndex = newColumns.indexOf(preferredColumn);
-            if (columnIndex >= 0) {
-              sortField = `col_${columnIndex}`;
-              break;
-            }
-          }
 
-          if (sortField) {
-            setSortModel([{ field: sortField, sort: defaultSortDirection }]);
-          } else {
-            setSortModel([]);
+            if (sortField) {
+              setSortModel([{ field: sortField, sort: defaultSortDirection }]);
+            } else {
+              setSortModel([]);
+            }
           }
-        }
-        return newColumns;
+          return newColumns;
+        });
+        setRows(newRows);
       });
-      setRows(msg.rows ?? []);
     }
     onMessage?.(msg);
   }, [onMessage, defaultSortColumn, defaultSortDirection]));
@@ -207,21 +189,15 @@ function DataGridDashboardInner<T extends DataGridMessage>({
   }), [context, selectedNamespace, namespaces]);
 
   const gridRows = useMemo<DashboardRow[]>(() => {
-    return rows.map((row, rowIndex) => {
-      const gridRow: DashboardRow = {
-        id: String(rowIndex),
-        raw: row
-      };
-      columns.forEach((_, columnIndex) => {
-        gridRow[`col_${columnIndex}`] = row[columnIndex];
-      });
-      return gridRow;
-    });
-  }, [rows, columns]);
+    return rows.map((row, rowIndex) => ({
+      id: String(rowIndex),
+      raw: row
+    }));
+  }, [rows]);
 
   const columnWidths = useMemo<number[]>(
-    () => columns.map((column, columnIndex) => estimateColumnWidth(column, rows, columnIndex)),
-    [columns, rows]
+    () => columns.map((column) => estimateColumnWidth(column)),
+    [columns]
   );
 
   const gridColumns = useMemo<GridColDef<DashboardRow>[]>(() => {
@@ -241,8 +217,9 @@ function DataGridDashboardInner<T extends DataGridMessage>({
         headerName: column,
         width: columnWidths[columnIndex],
         minWidth: 140,
+        valueGetter: (_value, row) => row.raw[columnIndex],
         renderCell: (params) => {
-          const value = formatGridCellValue(params.row[field]);
+          const value = formatGridCellValue(params.row.raw[columnIndex]);
           return <>{renderCell ? renderCell(value, column, columnIndex, params.row.raw) : value}</>;
         }
       };

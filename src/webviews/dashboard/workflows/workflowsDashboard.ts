@@ -13,6 +13,25 @@ import { parseUpdateKey } from '../../../utils/parseUpdateKey';
 import { getUpdates } from '../../../utils/streamMessageUtils';
 
 const CORE_EDA_GROUP = 'core.eda.nokia.com';
+const MAX_FLATTEN_DEPTH = 3;
+const MAX_ARRAY_ITEMS = 20;
+const MAX_OBJECT_KEYS_PER_LEVEL = 40;
+const MAX_FLATTEN_VALUE_LENGTH = 512;
+const MAX_WORKFLOW_COLUMNS = 220;
+const WORKFLOW_BACKED_LOAD_CONCURRENCY = 6;
+const WORKFLOW_DEFINITIONS_CACHE_TTL_MS = 30_000;
+const WORKFLOW_PRIORITY_COLUMNS = new Set([
+  'workflow-id',
+  'workflow-status',
+  'name',
+  'namespace',
+  'kind',
+  'apiVersion',
+  'created',
+  'workflow-definition',
+  'workflow-type',
+  'labels'
+]);
 
 /** Webview message received from the React frontend */
 interface WebviewMessage {
@@ -116,6 +135,8 @@ export class WorkflowsDashboardPanel extends BasePanel {
   private streamRefreshTimer: ReturnType<typeof setTimeout> | undefined;
   private isLoading = false;
   private rerunLoad = false;
+  private workflowDefinitionsCache: WorkflowDefinitionResource[] = [];
+  private workflowDefinitionsCacheTime = 0;
   private workflowDrafts: Map<string, WorkflowDraftContext> = new Map();
   private workflowSaveDisposable: vscode.Disposable;
   private workflowCloseDisposable: vscode.Disposable;
@@ -302,11 +323,49 @@ export class WorkflowsDashboardPanel extends BasePanel {
     this.scheduleStreamRefresh();
   }
 
-  private flattenObject(obj: Record<string, unknown>, prefix = ''): FlattenedRow {
+  private truncateString(value: string): string {
+    if (value.length <= MAX_FLATTEN_VALUE_LENGTH) {
+      return value;
+    }
+    return `${value.slice(0, MAX_FLATTEN_VALUE_LENGTH - 3)}...`;
+  }
+
+  private stringifyComplexValue(value: unknown): string {
+    try {
+      return this.truncateString(JSON.stringify(value));
+    } catch {
+      return this.truncateString(String(value));
+    }
+  }
+
+  private flattenObject(
+    obj: Record<string, unknown>,
+    prefix = '',
+    depth = 0
+  ): FlattenedRow {
     const result: FlattenedRow = {};
-    for (const [key, value] of Object.entries(obj)) {
+    const entries = Object.entries(obj);
+    if (entries.length === 0) {
+      return result;
+    }
+
+    if (depth >= MAX_FLATTEN_DEPTH) {
+      if (prefix) {
+        result[prefix] = this.stringifyComplexValue(obj);
+      }
+      return result;
+    }
+
+    const limitedEntries = entries.length > MAX_OBJECT_KEYS_PER_LEVEL
+      ? entries.slice(0, MAX_OBJECT_KEYS_PER_LEVEL)
+      : entries;
+    for (const [key, value] of limitedEntries) {
       const outKey = prefix ? `${prefix}.${key}` : key;
-      this.flattenValue(result, outKey, value);
+      this.flattenValue(result, outKey, value, depth + 1);
+    }
+
+    if (prefix && entries.length > limitedEntries.length) {
+      result[`${prefix}.__truncatedKeys`] = entries.length - limitedEntries.length;
     }
     return result;
   }
@@ -317,30 +376,45 @@ export class WorkflowsDashboardPanel extends BasePanel {
       return;
     }
 
-    const hasNestedChildren = values.some((value) => isObject(value) || Array.isArray(value));
+    const limitedValues = values.length > MAX_ARRAY_ITEMS
+      ? values.slice(0, MAX_ARRAY_ITEMS)
+      : values;
+    const hasNestedChildren = limitedValues.some((value) => isObject(value) || Array.isArray(value));
     if (!hasNestedChildren) {
-      result[prefix] = values.join(', ');
+      const suffix = values.length > limitedValues.length
+        ? `, ... (+${values.length - limitedValues.length} more)`
+        : '';
+      result[prefix] = this.truncateString(`${limitedValues.join(', ')}${suffix}`);
       return;
     }
 
-    values.forEach((value, index) => {
-      const childPrefix = `${prefix}[${index}]`;
-      this.flattenValue(result, childPrefix, value);
-    });
+    result[prefix] = this.stringifyComplexValue(limitedValues);
+    if (values.length > limitedValues.length) {
+      result[`${prefix}.length`] = values.length;
+    }
   }
 
-  private flattenValue(result: FlattenedRow, key: string, value: unknown): void {
+  private flattenValue(result: FlattenedRow, key: string, value: unknown, depth: number): void {
     if (Array.isArray(value)) {
       this.flattenArray(result, key, value);
       return;
     }
 
     if (isObject(value)) {
-      Object.assign(result, this.flattenObject(value, key));
+      if (depth >= MAX_FLATTEN_DEPTH) {
+        result[key] = this.stringifyComplexValue(value);
+      } else {
+        Object.assign(result, this.flattenObject(value, key, depth));
+      }
       return;
     }
 
-    result[key] = value;
+    if (typeof value === 'string') {
+      result[key] = this.truncateString(value);
+      return;
+    }
+
+    result[key] = value ?? '';
   }
 
   private normalizeWorkflowName(value: string): string {
@@ -454,15 +528,26 @@ export class WorkflowsDashboardPanel extends BasePanel {
   }
 
   private async getWorkflowDefinitions(): Promise<WorkflowDefinitionResource[]> {
+    const now = Date.now();
+    if (
+      this.workflowDefinitionsCache.length > 0
+      && (now - this.workflowDefinitionsCacheTime) < WORKFLOW_DEFINITIONS_CACHE_TTL_MS
+    ) {
+      return this.workflowDefinitionsCache;
+    }
+
     const merged = new Map<string, WorkflowDefinitionResource>();
     try {
       const definitions = await this.edaClient.listResources(CORE_EDA_GROUP, 'v1', 'WorkflowDefinition');
       this.mergeWorkflowDefinitions(merged, definitions as WorkflowDefinitionResource[]);
     } catch {
-      return [];
+      return this.workflowDefinitionsCache;
     }
 
-    return Array.from(merged.values());
+    const values = Array.from(merged.values());
+    this.workflowDefinitionsCache = values;
+    this.workflowDefinitionsCacheTime = now;
+    return values;
   }
 
   private async pickWorkflowDefinition(): Promise<WorkflowDefinitionResource | undefined> {
@@ -955,29 +1040,54 @@ export class WorkflowsDashboardPanel extends BasePanel {
     const { flowTargetMap, flowStreamNames } = this.collectWorkflowBackedTargets(definitions);
     this.ensureWorkflowStreams(flowStreamNames);
 
-    for (const target of flowTargetMap.values()) {
-      try {
-        const resources = await this.edaClient.listResources(
-          target.group,
-          target.version,
-          target.kind,
-          ns === ALL_NAMESPACES ? undefined : ns
-        ) as K8sResourceData[];
-        for (const resource of resources) {
-          this.addWorkflowRow(
-            resource,
-            target.definitionName,
-            ns === ALL_NAMESPACES ? undefined : ns
-          );
-        }
-      } catch {
-        // Ignore per-target errors and continue loading others.
-      }
+    const targets = Array.from(flowTargetMap.values());
+    if (targets.length === 0) {
+      return;
     }
+
+    let targetIndex = 0;
+    const namespaceFilter = ns === ALL_NAMESPACES ? undefined : ns;
+    const workerCount = Math.min(WORKFLOW_BACKED_LOAD_CONCURRENCY, targets.length);
+
+    await Promise.all(Array.from({ length: workerCount }, async () => {
+      while (true) {
+        const target = targets[targetIndex];
+        targetIndex += 1;
+        if (!target) {
+          return;
+        }
+
+        try {
+          const resources = await this.edaClient.listResources(
+            target.group,
+            target.version,
+            target.kind,
+            namespaceFilter
+          ) as K8sResourceData[];
+          for (const resource of resources) {
+            this.addWorkflowRow(resource, target.definitionName, namespaceFilter);
+          }
+        } catch {
+          // Ignore per-target errors and continue loading others.
+        }
+      }
+    }));
   }
 
   private ensureColumns(data: FlattenedRow): void {
     for (const key of Object.keys(data)) {
+      if (data[key] === undefined) {
+        delete data[key];
+        continue;
+      }
+      if (
+        !this.columnSet.has(key)
+        && !WORKFLOW_PRIORITY_COLUMNS.has(key)
+        && this.columnSet.size >= MAX_WORKFLOW_COLUMNS
+      ) {
+        delete data[key];
+        continue;
+      }
       this.columnSet.add(key);
     }
     this.columns = Array.from(this.columnSet);
@@ -1012,8 +1122,10 @@ export class WorkflowsDashboardPanel extends BasePanel {
     this.columnSet = new Set();
     this.columns = [];
 
-    await this.loadCoreWorkflowResources(ns);
-    await this.loadWorkflowBackedResources(ns);
+    await Promise.all([
+      this.loadCoreWorkflowResources(ns),
+      this.loadWorkflowBackedResources(ns)
+    ]);
 
     if (countRows(this.rowMap) === 0 && countRows(previousRowMap) > 0) {
       this.rowMap = previousRowMap;
