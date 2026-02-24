@@ -371,6 +371,7 @@ async function initializeServiceArchitecture(
   registerResourceCreateCommand(context, resourceEditProvider);
   registerResourceEditCommands(context, resourceEditProvider, resourceViewProvider);
   registerResourceViewCommands(context, resourceViewProvider);
+  registerNodeConfigCommands(context);
 
   if (k8sClient) {
     podDescribeProvider = new PodDescribeDocumentProvider();
@@ -379,7 +380,6 @@ async function initializeServiceArchitecture(
     );
     registerPodCommands(context, podDescribeProvider);
     registerDeploymentCommands(context);
-    registerNodeConfigCommands(context);
     registerTopoNodeCommands(context);
   }
 
