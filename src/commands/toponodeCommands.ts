@@ -43,6 +43,7 @@ interface TopoNode {
     namespace?: string;
     labels?: Record<string, string>;
   };
+  status?: NodeDetailsStatus;
 }
 
 function extractNodeName(info: TopoNodeInfo): string | undefined {
@@ -113,6 +114,23 @@ async function determineUsername(
   return { username: 'admin', found: false };
 }
 
+async function fetchNodeDetailsFromApi(
+  edaClient: EdaClient,
+  nodeNs: string,
+  nodeName: string
+): Promise<string | undefined> {
+  try {
+    const node = await edaClient.getTopoNode(nodeNs, nodeName) as TopoNode;
+    const nodeDetails = node?.status?.[NODE_DETAILS_KEY];
+    if (typeof nodeDetails === 'string' && nodeDetails.length > 0) {
+      return nodeDetails;
+    }
+  } catch (err) {
+    log(`Failed to fetch node details for ${nodeName}: ${err}`, LogLevel.DEBUG);
+  }
+  return undefined;
+}
+
 function getKubectlContext(): string {
   try {
     if (serviceManager.getClientNames().includes('kubernetes')) {
@@ -142,21 +160,23 @@ function buildSshCommand(
 export function registerTopoNodeCommands(context: vscode.ExtensionContext) {
   const sshCmd = vscode.commands.registerCommand('vscode-eda.sshTopoNode', async (info: TopoNodeInfo) => {
     const name = extractNodeName(info);
-    const nodeDetails = extractNodeDetails(info);
 
     if (!name) {
       vscode.window.showErrorMessage('No node specified.');
       return;
     }
 
+    const edaClient = serviceManager.getClient<EdaClient>('eda');
+    const coreNs = edaClient.getCoreNamespace();
+    const nodeNs = info?.namespace || coreNs;
+    let nodeDetails = extractNodeDetails(info);
+    if (typeof nodeDetails !== 'string' || nodeDetails.length === 0) {
+      nodeDetails = await fetchNodeDetailsFromApi(edaClient, nodeNs, name);
+    }
     if (typeof nodeDetails !== 'string' || nodeDetails.length === 0) {
       vscode.window.showErrorMessage('No node address available for SSH.');
       return;
     }
-
-    const edaClient = serviceManager.getClient<EdaClient>('eda');
-    const coreNs = edaClient.getCoreNamespace();
-    const nodeNs = info?.namespace || coreNs;
 
     const { username, found } = await determineUsername(edaClient, nodeNs, name);
     if (!found) {

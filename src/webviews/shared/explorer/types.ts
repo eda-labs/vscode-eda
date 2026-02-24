@@ -42,6 +42,7 @@ export interface ExplorerNode {
   contextValue?: string;
   statusIndicator?: string;
   statusDescription?: string;
+  commandArg?: unknown;
   primaryAction?: ExplorerAction;
   actions: ExplorerAction[];
   children: ExplorerNode[];
@@ -100,8 +101,17 @@ export interface ExplorerRequestRefreshMessage {
   command: 'requestRefresh';
 }
 
+export interface ExplorerRenderMetricsMessage {
+  command: 'renderMetrics';
+  snapshotId: number;
+  renderMs: number;
+  totalNodes: number;
+  resourceLeafCount: number;
+}
+
 export type ExplorerOutgoingMessage =
   | ExplorerReadyMessage
   | ExplorerSetFilterMessage
   | ExplorerInvokeCommandMessage
-  | ExplorerRequestRefreshMessage;
+  | ExplorerRequestRefreshMessage
+  | ExplorerRenderMetricsMessage;

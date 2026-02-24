@@ -50,6 +50,11 @@ import { mountWebview } from '../shared/utils';
 interface ExplorerNodeLabelProps {
   node: ExplorerNode;
   onInvokeAction: (action: ExplorerAction) => void;
+  onOpenActionMenu: (
+    event: MouseEvent<HTMLElement>,
+    actions: ExplorerAction[],
+    anchorType: 'anchor' | 'position'
+  ) => void;
 }
 
 const COLOR_ERROR_MAIN = 'error.main';
@@ -66,6 +71,21 @@ const COLOR_PRIMARY_MAIN = 'primary.main';
 const COLOR_DIVIDER = 'divider';
 const DEFAULT_EXPANDED_SECTIONS = new Set<ExplorerTabId>(['dashboards', 'resources']);
 const FILTER_UPDATE_DEBOUNCE_MS = 250;
+const CMD_VIEW_STREAM_ITEM = 'vscode-eda.viewStreamItem';
+const CMD_VIEW_RESOURCE = 'vscode-eda.viewResource';
+const CMD_EDIT_RESOURCE = 'vscode-eda.switchToEditResource';
+const CMD_DELETE_RESOURCE = 'vscode-eda.deleteResource';
+const LABEL_EDIT_RESOURCE = 'Switch To Edit Mode';
+const LABEL_DELETE_RESOURCE = 'Delete Resource';
+// Webview runs in a browser sandbox where Node globals are unavailable.
+const SHOW_RESOURCE_ACTION_BUTTONS = false;
+const RESOURCE_CONTEXT_ACTION_VALUES = new Set([
+  'stream-item',
+  'pod',
+  'k8s-deployment-instance',
+  'toponode',
+  'crd-instance'
+]);
 
 const TOOLBAR_ICON_BUTTON_SX = {
   width: 24,
@@ -118,6 +138,26 @@ function flattenExpandableNodeIds(nodes: ExplorerNode[]): string[] {
     ids.push(...flattenExpandableNodeIds(node.children));
   }
   return ids;
+}
+
+function countTreeNodes(nodes: ExplorerNode[]): number {
+  let total = 0;
+  for (const node of nodes) {
+    total += 1;
+    total += countTreeNodes(node.children);
+  }
+  return total;
+}
+
+function countResourceLeafNodes(nodes: ExplorerNode[]): number {
+  let total = 0;
+  for (const node of nodes) {
+    if (RESOURCE_CONTEXT_ACTION_VALUES.has(node.contextValue ?? '')) {
+      total += 1;
+    }
+    total += countResourceLeafNodes(node.children);
+  }
+  return total;
 }
 
 type ToolbarActionIconId =
@@ -208,95 +248,168 @@ function isDestructiveEntryAction(action: ExplorerAction): boolean {
     || command.includes('reject');
 }
 
-function ExplorerNodeLabel({ node, onInvokeAction }: Readonly<ExplorerNodeLabelProps>) {
-  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
-  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
-  const hasActions = node.actions.length > 0;
+function createNodeAction(command: string, label: string, args?: unknown[]): ExplorerAction {
+  return {
+    id: `${command}:${label}`,
+    label,
+    command,
+    args
+  };
+}
+
+function canBuildResourceActions(node: ExplorerNode): boolean {
+  return RESOURCE_CONTEXT_ACTION_VALUES.has(node.contextValue ?? '') && node.commandArg !== undefined;
+}
+
+function buildResourceActions(node: ExplorerNode): ExplorerAction[] {
+  if (!canBuildResourceActions(node)) {
+    return [];
+  }
+  const commandArg = node.commandArg;
+  const common = [
+    createNodeAction(CMD_VIEW_STREAM_ITEM, 'View Stream Item', [commandArg]),
+    createNodeAction(CMD_VIEW_RESOURCE, 'View Resource YAML', [commandArg])
+  ];
+
+  if (node.contextValue === 'pod') {
+    return [
+      ...common,
+      createNodeAction('vscode-eda.logsPod', 'View Logs', [commandArg]),
+      createNodeAction('vscode-eda.describePod', 'Describe Pod', [commandArg]),
+      createNodeAction('vscode-eda.terminalPod', 'Open Terminal', [commandArg]),
+      createNodeAction('vscode-eda.deletePod', 'Delete Pod', [commandArg])
+    ];
+  }
+
+  if (node.contextValue === 'k8s-deployment-instance') {
+    return [
+      ...common,
+      createNodeAction('vscode-eda.restartDeployment', 'Restart Deployment', [commandArg]),
+      createNodeAction(CMD_EDIT_RESOURCE, LABEL_EDIT_RESOURCE, [commandArg]),
+      createNodeAction(CMD_DELETE_RESOURCE, LABEL_DELETE_RESOURCE, [commandArg])
+    ];
+  }
+
+  if (node.contextValue === 'toponode') {
+    return [
+      ...common,
+      createNodeAction('vscode-eda.viewNodeConfig', 'Get Node Config', [commandArg]),
+      createNodeAction('vscode-eda.sshTopoNode', 'SSH To Node', [commandArg]),
+      createNodeAction(CMD_EDIT_RESOURCE, LABEL_EDIT_RESOURCE, [commandArg]),
+      createNodeAction(CMD_DELETE_RESOURCE, LABEL_DELETE_RESOURCE, [commandArg])
+    ];
+  }
+
+  if (node.contextValue === 'crd-instance') {
+    return [
+      ...common,
+      createNodeAction('vscode-eda.showCRDDefinition', 'Show CRD Definition', [commandArg]),
+      createNodeAction(CMD_EDIT_RESOURCE, LABEL_EDIT_RESOURCE, [commandArg]),
+      createNodeAction(CMD_DELETE_RESOURCE, LABEL_DELETE_RESOURCE, [commandArg])
+    ];
+  }
+
+  if (node.contextValue === 'stream-item') {
+    return [
+      ...common,
+      createNodeAction(CMD_EDIT_RESOURCE, LABEL_EDIT_RESOURCE, [commandArg]),
+      createNodeAction(CMD_DELETE_RESOURCE, LABEL_DELETE_RESOURCE, [commandArg])
+    ];
+  }
+
+  return [];
+}
+
+function resolveNodePrimaryAction(node: ExplorerNode): ExplorerAction | undefined {
+  if (!node.primaryAction) {
+    return undefined;
+  }
+  if (node.primaryAction.args && node.primaryAction.args.length > 0) {
+    return node.primaryAction;
+  }
+  if (node.primaryAction.command === CMD_VIEW_STREAM_ITEM && node.commandArg !== undefined) {
+    return {
+      ...node.primaryAction,
+      args: [node.commandArg]
+    };
+  }
+  return node.primaryAction;
+}
+
+function getNodeActionList(node: ExplorerNode): ExplorerAction[] {
+  if (node.actions.length > 0) {
+    return node.actions;
+  }
+  return buildResourceActions(node);
+}
+
+function ExplorerNodeLabel({ node, onInvokeAction, onOpenActionMenu }: Readonly<ExplorerNodeLabelProps>) {
+  const hasInlineActions = node.actions.length > 0;
+  const hasResourceActions = canBuildResourceActions(node);
+  const hasActions = hasInlineActions || hasResourceActions;
+  const showActionButton = hasInlineActions || (hasResourceActions && SHOW_RESOURCE_ACTION_BUTTONS);
   const hasEntryTooltip = Boolean(node.tooltip) && node.children.length === 0;
-
-  const handleMenuOpen = useCallback((event: MouseEvent<HTMLElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setAnchorEl(event.currentTarget);
-    setMenuPosition(null);
-  }, []);
-
-  const handleRowContextMenu = useCallback((event: MouseEvent<HTMLElement>) => {
-    if (!hasActions) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    setAnchorEl(null);
-    setMenuPosition({ top: event.clientY + 2, left: event.clientX + 2 });
-  }, [hasActions]);
-
-  const handleMenuClose = useCallback(() => {
-    setAnchorEl(null);
-    setMenuPosition(null);
-  }, []);
-
-  const handlePrimaryAction = useCallback((event: MouseEvent<HTMLElement>) => {
-    if (!node.primaryAction) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    onInvokeAction(node.primaryAction);
-  }, [node.primaryAction, onInvokeAction]);
-
-  const menuOpen = Boolean(anchorEl || menuPosition);
-
-  useEffect(() => {
-    if (!menuOpen) {
-      return;
-    }
-
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        handleMenuClose();
-      }
-    };
-
-    window.addEventListener('blur', handleMenuClose);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      window.removeEventListener('blur', handleMenuClose);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [menuOpen, handleMenuClose]);
+  const primaryAction = resolveNodePrimaryAction(node);
+  const menuActions = hasActions ? getNodeActionList(node) : [];
 
   return (
     <Stack
       direction="row"
       alignItems="center"
       spacing={0.75}
-      onContextMenu={handleRowContextMenu}
+      onContextMenu={(event) => {
+        if (!hasActions) {
+          return;
+        }
+        onOpenActionMenu(event, menuActions, 'position');
+      }}
       sx={{ width: '100%' }}
     >
       <Box
-        onClick={handlePrimaryAction}
+        onClick={(event) => {
+          if (!primaryAction) {
+            return;
+          }
+          event.preventDefault();
+          event.stopPropagation();
+          onInvokeAction(primaryAction);
+        }}
         sx={{
           minWidth: 0,
           flex: 1,
-          cursor: node.primaryAction ? 'pointer' : 'default'
+          cursor: primaryAction ? 'pointer' : 'default'
         }}
       >
-        <Tooltip
-          title={hasEntryTooltip ? node.tooltip : ''}
-          placement="bottom"
-          enterDelay={400}
-          leaveDelay={0}
-          disableInteractive
-          disableHoverListener={!hasEntryTooltip}
-          disableFocusListener={!hasEntryTooltip}
-          disableTouchListener={!hasEntryTooltip}
-          slotProps={{
-            popper: { sx: { pointerEvents: 'none' }, modifiers: [{ name: 'offset', options: { offset: [0, 6] } }, { name: 'flip', options: { fallbackPlacements: ['top'] } }, { name: 'preventOverflow', options: { padding: 8, altAxis: true } }] },
-            tooltip: { sx: { maxWidth: 'min(320px, calc(100vw - 24px))', whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }
-          }}
-        >
+        {hasEntryTooltip ? (
+          <Tooltip
+            title={node.tooltip || ''}
+            placement="bottom"
+            enterDelay={400}
+            leaveDelay={0}
+            disableInteractive
+            slotProps={{
+              popper: { sx: { pointerEvents: 'none' }, modifiers: [{ name: 'offset', options: { offset: [0, 6] } }, { name: 'flip', options: { fallbackPlacements: ['top'] } }, { name: 'preventOverflow', options: { padding: 8, altAxis: true } }] },
+              tooltip: { sx: { maxWidth: 'min(320px, calc(100vw - 24px))', whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }
+            }}
+          >
+            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
+              {node.statusIndicator && (
+                <Box
+                  sx={{
+                    width: 9,
+                    height: 9,
+                    borderRadius: '50%',
+                    flex: '0 0 auto',
+                    bgcolor: statusColor(node.statusIndicator)
+                  }}
+                />
+              )}
+              <Typography variant="body2" noWrap sx={{ fontWeight: primaryAction ? 600 : 500 }}>
+                {node.label}
+              </Typography>
+            </Stack>
+          </Tooltip>
+        ) : (
           <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
             {node.statusIndicator && (
               <Box
@@ -309,11 +422,11 @@ function ExplorerNodeLabel({ node, onInvokeAction }: Readonly<ExplorerNodeLabelP
                 }}
               />
             )}
-            <Typography variant="body2" noWrap sx={{ fontWeight: node.primaryAction ? 600 : 500 }}>
+            <Typography variant="body2" noWrap sx={{ fontWeight: primaryAction ? 600 : 500 }}>
               {node.label}
             </Typography>
           </Stack>
-        </Tooltip>
+        )}
         {(node.description || node.statusDescription) && (
           <Typography variant="caption" color="text.secondary" noWrap>
             {node.description || node.statusDescription}
@@ -321,60 +434,15 @@ function ExplorerNodeLabel({ node, onInvokeAction }: Readonly<ExplorerNodeLabelP
         )}
       </Box>
 
-      {hasActions && (
-        <>
-          <IconButton
-            size="small"
-            onClick={handleMenuOpen}
-            aria-label={`Actions for ${node.label}`}
-            sx={{ width: 22, height: 22, p: 0.25, color: COLOR_TEXT_PRIMARY }}
-          >
-            <MoreVertIcon fontSize="small" />
-          </IconButton>
-          <Menu
-            anchorEl={anchorEl}
-            anchorReference={menuPosition ? 'anchorPosition' : 'anchorEl'}
-            anchorPosition={menuPosition ?? undefined}
-            open={menuOpen}
-            onClose={handleMenuClose}
-            onClick={handleMenuClose}
-            slotProps={{
-              list: { dense: true },
-              paper: {
-                sx: {
-                  minWidth: 210,
-                  border: '1px solid',
-                  borderColor: COLOR_DIVIDER,
-                  '& .MuiMenuItem-root': {
-                    minHeight: 30,
-                    py: 0.25
-                  }
-                }
-              }
-            }}
-          >
-            {node.actions.map(action => {
-              const IconComponent = entryActionIcon(action);
-              const isDestructive = isDestructiveEntryAction(action);
-              return (
-                <MenuItem
-                  key={action.id}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    onInvokeAction(action);
-                  }}
-                  sx={isDestructive ? { color: COLOR_ERROR_MAIN } : undefined}
-                >
-                  <ListItemIcon sx={{ minWidth: 24, color: isDestructive ? COLOR_ERROR_MAIN : COLOR_TEXT_PRIMARY }}>
-                    <IconComponent fontSize="small" />
-                  </ListItemIcon>
-                  <Typography variant="body2">{action.label}</Typography>
-                </MenuItem>
-              );
-            })}
-          </Menu>
-        </>
+      {showActionButton && (
+        <IconButton
+          size="small"
+          onClick={(event) => onOpenActionMenu(event, menuActions, 'anchor')}
+          aria-label={`Actions for ${node.label}`}
+          sx={{ width: 22, height: 22, p: 0.25, color: COLOR_TEXT_PRIMARY }}
+        >
+          <MoreVertIcon fontSize="small" />
+        </IconButton>
       )}
     </Stack>
   );
@@ -385,6 +453,11 @@ interface SectionTreeProps {
   expandedItems: string[];
   onExpandedItemsChange: (itemIds: string[]) => void;
   onInvokeAction: (action: ExplorerAction) => void;
+  onOpenActionMenu: (
+    event: MouseEvent<HTMLElement>,
+    actions: ExplorerAction[],
+    anchorType: 'anchor' | 'position'
+  ) => void;
 }
 
 interface SectionToolbarActionsProps {
@@ -419,25 +492,56 @@ interface ExplorerSectionCardProps {
   onSectionDragEnd: () => void;
   onToggleSectionCollapsed: (sectionId: ExplorerTabId) => void;
   onInvokeAction: (action: ExplorerAction) => void;
+  onOpenActionMenu: (
+    event: MouseEvent<HTMLElement>,
+    actions: ExplorerAction[],
+    anchorType: 'anchor' | 'position'
+  ) => void;
   onExpandedItemsChange: (sectionId: ExplorerTabId, itemIds: string[]) => void;
   onEnsureResourcesSectionExpanded: () => void;
   onExpandAllInSection: (sectionId: ExplorerTabId, nodes: ExplorerNode[]) => void;
   onCollapseAllInSection: (sectionId: ExplorerTabId) => void;
 }
 
-function renderTreeNodes(nodes: ExplorerNode[], onInvokeAction: (action: ExplorerAction) => void): ReactNode[] {
+interface ExplorerActionMenuState {
+  anchorEl: HTMLElement | null;
+  anchorPosition: { top: number; left: number } | null;
+  actions: ExplorerAction[];
+}
+
+function renderTreeNodes(
+  nodes: ExplorerNode[],
+  onInvokeAction: (action: ExplorerAction) => void,
+  onOpenActionMenu: (
+    event: MouseEvent<HTMLElement>,
+    actions: ExplorerAction[],
+    anchorType: 'anchor' | 'position'
+  ) => void
+): ReactNode[] {
   return nodes.map(node => (
     <TreeItem
       key={node.id}
       itemId={node.id}
-      label={<ExplorerNodeLabel node={node} onInvokeAction={onInvokeAction} />}
+      label={(
+        <ExplorerNodeLabel
+          node={node}
+          onInvokeAction={onInvokeAction}
+          onOpenActionMenu={onOpenActionMenu}
+        />
+      )}
     >
-      {renderTreeNodes(node.children, onInvokeAction)}
+      {renderTreeNodes(node.children, onInvokeAction, onOpenActionMenu)}
     </TreeItem>
   ));
 }
 
-function SectionTree({ section, expandedItems, onExpandedItemsChange, onInvokeAction }: Readonly<SectionTreeProps>) {
+function SectionTree({
+  section,
+  expandedItems,
+  onExpandedItemsChange,
+  onInvokeAction,
+  onOpenActionMenu
+}: Readonly<SectionTreeProps>) {
   if (section.nodes.length === 0) {
     return (
       <Typography variant="body2" color="text.secondary">
@@ -445,7 +549,6 @@ function SectionTree({ section, expandedItems, onExpandedItemsChange, onInvokeAc
       </Typography>
     );
   }
-
   const contentRowPaddingY = section.id === 'dashboards' ? 0.1 : 0.3;
 
   return (
@@ -462,7 +565,7 @@ function SectionTree({ section, expandedItems, onExpandedItemsChange, onInvokeAc
         '& .MuiTreeItem-label': { width: '100%' }
       }}
     >
-      {renderTreeNodes(section.nodes, onInvokeAction)}
+      {renderTreeNodes(section.nodes, onInvokeAction, onOpenActionMenu)}
     </SimpleTreeView>
   );
 }
@@ -497,8 +600,9 @@ function getSectionHeaderSx(isCollapsed: boolean, isBeingDragged: boolean) {
 }
 
 function areAllNodesExpanded(nodes: ExplorerNode[], expandedItems: string[]): boolean {
+  const expandedItemIds = new Set(expandedItems);
   const nodeIds = flattenNodeIds(nodes);
-  return nodeIds.length > 0 && nodeIds.every(id => expandedItems.includes(id));
+  return nodeIds.length > 0 && nodeIds.every(id => expandedItemIds.has(id));
 }
 
 function SectionToolbarActions({ actions, onInvokeAction }: Readonly<SectionToolbarActionsProps>) {
@@ -595,6 +699,7 @@ function ExplorerSectionCard({
   onSectionDragEnd,
   onToggleSectionCollapsed,
   onInvokeAction,
+  onOpenActionMenu,
   onExpandedItemsChange,
   onEnsureResourcesSectionExpanded,
   onExpandAllInSection,
@@ -653,6 +758,7 @@ function ExplorerSectionCard({
             expandedItems={expandedItems}
             onExpandedItemsChange={(itemIds) => onExpandedItemsChange(section.id, itemIds)}
             onInvokeAction={onInvokeAction}
+            onOpenActionMenu={onOpenActionMenu}
           />
         </Box>
       )}
@@ -712,10 +818,19 @@ function EdaExplorerView() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [draggingSection, setDraggingSection] = useState<ExplorerTabId | null>(null);
   const [dragOverSection, setDragOverSection] = useState<ExplorerTabId | null>(null);
+  const [actionMenuState, setActionMenuState] = useState<ExplorerActionMenuState | null>(null);
   const sectionRefs = useRef<Partial<Record<ExplorerTabId, HTMLDivElement | null>>>({});
   const resourcesExpandedBeforeFilterRef = useRef<string[] | null>(null);
   const resourcesCollapsedBeforeFilterRef = useRef<boolean | null>(null);
   const pendingFilterSyncRef = useRef<string | null>(null);
+  const snapshotSequenceRef = useRef(0);
+  const pendingRenderMetricsRef = useRef<{
+    snapshotId: number;
+    receivedAt: number;
+    totalNodes: number;
+    resourceLeafCount: number;
+  } | null>(null);
+  const reportedSnapshotRef = useRef(0);
 
   useReadySignal();
 
@@ -731,6 +846,15 @@ function EdaExplorerView() {
 
       const filterActive = message.filterText.length > 0;
       const resourceNodes = getSectionById(message.sections, 'resources')?.nodes ?? [];
+      const snapshotNodes = message.sections.flatMap(section => section.nodes);
+      const nextSnapshotId = snapshotSequenceRef.current + 1;
+      snapshotSequenceRef.current = nextSnapshotId;
+      pendingRenderMetricsRef.current = {
+        snapshotId: nextSnapshotId,
+        receivedAt: window.performance.now(),
+        totalNodes: countTreeNodes(snapshotNodes),
+        resourceLeafCount: countResourceLeafNodes(snapshotNodes)
+      };
 
       setSections(message.sections);
       setSectionOrder(currentOrder => mergeSectionOrder(currentOrder, message.sections));
@@ -801,6 +925,47 @@ function EdaExplorerView() {
     }
   }, [sections]));
 
+  useEffect(() => {
+    const pending = pendingRenderMetricsRef.current;
+    if (!pending) {
+      return;
+    }
+    if (pending.snapshotId <= reportedSnapshotRef.current) {
+      return;
+    }
+
+    let cancelled = false;
+    let frameOne = 0;
+    let frameTwo = 0;
+    frameOne = window.requestAnimationFrame(() => {
+      frameTwo = window.requestAnimationFrame(() => {
+        if (cancelled) {
+          return;
+        }
+        reportedSnapshotRef.current = pending.snapshotId;
+        pendingRenderMetricsRef.current = null;
+        const renderMs = Math.max(0, window.performance.now() - pending.receivedAt);
+        postMessage({
+          command: 'renderMetrics',
+          snapshotId: pending.snapshotId,
+          renderMs: Math.round(renderMs * 100) / 100,
+          totalNodes: pending.totalNodes,
+          resourceLeafCount: pending.resourceLeafCount
+        });
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      if (frameOne) {
+        window.cancelAnimationFrame(frameOne);
+      }
+      if (frameTwo) {
+        window.cancelAnimationFrame(frameTwo);
+      }
+    };
+  }, [sections, postMessage]);
+
   const sectionsById = useMemo(() => {
     const map = new Map<ExplorerTabId, ExplorerSectionSnapshot>();
     for (const section of sections) {
@@ -830,6 +995,35 @@ function EdaExplorerView() {
       args: action.args
     });
   }, [postMessage]);
+
+  const closeActionMenu = useCallback(() => {
+    setActionMenuState(null);
+  }, []);
+
+  const openActionMenu = useCallback((
+    event: MouseEvent<HTMLElement>,
+    actions: ExplorerAction[],
+    anchorType: 'anchor' | 'position'
+  ) => {
+    if (actions.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (anchorType === 'position') {
+      setActionMenuState({
+        anchorEl: null,
+        anchorPosition: { top: event.clientY + 2, left: event.clientX + 2 },
+        actions
+      });
+      return;
+    }
+    setActionMenuState({
+      anchorEl: event.currentTarget,
+      anchorPosition: null,
+      actions
+    });
+  }, []);
 
   const handleFilterChange = useCallback((value: string) => {
     setFilterText(value);
@@ -862,6 +1056,26 @@ function EdaExplorerView() {
       window.clearTimeout(filterUpdateTimeoutRef.current);
     }
   }, []);
+
+  useEffect(() => {
+    if (!actionMenuState) {
+      return;
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        closeActionMenu();
+      }
+    };
+
+    window.addEventListener('blur', closeActionMenu);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('blur', closeActionMenu);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [actionMenuState, closeActionMenu]);
 
   const handleExpandedItemsChange = useCallback((sectionId: ExplorerTabId, itemIds: string[]) => {
     setExpandedByTab(current => ({
@@ -1082,6 +1296,7 @@ function EdaExplorerView() {
             onSectionDragEnd={handleSectionDragEnd}
             onToggleSectionCollapsed={toggleSectionCollapsed}
             onInvokeAction={invokeAction}
+            onOpenActionMenu={openActionMenu}
             onExpandedItemsChange={handleExpandedItemsChange}
             onEnsureResourcesSectionExpanded={ensureResourcesSectionExpanded}
             onExpandAllInSection={expandAllInSection}
@@ -1089,6 +1304,50 @@ function EdaExplorerView() {
           />
         ))}
       </Stack>
+
+      <Menu
+        anchorEl={actionMenuState?.anchorEl || null}
+        anchorReference={actionMenuState?.anchorPosition ? 'anchorPosition' : 'anchorEl'}
+        anchorPosition={actionMenuState?.anchorPosition || undefined}
+        open={Boolean(actionMenuState)}
+        onClose={closeActionMenu}
+        onClick={closeActionMenu}
+        slotProps={{
+          list: { dense: true },
+          paper: {
+            sx: {
+              minWidth: 210,
+              border: '1px solid',
+              borderColor: COLOR_DIVIDER,
+              '& .MuiMenuItem-root': {
+                minHeight: 30,
+                py: 0.25
+              }
+            }
+          }
+        }}
+      >
+        {(actionMenuState?.actions || []).map(action => {
+          const IconComponent = entryActionIcon(action);
+          const isDestructive = isDestructiveEntryAction(action);
+          return (
+            <MenuItem
+              key={action.id}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                invokeAction(action);
+              }}
+              sx={isDestructive ? { color: COLOR_ERROR_MAIN } : undefined}
+            >
+              <ListItemIcon sx={{ minWidth: 24, color: isDestructive ? COLOR_ERROR_MAIN : COLOR_TEXT_PRIMARY }}>
+                <IconComponent fontSize="small" />
+              </ListItemIcon>
+              <Typography variant="body2">{action.label}</Typography>
+            </MenuItem>
+          );
+        })}
+      </Menu>
     </Box>
   );
 }

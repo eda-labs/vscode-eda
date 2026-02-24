@@ -142,12 +142,14 @@ export function registerResourceViewCommands(
     try {
       const cmdArg = arg as CommandArgument | undefined;
       const resource: KubernetesResource | undefined = cmdArg?.raw ?? cmdArg?.rawResource ?? cmdArg?.resource?.raw;
-      if (!resource) {
-        vscode.window.showErrorMessage('No data available for this item');
-        return;
-      }
       const info = extractResourceInfo(cmdArg, resource);
-      const yamlText = yaml.dump(sanitizeResource(resource), { indent: 2 });
+      let yamlText: string;
+      if (resource) {
+        yamlText = yaml.dump(sanitizeResource(resource), { indent: 2 });
+      } else {
+        yamlText = await fetchResourceYaml(info);
+        yamlText = stripManagedFieldsFromYaml(yamlText);
+      }
       await openResourceDocument(provider, info, yamlText, 'viewStreamItem');
     } catch (err: unknown) {
       log(`Failed to open stream item: ${String(err)}`, LogLevel.ERROR, true);

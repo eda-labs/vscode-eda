@@ -82,6 +82,10 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
   private edaClient: EdaClient;
   private statusService: ResourceStatusService;
   private items: Transaction[] = [];
+  private lastSerializedItems = '[]';
+  private refreshHandle: ReturnType<typeof setTimeout> | undefined;
+  private pendingCountRefresh = false;
+  private refreshIntervalMs = 120;
   private _onBasketCountChanged = new vscode.EventEmitter<number>();
   readonly onBasketCountChanged = this._onBasketCountChanged.event;
 
@@ -93,6 +97,10 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     super();
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
+    const configuredInterval = Number(process.env.EDA_BASKET_TREE_REFRESH_MS);
+    if (!Number.isNaN(configuredInterval) && configuredInterval >= 0) {
+      this.refreshIntervalMs = configuredInterval;
+    }
     this.setupStreamListener();
 
     // Emit initial count
@@ -103,8 +111,10 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
    * Initialize async operations. Call this after construction.
    */
   public async initialize(): Promise<void> {
-    await this.loadBasket();
-    await this.edaClient.streamUserStorageFile('Transactions');
+    void this.loadBasket();
+    this.edaClient.streamUserStorageFile('Transactions').catch(err => {
+      log(`Failed to stream transaction basket file: ${err}`, LogLevel.ERROR);
+    });
   }
 
   /** Set up the stream message listener for basket updates */
@@ -121,26 +131,64 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
   }
 
   public dispose(): void {
+    if (this.refreshHandle) {
+      clearTimeout(this.refreshHandle);
+      this.refreshHandle = undefined;
+    }
+    this.pendingCountRefresh = false;
+    this._onBasketCountChanged.dispose();
     // no periodic polling to clear
+  }
+
+  private scheduleRefresh(countChanged: boolean): void {
+    if (countChanged) {
+      this.pendingCountRefresh = true;
+    }
+    if (this.refreshHandle) {
+      return;
+    }
+    this.refreshHandle = setTimeout(() => {
+      this.refreshHandle = undefined;
+      this.refresh();
+      if (this.pendingCountRefresh) {
+        this.pendingCountRefresh = false;
+        this._onBasketCountChanged.fire(this.count);
+      }
+    }, this.refreshIntervalMs);
+  }
+
+  private parseBasketContent(content: string | undefined): Transaction[] {
+    if (!content) {
+      return [];
+    }
+    const parsed: unknown = JSON.parse(content);
+    if (Array.isArray(parsed)) {
+      return parsed as Transaction[];
+    }
+    if (typeof parsed === 'object' && parsed !== null && Object.keys(parsed).length === 0) {
+      return [];
+    }
+    return [parsed as Transaction];
+  }
+
+  private replaceItems(nextItems: Transaction[]): boolean {
+    const serialized = JSON.stringify(nextItems);
+    if (serialized === this.lastSerializedItems) {
+      return false;
+    }
+    this.items = nextItems;
+    this.lastSerializedItems = serialized;
+    return true;
   }
 
   private async loadBasket(): Promise<void> {
     try {
       const content = await this.edaClient.getUserStorageFile('Transactions');
-      if (content) {
-        const parsed: unknown = JSON.parse(content);
-        if (Array.isArray(parsed)) {
-          this.items = parsed as Transaction[];
-        } else if (typeof parsed === 'object' && parsed !== null && Object.keys(parsed).length === 0) {
-          this.items = [];
-        } else {
-          this.items = [parsed as Transaction];
-        }
-      } else {
-        this.items = [];
+      const nextItems = this.parseBasketContent(content);
+      const oldCount = this.items.length;
+      if (this.replaceItems(nextItems)) {
+        this.scheduleRefresh(oldCount !== nextItems.length);
       }
-      this.refresh();
-      this._onBasketCountChanged.fire(this.count);
     } catch (err) {
       log(`Failed to load transaction basket: ${err}`, LogLevel.ERROR);
     }
@@ -149,13 +197,14 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
   public async addTransaction(tx: Transaction): Promise<void> {
     this.items.push(tx);
     await this.saveBasket();
-    this.refresh();
-    this._onBasketCountChanged.fire(this.count);
+    this.scheduleRefresh(true);
   }
 
   private async saveBasket(): Promise<void> {
     try {
-      await this.edaClient.putUserStorageFile('Transactions', JSON.stringify(this.items));
+      const serialized = JSON.stringify(this.items);
+      await this.edaClient.putUserStorageFile('Transactions', serialized);
+      this.lastSerializedItems = serialized;
     } catch (err) {
       log(`Failed to save transaction basket: ${err}`, LogLevel.ERROR);
     }
@@ -175,14 +224,13 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     }
     this.items[index] = tx;
     await this.saveBasket();
-    this.refresh();
+    this.scheduleRefresh(false);
   }
 
   public async clearBasket(): Promise<void> {
     this.items = [];
     await this.saveBasket();
-    this.refresh();
-    this._onBasketCountChanged.fire(this.count);
+    this.scheduleRefresh(true);
   }
 
   public async removeTransaction(index: number): Promise<void> {
@@ -191,8 +239,7 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
     }
     this.items.splice(index, 1);
     await this.saveBasket();
-    this.refresh();
-    this._onBasketCountChanged.fire(this.count);
+    this.scheduleRefresh(true);
   }
 
   getTreeItem(element: TransactionBasketItem): vscode.TreeItem {
@@ -304,18 +351,13 @@ export class TransactionBasketProvider extends FilteredTreeProvider<TransactionB
   /** Process updates from the user-storage stream */
   private processStreamUpdate(msg: FileStreamMessage): void {
     const content = msg['file-content'] ?? msg.msg?.['file-content'];
-    if (!content) return;
+    if (!content || content === this.lastSerializedItems) return;
     try {
-      const parsed: unknown = JSON.parse(content);
-      if (Array.isArray(parsed)) {
-        this.items = parsed as Transaction[];
-      } else if (typeof parsed === 'object' && parsed !== null && Object.keys(parsed).length === 0) {
-        this.items = [];
-      } else {
-        this.items = [parsed as Transaction];
+      const nextItems = this.parseBasketContent(content);
+      const oldCount = this.items.length;
+      if (this.replaceItems(nextItems)) {
+        this.scheduleRefresh(oldCount !== nextItems.length);
       }
-      this.refresh();
-      this._onBasketCountChanged.fire(this.count);
     } catch (err) {
       log(`Failed to process basket stream: ${err}`, LogLevel.ERROR);
     }

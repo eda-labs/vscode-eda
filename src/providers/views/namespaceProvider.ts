@@ -92,11 +92,29 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
   /** Throttled refresh timer */
   private refreshHandle?: ReturnType<typeof setTimeout>;
   private pendingSummary?: string;
+  private streamRefreshHandle?: ReturnType<typeof setTimeout>;
+  private pendingStreamRefresh = false;
+  private k8sInitializationHandle?: ReturnType<typeof setTimeout>;
+  private k8sStartupDelayMs = 1000;
+  private resourceRefreshIntervalMs = 180;
+  private streamRefreshIntervalMs = 120;
 
 constructor() {
     super();
     this.kubernetesIcon = new vscode.ThemeIcon('layers');
     log('EdaNamespaceProvider constructor starting', LogLevel.DEBUG);
+    const configuredInterval = Number(process.env.EDA_STREAM_TREE_REFRESH_MS);
+    if (!Number.isNaN(configuredInterval) && configuredInterval >= 0) {
+      this.streamRefreshIntervalMs = configuredInterval;
+    }
+    const configuredK8sDelay = Number(process.env.EDA_K8S_STARTUP_DELAY_MS);
+    if (!Number.isNaN(configuredK8sDelay) && configuredK8sDelay >= 0) {
+      this.k8sStartupDelayMs = configuredK8sDelay;
+    }
+    const configuredResourceInterval = Number(process.env.EDA_RESOURCE_TREE_REFRESH_MS);
+    if (!Number.isNaN(configuredResourceInterval) && configuredResourceInterval >= 0) {
+      this.resourceRefreshIntervalMs = configuredResourceInterval;
+    }
 
     this.initializeKubernetesClient();
     this.initializeServices();
@@ -191,8 +209,27 @@ constructor() {
   public async initialize(): Promise<void> {
     await this.loadStreams();
     await this.subscribeToKnownEdaStreams();
-    await this.initializeKubernetesNamespaces();
-    await this.edaClient.streamEdaNamespaces();
+    this.scheduleKubernetesInitialization();
+    this.edaClient.streamEdaNamespaces().catch(() => {
+      // startup path is best-effort; stream errors are surfaced via stream logs/events
+    });
+  }
+
+  private scheduleKubernetesInitialization(): void {
+    if (!this.k8sClient) {
+      return;
+    }
+    if (this.k8sStartupDelayMs <= 0) {
+      void this.initializeKubernetesNamespaces();
+      return;
+    }
+    if (this.k8sInitializationHandle) {
+      return;
+    }
+    this.k8sInitializationHandle = setTimeout(() => {
+      this.k8sInitializationHandle = undefined;
+      void this.initializeKubernetesNamespaces();
+    }, this.k8sStartupDelayMs);
   }
 
   private async subscribeToKnownEdaStreams(): Promise<void> {
@@ -293,7 +330,7 @@ constructor() {
       this.pendingSummary = summary;
     }
     if (this.refreshHandle) {
-      clearTimeout(this.refreshHandle);
+      return;
     }
     this.refreshHandle = setTimeout(() => {
       const msg = this.pendingSummary
@@ -303,7 +340,7 @@ constructor() {
       this.refresh();
       this.pendingSummary = undefined;
       this.refreshHandle = undefined;
-    }, 500);
+    }, this.resourceRefreshIntervalMs);
   }
 
   /**
@@ -761,6 +798,7 @@ constructor() {
       return;
     }
     log(`[STREAM:${stream}] Processing ${updates.length} updates`, LogLevel.DEBUG);
+    let changed = false;
     let namespacesChanged = false;
     for (const up of updates) {
       const { name, namespace } = this.extractNames(up);
@@ -778,15 +816,23 @@ constructor() {
         this.streamData.set(key, map);
       }
       if (up.data === null) {
-        map.delete(name);
+        if (map.delete(name)) {
+          changed = true;
+        }
       } else if (up.data) {
-        map.set(name, up.data);
+        const existing = map.get(name);
+        if (this.shouldUpdateResource(existing, up.data)) {
+          map.set(name, up.data);
+          changed = true;
+        }
       }
     }
     if (namespacesChanged) {
       this.syncNamespacesWithK8s();
     }
-    this.refresh();
+    if (changed || namespacesChanged) {
+      this.scheduleStreamRefresh();
+    }
   }
 
   /** Extract namespace name from an update object */
@@ -842,8 +888,43 @@ constructor() {
     }
     if (changed) {
       this.syncNamespacesWithK8s();
-      this.refresh();
+      this.scheduleStreamRefresh();
     }
+  }
+
+  private scheduleStreamRefresh(): void {
+    this.pendingStreamRefresh = true;
+    if (this.streamRefreshHandle) {
+      return;
+    }
+    this.streamRefreshHandle = setTimeout(() => {
+      this.streamRefreshHandle = undefined;
+      if (!this.pendingStreamRefresh) {
+        return;
+      }
+      this.pendingStreamRefresh = false;
+      this.refresh();
+    }, this.streamRefreshIntervalMs);
+  }
+
+  private shouldUpdateResource(existing: K8sResource | undefined, incoming: K8sResource): boolean {
+    if (!existing) {
+      return true;
+    }
+    const existingUid = existing.metadata?.uid;
+    const incomingUid = incoming.metadata?.uid;
+    if (existingUid && incomingUid && existingUid !== incomingUid) {
+      return true;
+    }
+    const existingVersion = existing.metadata?.resourceVersion;
+    const incomingVersion = incoming.metadata?.resourceVersion;
+    if (existingVersion && incomingVersion) {
+      return existingVersion !== incomingVersion;
+    }
+    if (existingVersion || incomingVersion) {
+      return true;
+    }
+    return true;
   }
 
   /** Extract name and namespace from a stream update */
@@ -984,6 +1065,19 @@ constructor() {
   }
 
   public dispose(): void {
+    if (this.refreshHandle) {
+      clearTimeout(this.refreshHandle);
+      this.refreshHandle = undefined;
+    }
+    if (this.streamRefreshHandle) {
+      clearTimeout(this.streamRefreshHandle);
+      this.streamRefreshHandle = undefined;
+    }
+    if (this.k8sInitializationHandle) {
+      clearTimeout(this.k8sInitializationHandle);
+      this.k8sInitializationHandle = undefined;
+    }
+    this.pendingStreamRefresh = false;
     for (const d of this.disposables) {
       try {
         d.dispose();

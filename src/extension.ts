@@ -299,13 +299,24 @@ interface ServiceConfig {
   clientSecret: string;
   skipTlsVerify: boolean;
   coreNamespace: string;
+  activationStartMs?: number;
 }
 
 async function initializeServiceArchitecture(
   context: vscode.ExtensionContext,
   config: ServiceConfig
 ): Promise<void> {
-  const { edaUrl, edaContext, edaUsername, edaPassword, clientId, clientSecret, skipTlsVerify, coreNamespace } = config;
+  const {
+    edaUrl,
+    edaContext,
+    edaUsername,
+    edaPassword,
+    clientId,
+    clientSecret,
+    skipTlsVerify,
+    coreNamespace,
+    activationStartMs
+  } = config;
 
   // 1) Create the clients
   const k8sClient = edaContext ? new KubernetesClient(edaContext) : undefined;
@@ -378,7 +389,7 @@ async function initializeServiceArchitecture(
   serviceManager.registerService('schema-provider', schemaProviderService);
 
   // 7) Create tree providers and register remaining commands
-  await initializeTreeViewsAndCommands(context);
+  await initializeTreeViewsAndCommands(context, { activationStartMs });
 
   // 8) Run non-critical activation work in background.
   void schemaProviderService.initialize(context).catch(err => {
@@ -390,43 +401,71 @@ async function initializeServiceArchitecture(
   }
 }
 
-async function initializeTreeViewsAndCommands(context: vscode.ExtensionContext): Promise<void> {
+async function initializeTreeViewsAndCommands(
+  context: vscode.ExtensionContext,
+  options?: { activationStartMs?: number }
+): Promise<void> {
+  interface StartupInitializableProvider {
+    initialize(): Promise<void>;
+    refresh(): void;
+  }
+
+  const configuredNonResourceDelay = Number(process.env.EDA_NON_RESOURCE_STARTUP_DELAY_MS);
+  const nonResourceStartupDelayMs = (!Number.isNaN(configuredNonResourceDelay) && configuredNonResourceDelay >= 0)
+    ? configuredNonResourceDelay
+    : 1200;
+  const startupTimers = new Set<ReturnType<typeof setTimeout>>();
+
+  const initializeProvider = (
+    providerName: string,
+    provider: StartupInitializableProvider,
+    delayMs: number
+  ): void => {
+    const runInitialization = () => {
+      void provider.initialize().then(() => {
+        provider.refresh();
+      }).catch((err: unknown) => {
+        log(`Failed to initialize ${providerName}: ${String(err)}`, LogLevel.ERROR, true);
+      });
+    };
+
+    if (delayMs <= 0) {
+      runInitialization();
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      startupTimers.delete(timer);
+      runInitialization();
+    }, delayMs);
+    startupTimers.add(timer);
+  };
+
+  context.subscriptions.push({
+    dispose: () => {
+      for (const timer of startupTimers) {
+        clearTimeout(timer);
+      }
+      startupTimers.clear();
+    }
+  });
+
   const dashboardProvider = new DashboardProvider();
 
   const namespaceProvider = new EdaNamespaceProvider();
-  void namespaceProvider.initialize().then(() => {
-    namespaceProvider.refresh();
-  }).catch((err: unknown) => {
-    log(`Failed to initialize namespace provider: ${String(err)}`, LogLevel.ERROR, true);
-  });
+  initializeProvider('namespace provider', namespaceProvider, 0);
 
   const alarmProvider = new EdaAlarmProvider();
-  void alarmProvider.initialize().then(() => {
-    alarmProvider.refresh();
-  }).catch((err: unknown) => {
-    log(`Failed to initialize alarm provider: ${String(err)}`, LogLevel.ERROR, true);
-  });
+  initializeProvider('alarm provider', alarmProvider, nonResourceStartupDelayMs);
 
   edaDeviationProvider = new EdaDeviationProvider();
-  void edaDeviationProvider.initialize().then(() => {
-    edaDeviationProvider.refresh();
-  }).catch((err: unknown) => {
-    log(`Failed to initialize deviation provider: ${String(err)}`, LogLevel.ERROR, true);
-  });
+  initializeProvider('deviation provider', edaDeviationProvider, nonResourceStartupDelayMs);
 
   edaTransactionBasketProvider = new TransactionBasketProvider();
-  void edaTransactionBasketProvider.initialize().then(() => {
-    edaTransactionBasketProvider.refresh();
-  }).catch((err: unknown) => {
-    log(`Failed to initialize transaction basket provider: ${String(err)}`, LogLevel.ERROR, true);
-  });
+  initializeProvider('transaction basket provider', edaTransactionBasketProvider, nonResourceStartupDelayMs);
 
   edaTransactionProvider = new EdaTransactionProvider();
-  void edaTransactionProvider.initialize().then(() => {
-    edaTransactionProvider.refresh();
-  }).catch((err: unknown) => {
-    log(`Failed to initialize transaction provider: ${String(err)}`, LogLevel.ERROR, true);
-  });
+  initializeProvider('transaction provider', edaTransactionProvider, nonResourceStartupDelayMs);
 
   const helpProvider = new HelpProvider();
 
@@ -438,6 +477,8 @@ async function initializeTreeViewsAndCommands(context: vscode.ExtensionContext):
     basketProvider: edaTransactionBasketProvider,
     transactionProvider: edaTransactionProvider,
     helpProvider
+  }, {
+    activationStartMs: options?.activationStartMs
   });
 
   const updateEdaExplorerVisibilityContext = (visible: boolean): void => {
@@ -588,6 +629,7 @@ export function measurePerformance<T>(
 export async function activate(context: vscode.ExtensionContext) {
   // Output channel may not exist yet, use console.warn for early activation logging
   console.warn('Activating EDA extension');
+  const activationStartMs = Date.now();
   edaOutputChannel = vscode.window.createOutputChannel('EDA');
 
   // Set up auth logger to use VS Code output channel
@@ -668,7 +710,8 @@ export async function activate(context: vscode.ExtensionContext) {
       clientId,
       clientSecret,
       skipTlsVerify,
-      coreNamespace
+      coreNamespace,
+      activationStartMs
     });
   } catch (error) {
     log(`Error initializing service architecture: ${error}`, LogLevel.ERROR, true);

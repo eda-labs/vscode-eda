@@ -92,6 +92,12 @@ export class EdaStreamClient {
   private pendingNextMessages: Set<string> = new Set();
   private pendingNextTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private messageIntervalMs = DEFAULT_NEXT_INTERVAL_MS;
+  private startupNextIntervalMs = 0;
+  private startupBoostDurationMs = 15_000;
+  private startupBoostUntil = 0;
+  private logRawMessages = process.env.EDA_STREAM_LOG_RAW_MESSAGES === 'true';
+  private logNextFlow = process.env.EDA_STREAM_LOG_NEXT === 'true';
+  private logSseRequests = process.env.EDA_STREAM_LOG_SSE_REQUESTS === 'true';
   private streamAbortControllers: Map<string, AbortController> = new Map();
   private streamPromises: Map<string, Promise<void>> = new Map();
   private summaryAbortController: AbortController | undefined;
@@ -132,6 +138,16 @@ export class EdaStreamClient {
     const envInterval = Number(process.env.EDA_STREAM_NEXT_INTERVAL_MS);
     if (!Number.isNaN(envInterval) && envInterval >= 0) {
       this.messageIntervalMs = envInterval;
+    }
+    const startupInterval = Number(process.env.EDA_STREAM_NEXT_STARTUP_INTERVAL_MS);
+    if (!Number.isNaN(startupInterval) && startupInterval >= 0) {
+      this.startupNextIntervalMs = startupInterval;
+    } else {
+      this.startupNextIntervalMs = 0;
+    }
+    const startupBoostDuration = Number(process.env.EDA_STREAM_NEXT_STARTUP_BOOST_MS);
+    if (!Number.isNaN(startupBoostDuration) && startupBoostDuration >= 0) {
+      this.startupBoostDurationMs = startupBoostDuration;
     }
     log('EdaStreamClient initialized', LogLevel.DEBUG);
   }
@@ -439,6 +455,7 @@ export class EdaStreamClient {
           settle();
           return;
         }
+        this.startupBoostUntil = Date.now() + this.startupBoostDurationMs;
         log('Event WebSocket connected', LogLevel.DEBUG);
         log(`Started streaming on ${this.streamEndpoints.length} nodes`, LogLevel.INFO);
         log(`WebSocket opened with ${this.activeStreams.size} active streams`, LogLevel.DEBUG);
@@ -519,6 +536,9 @@ export class EdaStreamClient {
       this.startSubscribedStreams(client);
       this.startSpecialStreams(client);
       this.startUserStorageStreams(client);
+      for (const streamName of this.activeStreams) {
+        this.sendNextForLogicalStream(streamName);
+      }
     } catch {
       /* ignore parse errors */
     }
@@ -618,7 +638,9 @@ export class EdaStreamClient {
     if (this.eventSocket?.readyState !== WebSocket.OPEN) {
       return;
     }
-    log(`Sending 'close' for stream: ${streamName}`, LogLevel.DEBUG);
+    if (this.logNextFlow) {
+      log(`Sending 'close' for stream: ${streamName}`, LogLevel.DEBUG);
+    }
     try {
       this.eventSocket.send(JSON.stringify({ type: MSG_TYPE_CLOSE, stream: streamName }));
     } catch (err) {
@@ -794,6 +816,7 @@ export class EdaStreamClient {
     this.streamPromises.clear();
 
     this.eventClient = undefined;
+    this.startupBoostUntil = 0;
     if (clearStreams) {
       this.activeStreams.clear();
       this.streamAliases.clear();
@@ -850,7 +873,9 @@ export class EdaStreamClient {
       sanitizedHeaders.Authorization = 'Bearer ***';
     }
 
-    log(`[STREAM:${streamName}] request ${url} with ${JSON.stringify(sanitizedHeaders)}`, LogLevel.DEBUG);
+    if (this.logSseRequests) {
+      log(`[STREAM:${streamName}] request ${url} with ${JSON.stringify(sanitizedHeaders)}`, LogLevel.DEBUG);
+    }
     return finalHeaders;
   }
 
@@ -953,12 +978,20 @@ export class EdaStreamClient {
       return;
     }
 
-    log(`[STREAM:${streamName}] connected → ${url}`, LogLevel.DEBUG);
+    if (this.logSseRequests) {
+      log(`[STREAM:${streamName}] connected → ${url}`, LogLevel.DEBUG);
+    }
 
     // Check if this is a non-streaming response (e.g., NQL with content-length)
     if (res.headers.get('content-length')) {
       const text: string = await res.text();
-      log(`[STREAM:${streamName}] Complete response received: ${text}`, LogLevel.DEBUG);
+      if (this.logRawMessages) {
+        const maxLength = 2048;
+        const suffix = text.length > maxLength ? ` …(${text.length - maxLength} chars truncated)` : '';
+        log(`[STREAM:${streamName}] Complete response received: ${text.slice(0, maxLength)}${suffix}`, LogLevel.DEBUG);
+      } else {
+        log(`[STREAM:${streamName}] Complete response received (${text.length} chars)`, LogLevel.DEBUG);
+      }
       this.handleEventMessage(text);
       return;
     }
@@ -1250,7 +1283,11 @@ export class EdaStreamClient {
 
 
   private handleEventMessage(data: string): void {
-    log(`WS message: ${data}`, LogLevel.DEBUG);
+    if (this.logRawMessages) {
+      const maxLength = 2048;
+      const suffix = data.length > maxLength ? ` …(${data.length - maxLength} chars truncated)` : '';
+      log(`WS message: ${data.slice(0, maxLength)}${suffix}`, LogLevel.DEBUG);
+    }
     try {
       const msg = JSON.parse(data) as StreamMessagePayload;
       if (msg.type && msg.stream) {
@@ -1282,12 +1319,20 @@ export class EdaStreamClient {
   /**
    * Schedule a 'next' message with rate limiting
    */
+  private getEffectiveNextIntervalMs(): number {
+    if (Date.now() < this.startupBoostUntil) {
+      return this.startupNextIntervalMs;
+    }
+    return this.messageIntervalMs;
+  }
+
   private scheduleNextMessage(stream: string): void {
     if (!this.isLogicalStreamActive(stream)) {
       return;
     }
 
-    if (this.messageIntervalMs <= 0) {
+    const intervalMs = this.getEffectiveNextIntervalMs();
+    if (intervalMs <= 0) {
       this.sendNextMessage(stream);
       return;
     }
@@ -1296,14 +1341,16 @@ export class EdaStreamClient {
     const lastSent = this.lastNextTimestamps.get(stream) || 0;
     const timeSinceLastSent = now - lastSent;
 
-    if (timeSinceLastSent >= this.messageIntervalMs) {
+    if (timeSinceLastSent >= intervalMs) {
       // Enough time has passed, send immediately
       this.sendNextMessage(stream);
     } else if (!this.pendingNextMessages.has(stream) && !this.pendingNextTimers.has(stream)) {
       // Schedule a delayed send
       this.pendingNextMessages.add(stream);
-      const delay = this.messageIntervalMs - timeSinceLastSent;
-      log(`Scheduling 'next' for stream ${stream} in ${delay}ms`, LogLevel.DEBUG);
+      const delay = intervalMs - timeSinceLastSent;
+      if (this.logNextFlow) {
+        log(`Scheduling 'next' for stream ${stream} in ${delay}ms`, LogLevel.DEBUG);
+      }
 
       const timer = setTimeout(() => {
         this.pendingNextMessages.delete(stream);
@@ -1325,7 +1372,9 @@ export class EdaStreamClient {
       return;
     }
     if (this.eventSocket?.readyState === WebSocket.OPEN) {
-      log(`Sending 'next' for stream ${stream}`, LogLevel.DEBUG);
+      if (this.logNextFlow) {
+        log(`Sending 'next' for stream ${stream}`, LogLevel.DEBUG);
+      }
       try {
         this.eventSocket.send(JSON.stringify({ type: MSG_TYPE_NEXT, stream }));
         this.lastNextTimestamps.set(stream, Date.now());

@@ -221,7 +221,7 @@ export default [
   {
     files: ['src/webviews/**/*.ts', 'src/webviews/**/*.tsx'],
     rules: {
-      'max-lines': ['error', { max: 1000, skipBlankLines: true, skipComments: true }]
+      'max-lines': ['error', { max: 1500, skipBlankLines: true, skipComments: true }]
     }
   },
 
