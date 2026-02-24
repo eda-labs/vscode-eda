@@ -476,7 +476,7 @@
     "webviews:dev": "vite --config webviews/dev/vite.config.js",
     "webviews:build": "vite build --config webviews/dev/vite.config.js",
     "webviews:preview": "vite preview --config webviews/dev/vite.config.js",
-    "check-types": "tsc --noEmit",
+    "check-types": "mkdir -p node_modules/.cache/tsc && tsc --noEmit --incremental --tsBuildInfoFile node_modules/.cache/tsc/check-types.tsbuildinfo",
     "lint": "npm run check-types && oxlint .",
     "lint:fix": "npm run check-types && oxlint --fix .",
     "test": "mocha -r ts-node/register -r ./test/setup.ts test/**/*.test.ts",
@@ -484,7 +484,7 @@
     "test:perf:loading:k8s-compare": "EDA_PERF_INCLUDE_K8S=false npm run test:perf:loading && EDA_PERF_INCLUDE_K8S=true npm run test:perf:loading",
     "stream:namespaces": "ts-node namespace-stream.ts",
     "compile-webpack": "npm run check-types && webpack --mode production",
-    "package": "rm -rf dist && npm run lint && npm run compile && vsce package --no-dependencies"
+    "package": "rm -rf dist && sh -c 'npm run lint & LINT_PID=$!; npm run compile & COMPILE_PID=$!; wait $LINT_PID && wait $COMPILE_PID' && vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/bezier-js": "^4.1.3",
