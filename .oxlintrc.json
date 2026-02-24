@@ -1,0 +1,270 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [],
+  "categories": {
+    "correctness": "off"
+  },
+  "env": {
+    "builtin": true
+  },
+  "ignorePatterns": [
+    "**/*.js",
+    "out/**",
+    "dist/**",
+    "esbuild.config.mjs",
+    "node_modules/**",
+    ".vscode-test.mjs",
+    "spec_example/**",
+    "topoViewerEditor/**"
+  ],
+  "rules": {
+    "constructor-super": "error",
+    "for-direction": "error",
+    "no-async-promise-executor": "error",
+    "no-case-declarations": "error",
+    "no-class-assign": "error",
+    "no-compare-neg-zero": "error",
+    "no-cond-assign": "error",
+    "no-const-assign": "error",
+    "no-constant-binary-expression": "error",
+    "no-constant-condition": "error",
+    "no-control-regex": "error",
+    "no-debugger": "error",
+    "no-delete-var": "error",
+    "no-dupe-class-members": "error",
+    "no-dupe-else-if": "error",
+    "no-dupe-keys": "error",
+    "no-duplicate-case": "error",
+    "no-empty": "error",
+    "no-empty-character-class": "error",
+    "no-empty-pattern": "error",
+    "no-empty-static-block": "error",
+    "no-ex-assign": "error",
+    "no-extra-boolean-cast": "error",
+    "no-fallthrough": "error",
+    "no-func-assign": "error",
+    "no-global-assign": "error",
+    "no-import-assign": "error",
+    "no-invalid-regexp": "error",
+    "no-irregular-whitespace": "error",
+    "no-loss-of-precision": "error",
+    "no-misleading-character-class": "error",
+    "no-new-native-nonconstructor": "error",
+    "no-nonoctal-decimal-escape": "error",
+    "no-obj-calls": "error",
+    "no-prototype-builtins": "error",
+    "no-redeclare": "error",
+    "no-regex-spaces": "error",
+    "no-self-assign": "error",
+    "no-setter-return": "error",
+    "no-shadow-restricted-names": "error",
+    "no-sparse-arrays": "error",
+    "no-this-before-super": "error",
+    "no-unexpected-multiline": "error",
+    "no-unsafe-finally": "error",
+    "no-unsafe-negation": "error",
+    "no-unsafe-optional-chaining": "error",
+    "no-unused-labels": "error",
+    "no-unused-private-class-members": "error",
+    "no-unused-vars": "error",
+    "no-useless-backreference": "error",
+    "no-useless-catch": "error",
+    "no-useless-escape": "error",
+    "no-with": "error",
+    "require-yield": "error",
+    "use-isnan": "error",
+    "valid-typeof": "error"
+  },
+  "overrides": [
+    {
+      "files": [
+        "**/*.ts",
+        "**/*.tsx"
+      ],
+      "rules": {
+        "no-unused-vars": "off",
+        "complexity": [
+          "warn",
+          {
+            "max": 15
+          }
+        ],
+        "import-x/no-duplicates": "error",
+        "import-x/max-dependencies": [
+          "warn",
+          {
+            "max": 15
+          }
+        ],
+        "@typescript-eslint/consistent-type-imports": [
+          "error",
+          {
+            "prefer": "type-imports",
+            "fixStyle": "separate-type-imports"
+          }
+        ],
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              "tailwindcss",
+              "@tailwindcss/*",
+              "**/codicon.css"
+            ]
+          }
+        ],
+        "@typescript-eslint/no-explicit-any": "warn",
+        "no-nested-ternary": "error",
+        "max-params": [
+          "warn",
+          {
+            "max": 10
+          }
+        ],
+        "no-console": [
+          "warn",
+          {
+            "allow": [
+              "warn",
+              "error"
+            ]
+          }
+        ]
+      },
+      "globals": {
+        "console": "readonly",
+        "process": "readonly",
+        "Buffer": "readonly",
+        "require": "readonly",
+        "setTimeout": "readonly",
+        "clearTimeout": "readonly",
+        "setInterval": "readonly",
+        "clearInterval": "readonly",
+        "window": "readonly",
+        "document": "readonly",
+        "fetch": "readonly",
+        "URLSearchParams": "readonly",
+        "URL": "readonly",
+        "getComputedStyle": "readonly",
+        "navigator": "readonly",
+        "__dirname": "readonly",
+        "__filename": "readonly"
+      },
+      "plugins": [
+        "typescript",
+        "import"
+      ]
+    },
+    {
+      "files": [
+        "src/webviews/**/*.ts",
+        "src/webviews/**/*.tsx"
+      ],
+      "rules": {
+        "max-lines": [
+          "error",
+          {
+            "max": 1500,
+            "skipBlankLines": true,
+            "skipComments": true
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "src/webviews/**/*.tsx"
+      ],
+      "rules": {
+        "react/display-name": "error",
+        "react/jsx-key": "error",
+        "react/jsx-no-comment-textnodes": "error",
+        "react/jsx-no-duplicate-props": "error",
+        "react/jsx-no-target-blank": "error",
+        "react/jsx-no-undef": "error",
+        "react/no-children-prop": "error",
+        "react/no-danger-with-children": "error",
+        "react/no-direct-mutation-state": "error",
+        "react/no-find-dom-node": "error",
+        "react/no-is-mounted": "error",
+        "react/no-render-return-value": "error",
+        "react/no-string-refs": "error",
+        "react/no-unescaped-entities": "error",
+        "react/no-unknown-property": "error",
+        "react/no-unsafe": "off",
+        "react/react-in-jsx-scope": "off",
+        "react-hooks/rules-of-hooks": "error",
+        "react-hooks/exhaustive-deps": "warn"
+      },
+      "plugins": [
+        "react"
+      ]
+    },
+    {
+      "files": [
+        "src/webviews/**/components/**/*.tsx"
+      ],
+      "rules": {
+        "unicorn/filename-case": [
+          "error",
+          {
+            "case": "pascalCase"
+          }
+        ]
+      },
+      "plugins": [
+        "unicorn"
+      ]
+    },
+    {
+      "files": [
+        "src/webviews/**/hooks/**/*.ts"
+      ],
+      "rules": {
+        "unicorn/filename-case": [
+          "error",
+          {
+            "case": "camelCase",
+            "ignore": [
+              "^index\\.ts$"
+            ]
+          }
+        ]
+      },
+      "plugins": [
+        "unicorn"
+      ]
+    },
+    {
+      "files": [
+        "test/**/*.ts",
+        "test/**/*.tsx",
+        "**/*.test.ts",
+        "**/*.test.tsx"
+      ],
+      "rules": {
+        "no-unused-expressions": "off",
+        "@typescript-eslint/no-explicit-any": "off",
+        "complexity": [
+          "warn",
+          {
+            "max": 50
+          }
+        ],
+        "no-console": "off"
+      },
+      "globals": {
+        "describe": "readonly",
+        "it": "readonly",
+        "before": "readonly",
+        "after": "readonly",
+        "beforeEach": "readonly",
+        "afterEach": "readonly",
+        "__dirname": "readonly"
+      },
+      "plugins": [
+        "typescript"
+      ]
+    }
+  ]
+}
