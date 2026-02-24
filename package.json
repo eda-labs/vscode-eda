@@ -6,7 +6,7 @@
   "description": "Manage and monitor Nokia EDA (Event Driven Automation) resources via the EDA API",
   "author": "EDA Labs",
   "homepage": "https://docs.eda.dev/",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "engines": {
     "vscode": "^1.99.0"
   },
@@ -536,8 +536,8 @@
     "@mui/material": "^7.3.8",
     "@mui/x-charts": "^8.27.0",
     "@mui/x-data-grid": "^8.27.1",
-    "@mui/x-tree-view": "^8.27.1",
-    "@xyflow/react": "^12.10.0",
+    "@mui/x-tree-view": "^8.27.2",
+    "@xyflow/react": "^12.10.1",
     "bezier-js": "^6.1.4",
     "html-to-image": "^1.11.13",
     "react": "^19.2.4",
