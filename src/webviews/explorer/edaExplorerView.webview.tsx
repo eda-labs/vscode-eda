@@ -200,44 +200,33 @@ function toolbarActionIconId(action: ExplorerAction): ToolbarActionIconId | unde
   return undefined;
 }
 
+interface EntryActionIconRule {
+  terms: string[];
+  icon: SvgIconComponent;
+}
+
+const ENTRY_ACTION_ICON_RULES: EntryActionIconRule[] = [
+  { terms: ['create'], icon: AddIcon },
+  { terms: ['edit', 'switchtoedit'], icon: EditIcon },
+  { terms: ['delete', 'discard', 'remove'], icon: DeleteOutlineIcon },
+  { terms: ['reject'], icon: CloseIcon },
+  { terms: ['accept', 'commit'], icon: PlayArrowIcon },
+  { terms: ['showdashboard'], icon: OpenInNewIcon },
+  { terms: ['dryrun'], icon: FactCheckIcon },
+  { terms: ['view', 'show', 'describe', 'logs'], icon: SearchIcon },
+  { terms: ['terminal', 'ssh'], icon: TerminalIcon },
+  { terms: ['restart', 'revert', 'restore'], icon: RestartAltIcon },
+  { terms: ['settransactionlimit'], icon: SettingsIcon }
+];
+
+function commandIncludesAny(command: string, terms: string[]): boolean {
+  return terms.some(term => command.includes(term));
+}
+
 function entryActionIcon(action: ExplorerAction): SvgIconComponent {
   const command = action.command.toLowerCase();
-
-  if (command.includes('create')) {
-    return AddIcon;
-  }
-  if (command.includes('edit') || command.includes('switchtoedit')) {
-    return EditIcon;
-  }
-  if (command.includes('delete') || command.includes('discard') || command.includes('remove')) {
-    return DeleteOutlineIcon;
-  }
-  if (command.includes('reject')) {
-    return CloseIcon;
-  }
-  if (command.includes('accept') || command.includes('commit')) {
-    return PlayArrowIcon;
-  }
-  if (command.includes('showdashboard')) {
-    return OpenInNewIcon;
-  }
-  if (command.includes('dryrun')) {
-    return FactCheckIcon;
-  }
-  if (command.includes('view') || command.includes('show') || command.includes('describe') || command.includes('logs')) {
-    return SearchIcon;
-  }
-  if (command.includes('terminal') || command.includes('ssh')) {
-    return TerminalIcon;
-  }
-  if (command.includes('restart') || command.includes('revert') || command.includes('restore')) {
-    return RestartAltIcon;
-  }
-  if (command.includes('settransactionlimit')) {
-    return SettingsIcon;
-  }
-
-  return MoreVertIcon;
+  const matchedRule = ENTRY_ACTION_ICON_RULES.find(rule => commandIncludesAny(command, rule.terms));
+  return matchedRule?.icon ?? MoreVertIcon;
 }
 
 function isDestructiveEntryAction(action: ExplorerAction): boolean {
@@ -343,6 +332,72 @@ function getNodeActionList(node: ExplorerNode): ExplorerAction[] {
   return buildResourceActions(node);
 }
 
+function ExplorerNodeIndicator({ statusIndicator }: Readonly<{ statusIndicator?: string }>) {
+  if (!statusIndicator) {
+    return null;
+  }
+
+  return (
+    <Box
+      sx={{
+        width: 9,
+        height: 9,
+        borderRadius: '50%',
+        flex: '0 0 auto',
+        bgcolor: statusColor(statusIndicator)
+      }}
+    />
+  );
+}
+
+function ExplorerNodeLabelBody({
+  node,
+  primaryAction
+}: Readonly<{
+  node: ExplorerNode;
+  primaryAction: ExplorerAction | undefined;
+}>) {
+  return (
+    <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
+      <ExplorerNodeIndicator statusIndicator={node.statusIndicator} />
+      <Typography variant="body2" noWrap sx={{ fontWeight: primaryAction ? 600 : 500 }}>
+        {node.label}
+      </Typography>
+    </Stack>
+  );
+}
+
+function ExplorerNodePrimaryLabel({
+  node,
+  hasEntryTooltip,
+  primaryAction
+}: Readonly<{
+  node: ExplorerNode;
+  hasEntryTooltip: boolean;
+  primaryAction: ExplorerAction | undefined;
+}>) {
+  const labelBody = <ExplorerNodeLabelBody node={node} primaryAction={primaryAction} />;
+  if (!hasEntryTooltip) {
+    return labelBody;
+  }
+
+  return (
+    <Tooltip
+      title={node.tooltip || ''}
+      placement="bottom"
+      enterDelay={400}
+      leaveDelay={0}
+      disableInteractive
+      slotProps={{
+        popper: { sx: { pointerEvents: 'none' }, modifiers: [{ name: 'offset', options: { offset: [0, 6] } }, { name: 'flip', options: { fallbackPlacements: ['top'] } }, { name: 'preventOverflow', options: { padding: 8, altAxis: true } }] },
+        tooltip: { sx: { maxWidth: 'min(320px, calc(100vw - 24px))', whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }
+      }}
+    >
+      {labelBody}
+    </Tooltip>
+  );
+}
+
 function ExplorerNodeLabel({ node, onInvokeAction, onOpenActionMenu }: Readonly<ExplorerNodeLabelProps>) {
   const hasInlineActions = node.actions.length > 0;
   const hasResourceActions = canBuildResourceActions(node);
@@ -380,53 +435,11 @@ function ExplorerNodeLabel({ node, onInvokeAction, onOpenActionMenu }: Readonly<
           cursor: primaryAction ? 'pointer' : 'default'
         }}
       >
-        {hasEntryTooltip ? (
-          <Tooltip
-            title={node.tooltip || ''}
-            placement="bottom"
-            enterDelay={400}
-            leaveDelay={0}
-            disableInteractive
-            slotProps={{
-              popper: { sx: { pointerEvents: 'none' }, modifiers: [{ name: 'offset', options: { offset: [0, 6] } }, { name: 'flip', options: { fallbackPlacements: ['top'] } }, { name: 'preventOverflow', options: { padding: 8, altAxis: true } }] },
-              tooltip: { sx: { maxWidth: 'min(320px, calc(100vw - 24px))', whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }
-            }}
-          >
-            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
-              {node.statusIndicator && (
-                <Box
-                  sx={{
-                    width: 9,
-                    height: 9,
-                    borderRadius: '50%',
-                    flex: '0 0 auto',
-                    bgcolor: statusColor(node.statusIndicator)
-                  }}
-                />
-              )}
-              <Typography variant="body2" noWrap sx={{ fontWeight: primaryAction ? 600 : 500 }}>
-                {node.label}
-              </Typography>
-            </Stack>
-          </Tooltip>
-        ) : (
-          <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
-            {node.statusIndicator && (
-              <Box
-                sx={{
-                  width: 9,
-                  height: 9,
-                  borderRadius: '50%',
-                  flex: '0 0 auto',
-                  bgcolor: statusColor(node.statusIndicator)
-                }}
-              />
-            )}
-            <Typography variant="body2" noWrap sx={{ fontWeight: primaryAction ? 600 : 500 }}>
-              {node.label}
-            </Typography>
-          </Stack>
-        )}
+        <ExplorerNodePrimaryLabel
+          node={node}
+          hasEntryTooltip={hasEntryTooltip}
+          primaryAction={primaryAction}
+        />
         {(node.description || node.statusDescription) && (
           <Typography variant="caption" color="text.secondary" noWrap>
             {node.description || node.statusDescription}
@@ -834,96 +847,110 @@ function EdaExplorerView() {
 
   useReadySignal();
 
+  const shouldHandleIncomingFilter = useCallback((incomingFilter: string): boolean => {
+    const pendingFilter = pendingFilterSyncRef.current;
+    if (pendingFilter === null) {
+      return true;
+    }
+    if (incomingFilter !== pendingFilter) {
+      return false;
+    }
+    pendingFilterSyncRef.current = null;
+    return true;
+  }, []);
+
+  const handleSnapshotMessage = useCallback((message: Extract<ExplorerIncomingMessage, { command: 'snapshot' }>) => {
+    if (!shouldHandleIncomingFilter(message.filterText)) {
+      return;
+    }
+
+    const filterActive = message.filterText.length > 0;
+    const resourceNodes = getSectionById(message.sections, 'resources')?.nodes ?? [];
+    const snapshotNodes = message.sections.flatMap(section => section.nodes);
+    const nextSnapshotId = snapshotSequenceRef.current + 1;
+    snapshotSequenceRef.current = nextSnapshotId;
+    pendingRenderMetricsRef.current = {
+      snapshotId: nextSnapshotId,
+      receivedAt: window.performance.now(),
+      totalNodes: countTreeNodes(snapshotNodes),
+      resourceLeafCount: countResourceLeafNodes(snapshotNodes)
+    };
+
+    setSections(message.sections);
+    setSectionOrder(currentOrder => mergeSectionOrder(currentOrder, message.sections));
+    setCollapsedBySection(current => {
+      const next: Partial<Record<ExplorerTabId, boolean>> = {};
+      for (const section of message.sections) {
+        next[section.id] = current[section.id] ?? !isExpandedByDefault(section.id);
+      }
+      if (filterActive) {
+        if (resourcesCollapsedBeforeFilterRef.current === null) {
+          resourcesCollapsedBeforeFilterRef.current = next.resources ?? !isExpandedByDefault('resources');
+        }
+        next.resources = false;
+        return next;
+      }
+      if (resourcesCollapsedBeforeFilterRef.current !== null) {
+        next.resources = resourcesCollapsedBeforeFilterRef.current;
+        resourcesCollapsedBeforeFilterRef.current = null;
+      }
+      return next;
+    });
+    setExpandedByTab(current => {
+      if (filterActive) {
+        if (resourcesExpandedBeforeFilterRef.current === null) {
+          resourcesExpandedBeforeFilterRef.current = current.resources ?? [];
+        }
+        return {
+          ...current,
+          resources: flattenExpandableNodeIds(resourceNodes)
+        };
+      }
+      if (resourcesExpandedBeforeFilterRef.current !== null) {
+        const restoredResources = resourcesExpandedBeforeFilterRef.current;
+        resourcesExpandedBeforeFilterRef.current = null;
+        return {
+          ...current,
+          resources: restoredResources
+        };
+      }
+      return current;
+    });
+    setFilterText(message.filterText);
+  }, [shouldHandleIncomingFilter]);
+
+  const handleFilterStateMessage = useCallback((message: Extract<ExplorerIncomingMessage, { command: 'filterState' }>) => {
+    if (!shouldHandleIncomingFilter(message.filterText)) {
+      return;
+    }
+    setFilterText(message.filterText);
+  }, [shouldHandleIncomingFilter]);
+
+  const handleExpandAllResourcesMessage = useCallback(() => {
+    const resourceNodes = getSectionById(sections, 'resources')?.nodes ?? [];
+    setExpandedByTab(current => ({
+      ...current,
+      resources: flattenNodeIds(resourceNodes)
+    }));
+  }, [sections]);
+
   useMessageListener<ExplorerIncomingMessage>(useCallback((message) => {
     if (message.command === 'snapshot') {
-      const pendingFilter = pendingFilterSyncRef.current;
-      if (pendingFilter !== null && message.filterText !== pendingFilter) {
-        return;
-      }
-      if (pendingFilter !== null && message.filterText === pendingFilter) {
-        pendingFilterSyncRef.current = null;
-      }
-
-      const filterActive = message.filterText.length > 0;
-      const resourceNodes = getSectionById(message.sections, 'resources')?.nodes ?? [];
-      const snapshotNodes = message.sections.flatMap(section => section.nodes);
-      const nextSnapshotId = snapshotSequenceRef.current + 1;
-      snapshotSequenceRef.current = nextSnapshotId;
-      pendingRenderMetricsRef.current = {
-        snapshotId: nextSnapshotId,
-        receivedAt: window.performance.now(),
-        totalNodes: countTreeNodes(snapshotNodes),
-        resourceLeafCount: countResourceLeafNodes(snapshotNodes)
-      };
-
-      setSections(message.sections);
-      setSectionOrder(currentOrder => mergeSectionOrder(currentOrder, message.sections));
-      setCollapsedBySection(current => {
-        const next: Partial<Record<ExplorerTabId, boolean>> = {};
-        for (const section of message.sections) {
-          next[section.id] = current[section.id] ?? !isExpandedByDefault(section.id);
-        }
-        if (filterActive) {
-          if (resourcesCollapsedBeforeFilterRef.current === null) {
-            resourcesCollapsedBeforeFilterRef.current = next.resources ?? !isExpandedByDefault('resources');
-          }
-          next.resources = false;
-        } else if (resourcesCollapsedBeforeFilterRef.current !== null) {
-          next.resources = resourcesCollapsedBeforeFilterRef.current;
-          resourcesCollapsedBeforeFilterRef.current = null;
-        }
-        return next;
-      });
-      setExpandedByTab(current => {
-        if (filterActive) {
-          if (resourcesExpandedBeforeFilterRef.current === null) {
-            resourcesExpandedBeforeFilterRef.current = current.resources ?? [];
-          }
-          return {
-            ...current,
-            resources: flattenExpandableNodeIds(resourceNodes)
-          };
-        }
-        if (resourcesExpandedBeforeFilterRef.current !== null) {
-          const restoredResources = resourcesExpandedBeforeFilterRef.current;
-          resourcesExpandedBeforeFilterRef.current = null;
-          return {
-            ...current,
-            resources: restoredResources
-          };
-        }
-        return current;
-      });
-      setFilterText(message.filterText);
+      handleSnapshotMessage(message);
       return;
     }
-
     if (message.command === 'filterState') {
-      const pendingFilter = pendingFilterSyncRef.current;
-      if (pendingFilter !== null && message.filterText !== pendingFilter) {
-        return;
-      }
-      if (pendingFilter !== null && message.filterText === pendingFilter) {
-        pendingFilterSyncRef.current = null;
-      }
-
-      setFilterText(message.filterText);
+      handleFilterStateMessage(message);
       return;
     }
-
     if (message.command === 'expandAllResources') {
-      const resourceNodes = getSectionById(sections, 'resources')?.nodes ?? [];
-      setExpandedByTab(current => ({
-        ...current,
-        resources: flattenNodeIds(resourceNodes)
-      }));
+      handleExpandAllResourcesMessage();
       return;
     }
-
     if (message.command === 'error') {
       setErrorMessage(message.message);
     }
-  }, [sections]));
+  }, [handleExpandAllResourcesMessage, handleFilterStateMessage, handleSnapshotMessage]));
 
   useEffect(() => {
     const pending = pendingRenderMetricsRef.current;

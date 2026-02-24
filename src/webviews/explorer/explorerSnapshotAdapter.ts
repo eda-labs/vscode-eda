@@ -144,6 +144,28 @@ function dedupeActions(actions: ExplorerAction[]): ExplorerAction[] {
   return unique;
 }
 
+function getNodeDetails(raw: ResourceData['raw'] | undefined): string | undefined {
+  const nodeDetails = (raw?.status as { 'node-details'?: string } | undefined)?.['node-details'];
+  if (typeof nodeDetails === 'string' && nodeDetails.length > 0) {
+    return nodeDetails;
+  }
+  return undefined;
+}
+
+function buildLightweightResource(
+  resourceData: ResourceData,
+  item: ExplorerTreeItemLike,
+  raw: ResourceData['raw'] | undefined
+): LightweightResourceCommand {
+  return {
+    name: resourceData.name,
+    namespace: resourceData.namespace ?? item.namespace,
+    kind: resourceData.kind,
+    apiVersion: resourceData.apiVersion ?? raw?.apiVersion,
+    uid: resourceData.uid
+  };
+}
+
 function buildResourceCommandArgument(item: ExplorerTreeItemLike): Record<string, unknown> {
   const label = labelToText(item.label);
   const resourceData = item.resource as ResourceData | undefined;
@@ -161,15 +183,9 @@ function buildResourceCommandArgument(item: ExplorerTreeItemLike): Record<string
   };
 
   if (resourceData) {
-    const lightResource: LightweightResourceCommand = {
-      name: resourceData.name,
-      namespace: resourceData.namespace ?? item.namespace,
-      kind: resourceData.kind,
-      apiVersion: resourceData.apiVersion ?? raw?.apiVersion,
-      uid: resourceData.uid
-    };
-    const nodeDetails = (raw?.status as { 'node-details'?: string } | undefined)?.['node-details'];
-    if (typeof nodeDetails === 'string' && nodeDetails.length > 0) {
+    const lightResource = buildLightweightResource(resourceData, item, raw);
+    const nodeDetails = getNodeDetails(raw);
+    if (nodeDetails) {
       lightResource.status = { 'node-details': nodeDetails };
       arg.nodeDetails = nodeDetails;
     }

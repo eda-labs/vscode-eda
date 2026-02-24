@@ -70,6 +70,7 @@ interface CommandArgument {
   name?: string;
   namespace?: string;
   kind?: string;
+  apiVersion?: string;
   resourceType?: string;
   label?: string;
   streamGroup?: string;
@@ -77,6 +78,7 @@ interface CommandArgument {
   rawResource?: K8sResource;
   resource?: {
     raw?: K8sResource;
+    apiVersion?: string;
     [key: string]: unknown;
   };
   [key: string]: unknown;
@@ -173,16 +175,24 @@ function extractRawResource(arg: CommandArgument | undefined): K8sResource | und
   return arg?.raw ?? arg?.rawResource ?? arg?.resource?.raw;
 }
 
-/**
- * Gets a value from multiple sources with a default fallback.
- */
-function getFirstDefined<T>(...values: (T | undefined | null)[]): T {
-  for (const value of values) {
-    if (value !== undefined && value !== null) {
-      return value;
-    }
-  }
-  return values[values.length - 1] as T;
+function getNonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function resolveArgApiVersion(arg: CommandArgument | undefined): string | undefined {
+  return getNonEmptyString(arg?.apiVersion) ?? getNonEmptyString(arg?.resource?.apiVersion);
+}
+
+function resolveResourceNamespace(raw: K8sResource | undefined, arg: CommandArgument | undefined): string {
+  return getNonEmptyString(raw?.metadata?.namespace) ?? getNonEmptyString(arg?.namespace) ?? 'default';
+}
+
+function resolveResourceKind(raw: K8sResource | undefined, arg: CommandArgument | undefined): string {
+  return getNonEmptyString(raw?.kind) ?? getNonEmptyString(arg?.kind) ?? getNonEmptyString(arg?.resourceType) ?? 'Resource';
+}
+
+function resolveResourceName(raw: K8sResource | undefined, arg: CommandArgument | undefined): string {
+  return getNonEmptyString(raw?.metadata?.name) ?? getNonEmptyString(arg?.name) ?? getNonEmptyString(arg?.label) ?? 'unknown';
 }
 
 /**
@@ -190,10 +200,10 @@ function getFirstDefined<T>(...values: (T | undefined | null)[]): T {
  */
 function extractResourceInfoFromArg(arg: CommandArgument | undefined, raw: K8sResource | undefined): ResourceInfo {
   return {
-    namespace: getFirstDefined(raw?.metadata?.namespace, arg?.namespace as string | undefined, 'default'),
-    kind: getFirstDefined(raw?.kind, arg?.kind, arg?.resourceType, 'Resource'),
-    name: getFirstDefined(raw?.metadata?.name, arg?.name, arg?.label, 'unknown'),
-    apiVersion: raw?.apiVersion
+    namespace: resolveResourceNamespace(raw, arg),
+    kind: resolveResourceKind(raw, arg),
+    name: resolveResourceName(raw, arg),
+    apiVersion: getNonEmptyString(raw?.apiVersion) ?? resolveArgApiVersion(arg)
   };
 }
 
@@ -393,27 +403,32 @@ async function resolveAndValidateViewUri(arg: CommandInput): Promise<vscode.Uri>
 /**
  * Extracts API version from the view document or argument.
  */
-async function extractApiVersion(viewDocumentUri: vscode.Uri, arg: CommandInput): Promise<string | undefined> {
-  // Check arg first (only if it's a CommandArgument, not a Uri)
-  if (arg && !(arg instanceof vscode.Uri)) {
-    const raw: K8sResource | undefined = arg.raw ?? arg.rawResource ?? arg.resource?.raw;
-    if (raw?.apiVersion) {
-      return raw.apiVersion;
-    }
+function extractApiVersionFromArg(arg: CommandInput): string | undefined {
+  if (!arg || arg instanceof vscode.Uri) {
+    return undefined;
   }
 
-  // Try to parse from document
+  const raw = extractRawResource(arg);
+  return getNonEmptyString(raw?.apiVersion) ?? resolveArgApiVersion(arg);
+}
+
+async function extractApiVersionFromDocument(viewDocumentUri: vscode.Uri): Promise<string | undefined> {
   try {
     const doc = await vscode.workspace.openTextDocument(viewDocumentUri);
     const obj = yaml.load(doc.getText()) as K8sResource | undefined;
-    if (obj && typeof obj === 'object' && typeof obj.apiVersion === 'string') {
-      return obj.apiVersion;
-    }
+    return getNonEmptyString(obj?.apiVersion);
   } catch {
-    // ignore parse errors
+    return undefined;
+  }
+}
+
+async function extractApiVersion(viewDocumentUri: vscode.Uri, arg: CommandInput): Promise<string | undefined> {
+  const apiVersionFromArg = extractApiVersionFromArg(arg);
+  if (apiVersionFromArg) {
+    return apiVersionFromArg;
   }
 
-  return undefined;
+  return extractApiVersionFromDocument(viewDocumentUri);
 }
 
 /**

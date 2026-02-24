@@ -186,6 +186,50 @@ function getWorkflowProgressTitle(phase: WorkflowProgressPhase): string {
   return 'Workflow Running';
 }
 
+function isWorkflowProgressRunning(phase: WorkflowProgressPhase): boolean {
+  return phase === 'submitting' || phase === 'running' || phase === 'waitingInput';
+}
+
+function isWorkflowProgressFinished(phase: WorkflowProgressPhase): boolean {
+  return phase === 'success' || phase === 'failed';
+}
+
+function isWorkflowSubmissionInProgress(
+  pendingAction: TopoBuilderWorkflowAction | null,
+  isSubmittingWorkflowInput: boolean,
+  isWorkflowRunning: boolean
+): boolean {
+  if (pendingAction !== null) {
+    return true;
+  }
+  if (isSubmittingWorkflowInput) {
+    return true;
+  }
+  return isWorkflowRunning;
+}
+
+function getWorkflowInputPrompts(pendingWorkflowInputs: TopoBuilderInputRequired | null): string[] {
+  if (!pendingWorkflowInputs) {
+    return [];
+  }
+  return pendingWorkflowInputs.inputs
+    .map((input) => (typeof input.ackPrompt === 'string' ? input.ackPrompt.trim() : ''))
+    .filter((prompt) => prompt.length > 0);
+}
+
+function getWorkflowProgressActiveStep(phase: WorkflowProgressPhase): number {
+  if (phase === 'submitting') {
+    return 0;
+  }
+  if (phase === 'waitingInput') {
+    return 1;
+  }
+  if (phase === 'running') {
+    return 2;
+  }
+  return 3;
+}
+
 interface VsCodeYamlPanelProps {
   readonly onRunWorkflowActionChange: (action: ((dryRun: boolean) => void) | null) => void;
   readonly onSubmittingChange: (submitting: boolean) => void;
@@ -321,76 +365,86 @@ function VsCodeYamlPanel({
     latestYamlRef.current = editorInstance.getValue();
   }, [applyMonacoTheme]);
 
+  const handleWorkflowResultMessage = useCallback((message: TopoBuilderWorkflowResult) => {
+    if (pendingRequestIdRef.current !== message.requestId) {
+      return;
+    }
+
+    pendingRequestIdRef.current = null;
+    setPendingAction(null);
+    if (!message.success && activeWorkflowRequestIdRef.current === message.requestId) {
+      activeWorkflowRequestIdRef.current = null;
+    }
+    setWorkflowProgressForRequest(
+      message.requestId,
+      message.success ? 'running' : 'failed',
+      message.success
+        ? 'Workflow submitted. Waiting for workflow progress...'
+        : message.message
+    );
+    setTransactionStatus({
+      severity: message.success ? 'success' : 'error',
+      message: message.message
+    });
+  }, [setWorkflowProgressForRequest]);
+
+  const handleInputRequiredMessage = useCallback((message: TopoBuilderInputRequired) => {
+    if (activeWorkflowRequestIdRef.current && activeWorkflowRequestIdRef.current !== message.requestId) {
+      return;
+    }
+    if (message.inputs.length === 0) {
+      return;
+    }
+
+    activeWorkflowRequestIdRef.current = message.requestId;
+    setIsSubmittingWorkflowInput(false);
+    setSawWorkflowInputStep(true);
+    setPendingWorkflowInputs(message);
+    setWorkflowProgressForRequest(
+      message.requestId,
+      'waitingInput',
+      'Workflow is waiting for confirmation input.'
+    );
+    setTransactionStatus({
+      severity: 'info',
+      message: 'Workflow is waiting for confirmation input.'
+    });
+  }, [setWorkflowProgressForRequest]);
+
+  const handleWorkflowCompleteMessage = useCallback((message: TopoBuilderWorkflowComplete) => {
+    if (activeWorkflowRequestIdRef.current && activeWorkflowRequestIdRef.current !== message.requestId) {
+      return;
+    }
+
+    activeWorkflowRequestIdRef.current = null;
+    pendingRequestIdRef.current = null;
+    setPendingAction(null);
+    setIsSubmittingWorkflowInput(false);
+    setPendingWorkflowInputs(null);
+    setWorkflowProgressForRequest(
+      message.requestId,
+      message.success ? 'success' : 'failed',
+      message.message
+    );
+    setTransactionStatus({
+      severity: message.success ? 'success' : 'error',
+      message: message.message
+    });
+  }, [setWorkflowProgressForRequest]);
+
   useMessageListener<TopoBuilderIncomingMessage>(useCallback((message) => {
     if (message.command === 'topobuilderWorkflowResult') {
-      if (pendingRequestIdRef.current !== message.requestId) {
-        return;
-      }
-
-      pendingRequestIdRef.current = null;
-      setPendingAction(null);
-      if (!message.success && activeWorkflowRequestIdRef.current === message.requestId) {
-        activeWorkflowRequestIdRef.current = null;
-      }
-      setWorkflowProgressForRequest(
-        message.requestId,
-        message.success ? 'running' : 'failed',
-        message.success
-          ? 'Workflow submitted. Waiting for workflow progress...'
-          : message.message
-      );
-      setTransactionStatus({
-        severity: message.success ? 'success' : 'error',
-        message: message.message
-      });
+      handleWorkflowResultMessage(message);
       return;
     }
-
     if (message.command === 'topobuilderInputRequired') {
-      if (activeWorkflowRequestIdRef.current && activeWorkflowRequestIdRef.current !== message.requestId) {
-        return;
-      }
-      if (message.inputs.length === 0) {
-        return;
-      }
-
-      activeWorkflowRequestIdRef.current = message.requestId;
-      setIsSubmittingWorkflowInput(false);
-      setSawWorkflowInputStep(true);
-      setPendingWorkflowInputs(message);
-      setWorkflowProgressForRequest(
-        message.requestId,
-        'waitingInput',
-        'Workflow is waiting for confirmation input.'
-      );
-      setTransactionStatus({
-        severity: 'info',
-        message: 'Workflow is waiting for confirmation input.'
-      });
+      handleInputRequiredMessage(message);
       return;
     }
-
     if (message.command === 'topobuilderWorkflowComplete') {
-      if (activeWorkflowRequestIdRef.current && activeWorkflowRequestIdRef.current !== message.requestId) {
-        return;
-      }
-
-      activeWorkflowRequestIdRef.current = null;
-      pendingRequestIdRef.current = null;
-      setPendingAction(null);
-      setIsSubmittingWorkflowInput(false);
-      setPendingWorkflowInputs(null);
-      setWorkflowProgressForRequest(
-        message.requestId,
-        message.success ? 'success' : 'failed',
-        message.message
-      );
-      setTransactionStatus({
-        severity: message.success ? 'success' : 'error',
-        message: message.message
-      });
+      handleWorkflowCompleteMessage(message);
     }
-  }, [setWorkflowProgressForRequest]));
+  }, [handleInputRequiredMessage, handleWorkflowCompleteMessage, handleWorkflowResultMessage]));
 
   useEffect(() => {
     if (!editorRef.current) {
@@ -563,11 +617,9 @@ function VsCodeYamlPanel({
     });
   }, [pendingWorkflowInputs, postMessage, setWorkflowProgressForRequest]);
 
-  const isWorkflowRunning = workflowProgress.phase === 'submitting'
-    || workflowProgress.phase === 'running'
-    || workflowProgress.phase === 'waitingInput';
-  const isWorkflowFinished = workflowProgress.phase === 'success' || workflowProgress.phase === 'failed';
-  const isSubmitting = pendingAction !== null || isSubmittingWorkflowInput || isWorkflowRunning;
+  const isWorkflowRunning = isWorkflowProgressRunning(workflowProgress.phase);
+  const isWorkflowFinished = isWorkflowProgressFinished(workflowProgress.phase);
+  const isSubmitting = isWorkflowSubmissionInProgress(pendingAction, isSubmittingWorkflowInput, isWorkflowRunning);
 
   useEffect(() => {
     onRunWorkflowActionChange(handleWorkflowAction);
@@ -600,26 +652,11 @@ function VsCodeYamlPanel({
     }, 3000);
   }, [transactionStatus]);
 
-  const workflowInputPrompts = pendingWorkflowInputs
-    ? pendingWorkflowInputs.inputs
-      .map((input) => (typeof input.ackPrompt === 'string' ? input.ackPrompt.trim() : ''))
-      .filter((prompt) => prompt.length > 0)
-    : [];
+  const workflowInputPrompts = getWorkflowInputPrompts(pendingWorkflowInputs);
   const canCloseWorkflowProgress = pendingWorkflowInputs === null;
   const workflowProgressOpen = workflowProgress.phase !== 'idle';
   const outlinedActionButtonSx = { color: 'text.primary', borderColor: 'divider' } as const;
-  const workflowProgressActiveStep = (() => {
-    if (workflowProgress.phase === 'submitting') {
-      return 0;
-    }
-    if (workflowProgress.phase === 'waitingInput') {
-      return 1;
-    }
-    if (workflowProgress.phase === 'running') {
-      return 2;
-    }
-    return 3;
-  })();
+  const workflowProgressActiveStep = getWorkflowProgressActiveStep(workflowProgress.phase);
   const workflowProgressSeverity = getWorkflowProgressSeverity(workflowProgress.phase);
   const workflowProgressTitle = getWorkflowProgressTitle(workflowProgress.phase);
 

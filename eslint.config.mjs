@@ -282,6 +282,8 @@ export default [
       '@typescript-eslint/no-unsafe-member-access': 'off',
       '@typescript-eslint/no-unsafe-call': 'off',
       '@typescript-eslint/no-unsafe-return': 'off',
+      'complexity': ['warn', { max: 50 }],
+      'sonarjs/cognitive-complexity': ['warn', 50],
       'no-console': 'off',
     }
   }

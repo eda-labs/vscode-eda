@@ -1,30 +1,29 @@
-import { expect } from 'chai';
 import * as fs from 'fs';
 import * as path from 'path';
-import React from 'react';
-import { renderToString } from 'react-dom/server';
+
+import { expect } from 'chai';
 import sinon from 'sinon';
 import { Agent, fetch } from 'undici';
 import * as vscode from 'vscode';
 
-import { EdaClient } from '../src/clients/edaClient';
-import * as extension from '../src/extension';
-import { serviceManager } from '../src/services/serviceManager';
-import { ResourceStatusService } from '../src/services/resourceStatusService';
-import { EdaNamespaceProvider } from '../src/providers/views/namespaceProvider';
-import { EdaAlarmProvider } from '../src/providers/views/alarmProvider';
-import { EdaDeviationProvider } from '../src/providers/views/deviationProvider';
-import { TransactionBasketProvider } from '../src/providers/views/transactionBasketProvider';
-import { EdaTransactionProvider } from '../src/providers/views/transactionProvider';
-import { DashboardProvider } from '../src/providers/views/dashboardProvider';
-import { HelpProvider } from '../src/providers/views/helpProvider';
 import {
   buildExplorerSnapshot,
+  DashboardProvider,
+  EdaAlarmProvider,
+  EdaClient,
+  EdaDeviationProvider,
+  EdaNamespaceProvider,
+  EdaTransactionProvider,
+  HelpProvider,
+  KubernetesClient,
+  ResourceService,
+  ResourceStatusService,
+  serviceManager,
+  TransactionBasketProvider,
+  extension,
   type ExplorerSnapshotProviders
-} from '../src/webviews/explorer/explorerSnapshotAdapter';
-import { ExplorerRenderBenchmarkView } from '../src/webviews/explorer/explorerRenderBenchmark';
-import { KubernetesClient } from '../src/clients/kubernetesClient';
-import { ResourceService } from '../src/services/resourceService';
+} from './support/perfDeps';
+import { renderExplorerSectionsMarkup } from './support/explorerRenderPerf';
 
 const STREAM_SUBSCRIBE_EXCLUDE = new Set([
   'resultsummary',
@@ -1179,10 +1178,7 @@ maybeDescribe('EDA loading performance benchmark (integration)', function () {
     let snapshotMs = nowMs() - initialSnapshotStart;
     let latestSnapshot = initialSnapshot;
     const initialVisibleSsrRenderStart = nowMs();
-    const initialVisibleMarkup = renderToString(React.createElement(ExplorerRenderBenchmarkView, {
-      sections: initialSnapshot.sections,
-      expandAll: false
-    }));
+    const initialVisibleMarkup = renderExplorerSectionsMarkup(initialSnapshot.sections, false);
     const initialSsrVisibleRenderMs = nowMs() - initialVisibleSsrRenderStart;
     const initialVisibleMarkupBytes = Buffer.byteLength(initialVisibleMarkup, 'utf8');
     perfLogger.write(
@@ -1191,10 +1187,7 @@ maybeDescribe('EDA loading performance benchmark (integration)', function () {
     );
 
     const initialExpandedSsrRenderStart = nowMs();
-    const initialExpandedMarkup = renderToString(React.createElement(ExplorerRenderBenchmarkView, {
-      sections: initialSnapshot.sections,
-      expandAll: true
-    }));
+    const initialExpandedMarkup = renderExplorerSectionsMarkup(initialSnapshot.sections, true);
     const initialSsrExpandedRenderMs = nowMs() - initialExpandedSsrRenderStart;
     const initialExpandedMarkupBytes = Buffer.byteLength(initialExpandedMarkup, 'utf8');
     perfLogger.write(
@@ -1240,10 +1233,7 @@ maybeDescribe('EDA loading performance benchmark (integration)', function () {
     }
     const treeStableMs = nowMs() - treeStabilityStart;
     const stableVisibleSsrRenderStart = nowMs();
-    const stableVisibleMarkup = renderToString(React.createElement(ExplorerRenderBenchmarkView, {
-      sections: latestSnapshot.sections,
-      expandAll: false
-    }));
+    const stableVisibleMarkup = renderExplorerSectionsMarkup(latestSnapshot.sections, false);
     const stableSsrVisibleRenderMs = nowMs() - stableVisibleSsrRenderStart;
     const stableVisibleMarkupBytes = Buffer.byteLength(stableVisibleMarkup, 'utf8');
     perfLogger.write(
@@ -1252,10 +1242,7 @@ maybeDescribe('EDA loading performance benchmark (integration)', function () {
     );
 
     const stableExpandedSsrRenderStart = nowMs();
-    const stableExpandedMarkup = renderToString(React.createElement(ExplorerRenderBenchmarkView, {
-      sections: latestSnapshot.sections,
-      expandAll: true
-    }));
+    const stableExpandedMarkup = renderExplorerSectionsMarkup(latestSnapshot.sections, true);
     const stableSsrExpandedRenderMs = nowMs() - stableExpandedSsrRenderStart;
     const stableExpandedMarkupBytes = Buffer.byteLength(stableExpandedMarkup, 'utf8');
     perfLogger.write(

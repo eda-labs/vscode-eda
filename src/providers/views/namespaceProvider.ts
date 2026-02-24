@@ -790,6 +790,61 @@ constructor() {
     return items;
   }
 
+  private ensureCachedNamespace(namespace: string): boolean {
+    if (this.cachedNamespaces.includes(namespace)) {
+      return false;
+    }
+    this.cachedNamespaces.push(namespace);
+    return true;
+  }
+
+  private getOrCreateStreamNamespaceMap(stream: string, namespace: string): Map<string, K8sResource> {
+    const key = `${stream}:${namespace}`;
+    const existing = this.streamData.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const created = new Map<string, K8sResource>();
+    this.streamData.set(key, created);
+    return created;
+  }
+
+  private applyIncomingStreamData(
+    map: Map<string, K8sResource>,
+    name: string,
+    data: K8sResource | null | undefined
+  ): boolean {
+    if (data === null) {
+      return map.delete(name);
+    }
+    if (!data) {
+      return false;
+    }
+
+    const existing = map.get(name);
+    if (!this.shouldUpdateResource(existing, data)) {
+      return false;
+    }
+    map.set(name, data);
+    return true;
+  }
+
+  private processSingleStreamUpdate(
+    stream: string,
+    up: StreamUpdate
+  ): { changed: boolean; namespaceAdded: boolean } {
+    const { name, namespace } = this.extractNames(up);
+    if (!namespace || !name) {
+      return { changed: false, namespaceAdded: false };
+    }
+
+    const namespaceAdded = this.ensureCachedNamespace(namespace);
+    const map = this.getOrCreateStreamNamespaceMap(stream, namespace);
+    const changed = this.applyIncomingStreamData(map, name, up.data);
+    return { changed, namespaceAdded };
+  }
+
   /** Handle incoming stream messages and cache items */
   private processStreamMessage(stream: string, msg: StreamMessageEnvelope): void {
     const updates = getUpdates(msg.msg) as StreamUpdate[];
@@ -801,31 +856,9 @@ constructor() {
     let changed = false;
     let namespacesChanged = false;
     for (const up of updates) {
-      const { name, namespace } = this.extractNames(up);
-      if (!namespace || !name) {
-        continue;
-      }
-      if (!this.cachedNamespaces.includes(namespace)) {
-        this.cachedNamespaces.push(namespace);
-        namespacesChanged = true;
-      }
-      const key = `${stream}:${namespace}`;
-      let map = this.streamData.get(key);
-      if (!map) {
-        map = new Map();
-        this.streamData.set(key, map);
-      }
-      if (up.data === null) {
-        if (map.delete(name)) {
-          changed = true;
-        }
-      } else if (up.data) {
-        const existing = map.get(name);
-        if (this.shouldUpdateResource(existing, up.data)) {
-          map.set(name, up.data);
-          changed = true;
-        }
-      }
+      const result = this.processSingleStreamUpdate(stream, up);
+      changed = changed || result.changed;
+      namespacesChanged = namespacesChanged || result.namespaceAdded;
     }
     if (namespacesChanged) {
       this.syncNamespacesWithK8s();
