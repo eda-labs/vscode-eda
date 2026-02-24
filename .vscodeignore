@@ -26,6 +26,8 @@ patch.sh
 .npmignore
 .eslintrc*
 .prettierrc*
+*.tsbuildinfo
+*.tsbuildinfo.*
 
 # Exclude development/example files
 stream.ts

@@ -131,6 +131,8 @@ export class KubernetesClient {
 
   private activeWatchers: Map<string, AbortController> = new Map();
   private lastChangeLogTime: Map<string, number> = new Map();
+  private resourceChangeTimer: ReturnType<typeof setTimeout> | undefined;
+  private resourceChangeDebounceMs = 100;
 
   private watchDefinitions = [
     // Core/v1
@@ -190,6 +192,10 @@ export class KubernetesClient {
     const envInterval = Number(process.env.EDA_POLL_INTERVAL_MS);
     if (!Number.isNaN(envInterval) && envInterval > 0) {
       this.pollInterval = envInterval;
+    }
+    const eventDebounce = Number(process.env.EDA_K8S_RESOURCE_EVENT_DEBOUNCE_MS);
+    if (!Number.isNaN(eventDebounce) && eventDebounce >= 0) {
+      this.resourceChangeDebounceMs = eventDebounce;
     }
     this.loadKubeConfig(contextName);
   }
@@ -591,6 +597,20 @@ export class KubernetesClient {
     }
   }
 
+  private emitResourceChanged(): void {
+    if (this.resourceChangeDebounceMs === 0) {
+      this._onResourceChanged.fire();
+      return;
+    }
+    if (this.resourceChangeTimer) {
+      return;
+    }
+    this.resourceChangeTimer = setTimeout(() => {
+      this.resourceChangeTimer = undefined;
+      this._onResourceChanged.fire();
+    }, this.resourceChangeDebounceMs);
+  }
+
   /** Process a single watch event, returns new resourceVersion or null on error */
   private processWatchEvent(
     evt: K8sWatchEvent,
@@ -624,7 +644,7 @@ export class KubernetesClient {
 
     const origin = this.getWatchStreamId(def.name, namespace);
     this.logChangeIfNeeded(origin, namespace, obj, evt.type);
-    this._onResourceChanged.fire();
+    this.emitResourceChanged();
 
     return newResourceVersion;
   }
@@ -898,6 +918,10 @@ export class KubernetesClient {
 
   public dispose(): void {
     this.clearWatchers();
+    if (this.resourceChangeTimer) {
+      clearTimeout(this.resourceChangeTimer);
+      this.resourceChangeTimer = undefined;
+    }
     this._onResourceChanged.dispose();
     this._onDeviationChanged.dispose();
     this._onTransactionChanged.dispose();

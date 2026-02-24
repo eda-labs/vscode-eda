@@ -2,8 +2,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-import openapiTS, { astToString, COMMENT_HEADER, type OpenAPI3 } from 'openapi-typescript';
-
 import { LogLevel, log } from '../extension';
 
 import type { EdaApiClient } from './edaApiClient';
@@ -14,6 +12,7 @@ const SERVER_RELATIVE_URL = 'serverRelativeURL';
 const OPERATION_ID = 'operationId';
 const X_EDA_NOKIA_COM = 'x-eda-nokia-com';
 const NAMESPACE_PARAM_PATTERN = /^(namespace|nsname)$/i;
+const GENERATE_SPEC_TYPES = process.env.EDA_GENERATE_SPEC_TYPES === 'true';
 
 interface NamespaceData {
   name?: string;
@@ -88,6 +87,7 @@ export class EdaSpecManager {
   private initPromise: Promise<void> = Promise.resolve();
   private apiClient: EdaApiClient;
   private coreNamespace: string;
+  private backgroundSpecRefreshInFlight = false;
 
   constructor(apiClient: EdaApiClient, coreNamespace = 'eda-system') {
     this.apiClient = apiClient;
@@ -205,13 +205,21 @@ export class EdaSpecManager {
       const nsPath = this.findPathByOperationId(coreSpec, 'accessGetNamespaces');
       const versionPath = this.findPathByOperationId(coreSpec, 'versionGet');
       this.apiVersion = await this.fetchVersion(versionPath);
-      const endpoints = await this.fetchAndWriteAllSpecs(apiRoot, this.apiVersion);
-      log(`Fetched API specs for version ${this.apiVersion}`, LogLevel.INFO);
+
+      const namespaceFetch = this.apiClient.fetchJsonUrl(`${baseUrl}${nsPath}`) as Promise<NamespaceGetResponse>;
+      let endpoints = await this.loadCachedEndpointsAndOperations(this.apiVersion);
+      if (endpoints.length > 0) {
+        log(`Loaded API specs for version ${this.apiVersion} from local cache`, LogLevel.INFO);
+        void this.refreshSpecsInBackground(apiRoot, this.apiVersion);
+      } else {
+        endpoints = await this.fetchAndWriteAllSpecs(apiRoot, this.apiVersion);
+        log(`Fetched API specs for version ${this.apiVersion}`, LogLevel.INFO);
+      }
       this.streamEndpoints = this.deduplicateEndpoints(endpoints);
       log(`Discovered ${this.streamEndpoints.length} stream endpoints`, LogLevel.DEBUG);
 
       // Prime namespace set
-      const ns = await this.apiClient.fetchJsonUrl(`${baseUrl}${nsPath}`) as NamespaceGetResponse;
+      const ns = await namespaceFetch;
       this.namespaceSet = new Set((ns.namespaces || []).map(n => n.name || '').filter(n => n));
       // Always include core namespace
       this.namespaceSet.add(this.coreNamespace);
@@ -362,11 +370,19 @@ export class EdaSpecManager {
     const jsonPath = path.join(versionDir, `${name}.json`);
     await fs.promises.writeFile(jsonPath, JSON.stringify(spec, null, 2));
 
-    // Cast to OpenAPI3 since the spec is dynamically fetched and conforms to OpenAPI format
-    const tsAst = await openapiTS(spec as unknown as OpenAPI3);
-    const ts = COMMENT_HEADER + astToString(tsAst);
-    const dtsPath = path.join(versionDir, `${name}.d.ts`);
-    await fs.promises.writeFile(dtsPath, ts);
+    if (!GENERATE_SPEC_TYPES) {
+      return;
+    }
+
+    try {
+      const openapiModule = await import('openapi-typescript');
+      const tsAst = await openapiModule.default(spec as never);
+      const ts = openapiModule.COMMENT_HEADER + openapiModule.astToString(tsAst);
+      const dtsPath = path.join(versionDir, `${name}.d.ts`);
+      await fs.promises.writeFile(dtsPath, ts);
+    } catch (err) {
+      log(`Failed to generate type definitions for spec '${name}': ${err}`, LogLevel.DEBUG);
+    }
   }
 
   private async fetchVersion(path: string): Promise<string> {
@@ -397,5 +413,76 @@ export class EdaSpecManager {
       all.push(...this.collectStreamEndpoints(spec));
     }
     return all;
+  }
+
+  private async collectCachedSpecFiles(version: string): Promise<string[]> {
+    const versionDir = path.join(this.cacheBaseDir, version);
+    if (!fs.existsSync(versionDir)) {
+      return [];
+    }
+
+    const files: string[] = [];
+    const stack: string[] = [versionDir];
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (!current) {
+        continue;
+      }
+      let entries: fs.Dirent[] = [];
+      try {
+        entries = await fs.promises.readdir(current, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        const fullPath = path.join(current, entry.name);
+        if (entry.isDirectory()) {
+          stack.push(fullPath);
+          continue;
+        }
+        if (entry.isFile() && entry.name.endsWith('.json')) {
+          files.push(fullPath);
+        }
+      }
+    }
+    return files;
+  }
+
+  private async loadCachedEndpointsAndOperations(version: string): Promise<StreamEndpoint[]> {
+    const cachedSpecFiles = await this.collectCachedSpecFiles(version);
+    if (cachedSpecFiles.length === 0) {
+      return [];
+    }
+
+    const all: StreamEndpoint[] = [];
+    for (const cachedSpec of cachedSpecFiles) {
+      try {
+        const raw = await fs.promises.readFile(cachedSpec, 'utf8');
+        const spec = JSON.parse(raw) as OpenApiSpec;
+        this.collectOperationPaths(spec);
+        all.push(...this.collectStreamEndpoints(spec));
+      } catch (err) {
+        log(`Skipping unreadable cached spec '${cachedSpec}': ${err}`, LogLevel.DEBUG);
+      }
+    }
+    return all;
+  }
+
+  private async refreshSpecsInBackground(apiRoot: ApiRootSpec, version: string): Promise<void> {
+    if (this.backgroundSpecRefreshInFlight) {
+      return;
+    }
+    this.backgroundSpecRefreshInFlight = true;
+    try {
+      const endpoints = await this.fetchAndWriteAllSpecs(apiRoot, version);
+      if (endpoints.length > 0) {
+        this.streamEndpoints = this.deduplicateEndpoints(endpoints);
+      }
+      log(`Background API spec refresh complete for version ${version}`, LogLevel.DEBUG);
+    } catch (err) {
+      log(`Background API spec refresh failed: ${err}`, LogLevel.DEBUG);
+    } finally {
+      this.backgroundSpecRefreshInFlight = false;
+    }
   }
 }

@@ -24,6 +24,8 @@ const CMD_EDIT_RESOURCE = 'vscode-eda.switchToEditResource';
 const CMD_DELETE_RESOURCE = 'vscode-eda.deleteResource';
 const LABEL_EDIT_RESOURCE = 'Switch To Edit Mode';
 const LABEL_DELETE_RESOURCE = 'Delete Resource';
+const INLINE_RESOURCE_ACTIONS = process.env.EDA_EXPLORER_INLINE_RESOURCE_ACTIONS === 'true';
+const INCLUDE_RESOURCE_TOOLTIPS = process.env.EDA_EXPLORER_RESOURCE_TOOLTIPS === 'true';
 
 const RESOURCE_CONTEXT_VALUES = new Set([
   'stream-item',
@@ -35,6 +37,17 @@ const RESOURCE_CONTEXT_VALUES = new Set([
 
 interface ExplorerTreeProvider {
   getChildren(element?: TreeItemBase): vscode.ProviderResult<TreeItemBase[]>;
+}
+
+interface LightweightResourceCommand {
+  name?: string;
+  namespace?: string;
+  kind?: string;
+  apiVersion?: string;
+  uid?: string;
+  status?: {
+    'node-details'?: string;
+  };
 }
 
 interface ExplorerTreeItemLike extends TreeItemBase {
@@ -131,27 +144,52 @@ function dedupeActions(actions: ExplorerAction[]): ExplorerAction[] {
   return unique;
 }
 
+function getNodeDetails(raw: ResourceData['raw'] | undefined): string | undefined {
+  const nodeDetails = (raw?.status as { 'node-details'?: string } | undefined)?.['node-details'];
+  if (typeof nodeDetails === 'string' && nodeDetails.length > 0) {
+    return nodeDetails;
+  }
+  return undefined;
+}
+
+function buildLightweightResource(
+  resourceData: ResourceData,
+  item: ExplorerTreeItemLike,
+  raw: ResourceData['raw'] | undefined
+): LightweightResourceCommand {
+  return {
+    name: resourceData.name,
+    namespace: resourceData.namespace ?? item.namespace,
+    kind: resourceData.kind,
+    apiVersion: resourceData.apiVersion ?? raw?.apiVersion,
+    uid: resourceData.uid
+  };
+}
+
 function buildResourceCommandArgument(item: ExplorerTreeItemLike): Record<string, unknown> {
   const label = labelToText(item.label);
   const resourceData = item.resource as ResourceData | undefined;
+  const raw = resourceData?.raw as ResourceData['raw'] | undefined;
 
   const arg: Record<string, unknown> = {
     label,
     namespace: item.namespace,
     resourceType: item.resourceType,
     streamGroup: item.streamGroup,
-    contextValue: item.contextValue
+    contextValue: item.contextValue,
+    name: resourceData?.name ?? label,
+    kind: resourceData?.kind ?? item.resourceType,
+    apiVersion: resourceData?.apiVersion ?? raw?.apiVersion
   };
 
   if (resourceData) {
-    arg.resource = toSerializable(resourceData);
-    arg.name = resourceData.name;
-    arg.kind = resourceData.kind;
-
-    if (resourceData.raw) {
-      arg.raw = toSerializable(resourceData.raw);
-      arg.rawResource = toSerializable(resourceData.raw);
+    const lightResource = buildLightweightResource(resourceData, item, raw);
+    const nodeDetails = getNodeDetails(raw);
+    if (nodeDetails) {
+      lightResource.status = { 'node-details': nodeDetails };
+      arg.nodeDetails = nodeDetails;
     }
+    arg.resource = lightResource;
   }
 
   if (typeof item.basketIndex === 'number') {
@@ -165,7 +203,32 @@ function buildResourceCommandArgument(item: ExplorerTreeItemLike): Record<string
   return arg;
 }
 
-function primaryActionFromTreeItem(item: ExplorerTreeItemLike): ExplorerAction | undefined {
+function buildMinimalResourceCommandArgument(item: ExplorerTreeItemLike): Record<string, unknown> {
+  const label = labelToText(item.label);
+  const resourceData = item.resource as ResourceData | undefined;
+  const raw = resourceData?.raw as ResourceData['raw'] | undefined;
+
+  return {
+    label,
+    namespace: item.namespace,
+    resourceType: item.resourceType,
+    streamGroup: item.streamGroup,
+    contextValue: item.contextValue,
+    name: resourceData?.name ?? label,
+    kind: resourceData?.kind ?? item.resourceType,
+    apiVersion: resourceData?.apiVersion ?? raw?.apiVersion
+  };
+}
+
+function primaryActionFromTreeItem(
+  item: ExplorerTreeItemLike,
+  sectionId: ExplorerTabId
+): ExplorerAction | undefined {
+  const contextValue = item.contextValue;
+  if (sectionId === 'resources' && RESOURCE_CONTEXT_VALUES.has(contextValue ?? '')) {
+    return createAction(CMD_VIEW_STREAM_ITEM, 'View Stream Item');
+  }
+
   const command = item.command;
   if (!command?.command) {
     return undefined;
@@ -277,24 +340,36 @@ function getDashboardActions(contextValue: string | undefined, label: string): E
 function getSectionActions(
   sectionId: ExplorerTabId,
   item: ExplorerTreeItemLike,
-  commandArg: Record<string, unknown>
+  commandArg: Record<string, unknown> | undefined
 ): ExplorerAction[] {
   const contextValue = item.contextValue;
   const label = labelToText(item.label);
 
   if (sectionId === 'resources') {
+    if (!commandArg) {
+      return [];
+    }
     return getResourceActions(contextValue, commandArg);
   }
 
   if (sectionId === 'deviations') {
+    if (!commandArg) {
+      return [];
+    }
     return getDeviationActions(contextValue, commandArg);
   }
 
   if (sectionId === 'transactions') {
+    if (!commandArg) {
+      return [];
+    }
     return getTransactionActions(contextValue, commandArg);
   }
 
   if (sectionId === 'basket') {
+    if (!commandArg) {
+      return [];
+    }
     return getBasketActions(contextValue, commandArg);
   }
 
@@ -306,6 +381,9 @@ function getSectionActions(
 }
 
 function includeTooltipForSection(sectionId: ExplorerTabId): boolean {
+  if (sectionId === 'resources') {
+    return INCLUDE_RESOURCE_TOOLTIPS;
+  }
   return sectionId !== 'dashboards' && sectionId !== 'help';
 }
 
@@ -317,6 +395,20 @@ function getProviderChildren(provider: ExplorerTreeProvider, element?: TreeItemB
   return [];
 }
 
+function shouldBuildCommandArgForSection(sectionId: ExplorerTabId): boolean {
+  return sectionId === 'resources'
+    || sectionId === 'deviations'
+    || sectionId === 'transactions'
+    || sectionId === 'basket';
+}
+
+function shouldIncludeNodeActions(sectionId: ExplorerTabId): boolean {
+  if (sectionId === 'alarms') {
+    return false;
+  }
+  return !(sectionId === 'resources' && !INLINE_RESOURCE_ACTIONS);
+}
+
 function buildNode(
   provider: ExplorerTreeProvider,
   item: ExplorerTreeItemLike,
@@ -326,14 +418,29 @@ function buildNode(
   const label = labelToText(item.label);
   const description = descriptionToText(item.description);
   const tooltip = includeTooltipForSection(sectionId) ? tooltipToText(item.tooltip) : undefined;
-  const commandArg = buildResourceCommandArgument(item);
-  const primaryAction = primaryActionFromTreeItem(item);
+  const isResourceLeaf = sectionId === 'resources' && RESOURCE_CONTEXT_VALUES.has(item.contextValue ?? '');
+  const useMinimalResourceCommandArg = sectionId === 'resources' && !INLINE_RESOURCE_ACTIONS;
+  const shouldBuildCommandArg = sectionId === 'resources'
+    ? isResourceLeaf
+    : shouldBuildCommandArgForSection(sectionId);
+  let commandArg: Record<string, unknown> | undefined;
+  if (shouldBuildCommandArg) {
+    commandArg = useMinimalResourceCommandArg
+      ? buildMinimalResourceCommandArgument(item)
+      : buildResourceCommandArgument(item);
+  }
+  const primaryAction = primaryActionFromTreeItem(item, sectionId);
+  const includeNodeActions = shouldIncludeNodeActions(sectionId);
 
-  const sectionActions = getSectionActions(sectionId, item, commandArg);
-  const mergedActions = dedupeActions([
-    ...(primaryAction ? [primaryAction] : []),
-    ...sectionActions
-  ]);
+  const sectionActions = includeNodeActions
+    ? getSectionActions(sectionId, item, commandArg)
+    : [];
+  const mergedActions = includeNodeActions
+    ? dedupeActions([
+      ...(primaryAction ? [primaryAction] : []),
+      ...sectionActions
+    ])
+    : [];
 
   const childrenItems = getProviderChildren(provider, item);
   const children: ExplorerNode[] = childrenItems.map((child, index) =>
@@ -348,6 +455,7 @@ function buildNode(
     contextValue: item.contextValue,
     statusIndicator: item.status?.indicator,
     statusDescription: item.status?.description,
+    commandArg: isResourceLeaf ? commandArg : undefined,
     primaryAction,
     actions: mergedActions,
     children

@@ -12,22 +12,27 @@ import {
   MSG_NO_POD_AVAILABLE_DESCRIBE
 } from './constants';
 
+function resolvePodInfo(treeItem: TreeItemBase | undefined): { namespace?: string; name?: string } {
+  if (!treeItem) {
+    return {};
+  }
+  const labelName = typeof treeItem.label === 'string' ? treeItem.label : undefined;
+  const name = treeItem.resource?.name ?? (treeItem as unknown as { name?: string }).name ?? labelName;
+  return {
+    namespace: treeItem.namespace,
+    name
+  };
+}
+
 export function registerPodCommands(
   context: vscode.ExtensionContext,
   podDescribeProvider: PodDescribeDocumentProvider
 ) {
   const deletePodCmd = vscode.commands.registerCommand('vscode-eda.deletePod', async (treeItem: TreeItemBase | undefined) => {
-    if (!treeItem?.resource) {
-      vscode.window.showErrorMessage(MSG_NO_POD_AVAILABLE_DELETE);
-      return;
-    }
-
-    // Get namespace from treeItem directly, and name from resource
-    const ns = treeItem.namespace;
-    const name = treeItem.resource.name;
+    const { namespace: ns, name } = resolvePodInfo(treeItem);
 
     if (!ns || !name) {
-      vscode.window.showErrorMessage(MSG_POD_NS_OR_NAME_MISSING);
+      vscode.window.showErrorMessage(treeItem ? MSG_POD_NS_OR_NAME_MISSING : MSG_NO_POD_AVAILABLE_DELETE);
       return;
     }
 
@@ -50,17 +55,10 @@ export function registerPodCommands(
 
   // Open Terminal (shell) in Pod
   const terminalPodCmd = vscode.commands.registerCommand('vscode-eda.terminalPod', (treeItem: TreeItemBase | undefined) => {
-    if (!treeItem?.resource) {
-      vscode.window.showErrorMessage(MSG_NO_POD_AVAILABLE_TERMINAL);
-      return;
-    }
-
-    // Get namespace from treeItem directly, and name from resource
-    const ns = treeItem.namespace;
-    const name = treeItem.resource.name;
+    const { namespace: ns, name } = resolvePodInfo(treeItem);
 
     if (!ns || !name) {
-      vscode.window.showErrorMessage(MSG_POD_NS_OR_NAME_MISSING);
+      vscode.window.showErrorMessage(treeItem ? MSG_POD_NS_OR_NAME_MISSING : MSG_NO_POD_AVAILABLE_TERMINAL);
       return;
     }
 
@@ -79,17 +77,10 @@ export function registerPodCommands(
 
   // View Logs in a new Terminal
   const logsPodCmd = vscode.commands.registerCommand('vscode-eda.logsPod', (treeItem: TreeItemBase | undefined) => {
-    if (!treeItem?.resource) {
-      vscode.window.showErrorMessage(MSG_NO_POD_AVAILABLE_LOGS);
-      return;
-    }
-
-    // Get namespace from treeItem directly, and name from resource
-    const ns = treeItem.namespace;
-    const name = treeItem.resource.name;
+    const { namespace: ns, name } = resolvePodInfo(treeItem);
 
     if (!ns || !name) {
-      vscode.window.showErrorMessage(MSG_POD_NS_OR_NAME_MISSING);
+      vscode.window.showErrorMessage(treeItem ? MSG_POD_NS_OR_NAME_MISSING : MSG_NO_POD_AVAILABLE_LOGS);
       return;
     }
 
@@ -108,17 +99,10 @@ export function registerPodCommands(
 
   // Describe Pod in a read-only doc
   const describePodCmd = vscode.commands.registerCommand('vscode-eda.describePod', async (treeItem: TreeItemBase | undefined) => {
-    if (!treeItem?.resource) {
-      vscode.window.showErrorMessage(MSG_NO_POD_AVAILABLE_DESCRIBE);
-      return;
-    }
-
-    // Get namespace from treeItem directly, and name from resource
-    const ns = treeItem.namespace;
-    const name = treeItem.resource.name;
+    const { namespace: ns, name } = resolvePodInfo(treeItem);
 
     if (!ns || !name) {
-      vscode.window.showErrorMessage(MSG_POD_NS_OR_NAME_MISSING);
+      vscode.window.showErrorMessage(treeItem ? MSG_POD_NS_OR_NAME_MISSING : MSG_NO_POD_AVAILABLE_DESCRIBE);
       return;
     }
 

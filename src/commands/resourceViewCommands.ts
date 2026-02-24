@@ -32,6 +32,7 @@ interface CommandArgument {
   name?: string;
   namespace?: string;
   kind?: string;
+  apiVersion?: string;
   resourceType?: string;
   label?: string;
   streamGroup?: string;
@@ -39,6 +40,7 @@ interface CommandArgument {
   rawResource?: KubernetesResource;
   resource?: {
     raw?: KubernetesResource;
+    apiVersion?: string;
     [key: string]: unknown;
   };
   [key: string]: unknown;
@@ -67,6 +69,21 @@ function getName(arg: CommandArgument | undefined, raw: KubernetesResource | und
   return raw?.metadata?.name ?? arg?.name ?? arg?.label ?? 'unknown';
 }
 
+/** Extracts apiVersion from raw resource, explicit command arg, or lightweight resource payload. */
+function getApiVersion(arg: CommandArgument | undefined, raw: KubernetesResource | undefined): string | undefined {
+  if (raw?.apiVersion) {
+    return raw.apiVersion;
+  }
+  if (typeof arg?.apiVersion === 'string' && arg.apiVersion.length > 0) {
+    return arg.apiVersion;
+  }
+  const resourceApiVersion = arg?.resource?.apiVersion;
+  if (typeof resourceApiVersion === 'string' && resourceApiVersion.length > 0) {
+    return resourceApiVersion;
+  }
+  return undefined;
+}
+
 /**
  * Extracts resource information from a tree item argument.
  */
@@ -76,7 +93,7 @@ function extractResourceInfo(arg: CommandArgument | undefined, raw: KubernetesRe
     kind: getKind(arg, raw),
     name: getName(arg, raw),
     useEda: isEdaResource(arg, raw?.apiVersion),
-    apiVersion: raw?.apiVersion
+    apiVersion: getApiVersion(arg, raw)
   };
 }
 
@@ -142,12 +159,14 @@ export function registerResourceViewCommands(
     try {
       const cmdArg = arg as CommandArgument | undefined;
       const resource: KubernetesResource | undefined = cmdArg?.raw ?? cmdArg?.rawResource ?? cmdArg?.resource?.raw;
-      if (!resource) {
-        vscode.window.showErrorMessage('No data available for this item');
-        return;
-      }
       const info = extractResourceInfo(cmdArg, resource);
-      const yamlText = yaml.dump(sanitizeResource(resource), { indent: 2 });
+      let yamlText: string;
+      if (resource) {
+        yamlText = yaml.dump(sanitizeResource(resource), { indent: 2 });
+      } else {
+        yamlText = await fetchResourceYaml(info);
+        yamlText = stripManagedFieldsFromYaml(yamlText);
+      }
       await openResourceDocument(provider, info, yamlText, 'viewStreamItem');
     } catch (err: unknown) {
       log(`Failed to open stream item: ${String(err)}`, LogLevel.ERROR, true);

@@ -12,3 +12,5 @@ screenshots/**
 *.clab.yml
 *.clab.yml.annotations.json
 topology.svg
+*.tsbuildinfo
+*.tsbuildinfo.*

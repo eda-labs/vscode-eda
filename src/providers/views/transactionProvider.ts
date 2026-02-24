@@ -3,7 +3,6 @@ import * as vscode from 'vscode';
 import { serviceManager } from '../../services/serviceManager';
 import type { EdaClient } from '../../clients/edaClient';
 import type { ResourceStatusService } from '../../services/resourceStatusService';
-import { log, LogLevel } from '../../extension';
 import { getResults } from '../../utils/streamMessageUtils';
 
 import { FilteredTreeProvider } from './filteredTreeProvider';
@@ -36,21 +35,29 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
   private statusService: ResourceStatusService;
   private cachedTransactions: Transaction[] = [];
   private transactionLimit = 50;
+  private refreshHandle: ReturnType<typeof setTimeout> | undefined;
+  private refreshIntervalMs = 120;
 
   /**
    * Merge new transaction updates into the cached list while
    * maintaining at most 50 entries.
    */
-  private mergeTransactions(txs: Transaction[]): void {
+  private mergeTransactions(txs: Transaction[]): boolean {
     const byId = new Map<string, Transaction>();
     for (const tx of this.cachedTransactions) {
       if (tx && tx.id !== undefined) {
         byId.set(String(tx.id), tx);
       }
     }
+    let changed = false;
     for (const tx of txs) {
       if (tx && tx.id !== undefined) {
-        byId.set(String(tx.id), tx);
+        const txId = String(tx.id);
+        const existing = byId.get(txId);
+        if (this.hasTransactionChanged(existing, tx)) {
+          byId.set(txId, tx);
+          changed = true;
+        }
       }
     }
     const merged = Array.from(byId.values());
@@ -62,13 +69,59 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
       }
       return String(b.id).localeCompare(String(a.id));
     });
-    this.cachedTransactions = merged.slice(0, this.transactionLimit);
+    const next = merged.slice(0, this.transactionLimit);
+    if (!changed && this.isTransactionListEqual(this.cachedTransactions, next)) {
+      return false;
+    }
+    this.cachedTransactions = next;
+    return true;
+  }
+
+  private hasTransactionChanged(existing: Transaction | undefined, incoming: Transaction): boolean {
+    if (!existing) {
+      return true;
+    }
+    if (existing === incoming) {
+      return false;
+    }
+    return (
+      existing.state !== incoming.state
+      || existing.success !== incoming.success
+      || existing.lastChangeTimestamp !== incoming.lastChangeTimestamp
+      || existing.description !== incoming.description
+      || existing.dryRun !== incoming.dryRun
+      || existing.username !== incoming.username
+    );
+  }
+
+  private isTransactionListEqual(current: Transaction[], next: Transaction[]): boolean {
+    if (current.length !== next.length) {
+      return false;
+    }
+    for (let i = 0; i < current.length; i += 1) {
+      const left = current[i];
+      const right = next[i];
+      if (!left || !right) {
+        return false;
+      }
+      if (String(left.id) !== String(right.id)) {
+        return false;
+      }
+      if (this.hasTransactionChanged(left, right)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   constructor() {
     super();
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
+    const configuredInterval = Number(process.env.EDA_TRANSACTION_TREE_REFRESH_MS);
+    if (!Number.isNaN(configuredInterval) && configuredInterval >= 0) {
+      this.refreshIntervalMs = configuredInterval;
+    }
     this.edaClient.onStreamMessage((stream, msg) => {
       if (stream === 'summary') {
         this.processTransactionMessage(msg as StreamMessageEnvelope);
@@ -80,7 +133,9 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
    * Initialize the transaction stream. Call this after construction.
    */
   public async initialize(): Promise<void> {
-    await this.edaClient.streamEdaTransactions(this.transactionLimit);
+    this.edaClient.streamEdaTransactions(this.transactionLimit).catch(() => {
+      // startup path is best-effort; stream errors are surfaced via stream logs/events
+    });
   }
 
   public getTransactionLimit(): number {
@@ -98,7 +153,21 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
   }
 
   public dispose(): void {
+    if (this.refreshHandle) {
+      clearTimeout(this.refreshHandle);
+      this.refreshHandle = undefined;
+    }
     this.edaClient.closeTransactionStream();
+  }
+
+  private scheduleRefresh(): void {
+    if (this.refreshHandle) {
+      return;
+    }
+    this.refreshHandle = setTimeout(() => {
+      this.refreshHandle = undefined;
+      this.refresh();
+    }, this.refreshIntervalMs);
   }
 
 
@@ -114,7 +183,6 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
   }
 
   private getTransactionItems(): TransactionTreeItem[] {
-    log(`Loading transactions for the transaction tree...`, LogLevel.DEBUG);
     if (this.cachedTransactions.length === 0) {
       return [this.noTransactionsItem()];
     }
@@ -134,16 +202,6 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
     if (transactions.length === 0) {
       return [this.noTransactionsItem(` (no matches for "${this.treeFilter}")`)];
     }
-
-    transactions.sort((a, b) => {
-      const idA = parseInt(String(a.id), 10);
-      const idB = parseInt(String(b.id), 10);
-
-      if (!isNaN(idA) && !isNaN(idB)) {
-        return idB - idA;
-      }
-      return String(b.id).localeCompare(String(a.id));
-    });
 
     return transactions.map(t => {
       const label = `${t.id} - ${t.username}`;
@@ -195,8 +253,9 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
       results = getResults(msg.msg) as Transaction[];
     }
     if (results.length > 0) {
-      this.mergeTransactions(results);
-      this.refresh();
+      if (this.mergeTransactions(results)) {
+        this.scheduleRefresh();
+      }
     }
   }
 }

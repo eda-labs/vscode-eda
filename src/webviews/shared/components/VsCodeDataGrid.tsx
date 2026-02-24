@@ -61,6 +61,7 @@ export function VsCodeDataGrid<R extends GridValidRowModel>({
 }: Readonly<VsCodeDataGridProps<R>>) {
   const paperRef = useRef<HTMLDivElement | null>(null);
   const footerRef = useRef<HTMLDivElement | null>(null);
+  const frameRef = useRef<number | undefined>(undefined);
   const [gridHeight, setGridHeight] = useState(360);
 
   const updateGridHeight = useCallback(() => {
@@ -82,16 +83,25 @@ export function VsCodeDataGrid<R extends GridValidRowModel>({
     setGridHeight(prev => (prev === nextHeight ? prev : nextHeight));
   }, []);
 
-  useEffect(() => {
-    updateGridHeight();
+  const scheduleGridHeightUpdate = useCallback(() => {
+    if (frameRef.current !== undefined) {
+      window.cancelAnimationFrame(frameRef.current);
+    }
+    frameRef.current = window.requestAnimationFrame(() => {
+      frameRef.current = undefined;
+      updateGridHeight();
+    });
+  }, [updateGridHeight]);
 
-    const handleResize = () => updateGridHeight();
+  useEffect(() => {
+    scheduleGridHeightUpdate();
+
+    const handleResize = () => scheduleGridHeightUpdate();
     window.addEventListener('resize', handleResize);
 
     let resizeObserver: ResizeObserver | null = null;
     if (typeof ResizeObserver !== 'undefined') {
-      resizeObserver = new ResizeObserver(() => updateGridHeight());
-      resizeObserver.observe(document.body);
+      resizeObserver = new ResizeObserver(() => scheduleGridHeightUpdate());
       if (paperRef.current) {
         resizeObserver.observe(paperRef.current);
       }
@@ -103,12 +113,16 @@ export function VsCodeDataGrid<R extends GridValidRowModel>({
     return () => {
       window.removeEventListener('resize', handleResize);
       resizeObserver?.disconnect();
+      if (frameRef.current !== undefined) {
+        window.cancelAnimationFrame(frameRef.current);
+        frameRef.current = undefined;
+      }
     };
-  }, [updateGridHeight, footer]);
+  }, [scheduleGridHeightUpdate, footer]);
 
   useEffect(() => {
-    updateGridHeight();
-  }, [updateGridHeight, rows.length, columns.length]);
+    scheduleGridHeightUpdate();
+  }, [scheduleGridHeightUpdate, rows.length, columns.length]);
 
   const handleWheelCapture = useCallback((event: WheelEvent<HTMLDivElement>) => {
     if (!event.shiftKey && Math.abs(event.deltaX) < 1) {

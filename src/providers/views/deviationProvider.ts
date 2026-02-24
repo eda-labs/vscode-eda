@@ -14,7 +14,7 @@ export interface EdaDeviation {
   name?: string;
   namespace?: string;
   "namespace.name"?: string;
-  metadata?: { name?: string; namespace?: string };
+  metadata?: { name?: string; namespace?: string; resourceVersion?: string };
   kind?: string;
   apiVersion?: string;
   status?: string;
@@ -46,6 +46,9 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
   private deviations: Map<string, EdaDeviation> = new Map();
   private edaClient: EdaClient;
   private statusService: ResourceStatusService;
+  private refreshHandle: ReturnType<typeof setTimeout> | undefined;
+  private pendingCountRefresh = false;
+  private refreshIntervalMs = 120;
   private _onDeviationCountChanged = new vscode.EventEmitter<number>();
   readonly onDeviationCountChanged = this._onDeviationCountChanged.event;
 
@@ -57,6 +60,10 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
     super();
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
+    const configuredInterval = Number(process.env.EDA_DEVIATION_TREE_REFRESH_MS);
+    if (!Number.isNaN(configuredInterval) && configuredInterval >= 0) {
+      this.refreshIntervalMs = configuredInterval;
+    }
     this.edaClient.onStreamMessage((stream, msg) => {
       if (stream === 'deviations') {
         this.processDeviationMessage(msg as DeviationStreamMessage);
@@ -71,11 +78,37 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
    * Initialize the deviation stream. Call this after construction.
    */
   public async initialize(): Promise<void> {
-    await this.edaClient.streamEdaDeviations();
+    this.edaClient.streamEdaDeviations().catch(() => {
+      // startup path is best-effort; stream errors are surfaced via stream logs/events
+    });
   }
 
   public dispose(): void {
+    if (this.refreshHandle) {
+      clearTimeout(this.refreshHandle);
+      this.refreshHandle = undefined;
+    }
+    this.pendingCountRefresh = false;
     this.edaClient.closeDeviationStream();
+    this._onDeviationCountChanged.dispose();
+  }
+
+
+  private scheduleRefresh(countChanged: boolean): void {
+    if (countChanged) {
+      this.pendingCountRefresh = true;
+    }
+    if (this.refreshHandle) {
+      return;
+    }
+    this.refreshHandle = setTimeout(() => {
+      this.refreshHandle = undefined;
+      this.refresh();
+      if (this.pendingCountRefresh) {
+        this.pendingCountRefresh = false;
+        this._onDeviationCountChanged.fire(this.count);
+      }
+    }, this.refreshIntervalMs);
   }
 
 
@@ -84,8 +117,11 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
     const key = `${namespace}/${name}`;
     const dev = this.deviations.get(key);
     if (dev) {
-      dev.status = status;
-      this._onDidChangeTreeData.fire();
+      if (dev.status === status) {
+        return;
+      }
+      this.deviations.set(key, { ...dev, status });
+      this.scheduleRefresh(false);
     }
   }
 
@@ -93,8 +129,7 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
     log(`Removing deviation ${name} from namespace ${namespace} from the tree view`, LogLevel.DEBUG);
     const key = `${namespace}/${name}`;
     if (this.deviations.delete(key)) {
-      this._onDidChangeTreeData.fire();
-      this._onDeviationCountChanged.fire(this.count);
+      this.scheduleRefresh(true);
     }
   }
 
@@ -186,9 +221,12 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
         entries.push([`${ns}/${name}`, d]);
       }
     }
-    this.deviations = new Map(entries);
-    this.refresh();
-    this._onDeviationCountChanged.fire(this.count);
+    const next = new Map(entries);
+    if (!this.didDeviationMapChange(this.deviations, next)) {
+      return;
+    }
+    this.deviations = next;
+    this.scheduleRefresh(true);
   }
 
   /** Extract name and namespace from an update object */
@@ -214,9 +252,14 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
       return this.deviations.delete(key);
     }
     if (up.data) {
+      const existing = this.deviations.get(key);
+      if (!this.hasDeviationChanged(existing, up.data)) {
+        return false;
+      }
       this.deviations.set(key, up.data);
+      return true;
     }
-    return true;
+    return false;
   }
 
   /** Process deviation stream updates */
@@ -238,9 +281,48 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
       }
     }
     if (changed) {
-      this.refresh();
-      this._onDeviationCountChanged.fire(this.count);
+      this.scheduleRefresh(true);
     }
+  }
+
+  private didDeviationMapChange(
+    current: Map<string, EdaDeviation>,
+    next: Map<string, EdaDeviation>
+  ): boolean {
+    if (current.size !== next.size) {
+      return true;
+    }
+    for (const [key, nextDeviation] of next.entries()) {
+      const currentDeviation = current.get(key);
+      if (this.hasDeviationChanged(currentDeviation, nextDeviation)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private hasDeviationChanged(existing: EdaDeviation | undefined, incoming: EdaDeviation): boolean {
+    if (!existing) {
+      return true;
+    }
+    if (existing === incoming) {
+      return false;
+    }
+
+    const existingVersion = existing.metadata?.resourceVersion;
+    const incomingVersion = incoming.metadata?.resourceVersion;
+    if (existingVersion && incomingVersion) {
+      return existingVersion !== incomingVersion;
+    }
+    if (existingVersion || incomingVersion) {
+      return true;
+    }
+
+    return (
+      existing.status !== incoming.status
+      || existing.kind !== incoming.kind
+      || existing.apiVersion !== incoming.apiVersion
+    );
   }
 }
 

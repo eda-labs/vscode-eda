@@ -491,31 +491,44 @@ export class TopoBuilderDashboardPanel extends BasePanel {
     return message.includes('HTTP 404');
   }
 
+  private toTrimmedString(value: unknown): string {
+    return typeof value === 'string' ? value.trim() : '';
+  }
+
+  private normalizeWorkflowInput(input: WorkflowGetInputsRespElem): WorkflowGetInputsRespElem | undefined {
+    if (!isObject(input)) {
+      return undefined;
+    }
+
+    const group = this.toTrimmedString(input.group);
+    const kind = this.toTrimmedString(input.kind);
+    const name = this.toTrimmedString(input.name);
+    const version = this.toTrimmedString(input.version);
+    const namespace = this.toTrimmedString(input.namespace);
+    const ackPrompt = typeof input.ackPrompt === 'string' ? input.ackPrompt : undefined;
+
+    if (!group || !kind || !name || !version) {
+      return undefined;
+    }
+
+    return {
+      group,
+      kind,
+      name,
+      namespace: namespace || undefined,
+      version,
+      ackPrompt
+    };
+  }
+
   private normalizeWorkflowInputs(inputs: WorkflowGetInputsRespElem[]): WorkflowGetInputsRespElem[] {
     const normalized: WorkflowGetInputsRespElem[] = [];
     for (const input of inputs) {
-      if (!isObject(input)) {
+      const normalizedInput = this.normalizeWorkflowInput(input);
+      if (!normalizedInput) {
         continue;
       }
-      const group = typeof input.group === 'string' ? input.group.trim() : '';
-      const kind = typeof input.kind === 'string' ? input.kind.trim() : '';
-      const name = typeof input.name === 'string' ? input.name.trim() : '';
-      const version = typeof input.version === 'string' ? input.version.trim() : '';
-      const namespace = typeof input.namespace === 'string' ? input.namespace.trim() : undefined;
-      const ackPrompt = typeof input.ackPrompt === 'string' ? input.ackPrompt : undefined;
-
-      if (!group || !kind || !name || !version) {
-        continue;
-      }
-
-      normalized.push({
-        group,
-        kind,
-        name,
-        namespace: namespace || undefined,
-        version,
-        ackPrompt
-      });
+      normalized.push(normalizedInput);
     }
 
     return normalized;

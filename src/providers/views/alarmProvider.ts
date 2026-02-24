@@ -44,6 +44,9 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
   private alarms: Map<string, EdaAlarm> = new Map();
   private alarmIdToKey: Map<string, string> = new Map();
   private alarmKeyRefCount: Map<string, number> = new Map();
+  private refreshHandle: ReturnType<typeof setTimeout> | undefined;
+  private pendingCountRefresh = false;
+  private refreshIntervalMs = 120;
   private _onAlarmCountChanged = new vscode.EventEmitter<number>();
   readonly onAlarmCountChanged = this._onAlarmCountChanged.event;
 
@@ -55,6 +58,10 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
     super();
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.statusService = serviceManager.getService<ResourceStatusService>('resource-status');
+    const configuredInterval = Number(process.env.EDA_ALARM_TREE_REFRESH_MS);
+    if (!Number.isNaN(configuredInterval) && configuredInterval >= 0) {
+      this.refreshIntervalMs = configuredInterval;
+    }
 
     this.edaClient.onStreamMessage((stream, msg) => {
       if (stream === 'current-alarms') {
@@ -70,7 +77,37 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
    * Initialize the alarm stream. Call this after construction.
    */
   public async initialize(): Promise<void> {
-    await this.edaClient.streamEdaAlarms();
+    this.edaClient.streamEdaAlarms().catch(() => {
+      // startup path is best-effort; stream errors are surfaced via stream logs/events
+    });
+  }
+
+  public dispose(): void {
+    if (this.refreshHandle) {
+      clearTimeout(this.refreshHandle);
+      this.refreshHandle = undefined;
+    }
+    this.pendingCountRefresh = false;
+    this.edaClient.closeAlarmStream();
+    this._onAlarmCountChanged.dispose();
+  }
+
+
+  private scheduleRefresh(countChanged: boolean): void {
+    if (countChanged) {
+      this.pendingCountRefresh = true;
+    }
+    if (this.refreshHandle) {
+      return;
+    }
+    this.refreshHandle = setTimeout(() => {
+      this.refreshHandle = undefined;
+      this.refresh();
+      if (this.pendingCountRefresh) {
+        this.pendingCountRefresh = false;
+        this._onAlarmCountChanged.fire(this.count);
+      }
+    }, this.refreshIntervalMs);
   }
 
 
@@ -179,6 +216,45 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
     return this.alarms.delete(key);
   }
 
+  private hasAlarmChanged(existing: EdaAlarm | undefined, incoming: EdaAlarm): boolean {
+    if (!existing) {
+      return true;
+    }
+    if (existing === incoming) {
+      return false;
+    }
+
+    const trackedFields: Array<keyof EdaAlarm> = [
+      'name',
+      'type',
+      'severity',
+      'description',
+      'resource',
+      'namespace',
+      '.namespace.name',
+      'namespace.name',
+      'lastChanged',
+      'kind',
+      'group',
+      'sourceGroup',
+      'sourceKind',
+      'sourceResource',
+      'jspath',
+      'parentAlarm',
+      'probableCause',
+      'remedialAction',
+      'clusterSpecific'
+    ];
+
+    for (const field of trackedFields) {
+      if (existing[field] !== incoming[field]) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   private upsertAlarm(rowId: string, data: EdaAlarm): boolean {
     let changed = false;
     const newKey = this.getAlarmKey(data, rowId);
@@ -197,10 +273,10 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
     }
 
     const existing = this.alarms.get(newKey);
-    if (!existing || existing !== data) {
+    if (this.hasAlarmChanged(existing, data)) {
+      this.alarms.set(newKey, data);
       changed = true;
     }
-    this.alarms.set(newKey, data);
     return changed;
   }
 
@@ -247,8 +323,7 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
       changed = this.processAlarmUpserts(typedOp) || changed;
     }
     if (changed) {
-      this.refresh();
-      this._onAlarmCountChanged.fire(this.count);
+      this.scheduleRefresh(true);
     }
   }
 }
