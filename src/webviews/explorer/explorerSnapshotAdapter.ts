@@ -203,6 +203,23 @@ function buildResourceCommandArgument(item: ExplorerTreeItemLike): Record<string
   return arg;
 }
 
+function buildMinimalResourceCommandArgument(item: ExplorerTreeItemLike): Record<string, unknown> {
+  const label = labelToText(item.label);
+  const resourceData = item.resource as ResourceData | undefined;
+  const raw = resourceData?.raw as ResourceData['raw'] | undefined;
+
+  return {
+    label,
+    namespace: item.namespace,
+    resourceType: item.resourceType,
+    streamGroup: item.streamGroup,
+    contextValue: item.contextValue,
+    name: resourceData?.name ?? label,
+    kind: resourceData?.kind ?? item.resourceType,
+    apiVersion: resourceData?.apiVersion ?? raw?.apiVersion
+  };
+}
+
 function primaryActionFromTreeItem(
   item: ExplorerTreeItemLike,
   sectionId: ExplorerTabId
@@ -323,24 +340,36 @@ function getDashboardActions(contextValue: string | undefined, label: string): E
 function getSectionActions(
   sectionId: ExplorerTabId,
   item: ExplorerTreeItemLike,
-  commandArg: Record<string, unknown>
+  commandArg: Record<string, unknown> | undefined
 ): ExplorerAction[] {
   const contextValue = item.contextValue;
   const label = labelToText(item.label);
 
   if (sectionId === 'resources') {
+    if (!commandArg) {
+      return [];
+    }
     return getResourceActions(contextValue, commandArg);
   }
 
   if (sectionId === 'deviations') {
+    if (!commandArg) {
+      return [];
+    }
     return getDeviationActions(contextValue, commandArg);
   }
 
   if (sectionId === 'transactions') {
+    if (!commandArg) {
+      return [];
+    }
     return getTransactionActions(contextValue, commandArg);
   }
 
   if (sectionId === 'basket') {
+    if (!commandArg) {
+      return [];
+    }
     return getBasketActions(contextValue, commandArg);
   }
 
@@ -366,6 +395,20 @@ function getProviderChildren(provider: ExplorerTreeProvider, element?: TreeItemB
   return [];
 }
 
+function shouldBuildCommandArgForSection(sectionId: ExplorerTabId): boolean {
+  return sectionId === 'resources'
+    || sectionId === 'deviations'
+    || sectionId === 'transactions'
+    || sectionId === 'basket';
+}
+
+function shouldIncludeNodeActions(sectionId: ExplorerTabId): boolean {
+  if (sectionId === 'alarms') {
+    return false;
+  }
+  return !(sectionId === 'resources' && !INLINE_RESOURCE_ACTIONS);
+}
+
 function buildNode(
   provider: ExplorerTreeProvider,
   item: ExplorerTreeItemLike,
@@ -375,19 +418,29 @@ function buildNode(
   const label = labelToText(item.label);
   const description = descriptionToText(item.description);
   const tooltip = includeTooltipForSection(sectionId) ? tooltipToText(item.tooltip) : undefined;
-  const commandArg = buildResourceCommandArgument(item);
-  const primaryAction = primaryActionFromTreeItem(item, sectionId);
   const isResourceLeaf = sectionId === 'resources' && RESOURCE_CONTEXT_VALUES.has(item.contextValue ?? '');
+  const useMinimalResourceCommandArg = sectionId === 'resources' && !INLINE_RESOURCE_ACTIONS;
+  const shouldBuildCommandArg = sectionId === 'resources'
+    ? isResourceLeaf
+    : shouldBuildCommandArgForSection(sectionId);
+  let commandArg: Record<string, unknown> | undefined;
+  if (shouldBuildCommandArg) {
+    commandArg = useMinimalResourceCommandArg
+      ? buildMinimalResourceCommandArgument(item)
+      : buildResourceCommandArgument(item);
+  }
+  const primaryAction = primaryActionFromTreeItem(item, sectionId);
+  const includeNodeActions = shouldIncludeNodeActions(sectionId);
 
-  const sectionActions = sectionId === 'resources' && !INLINE_RESOURCE_ACTIONS
-    ? []
-    : getSectionActions(sectionId, item, commandArg);
-  const mergedActions = sectionId === 'resources' && !INLINE_RESOURCE_ACTIONS
-    ? []
-    : dedupeActions([
+  const sectionActions = includeNodeActions
+    ? getSectionActions(sectionId, item, commandArg)
+    : [];
+  const mergedActions = includeNodeActions
+    ? dedupeActions([
       ...(primaryAction ? [primaryAction] : []),
       ...sectionActions
-    ]);
+    ])
+    : [];
 
   const childrenItems = getProviderChildren(provider, item);
   const children: ExplorerNode[] = childrenItems.map((child, index) =>

@@ -216,6 +216,45 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
     return this.alarms.delete(key);
   }
 
+  private hasAlarmChanged(existing: EdaAlarm | undefined, incoming: EdaAlarm): boolean {
+    if (!existing) {
+      return true;
+    }
+    if (existing === incoming) {
+      return false;
+    }
+
+    const trackedFields: Array<keyof EdaAlarm> = [
+      'name',
+      'type',
+      'severity',
+      'description',
+      'resource',
+      'namespace',
+      '.namespace.name',
+      'namespace.name',
+      'lastChanged',
+      'kind',
+      'group',
+      'sourceGroup',
+      'sourceKind',
+      'sourceResource',
+      'jspath',
+      'parentAlarm',
+      'probableCause',
+      'remedialAction',
+      'clusterSpecific'
+    ];
+
+    for (const field of trackedFields) {
+      if (existing[field] !== incoming[field]) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   private upsertAlarm(rowId: string, data: EdaAlarm): boolean {
     let changed = false;
     const newKey = this.getAlarmKey(data, rowId);
@@ -234,10 +273,10 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
     }
 
     const existing = this.alarms.get(newKey);
-    if (!existing || existing !== data) {
+    if (this.hasAlarmChanged(existing, data)) {
+      this.alarms.set(newKey, data);
       changed = true;
     }
-    this.alarms.set(newKey, data);
     return changed;
   }
 
