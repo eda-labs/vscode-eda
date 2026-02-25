@@ -145,14 +145,20 @@ const ResourceSectionRow = memo(function ResourceSectionRow({
     onExpandedItemsChange(toggleExpandedItem(expandedItems, node.id));
   }, [expandedItems, node.id, onExpandedItemsChange]);
 
-  const handleInvokePrimaryAction = useCallback((event: MouseEvent<HTMLElement>) => {
+  const handleRowClick = useCallback((event: MouseEvent<HTMLElement>) => {
+    if (hasChildren) {
+      handleToggleExpanded(event);
+      return;
+    }
+
     if (!primaryAction) {
       return;
     }
+
     event.preventDefault();
     event.stopPropagation();
     onInvokeAction(primaryAction);
-  }, [onInvokeAction, primaryAction]);
+  }, [handleToggleExpanded, hasChildren, onInvokeAction, primaryAction]);
 
   const handleOpenContextMenu = useCallback((event: MouseEvent<HTMLElement>) => {
     if (!menuState.hasActions) {
@@ -197,11 +203,11 @@ const ResourceSectionRow = memo(function ResourceSectionRow({
         sx={{ width: '100%' }}
       >
         <Box
-          onClick={handleInvokePrimaryAction}
+          onClick={handleRowClick}
           sx={{
             minWidth: 0,
             flex: 1,
-            cursor: primaryAction ? 'pointer' : 'default'
+            cursor: hasChildren || primaryAction ? 'pointer' : 'default'
           }}
         >
           {renderPrimaryLabel(node, hasEntryTooltip, primaryAction)}
