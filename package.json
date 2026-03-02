@@ -535,7 +535,7 @@
     "@mui/icons-material": "^7.3.8",
     "@mui/material": "^7.3.8",
     "@mui/x-charts": "^8.27.0",
-    "@mui/x-data-grid": "^8.27.1",
+    "@mui/x-data-grid": "^8.27.3",
     "@mui/x-tree-view": "^8.27.2",
     "@xyflow/react": "^12.10.1",
     "bezier-js": "^6.1.4",
