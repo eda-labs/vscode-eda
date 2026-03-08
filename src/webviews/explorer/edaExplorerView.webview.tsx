@@ -1,16 +1,13 @@
 import {
   Add as AddIcon,
-  ChevronRight as ChevronRightIcon,
   Close as CloseIcon,
   DeleteOutline as DeleteOutlineIcon,
   Edit as EditIcon,
-  ExpandMore as ExpandMoreIcon,
   FactCheck as FactCheckIcon,
   MoreVert as MoreVertIcon,
   OpenInNew as OpenInNewIcon,
   PlayArrow as PlayArrowIcon,
   RestartAlt as RestartAltIcon,
-  Search as SearchIcon,
   Settings as SettingsIcon,
   ShoppingBasket as ShoppingBasketIcon,
   Terminal as TerminalIcon,
@@ -49,6 +46,8 @@ import {
   type ExplorerTabId
 } from '../shared/explorer/types';
 import { mountWebview } from '../shared/utils';
+import { nodeIconName, sectionIconName } from './explorerIconMappings';
+import { NokiaChevronDownIcon, NokiaChevronRightIcon, NokiaExplorerIcon, NokiaFindIcon } from './nokiaExplorerIcons';
 import { ALL_RESOURCE_NAMESPACES_VALUE, ResourceSectionTree } from './resourceSectionTree';
 
 interface ExplorerNodeLabelProps {
@@ -249,7 +248,7 @@ const ENTRY_ACTION_ICON_RULES: EntryActionIconRule[] = [
   { terms: ['accept', 'commit'], icon: PlayArrowIcon },
   { terms: ['showdashboard'], icon: OpenInNewIcon },
   { terms: ['dryrun'], icon: FactCheckIcon },
-  { terms: ['view', 'show', 'describe', 'logs'], icon: SearchIcon },
+  { terms: ['view', 'show', 'describe', 'logs'], icon: NokiaFindIcon },
   { terms: ['terminal', 'ssh'], icon: TerminalIcon },
   { terms: ['restart', 'revert', 'restore'], icon: RestartAltIcon },
   { terms: ['settransactionlimit'], icon: SettingsIcon }
@@ -264,7 +263,6 @@ function entryActionIcon(action: ExplorerAction): SvgIconComponent {
   const matchedRule = ENTRY_ACTION_ICON_RULES.find(rule => commandIncludesAny(command, rule.terms));
   return matchedRule?.icon ?? MoreVertIcon;
 }
-
 function isDestructiveEntryAction(action: ExplorerAction): boolean {
   const command = action.command.toLowerCase();
   return command.includes('delete')
@@ -393,8 +391,16 @@ function ExplorerNodeLabelBody({
   node: ExplorerNode;
   primaryAction: ExplorerAction | undefined;
 }>) {
+  const icon = nodeIconName(node);
+
   return (
     <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
+      {icon && (
+        <NokiaExplorerIcon
+          name={icon}
+          sx={{ fontSize: 16, color: 'text.secondary', flex: '0 0 auto' }}
+        />
+      )}
       <ExplorerNodeIndicator statusIndicator={node.statusIndicator} />
       <Typography variant="body2" noWrap sx={{ fontWeight: primaryAction ? 600 : 500 }}>
         {node.label}
@@ -735,8 +741,8 @@ const SectionTree = memo(function SectionTree({
       expandedItems={expandedItems}
       onExpandedItemsChange={(_event, itemIds) => onExpandedItemsChange(itemIds)}
       slots={{
-        expandIcon: ChevronRightIcon,
-        collapseIcon: ExpandMoreIcon
+        expandIcon: NokiaChevronRightIcon,
+        collapseIcon: NokiaChevronDownIcon
       }}
       sx={{
         minHeight: 0,
@@ -817,7 +823,11 @@ function SectionCollapseToggleButton({ sectionLabel, isCollapsed, onToggle }: Re
       aria-label={isCollapsed ? `Expand ${sectionLabel}` : `Collapse ${sectionLabel}`}
       sx={{ color: COLOR_TEXT_PRIMARY, p: 0.25 }}
     >
-      {isCollapsed ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+      {isCollapsed ? (
+        <NokiaExplorerIcon name="chevronright" fontSize="small" />
+      ) : (
+        <NokiaExplorerIcon name="chevrondown" fontSize="small" />
+      )}
     </IconButton>
   );
 }
@@ -865,7 +875,11 @@ function ResourceSectionToggleButton({
         aria-label={areAllResourcesExpanded ? 'Collapse all resources' : 'Expand all resources'}
         sx={{ color: COLOR_TEXT_PRIMARY }}
       >
-        {areAllResourcesExpanded ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+        <NokiaExplorerIcon
+          name="arrowcollapsevertical"
+          fontSize="small"
+          sx={{ transform: areAllResourcesExpanded ? 'rotate(180deg)' : 'none' }}
+        />
       </IconButton>
     </Tooltip>
   );
@@ -927,6 +941,10 @@ function ExplorerSectionCard({
             event.stopPropagation();
             onToggleSectionCollapsed(section.id);
           }}
+        />
+        <NokiaExplorerIcon
+          name={sectionIconName(section.id)}
+          sx={{ fontSize: 18, color: 'text.secondary', flex: '0 0 auto' }}
         />
         <Box
           onClick={() => onToggleSectionCollapsed(section.id)}
@@ -1468,7 +1486,7 @@ function EdaExplorerView() {
             input: {
               startAdornment: (
                 <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
+                  <NokiaExplorerIcon name="find" fontSize="small" />
                 </InputAdornment>
               ),
               endAdornment: filterText.length > 0
@@ -1566,7 +1584,6 @@ function EdaExplorerView() {
           />
         ))}
       </Stack>
-
       <Menu
         anchorEl={actionMenuState?.anchorEl || null}
         anchorReference={actionMenuState?.anchorPosition ? 'anchorPosition' : 'anchorEl'}
@@ -1613,5 +1630,4 @@ function EdaExplorerView() {
     </Box>
   );
 }
-
 mountWebview(EdaExplorerView);

@@ -1,6 +1,4 @@
 import {
-  ChevronRight as ChevronRightIcon,
-  ExpandMore as ExpandMoreIcon,
   MoreVert as MoreVertIcon
 } from '@mui/icons-material';
 import { Box, IconButton, Stack, Typography } from '@mui/material';
@@ -18,6 +16,7 @@ import {
 } from 'react';
 
 import type { ExplorerAction, ExplorerNode } from '../shared/explorer/types';
+import { NokiaExplorerIcon } from './nokiaExplorerIcons';
 import type { ExplorerResourceListPayload } from './explorerResourceListTypes';
 
 interface ResourceVisibleNode { node: ExplorerNode; depth: number; }
@@ -483,7 +482,11 @@ const ResourceSectionRow = memo(function ResourceSectionRow({
             sx={{ p: 0.2, mr: 0.2 }}
             aria-label={isExpanded ? `Collapse ${node.label}` : `Expand ${node.label}`}
           >
-            {isExpanded ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
+            {isExpanded ? (
+              <NokiaExplorerIcon name="chevrondown" fontSize="small" />
+            ) : (
+              <NokiaExplorerIcon name="chevronright" fontSize="small" />
+            )}
           </IconButton>
         )
         : <Box sx={{ width: 22, height: 22, mr: 0.2 }} />}
