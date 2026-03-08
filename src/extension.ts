@@ -413,7 +413,7 @@ async function initializeTreeViewsAndCommands(
   const configuredNonResourceDelay = Number(process.env.EDA_NON_RESOURCE_STARTUP_DELAY_MS);
   const nonResourceStartupDelayMs = (!Number.isNaN(configuredNonResourceDelay) && configuredNonResourceDelay >= 0)
     ? configuredNonResourceDelay
-    : 1200;
+    : 3500;
   const startupTimers = new Set<ReturnType<typeof setTimeout>>();
 
   const initializeProvider = (

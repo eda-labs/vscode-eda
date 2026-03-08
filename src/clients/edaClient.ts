@@ -3,7 +3,14 @@ import { LogLevel, log } from '../extension';
 import type { EdaAuthOptions } from './edaAuthClient';
 import { EdaAuthClient } from './edaAuthClient';
 import { EdaApiClient } from './edaApiClient';
-import type { WorkflowGetInputsRespElem, WorkflowInputDataElem } from './edaApiClient';
+import type {
+  BootstrapSnapshot,
+  BootstrapStreamItemsOptions,
+  FastBootstrapStreamItemsOptions,
+  FastBootstrapStreamItemsResult,
+  WorkflowGetInputsRespElem,
+  WorkflowInputDataElem
+} from './edaApiClient';
 import type { StreamMessage } from './edaStreamClient';
 import { EdaStreamClient } from './edaStreamClient';
 import { EdaSpecManager } from './edaSpecManager';
@@ -638,6 +645,28 @@ export class EdaClient {
   public async getStreamGroups(): Promise<Record<string, string[]>> {
     await this.initPromise;
     return this.specManager.getStreamGroups();
+  }
+
+  public availableBootstrapStreams(
+    options: { excludeStreams?: Set<string> } = {}
+  ): string[] {
+    return this.apiClient.availableBootstrapStreams(options);
+  }
+
+  public async bootstrapStreamItems(
+    namespaces: string[],
+    options: BootstrapStreamItemsOptions = {}
+  ): Promise<BootstrapSnapshot> {
+    await this.initPromise;
+    return this.apiClient.bootstrapStreamItems(namespaces, options);
+  }
+
+  public async fastBootstrapStreamItems(
+    namespaces: string[],
+    options: FastBootstrapStreamItemsOptions = {}
+  ): Promise<FastBootstrapStreamItemsResult> {
+    await this.initPromise;
+    return this.apiClient.fastBootstrapStreamItems(namespaces, options);
   }
 
   // Compatibility method

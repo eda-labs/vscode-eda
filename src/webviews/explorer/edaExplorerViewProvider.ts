@@ -13,9 +13,10 @@ import type {
 
 import { buildExplorerSnapshot, type ExplorerSnapshotProviders } from './explorerSnapshotAdapter';
 
-const REFRESH_DEBOUNCE_MS = 120;
-const MIN_SNAPSHOT_INTERVAL_MS = 80;
+const REFRESH_DEBOUNCE_MS = 50;
+const MIN_SNAPSHOT_INTERVAL_MS = 25;
 const SNAPSHOT_IN_FLIGHT_TIMEOUT_MS = 350;
+const ALLOW_CONCURRENT_SNAPSHOT_POSTS = true;
 
 interface FilterableTreeProvider {
   setTreeFilter(filterText: string): void;
@@ -140,6 +141,7 @@ export class EdaExplorerViewProvider implements vscode.WebviewViewProvider, vsco
   public resolveWebviewView(webviewView: vscode.WebviewView): void {
     this.webviewView = webviewView;
     this.isReady = false;
+    this.panelVisibleSinceMs = webviewView.visible ? Date.now() : undefined;
 
     webviewView.webview.options = {
       enableScripts: true,
@@ -354,7 +356,10 @@ export class EdaExplorerViewProvider implements vscode.WebviewViewProvider, vsco
     if (!this.webviewView || !this.isReady || !this.webviewView.visible) {
       return;
     }
-    if (!this.pendingSnapshot || this.snapshotInFlight) {
+    if (!this.pendingSnapshot) {
+      return;
+    }
+    if (this.snapshotInFlight && !ALLOW_CONCURRENT_SNAPSHOT_POSTS) {
       return;
     }
 
@@ -377,9 +382,12 @@ export class EdaExplorerViewProvider implements vscode.WebviewViewProvider, vsco
     const resourceNodes = resourcesSection ? countSnapshotNodes(resourcesSection.nodes as Array<{ children?: unknown[] }>) : 0;
     log(`Explorer snapshot posted in ${elapsedMs}ms (resources nodes: ${resourceNodes})`, LogLevel.DEBUG);
     this.pendingSnapshot = false;
+    const wasSnapshotInFlight = this.snapshotInFlight;
     this.snapshotInFlight = true;
     this.lastSnapshotPostMs = Date.now();
-    this.scheduleSnapshotReleaseFallback();
+    if (!wasSnapshotInFlight) {
+      this.scheduleSnapshotReleaseFallback();
+    }
     void this.webviewView.webview.postMessage(snapshot).then((accepted) => {
       if (!accepted) {
         this.markSnapshotSettled();

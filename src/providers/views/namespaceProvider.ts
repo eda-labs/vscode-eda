@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import { serviceManager } from '../../services/serviceManager';
 import type { KubernetesClient } from '../../clients/kubernetesClient';
 import type { EdaClient } from '../../clients/edaClient';
+import type { BootstrapSnapshot } from '../../clients/edaApiClient';
 import type { ResourceService } from '../../services/resourceService';
 import type { ResourceStatusService } from '../../services/resourceStatusService';
 import { log, LogLevel } from '../../extension';
@@ -19,6 +20,9 @@ const STREAM_GROUP_KUBERNETES = 'kubernetes';
 const CONTEXT_K8S_NAMESPACE = 'k8s-namespace';
 const CONTEXT_STREAM_GROUP = 'stream-group';
 const CONTEXT_STREAM_ITEM = 'stream-item';
+const STREAM_NAMESPACE_SEPARATOR = ':';
+const DEFAULT_FAST_BOOTSTRAP_MIN_RESOURCES = 900;
+const DEFAULT_FAST_BOOTSTRAP_BATCH_SIZE = 12;
 const STREAM_SUBSCRIBE_EXCLUDE = new Set([
   'resultsummary',
   'v1',
@@ -94,10 +98,14 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
   private pendingSummary?: string;
   private streamRefreshHandle?: ReturnType<typeof setTimeout>;
   private pendingStreamRefresh = false;
+  private namesOnlyBootstrapStreams: Set<string> = new Set();
+  private deferredBootstrapInFlight = false;
   private k8sInitializationHandle?: ReturnType<typeof setTimeout>;
-  private k8sStartupDelayMs = 1000;
+  private k8sStartupDelayMs = 3000;
   private resourceRefreshIntervalMs = 180;
-  private streamRefreshIntervalMs = 120;
+  private streamRefreshIntervalMs = 60;
+  private fastBootstrapMinimumResources = DEFAULT_FAST_BOOTSTRAP_MIN_RESOURCES;
+  private fastBootstrapAdditionalBatchSize = DEFAULT_FAST_BOOTSTRAP_BATCH_SIZE;
 
 constructor() {
     super();
@@ -114,6 +122,14 @@ constructor() {
     const configuredResourceInterval = Number(process.env.EDA_RESOURCE_TREE_REFRESH_MS);
     if (!Number.isNaN(configuredResourceInterval) && configuredResourceInterval >= 0) {
       this.resourceRefreshIntervalMs = configuredResourceInterval;
+    }
+    const configuredBootstrapMinResources = Number(process.env.EDA_FAST_BOOTSTRAP_MIN_RESOURCES);
+    if (!Number.isNaN(configuredBootstrapMinResources) && configuredBootstrapMinResources >= 0) {
+      this.fastBootstrapMinimumResources = configuredBootstrapMinResources;
+    }
+    const configuredBootstrapBatchSize = Number(process.env.EDA_FAST_BOOTSTRAP_BATCH_SIZE);
+    if (!Number.isNaN(configuredBootstrapBatchSize) && configuredBootstrapBatchSize > 0) {
+      this.fastBootstrapAdditionalBatchSize = configuredBootstrapBatchSize;
     }
 
     this.initializeKubernetesClient();
@@ -208,7 +224,11 @@ constructor() {
    */
   public async initialize(): Promise<void> {
     await this.loadStreams();
-    await this.subscribeToKnownEdaStreams();
+    const loadedStreams = await this.loadFastResourceBootstrap();
+    void this.subscribeToKnownEdaStreams().catch((err) => {
+      log(`Failed to start EDA streams in background: ${err}`, LogLevel.DEBUG);
+    });
+    void this.loadDeferredResourceBootstrap(loadedStreams);
     this.scheduleKubernetesInitialization();
     this.edaClient.streamEdaNamespaces().catch(() => {
       // startup path is best-effort; stream errors are surfaced via stream logs/events
@@ -300,6 +320,166 @@ constructor() {
       }
     } catch (err) {
       log(`Failed to load streams: ${err}`, LogLevel.ERROR);
+    }
+  }
+
+  private getBootstrapNamespaces(): string[] {
+    const namespaces = new Set<string>();
+    for (const namespace of this.cachedNamespaces) {
+      if (typeof namespace === 'string' && namespace.length > 0) {
+        namespaces.add(namespace);
+      }
+    }
+    const coreNamespace = this.edaClient.getCoreNamespace();
+    if (typeof coreNamespace === 'string' && coreNamespace.length > 0) {
+      namespaces.add(coreNamespace);
+    }
+    return Array.from(namespaces).sort((a, b) => a.localeCompare(b));
+  }
+
+  private snapshotResourceCount(snapshot: BootstrapSnapshot): number {
+    let count = 0;
+    for (const bucket of snapshot.values()) {
+      count += bucket.size;
+    }
+    return count;
+  }
+
+  private splitStreamNamespaceKey(key: string): { stream: string; namespace: string } | undefined {
+    const separatorIndex = key.indexOf(STREAM_NAMESPACE_SEPARATOR);
+    if (separatorIndex <= 0 || separatorIndex >= key.length - 1) {
+      return undefined;
+    }
+    return {
+      stream: key.slice(0, separatorIndex),
+      namespace: key.slice(separatorIndex + 1)
+    };
+  }
+
+  private mergeBootstrapSnapshot(snapshot: BootstrapSnapshot): boolean {
+    let changed = false;
+    let namespacesChanged = false;
+
+    for (const [key, resources] of snapshot.entries()) {
+      const parts = this.splitStreamNamespaceKey(key);
+      if (!parts) {
+        continue;
+      }
+      const { stream, namespace } = parts;
+      const map = this.getOrCreateStreamNamespaceMap(stream, namespace);
+      if (this.ensureCachedNamespace(namespace)) {
+        namespacesChanged = true;
+      }
+      for (const [name, resource] of resources.entries()) {
+        changed = this.applyIncomingStreamData(map, name, resource) || changed;
+      }
+    }
+
+    if (namespacesChanged) {
+      this.syncNamespacesWithK8s();
+    }
+
+    return changed || namespacesChanged;
+  }
+
+  private async loadFastResourceBootstrap(): Promise<Set<string>> {
+    const namespaces = this.getBootstrapNamespaces();
+    if (namespaces.length === 0) {
+      return new Set<string>();
+    }
+
+    const startedAt = Date.now();
+    try {
+      let postedSnapshot = false;
+      const result = await this.edaClient.fastBootstrapStreamItems(namespaces, {
+        excludeStreams: STREAM_SUBSCRIBE_EXCLUDE,
+        minimumResources: this.fastBootstrapMinimumResources,
+        additionalBatchSize: this.fastBootstrapAdditionalBatchSize,
+        onBatchSnapshot: (batchSnapshot) => {
+          if (!this.mergeBootstrapSnapshot(batchSnapshot)) {
+            return;
+          }
+          if (!postedSnapshot) {
+            postedSnapshot = true;
+            this.refresh();
+            return;
+          }
+          this.scheduleStreamRefresh();
+        }
+      });
+
+      this.namesOnlyBootstrapStreams = new Set(result.namesOnlyStreams);
+      if (!postedSnapshot && this.mergeBootstrapSnapshot(result.snapshot)) {
+        this.refresh();
+      }
+
+      const loadedCount = this.snapshotResourceCount(result.snapshot);
+      const availableStreams = this.edaClient.availableBootstrapStreams({
+        excludeStreams: STREAM_SUBSCRIBE_EXCLUDE
+      });
+      const remainingStreams = Math.max(0, availableStreams.length - result.loadedStreams.size);
+      const elapsed = (Date.now() - startedAt) / 1000;
+      log(
+        `Fast resource bootstrap: ${loadedCount} resources in ${elapsed.toFixed(3)}s `
+        + `(${result.loadedStreams.size} streams, ${remainingStreams} deferred, `
+        + `${result.namesOnlyStreams.size} name-only).`,
+        LogLevel.INFO
+      );
+
+      return result.loadedStreams;
+    } catch (err) {
+      log(`Fast resource bootstrap skipped: ${err}`, LogLevel.DEBUG);
+      this.namesOnlyBootstrapStreams.clear();
+      return new Set<string>();
+    }
+  }
+
+  private async loadDeferredResourceBootstrap(loadedStreams: Set<string>): Promise<void> {
+    if (this.deferredBootstrapInFlight) {
+      return;
+    }
+    this.deferredBootstrapInFlight = true;
+
+    try {
+      const namespaces = this.getBootstrapNamespaces();
+      if (namespaces.length === 0) {
+        return;
+      }
+
+      const availableStreams = this.edaClient.availableBootstrapStreams({
+        excludeStreams: STREAM_SUBSCRIBE_EXCLUDE
+      });
+      const remainingStreams = availableStreams.filter((stream) => !loadedStreams.has(stream));
+      const streamsToLoad = new Set<string>([
+        ...remainingStreams,
+        ...Array.from(this.namesOnlyBootstrapStreams)
+      ]);
+      if (streamsToLoad.size === 0) {
+        return;
+      }
+
+      const snapshot = await this.edaClient.bootstrapStreamItems(namespaces, {
+        excludeStreams: STREAM_SUBSCRIBE_EXCLUDE,
+        includeStreams: streamsToLoad
+      });
+
+      for (const stream of streamsToLoad) {
+        this.namesOnlyBootstrapStreams.delete(stream);
+      }
+
+      if (this.mergeBootstrapSnapshot(snapshot)) {
+        this.scheduleStreamRefresh();
+      }
+
+      log(
+        `Deferred resource bootstrap loaded ${this.snapshotResourceCount(snapshot)} resources `
+        + `from ${streamsToLoad.size} streams.`,
+        LogLevel.DEBUG
+      );
+    } catch (err) {
+      log(`Deferred resource bootstrap skipped: ${err}`, LogLevel.DEBUG);
+    } finally {
+      this.deferredBootstrapInFlight = false;
     }
   }
 

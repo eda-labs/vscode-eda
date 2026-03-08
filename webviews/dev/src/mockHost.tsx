@@ -14,6 +14,20 @@ const ALL_NAMESPACES = 'All Namespaces';
 const DEFAULT_NAMESPACES = [ALL_NAMESPACES, 'fabric-a', 'fabric-b'];
 const DEFAULT_CLIENT_SECRET = 'dev-client-secret-1234';
 const OPEN_PREVIEW_EVENT_SOURCE = 'eda-webviews-dev';
+const EXPLORER_READY_EVENT_NAME = 'eda-dev-explorer-ready';
+const EXPLORER_READY_GLOBAL_KEY = '__EDA_DEV_EXPLORER_READY__';
+const EXPLORER_DATA_SOURCE_PARAM = 'explorerDataSource';
+const EXPLORER_DATA_SOURCE_REAL = 'real';
+const EXPLORER_SYNTHETIC_RESOURCES_PARAM = 'explorerSyntheticResources';
+const EXPLORER_SYNTHETIC_NAMESPACES_PARAM = 'explorerSyntheticNamespaces';
+const EXPLORER_REAL_TARGET_PARAM = 'target';
+const EXPLORER_REAL_MIN_RESOURCES_PARAM = 'explorerRealMinResources';
+const EXPLORER_REAL_BATCH_SIZE_PARAM = 'explorerRealBatchSize';
+const EXPLORER_REAL_STREAM_LIMIT_PARAM = 'explorerRealStreamLimit';
+const EXPLORER_REAL_API_PREFIX_PARAM = 'explorerRealApiPrefix';
+const EXPLORER_REAL_SNAPSHOT_ENDPOINT = '/__eda/explorer-snapshot';
+const EXPLORER_SYNTHETIC_MAX_RESOURCES = 20_000;
+const EXPLORER_SYNTHETIC_MAX_NAMESPACES = 64;
 const DASHBOARD_PREVIEW_BY_NAME: Readonly<Record<string, DevPreviewWebviewId>> = {
   Fabric: 'fabricDashboard',
   Nodes: 'toponodesDashboard',
@@ -100,6 +114,45 @@ interface DeviationDetailsFixture {
   resourceYaml?: string;
   errorMessage?: string;
   rawJson: string;
+}
+
+interface RealExplorerResourceRecord {
+  namespace?: string;
+  group?: string;
+  stream?: string;
+  name?: string;
+  kind?: string;
+  apiVersion?: string;
+}
+
+interface RealExplorerStats {
+  durationMs?: number;
+  discoveredStreams?: number;
+  loadedStreams?: number;
+  namespaces?: number;
+  resourceCount?: number;
+}
+
+interface RealExplorerSnapshotResponse {
+  targetUrl?: string;
+  apiBaseUrl?: string;
+  resources?: RealExplorerResourceRecord[];
+  stats?: RealExplorerStats;
+}
+
+interface ExplorerReadyEventDetail {
+  source: 'real-eda';
+  targetUrl?: string;
+  apiBaseUrl?: string;
+  loadMs?: number;
+  readyMs: number;
+  renderMs: number;
+  snapshotId: number;
+  totalNodes: number;
+  resourceLeafCount: number;
+  discoveredStreams?: number;
+  loadedStreams?: number;
+  namespaceCount?: number;
 }
 
 const alarmFixture = {
@@ -1171,7 +1224,7 @@ export function createMockHost(
 }
 
 const mockFactoryByWebview: Readonly<Record<DevWebviewId, (send: SendMessage, options: MockHostOptions) => MockHost>> = {
-  edaExplorer: (send) => createExplorerMock(send),
+  edaExplorer: (send, options) => createExplorerMock(send, options),
   alarmDetails: createAlarmMock,
   deviationDetails: createDeviationDetailsMock,
   nodeConfig: (send) => createNodeConfigMock(send),
@@ -1188,14 +1241,63 @@ const mockFactoryByWebview: Readonly<Record<DevWebviewId, (send: SendMessage, op
   workflowsDashboard: (send) => createWorkflowsDashboardMock(send)
 };
 
-function createExplorerMock(send: SendMessage): MockHost {
+function createExplorerMock(send: SendMessage, options: MockHostOptions): MockHost {
   let filterText = '';
+  let sourceSections = buildExplorerSourceSections(options.previewParams);
+  const useRealDataSource = isRealExplorerDataSource(options.previewParams);
+  let realLoadPromise: Promise<void> | undefined;
+  let realLoadError: string | undefined;
+  let realLoadStartedAt = 0;
+  let readyEventPublished = false;
+  let realSnapshotMetadata: RealExplorerSnapshotResponse | undefined;
+
+  const ensureRealSourceSectionsLoaded = async (): Promise<void> => {
+    if (!useRealDataSource) {
+      return;
+    }
+
+    if (realLoadPromise) {
+      await realLoadPromise;
+      return;
+    }
+
+    realLoadStartedAt = window.performance.now();
+    realLoadPromise = loadRealExplorerSourceSections(options.previewParams)
+      .then((result) => {
+        sourceSections = result.sections;
+        realSnapshotMetadata = result.metadata;
+      })
+      .catch((error: unknown) => {
+        realLoadError = error instanceof Error ? error.message : String(error);
+      });
+
+    await realLoadPromise;
+  };
 
   const sendSnapshot = (): void => {
     send({
       command: 'snapshot',
       filterText,
-      sections: buildExplorerSections(filterText)
+      sections: buildExplorerSections(filterText, sourceSections)
+    });
+  };
+
+  const sendSnapshotWithRealData = (): void => {
+    if (!useRealDataSource) {
+      return;
+    }
+
+    void ensureRealSourceSectionsLoaded().then(() => {
+      if (realLoadError) {
+        send({ command: 'error', message: `Failed to load real EDA resources: ${realLoadError}` });
+        return;
+      }
+
+      try {
+        sendSnapshot();
+      } catch {
+        send({ command: 'error', message: 'Invalid regular expression for filter.' });
+      }
     });
   };
 
@@ -1206,6 +1308,11 @@ function createExplorerMock(send: SendMessage): MockHost {
 
     filterText = value;
     send({ command: 'filterState', filterText });
+
+    if (useRealDataSource) {
+      sendSnapshotWithRealData();
+      return;
+    }
 
     try {
       sendSnapshot();
@@ -1255,18 +1362,58 @@ function createExplorerMock(send: SendMessage): MockHost {
     }
   };
 
+  const handleRenderMetrics = (message: WebviewCommand): void => {
+    if (!useRealDataSource || readyEventPublished || realLoadStartedAt <= 0) {
+      return;
+    }
+
+    const snapshotId = typeof message.snapshotId === 'number' ? message.snapshotId : 0;
+    const renderMs = typeof message.renderMs === 'number' ? message.renderMs : 0;
+    const totalNodes = typeof message.totalNodes === 'number' ? message.totalNodes : 0;
+    const resourceLeafCount = typeof message.resourceLeafCount === 'number' ? message.resourceLeafCount : 0;
+
+    if (resourceLeafCount <= 0) {
+      return;
+    }
+
+    readyEventPublished = true;
+    const readyMs = Math.max(0, window.performance.now() - realLoadStartedAt);
+
+    publishExplorerReadyEvent({
+      source: 'real-eda',
+      targetUrl: realSnapshotMetadata?.targetUrl,
+      apiBaseUrl: realSnapshotMetadata?.apiBaseUrl,
+      loadMs: realSnapshotMetadata?.stats?.durationMs,
+      readyMs: Math.round(readyMs * 100) / 100,
+      renderMs,
+      snapshotId,
+      totalNodes,
+      resourceLeafCount,
+      discoveredStreams: realSnapshotMetadata?.stats?.discoveredStreams,
+      loadedStreams: realSnapshotMetadata?.stats?.loadedStreams,
+      namespaceCount: realSnapshotMetadata?.stats?.namespaces
+    });
+  };
+
   return {
     onMessage: (message) => {
       switch (message.command) {
         case 'ready':
         case 'requestRefresh':
-          sendSnapshot();
+          if (useRealDataSource) {
+            sendSnapshotWithRealData();
+          } else {
+            sendSnapshot();
+          }
           return;
         case 'setFilter':
           handleSetFilter(message.value);
           return;
         case 'invokeCommand':
           handleInvokeCommand(message.commandId, message.args);
+          return;
+        case 'renderMetrics':
+          handleRenderMetrics(message);
           return;
         default:
           return;
@@ -1954,6 +2101,7 @@ interface StreamResourceNodeOptions {
   streamGroup: string;
   resourceType: string;
   kind: string;
+  apiVersion?: string;
   contextValue: string;
   statusIndicator: string;
   statusDescription: string;
@@ -1984,7 +2132,7 @@ function createMockResourceCommandArgument(
   options: StreamResourceNodeOptions
 ): Record<string, unknown> {
   const raw = {
-    apiVersion: inferApiVersion(options.kind),
+    apiVersion: options.apiVersion ?? inferApiVersion(options.kind),
     kind: options.kind,
     metadata: {
       name: label,
@@ -2042,9 +2190,362 @@ function createExplorerSection(
   };
 }
 
-function buildExplorerSections(filterText: string): ExplorerSectionSnapshot[] {
+function isRealExplorerDataSource(previewParams: URLSearchParams): boolean {
+  return previewParams.get(EXPLORER_DATA_SOURCE_PARAM) === EXPLORER_DATA_SOURCE_REAL;
+}
+
+function parseBoundedIntegerParam(
+  previewParams: URLSearchParams,
+  key: string,
+  fallback: number,
+  maxValue: number
+): number {
+  const raw = previewParams.get(key);
+  if (!raw) {
+    return fallback;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(maxValue, Math.max(0, Math.floor(parsed)));
+}
+
+function cloneSectionsWithResourceNodes(resourceNodes: ExplorerNode[]): ExplorerSectionSnapshot[] {
+  const cloned = explorerSectionsFixture.map(cloneExplorerSection);
+  const resourcesIndex = cloned.findIndex(section => section.id === 'resources');
+  if (resourcesIndex < 0) {
+    return cloned;
+  }
+
+  const toolbarActions = cloned[resourcesIndex]?.toolbarActions.map(action => ({ ...action })) ?? [];
+  cloned[resourcesIndex] = createExplorerSection('resources', resourceNodes, toolbarActions);
+  return cloned;
+}
+
+function buildExplorerSourceSections(previewParams: URLSearchParams): ExplorerSectionSnapshot[] {
+  const syntheticResourceCount = parseBoundedIntegerParam(
+    previewParams,
+    EXPLORER_SYNTHETIC_RESOURCES_PARAM,
+    0,
+    EXPLORER_SYNTHETIC_MAX_RESOURCES
+  );
+
+  if (syntheticResourceCount <= 0) {
+    return explorerSectionsFixture.map(cloneExplorerSection);
+  }
+
+  const syntheticNamespaceCount = Math.max(
+    1,
+    parseBoundedIntegerParam(
+      previewParams,
+      EXPLORER_SYNTHETIC_NAMESPACES_PARAM,
+      1,
+      EXPLORER_SYNTHETIC_MAX_NAMESPACES
+    )
+  );
+
+  return cloneSectionsWithResourceNodes(
+    buildSyntheticExplorerNamespaceNodes(syntheticResourceCount, syntheticNamespaceCount)
+  );
+}
+
+function buildSyntheticExplorerNamespaceNodes(totalResources: number, namespaceCount: number): ExplorerNode[] {
+  if (totalResources <= 0 || namespaceCount <= 0) {
+    return [];
+  }
+
+  const nodes: ExplorerNode[] = [];
+  const baseResourcesPerNamespace = Math.floor(totalResources / namespaceCount);
+  const remainder = totalResources % namespaceCount;
+  let globalResourceIndex = 0;
+
+  for (let namespaceIndex = 0; namespaceIndex < namespaceCount; namespaceIndex += 1) {
+    const namespaceName = `fabric-${String(namespaceIndex + 1).padStart(2, '0')}`;
+    const resourceCount = baseResourcesPerNamespace + (namespaceIndex < remainder ? 1 : 0);
+    const resourceNodes: ExplorerNode[] = [];
+
+    for (let resourceIndex = 0; resourceIndex < resourceCount; resourceIndex += 1) {
+      globalResourceIndex += 1;
+      const resourceName = `synthetic-resource-${String(globalResourceIndex).padStart(5, '0')}`;
+      resourceNodes.push(
+        createStreamResourceNode(
+          `resources/${namespaceName}/core/interfaces/${resourceName}`,
+          resourceName,
+          {
+            namespace: namespaceName,
+            streamGroup: 'core',
+            resourceType: 'interfaces',
+            kind: 'Interface',
+            contextValue: 'stream-item',
+            statusIndicator: 'gray',
+            statusDescription: 'Loaded'
+          }
+        )
+      );
+    }
+
+    nodes.push(
+      createExplorerNode(`resources/${namespaceName}`, namespaceName, {
+        contextValue: 'namespace',
+        children: [
+          createExplorerNode(`resources/${namespaceName}/core`, 'core', {
+            contextValue: 'stream-group',
+            children: [
+              createExplorerNode(`resources/${namespaceName}/core/interfaces`, 'interfaces', {
+                contextValue: 'stream',
+                children: resourceNodes
+              })
+            ]
+          })
+        ]
+      })
+    );
+  }
+
+  return nodes;
+}
+
+function inferKindFromStream(stream: string): string {
+  const normalized = stream.trim().toLowerCase();
+  if (!normalized) {
+    return 'Resource';
+  }
+
+  let noun = normalized;
+  if (noun.endsWith('ies') && noun.length > 3) {
+    noun = `${noun.slice(0, -3)}y`;
+  } else if (
+    (noun.endsWith('xes') || noun.endsWith('zes') || noun.endsWith('ches') || noun.endsWith('shes'))
+    && noun.length > 2
+  ) {
+    noun = noun.slice(0, -2);
+  } else if (noun.endsWith('ses') && noun.length > 3) {
+    noun = noun.slice(0, -1);
+  } else if (noun.endsWith('s') && noun.length > 1) {
+    noun = noun.slice(0, -1);
+  }
+
+  return noun
+    .split(/[._-]/)
+    .filter(part => part.length > 0)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('');
+}
+
+function inferRealResourceContextValue(stream: string, kind: string): string {
+  const normalizedStream = stream.toLowerCase();
+  const normalizedKind = kind.toLowerCase();
+
+  if (normalizedStream === 'toponodes' || normalizedKind === 'toponode') {
+    return 'toponode';
+  }
+  if (normalizedStream === 'pods' || normalizedKind === 'pod') {
+    return 'pod';
+  }
+  if (normalizedStream === 'deployments' || normalizedKind === 'deployment') {
+    return 'k8s-deployment-instance';
+  }
+  if (normalizedStream === 'crds' || normalizedKind === 'customresourcedefinition') {
+    return 'crd-instance';
+  }
+
+  return 'stream-item';
+}
+
+function buildRealExplorerResourceNodes(resources: RealExplorerResourceRecord[]): ExplorerNode[] {
+  const byNamespace = new Map<string, Map<string, Map<string, RealExplorerResourceRecord[]>>>();
+
+  for (const resource of resources) {
+    const name = typeof resource.name === 'string' ? resource.name.trim() : '';
+    if (!name) {
+      continue;
+    }
+
+    const namespace = typeof resource.namespace === 'string' && resource.namespace.trim().length > 0
+      ? resource.namespace.trim()
+      : 'default';
+    const group = typeof resource.group === 'string' && resource.group.trim().length > 0
+      ? resource.group.trim()
+      : 'core';
+    const stream = typeof resource.stream === 'string' && resource.stream.trim().length > 0
+      ? resource.stream.trim()
+      : 'resources';
+
+    let groups = byNamespace.get(namespace);
+    if (!groups) {
+      groups = new Map<string, Map<string, RealExplorerResourceRecord[]>>();
+      byNamespace.set(namespace, groups);
+    }
+
+    let streams = groups.get(group);
+    if (!streams) {
+      streams = new Map<string, RealExplorerResourceRecord[]>();
+      groups.set(group, streams);
+    }
+
+    let streamResources = streams.get(stream);
+    if (!streamResources) {
+      streamResources = [];
+      streams.set(stream, streamResources);
+    }
+
+    streamResources.push(resource);
+  }
+
+  return Array.from(byNamespace.keys()).sort((a, b) => a.localeCompare(b)).map((namespace) => {
+    const groups = byNamespace.get(namespace) ?? new Map<string, Map<string, RealExplorerResourceRecord[]>>();
+    const groupNodes = Array.from(groups.keys()).sort((a, b) => a.localeCompare(b)).map((group) => {
+      const streams = groups.get(group) ?? new Map<string, RealExplorerResourceRecord[]>();
+      const streamNodes = Array.from(streams.keys()).sort((a, b) => a.localeCompare(b)).map((stream) => {
+        const resourcesInStream = [...(streams.get(stream) ?? [])]
+          .sort((left, right) => {
+            const leftName = typeof left.name === 'string' ? left.name : '';
+            const rightName = typeof right.name === 'string' ? right.name : '';
+            return leftName.localeCompare(rightName);
+          });
+
+        const resourceNodes = resourcesInStream.flatMap((resource) => {
+          if (typeof resource.name !== 'string' || resource.name.length === 0) {
+            return [];
+          }
+
+          const kind = typeof resource.kind === 'string' && resource.kind.length > 0
+            ? resource.kind
+            : inferKindFromStream(stream);
+          const contextValue = inferRealResourceContextValue(stream, kind);
+          const encodedName = encodeURIComponent(resource.name);
+
+          return [createStreamResourceNode(
+            `resources/${namespace}/${group}/${stream}/${encodedName}`,
+            resource.name,
+            {
+              namespace,
+              streamGroup: group,
+              resourceType: stream,
+              kind,
+              apiVersion: typeof resource.apiVersion === 'string' ? resource.apiVersion : undefined,
+              contextValue,
+              statusIndicator: 'gray',
+              statusDescription: kind
+            }
+          )];
+        });
+
+        return createExplorerNode(`resources/${namespace}/${group}/${stream}`, stream, {
+          contextValue: 'stream',
+          children: resourceNodes
+        });
+      });
+
+      return createExplorerNode(`resources/${namespace}/${group}`, group, {
+        contextValue: 'stream-group',
+        children: streamNodes
+      });
+    });
+
+    return createExplorerNode(`resources/${namespace}`, namespace, {
+      contextValue: 'namespace',
+      children: groupNodes
+    });
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function numberField(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function parseRealExplorerSnapshotResponse(payload: unknown): RealExplorerSnapshotResponse {
+  if (!isRecord(payload)) {
+    throw new Error('Real explorer API returned an invalid payload.');
+  }
+
+  const resources = Array.isArray(payload.resources)
+    ? payload.resources.filter(isRecord)
+    : [];
+
+  const stats = isRecord(payload.stats)
+    ? {
+      durationMs: numberField(payload.stats.durationMs),
+      discoveredStreams: numberField(payload.stats.discoveredStreams),
+      loadedStreams: numberField(payload.stats.loadedStreams),
+      namespaces: numberField(payload.stats.namespaces),
+      resourceCount: numberField(payload.stats.resourceCount)
+    }
+    : undefined;
+
+  return {
+    targetUrl: typeof payload.targetUrl === 'string' ? payload.targetUrl : undefined,
+    apiBaseUrl: typeof payload.apiBaseUrl === 'string' ? payload.apiBaseUrl : undefined,
+    resources,
+    stats
+  };
+}
+
+function buildRealExplorerSnapshotRequestUrl(previewParams: URLSearchParams): string {
+  const params = new URLSearchParams();
+  const target = previewParams.get(EXPLORER_REAL_TARGET_PARAM);
+  const minResources = previewParams.get(EXPLORER_REAL_MIN_RESOURCES_PARAM);
+  const batchSize = previewParams.get(EXPLORER_REAL_BATCH_SIZE_PARAM);
+  const streamLimit = previewParams.get(EXPLORER_REAL_STREAM_LIMIT_PARAM);
+  const apiPrefix = previewParams.get(EXPLORER_REAL_API_PREFIX_PARAM);
+
+  if (target) {
+    params.set('target', target);
+  }
+  if (minResources) {
+    params.set('minResources', minResources);
+  }
+  if (batchSize) {
+    params.set('batchSize', batchSize);
+  }
+  if (streamLimit) {
+    params.set('streamLimit', streamLimit);
+  }
+  if (apiPrefix) {
+    params.set('apiPrefix', apiPrefix);
+  }
+
+  const query = params.toString();
+  if (!query) {
+    return EXPLORER_REAL_SNAPSHOT_ENDPOINT;
+  }
+  return `${EXPLORER_REAL_SNAPSHOT_ENDPOINT}?${query}`;
+}
+
+async function loadRealExplorerSourceSections(
+  previewParams: URLSearchParams
+): Promise<{ sections: ExplorerSectionSnapshot[]; metadata: RealExplorerSnapshotResponse }> {
+  const requestUrl = buildRealExplorerSnapshotRequestUrl(previewParams);
+  const response = await fetch(requestUrl);
+  if (!response.ok) {
+    throw new Error(`Real explorer API request failed with status ${response.status}`);
+  }
+
+  const payload = parseRealExplorerSnapshotResponse(await response.json());
+  const resourceNodes = buildRealExplorerResourceNodes(payload.resources ?? []);
+  return {
+    sections: cloneSectionsWithResourceNodes(resourceNodes),
+    metadata: payload
+  };
+}
+
+function publishExplorerReadyEvent(detail: ExplorerReadyEventDetail): void {
+  const targetWindow = window as unknown as Record<string, unknown>;
+  targetWindow[EXPLORER_READY_GLOBAL_KEY] = detail;
+  window.dispatchEvent(new CustomEvent(EXPLORER_READY_EVENT_NAME, { detail }));
+}
+
+function buildExplorerSections(
+  filterText: string,
+  sourceSections: ReadonlyArray<ExplorerSectionSnapshot> = explorerSectionsFixture
+): ExplorerSectionSnapshot[] {
   const trimmedFilter = filterText.trim();
-  const sections = explorerSectionsFixture.map(cloneExplorerSection);
+  const sections = sourceSections.map(cloneExplorerSection);
 
   if (trimmedFilter.length === 0) {
     return sections;

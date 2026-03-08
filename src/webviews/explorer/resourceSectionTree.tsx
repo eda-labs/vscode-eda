@@ -4,7 +4,17 @@ import {
   MoreVert as MoreVertIcon
 } from '@mui/icons-material';
 import { Box, IconButton, Stack, Typography } from '@mui/material';
-import { memo, useCallback, useMemo, type MouseEvent, type ReactNode } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+  type UIEvent
+} from 'react';
 
 import type { ExplorerAction, ExplorerNode } from '../shared/explorer/types';
 
@@ -40,10 +50,10 @@ interface ResourceSectionTreeProps {
 interface ResourceSectionRowProps {
   node: ExplorerNode;
   depth: number;
-  expandedItems: string[];
-  expandedSet: ReadonlySet<string>;
+  hasChildren: boolean;
+  isExpanded: boolean;
   enableEntryTooltip: boolean;
-  onExpandedItemsChange: (itemIds: string[]) => void;
+  onToggleExpandedItem: (itemId: string) => void;
   onInvokeAction: (action: ExplorerAction) => void;
   onOpenActionMenu: OpenActionMenu;
   resolveNodePrimaryAction: (node: ExplorerNode) => ExplorerAction | undefined;
@@ -59,6 +69,11 @@ interface NodeMenuState {
   menuActions: ExplorerAction[];
   showActionButton: boolean;
 }
+
+const LARGE_RESOURCE_ROW_THRESHOLD = 350;
+const RESOURCE_ROW_HEIGHT_PX = 26;
+const RESOURCE_OVERSCAN_ROWS = 12;
+const RESOURCE_VIRTUALIZED_MAX_HEIGHT = 'min(64vh, 720px)';
 
 const EMPTY_ACTIONS: ExplorerAction[] = [];
 
@@ -114,10 +129,10 @@ function buildNodeMenuState(
 const ResourceSectionRow = memo(function ResourceSectionRow({
   node,
   depth,
-  expandedItems,
-  expandedSet,
+  hasChildren,
+  isExpanded,
   enableEntryTooltip,
-  onExpandedItemsChange,
+  onToggleExpandedItem,
   onInvokeAction,
   onOpenActionMenu,
   resolveNodePrimaryAction,
@@ -127,8 +142,6 @@ const ResourceSectionRow = memo(function ResourceSectionRow({
   colorTextPrimary,
   showResourceActionButtons
 }: Readonly<ResourceSectionRowProps>) {
-  const hasChildren = node.children.length > 0;
-  const isExpanded = hasChildren && expandedSet.has(node.id);
   const primaryAction = resolveNodePrimaryAction(node);
   const hasEntryTooltip = enableEntryTooltip && Boolean(node.tooltip) && !hasChildren;
   const indentation = depth * 1.6;
@@ -142,8 +155,8 @@ const ResourceSectionRow = memo(function ResourceSectionRow({
   const handleToggleExpanded = useCallback((event: MouseEvent<HTMLElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    onExpandedItemsChange(toggleExpandedItem(expandedItems, node.id));
-  }, [expandedItems, node.id, onExpandedItemsChange]);
+    onToggleExpandedItem(node.id);
+  }, [node.id, onToggleExpandedItem]);
 
   const handleRowClick = useCallback((event: MouseEvent<HTMLElement>) => {
     if (hasChildren) {
@@ -249,18 +262,109 @@ export const ResourceSectionTree = memo(function ResourceSectionTree({
 }: Readonly<ResourceSectionTreeProps>) {
   const expandedSet = useMemo(() => new Set(expandedItems), [expandedItems]);
   const visibleRows = useMemo(() => flattenVisibleResourceNodes(nodes, expandedSet), [nodes, expandedSet]);
+  const shouldVirtualize = visibleRows.length >= LARGE_RESOURCE_ROW_THRESHOLD;
+
+  const expandedItemsRef = useRef(expandedItems);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
+
+  useEffect(() => {
+    expandedItemsRef.current = expandedItems;
+  }, [expandedItems]);
+
+  const handleToggleExpandedItem = useCallback((itemId: string) => {
+    const next = toggleExpandedItem(expandedItemsRef.current, itemId);
+    expandedItemsRef.current = next;
+    onExpandedItemsChange(next);
+  }, [onExpandedItemsChange]);
+
+  const handleVirtualizedScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
+    setScrollTop(event.currentTarget.scrollTop);
+  }, []);
+
+  useEffect(() => {
+    if (!shouldVirtualize) {
+      setScrollTop(0);
+    }
+  }, [shouldVirtualize]);
+
+  useEffect(() => {
+    if (!shouldVirtualize) {
+      return;
+    }
+
+    const element = viewportRef.current;
+    if (!element) {
+      return;
+    }
+
+    const measure = () => {
+      setViewportHeight(element.clientHeight);
+    };
+    measure();
+
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const observer = new ResizeObserver(() => {
+      measure();
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [shouldVirtualize]);
+
+  const windowedRows = useMemo(() => {
+    if (!shouldVirtualize) {
+      return {
+        rows: visibleRows,
+        topSpacerHeight: 0,
+        bottomSpacerHeight: 0
+      };
+    }
+
+    const effectiveViewportHeight = viewportHeight > 0 ? viewportHeight : 480;
+    const startIndex = Math.max(0, Math.floor(scrollTop / RESOURCE_ROW_HEIGHT_PX) - RESOURCE_OVERSCAN_ROWS);
+    const endIndex = Math.min(
+      visibleRows.length,
+      Math.ceil((scrollTop + effectiveViewportHeight) / RESOURCE_ROW_HEIGHT_PX) + RESOURCE_OVERSCAN_ROWS
+    );
+
+    return {
+      rows: visibleRows.slice(startIndex, endIndex),
+      topSpacerHeight: startIndex * RESOURCE_ROW_HEIGHT_PX,
+      bottomSpacerHeight: Math.max(0, (visibleRows.length - endIndex) * RESOURCE_ROW_HEIGHT_PX)
+    };
+  }, [scrollTop, shouldVirtualize, viewportHeight, visibleRows]);
 
   return (
-    <Box role="tree" sx={{ minHeight: 0 }}>
-      {visibleRows.map(({ node, depth }) => (
+    <Box
+      ref={viewportRef}
+      role="tree"
+      onScroll={shouldVirtualize ? handleVirtualizedScroll : undefined}
+      sx={{
+        minHeight: 0,
+        maxHeight: shouldVirtualize ? RESOURCE_VIRTUALIZED_MAX_HEIGHT : undefined,
+        overflowY: shouldVirtualize ? 'auto' : 'visible',
+        overflowX: 'hidden'
+      }}
+    >
+      {windowedRows.topSpacerHeight > 0 && (
+        <Box sx={{ height: `${windowedRows.topSpacerHeight}px` }} />
+      )}
+      {windowedRows.rows.map(({ node, depth }) => {
+        const hasChildren = node.children.length > 0;
+        const isExpanded = hasChildren && expandedSet.has(node.id);
+        return (
         <ResourceSectionRow
           key={node.id}
           node={node}
           depth={depth}
-          expandedItems={expandedItems}
-          expandedSet={expandedSet}
+          hasChildren={hasChildren}
+          isExpanded={isExpanded}
           enableEntryTooltip={enableEntryTooltip}
-          onExpandedItemsChange={onExpandedItemsChange}
+          onToggleExpandedItem={handleToggleExpandedItem}
           onInvokeAction={onInvokeAction}
           onOpenActionMenu={onOpenActionMenu}
           resolveNodePrimaryAction={resolveNodePrimaryAction}
@@ -270,7 +374,11 @@ export const ResourceSectionTree = memo(function ResourceSectionTree({
           colorTextPrimary={colorTextPrimary}
           showResourceActionButtons={showResourceActionButtons}
         />
-      ))}
+        );
+      })}
+      {windowedRows.bottomSpacerHeight > 0 && (
+        <Box sx={{ height: `${windowedRows.bottomSpacerHeight}px` }} />
+      )}
     </Box>
   );
 });

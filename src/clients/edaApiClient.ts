@@ -7,6 +7,7 @@ import { kindToPlural } from '../utils/pluralUtils';
 
 import type { EdaAuthClient } from './edaAuthClient';
 import type { EdaSpecManager } from './edaSpecManager';
+import type { StreamEndpoint } from './edaStreamClient';
 
 // Constants for duplicate strings
 const MSG_TOKEN_EXPIRED = 'Access token expired, refreshing...';
@@ -14,6 +15,14 @@ const MSG_SPEC_NOT_INIT = 'Spec manager not initialized';
 const PARAM_NAMESPACE = '{namespace}';
 const PARAM_TRANSACTION_ID = '{transactionId}';
 const PARAM_NAME = '{name}';
+const DB_DATA_PATH = '/core/db/v2/data';
+const STREAM_NAMESPACE_SEPARATOR = ':';
+const DEFAULT_CORE_NAMESPACE = 'eda-system';
+const DEFAULT_BOOTSTRAP_PARALLELISM = 8;
+const DEFAULT_BOOTSTRAP_NAMESPACE_PARALLELISM = 2;
+const CRD_PATH_PATTERN = /^\/apps\/([^/]+)\/([^/]+)(?:\/namespaces\/\{[^}]+\})?\/([^/]+)$/;
+const DB_KEY_NAME_PATTERN = /\{\.name=="([^"]+)"\}/g;
+const DB_MINIMAL_RESOURCE_FIELDS = 'apiVersion,kind,metadata.name,metadata.namespace';
 
 // Type definitions for API responses
 
@@ -120,12 +129,65 @@ export interface WorkflowInputDataElem {
   subflow?: WorkflowIdentifier;
 }
 
+export type BootstrapSnapshot = Map<string, Map<string, K8sResource>>;
+
+export interface BootstrapStreamItemsOptions {
+  excludeStreams?: Set<string>;
+  includeStreams?: Set<string>;
+  namesOnly?: boolean;
+  namesOnlyStreams?: Set<string>;
+}
+
+export interface FastBootstrapStreamItemsOptions {
+  excludeStreams?: Set<string>;
+  minimumResources?: number;
+  additionalBatchSize?: number;
+  onBatchSnapshot?: (snapshot: BootstrapSnapshot) => void;
+}
+
+export interface FastBootstrapStreamItemsResult {
+  snapshot: BootstrapSnapshot;
+  loadedStreams: Set<string>;
+  namesOnlyStreams: Set<string>;
+}
+
 /**
  * Client for EDA REST API operations
  */
 export class EdaApiClient {
   private authClient: EdaAuthClient;
   private specManager?: EdaSpecManager;
+  private dbTableByStream = new Map<string, string>();
+
+  private static readonly FAST_BOOTSTRAP_STREAMS: readonly string[] = [
+    'alarms',
+    'components',
+    'nodeprofiles',
+    'defaultbgppeers',
+    'fans',
+    'queues',
+    'forwardingclasss',
+    'indexallocationpools',
+    'interfaces',
+    'defaultinterfaces',
+    'powersupplies',
+    'topolinks',
+    'workflowdefinitions',
+    'isls',
+    'toponodes',
+    'exports',
+    'policys',
+    'chassis',
+    'controlmodules',
+    'interfacemodules',
+    'defaultrouters',
+    'systeminterfaces',
+    'ipallocationpools',
+    'ipinsubnetallocationpools',
+    'subnetallocationpools',
+    'httpproxies',
+    'defaultroutereflectorclients',
+  ];
 
   constructor(authClient: EdaAuthClient) {
     this.authClient = authClient;
@@ -428,6 +490,679 @@ export class EdaApiClient {
     }
 
     return Array.from(merged.values());
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
+  private toRecordArray(value: unknown): Record<string, unknown>[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value.filter((item): item is Record<string, unknown> => this.isRecord(item));
+  }
+
+  private getCoreNamespace(): string {
+    return this.specManager?.getCoreNamespace() || DEFAULT_CORE_NAMESPACE;
+  }
+
+  private getStreamEndpoints(): StreamEndpoint[] {
+    return this.specManager?.getStreamEndpoints() ?? [];
+  }
+
+  private createStreamNamespaceKey(stream: string, namespace: string): string {
+    return `${stream}${STREAM_NAMESPACE_SEPARATOR}${namespace}`;
+  }
+
+  private getOrCreateSnapshotBucket(
+    snapshot: BootstrapSnapshot,
+    stream: string,
+    namespace: string
+  ): Map<string, K8sResource> {
+    const key = this.createStreamNamespaceKey(stream, namespace);
+    const existing = snapshot.get(key);
+    if (existing) {
+      return existing;
+    }
+    const created = new Map<string, K8sResource>();
+    snapshot.set(key, created);
+    return created;
+  }
+
+  private extractResourceName(
+    item: K8sResource,
+    metadata: Record<string, unknown> | undefined
+  ): string {
+    if (typeof metadata?.name === 'string' && metadata.name.length > 0) {
+      return metadata.name;
+    }
+    if (typeof item.name === 'string' && item.name.length > 0) {
+      return item.name;
+    }
+    return '';
+  }
+
+  private mergeBootstrapSnapshot(target: BootstrapSnapshot, incoming: BootstrapSnapshot): void {
+    for (const [key, bucket] of incoming.entries()) {
+      let mergedBucket = target.get(key);
+      if (!mergedBucket) {
+        mergedBucket = new Map<string, K8sResource>();
+        target.set(key, mergedBucket);
+      }
+      for (const [name, resource] of bucket.entries()) {
+        mergedBucket.set(name, resource);
+      }
+    }
+  }
+
+  private snapshotResourceCount(snapshot: BootstrapSnapshot): number {
+    let total = 0;
+    for (const bucket of snapshot.values()) {
+      total += bucket.size;
+    }
+    return total;
+  }
+
+  private getBootstrapParallelism(): number {
+    const configured = Number(process.env.EDA_BOOTSTRAP_PARALLELISM);
+    if (!Number.isNaN(configured) && configured > 0) {
+      return Math.floor(configured);
+    }
+    return DEFAULT_BOOTSTRAP_PARALLELISM;
+  }
+
+  private getBootstrapNamespaceParallelism(): number {
+    const configured = Number(process.env.EDA_BOOTSTRAP_NAMESPACE_PARALLELISM);
+    if (!Number.isNaN(configured) && configured > 0) {
+      return Math.floor(configured);
+    }
+    return DEFAULT_BOOTSTRAP_NAMESPACE_PARALLELISM;
+  }
+
+  private resourceNounCandidatesFromPlural(plural: string): string[] {
+    const noun = plural.trim().toLowerCase();
+    if (!noun) {
+      return [];
+    }
+
+    const candidates: string[] = [];
+    const add = (candidate: string): void => {
+      if (candidate.length > 0 && !candidates.includes(candidate)) {
+        candidates.push(candidate);
+      }
+    };
+
+    if (noun.endsWith('sis')) {
+      add(noun);
+    } else if (noun.endsWith('ies') && noun.length > 3) {
+      add(`${noun.slice(0, -3)}y`);
+    } else if (
+      (noun.endsWith('xes') || noun.endsWith('zes') || noun.endsWith('ches') || noun.endsWith('shes'))
+      && noun.length > 2
+    ) {
+      add(noun.slice(0, -2));
+    } else if (noun.endsWith('ses') && noun.length > 3) {
+      add(noun.slice(0, -1));
+      add(noun.slice(0, -2));
+    } else if (noun.endsWith('s') && noun.length > 1) {
+      add(noun.slice(0, -1));
+    }
+    add(noun);
+    return candidates;
+  }
+
+  private kindFromPlural(plural: string): string {
+    const [candidate] = this.resourceNounCandidatesFromPlural(plural);
+    const noun = candidate || plural;
+    return noun
+      .split(/[._-]/)
+      .filter((segment) => segment.length > 0)
+      .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+      .join('');
+  }
+
+  private dbTableCandidatesForEndpoint(endpoint: StreamEndpoint): string[] {
+    const match = endpoint.path.match(CRD_PATH_PATTERN);
+    if (!match) {
+      return [];
+    }
+
+    const [, group, version, plural] = match;
+    const groupToken = group.replace(/\./g, '_');
+    return this.resourceNounCandidatesFromPlural(plural).map(
+      (noun) => `.namespace.resources.cr.${groupToken}.${version}.${noun}`
+    );
+  }
+
+  private resourceFromDbEntry(
+    endpoint: StreamEndpoint,
+    entryKey: string,
+    entryValue: Record<string, unknown>
+  ): K8sResource | undefined {
+    const pathMatch = endpoint.path.match(CRD_PATH_PATTERN);
+    const fallbackApiVersion = pathMatch ? `${pathMatch[1]}/${pathMatch[2]}` : '';
+    const fallbackKind = pathMatch ? this.kindFromPlural(pathMatch[3]) : '';
+
+    const metadataRaw = entryValue.metadata;
+    const metadata = this.isRecord(metadataRaw) ? metadataRaw : {};
+
+    let name = typeof metadata.name === 'string' && metadata.name
+      ? metadata.name
+      : undefined;
+    if (!name && typeof entryValue.name === 'string' && entryValue.name) {
+      name = entryValue.name;
+    }
+
+    let namespace = typeof metadata.namespace === 'string' && metadata.namespace
+      ? metadata.namespace
+      : undefined;
+    if (!namespace && typeof entryValue['namespace.name'] === 'string' && entryValue['namespace.name']) {
+      namespace = entryValue['namespace.name'];
+    }
+    if (!namespace && typeof entryValue.namespace === 'string' && entryValue.namespace) {
+      namespace = entryValue.namespace;
+    }
+
+    const keyNames = Array.from(entryKey.matchAll(DB_KEY_NAME_PATTERN))
+      .map((match) => match[1])
+      .filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0);
+    if (!namespace && keyNames.length >= 2) {
+      namespace = keyNames[0];
+    }
+    if (!name && keyNames.length > 0) {
+      name = keyNames[keyNames.length - 1];
+    }
+
+    if (!name) {
+      return undefined;
+    }
+    if (!namespace) {
+      namespace = this.getCoreNamespace();
+    }
+
+    const apiVersion = typeof entryValue.apiVersion === 'string' && entryValue.apiVersion
+      ? entryValue.apiVersion
+      : fallbackApiVersion;
+    const kind = typeof entryValue.kind === 'string' && entryValue.kind
+      ? entryValue.kind
+      : fallbackKind;
+
+    const resource: K8sResource = {
+      metadata: {
+        name,
+        namespace,
+      }
+    };
+    if (apiVersion) {
+      resource.apiVersion = apiVersion;
+    }
+    if (kind) {
+      resource.kind = kind;
+    }
+    return resource;
+  }
+
+  private normalizeQueryRows(rows: unknown[]): Record<string, unknown>[] {
+    const normalized: Record<string, unknown>[] = [];
+    for (const row of rows) {
+      if (!this.isRecord(row)) {
+        continue;
+      }
+      const data = row.data;
+      if (this.isRecord(data)) {
+        normalized.push(data);
+      } else {
+        normalized.push(row);
+      }
+    }
+    return normalized;
+  }
+
+  private queryRowsFromOps(holder: Record<string, unknown>): Record<string, unknown>[] {
+    const opsValue = holder.op ?? holder.Op;
+    let candidates: Record<string, unknown>[] = [];
+    if (Array.isArray(opsValue)) {
+      candidates = this.toRecordArray(opsValue);
+    } else if (
+      this.isRecord(holder.insert_or_modify)
+      || this.isRecord(holder.Insert_or_modify)
+      || this.isRecord(holder.insertOrModify)
+      || this.isRecord(holder.InsertOrModify)
+    ) {
+      candidates = [holder];
+    }
+
+    const rows: Record<string, unknown>[] = [];
+    for (const candidate of candidates) {
+      const insertOrModify = candidate.insert_or_modify
+        ?? candidate.Insert_or_modify
+        ?? candidate.insertOrModify
+        ?? candidate.InsertOrModify;
+      if (!this.isRecord(insertOrModify)) {
+        continue;
+      }
+      const opRows = insertOrModify.rows ?? insertOrModify.Rows;
+      if (!Array.isArray(opRows)) {
+        continue;
+      }
+      for (const row of opRows) {
+        if (!this.isRecord(row)) {
+          continue;
+        }
+        const data = row.data;
+        if (this.isRecord(data)) {
+          rows.push(data);
+        } else {
+          rows.push(row);
+        }
+      }
+    }
+    return rows;
+  }
+
+  private queryRowsFromUpdates(holder: Record<string, unknown>): Record<string, unknown>[] {
+    const updates = holder.updates ?? holder.Updates;
+    if (!Array.isArray(updates)) {
+      return [];
+    }
+    const rows: Record<string, unknown>[] = [];
+    for (const update of updates) {
+      if (!this.isRecord(update)) {
+        continue;
+      }
+      const data = update.data;
+      if (this.isRecord(data)) {
+        rows.push(data);
+      } else {
+        rows.push(update);
+      }
+    }
+    return rows;
+  }
+
+  private queryRowsFromPayload(payload: unknown): Record<string, unknown>[] {
+    if (Array.isArray(payload)) {
+      return this.toRecordArray(payload);
+    }
+    if (!this.isRecord(payload)) {
+      return [];
+    }
+
+    const holders = [payload.msg, payload];
+    for (const holder of holders) {
+      if (!this.isRecord(holder)) {
+        continue;
+      }
+
+      const directRows = holder.data ?? holder.Data;
+      if (Array.isArray(directRows)) {
+        const normalized = this.normalizeQueryRows(directRows);
+        if (normalized.length > 0) {
+          return normalized;
+        }
+      } else if (this.isRecord(directRows)) {
+        return [directRows];
+      }
+
+      const opRows = this.queryRowsFromOps(holder);
+      if (opRows.length > 0) {
+        return opRows;
+      }
+
+      const updateRows = this.queryRowsFromUpdates(holder);
+      if (updateRows.length > 0) {
+        return updateRows;
+      }
+    }
+
+    return [];
+  }
+
+  private payloadMayContainRows(payload: Record<string, unknown>): boolean {
+    return (
+      'items' in payload
+      || 'results' in payload
+      || 'Results' in payload
+      || 'updates' in payload
+      || 'Updates' in payload
+      || 'msg' in payload
+      || 'op' in payload
+      || 'Op' in payload
+    );
+  }
+
+  private itemsFromPayload(payload: unknown): K8sResource[] {
+    if (this.isRecord(payload)) {
+      const items = payload.items;
+      if (Array.isArray(items)) {
+        return items.filter((item): item is K8sResource => this.isRecord(item));
+      }
+      const rows = payload.results ?? payload.Results;
+      if (Array.isArray(rows)) {
+        const out: K8sResource[] = [];
+        for (const row of rows) {
+          if (!this.isRecord(row)) {
+            continue;
+          }
+          const data = row.data;
+          if (this.isRecord(data)) {
+            out.push(data as K8sResource);
+          } else {
+            out.push(row as K8sResource);
+          }
+        }
+        return out;
+      }
+    }
+
+    if (Array.isArray(payload)) {
+      return payload.filter((item): item is K8sResource => this.isRecord(item));
+    }
+
+    return [];
+  }
+
+  private async safeFetchStreamItems(path: string): Promise<K8sResource[]> {
+    try {
+      const payload = await this.fetchJSON<unknown>(path);
+      return this.itemsFromPayload(payload);
+    } catch {
+      return [];
+    }
+  }
+
+  private async safeFetchDbStreamSnapshot(
+    endpoint: StreamEndpoint
+  ): Promise<BootstrapSnapshot | undefined> {
+    const cachedTable = this.dbTableByStream.get(endpoint.stream);
+    const tableCandidates: string[] = [];
+    if (cachedTable) {
+      tableCandidates.push(cachedTable);
+    }
+    for (const candidate of this.dbTableCandidatesForEndpoint(endpoint)) {
+      if (!tableCandidates.includes(candidate)) {
+        tableCandidates.push(candidate);
+      }
+    }
+    if (tableCandidates.length === 0) {
+      return undefined;
+    }
+
+    for (const tableName of tableCandidates) {
+      try {
+        const query = new URLSearchParams({
+          fields: DB_MINIMAL_RESOURCE_FIELDS,
+          jsPath: tableName,
+        });
+        const payload = await this.fetchJSON<unknown>(`${DB_DATA_PATH}?${query.toString()}`);
+        this.dbTableByStream.set(endpoint.stream, tableName);
+
+        let entries: Array<[string, Record<string, unknown>]> = [];
+        if (this.isRecord(payload)) {
+          entries = Object.entries(payload)
+            .filter(([, entryValue]) => this.isRecord(entryValue))
+            .map(([entryKey, entryValue]) => [entryKey, entryValue as Record<string, unknown>]);
+          if (entries.length === 0 && this.payloadMayContainRows(payload)) {
+            entries = this.queryRowsFromPayload(payload).map((row) => ['', row]);
+          }
+        } else if (Array.isArray(payload)) {
+          entries = this.toRecordArray(payload).map((entry) => ['', entry]);
+        }
+
+        const snapshot: BootstrapSnapshot = new Map();
+        for (const [entryKey, entryValue] of entries) {
+          const resource = this.resourceFromDbEntry(endpoint, entryKey, entryValue);
+          if (!resource || !resource.metadata?.name || !resource.metadata.namespace) {
+            continue;
+          }
+          const bucket = this.getOrCreateSnapshotBucket(
+            snapshot,
+            endpoint.stream,
+            resource.metadata.namespace
+          );
+          bucket.set(resource.metadata.name, resource);
+        }
+
+        return snapshot;
+      } catch {
+        // Try the next possible table name.
+      }
+    }
+
+    if (cachedTable) {
+      this.dbTableByStream.delete(endpoint.stream);
+    }
+    return undefined;
+  }
+
+  public availableBootstrapStreams(
+    options: { excludeStreams?: Set<string> } = {}
+  ): string[] {
+    const excluded = options.excludeStreams ?? new Set<string>();
+    const ordered: string[] = [];
+    const seen = new Set<string>();
+    for (const endpoint of this.getStreamEndpoints()) {
+      const stream = endpoint.stream;
+      if (!stream || excluded.has(stream) || stream.startsWith('_')) {
+        continue;
+      }
+      if (seen.has(stream)) {
+        continue;
+      }
+      seen.add(stream);
+      ordered.push(stream);
+    }
+    return ordered;
+  }
+
+  private resolveBootstrapEndpoints(
+    excluded: Set<string>,
+    includeStreams?: Set<string>
+  ): StreamEndpoint[] {
+    const endpoints = this.getStreamEndpoints();
+    if (!includeStreams || includeStreams.size === 0) {
+      return endpoints.filter((endpoint) => {
+        const stream = endpoint.stream;
+        return Boolean(stream) && !excluded.has(stream) && !stream.startsWith('_');
+      });
+    }
+
+    const endpointByStream = new Map<string, StreamEndpoint>();
+    for (const endpoint of endpoints) {
+      const stream = endpoint.stream;
+      if (!stream || excluded.has(stream) || stream.startsWith('_')) {
+        continue;
+      }
+      if (!endpointByStream.has(stream)) {
+        endpointByStream.set(stream, endpoint);
+      }
+    }
+
+    const ordered: StreamEndpoint[] = [];
+    for (const stream of includeStreams) {
+      const endpoint = endpointByStream.get(stream);
+      if (endpoint) {
+        ordered.push(endpoint);
+      }
+    }
+    return ordered;
+  }
+
+  private async bootstrapEndpointSnapshot(
+    endpoint: StreamEndpoint,
+    namespaces: string[],
+    namesOnly: boolean
+  ): Promise<{ snapshot: BootstrapSnapshot; usedNamesOnly: boolean }> {
+    const stream = endpoint.stream;
+    if (!stream) {
+      return { snapshot: new Map(), usedNamesOnly: false };
+    }
+
+    if (namesOnly) {
+      const dbSnapshot = await this.safeFetchDbStreamSnapshot(endpoint);
+      if (dbSnapshot) {
+        return { snapshot: dbSnapshot, usedNamesOnly: true };
+      }
+    }
+
+    const snapshot: BootstrapSnapshot = new Map();
+
+    if (endpoint.namespaced) {
+      const namespaceToken = `{${endpoint.namespaceParam || 'namespace'}}`;
+      const namespaceRequests = namespaces
+        .map((namespace) => ({
+          namespace,
+          path: endpoint.path.replace(namespaceToken, encodeURIComponent(namespace))
+        }))
+        .filter((request) => !request.path.includes('{'));
+      const namespaceParallelism = this.getBootstrapNamespaceParallelism();
+
+      for (let index = 0; index < namespaceRequests.length; index += namespaceParallelism) {
+        const batch = namespaceRequests.slice(index, index + namespaceParallelism);
+        const batchResults = await Promise.all(batch.map(async (request) => ({
+          namespace: request.namespace,
+          items: await this.safeFetchStreamItems(request.path)
+        })));
+
+        for (const { namespace, items } of batchResults) {
+          if (items.length === 0) {
+            continue;
+          }
+          const bucket = this.getOrCreateSnapshotBucket(snapshot, stream, namespace);
+          for (const item of items) {
+            const metadata = this.isRecord(item.metadata)
+              ? item.metadata
+              : undefined;
+            const name = this.extractResourceName(item, metadata);
+            if (!name) {
+              continue;
+            }
+            bucket.set(name, item);
+          }
+        }
+      }
+      return { snapshot, usedNamesOnly: false };
+    }
+
+    const items = await this.safeFetchStreamItems(endpoint.path);
+    if (items.length === 0) {
+      return { snapshot, usedNamesOnly: false };
+    }
+    for (const item of items) {
+      const metadata = this.isRecord(item.metadata)
+        ? item.metadata
+        : undefined;
+      const namespace = typeof metadata?.namespace === 'string' && metadata.namespace.length > 0
+        ? metadata.namespace
+        : this.getCoreNamespace();
+      const name = this.extractResourceName(item, metadata);
+      if (!name) {
+        continue;
+      }
+      const bucket = this.getOrCreateSnapshotBucket(snapshot, stream, namespace);
+      bucket.set(name, item);
+    }
+
+    return { snapshot, usedNamesOnly: false };
+  }
+
+  public async bootstrapStreamItems(
+    namespaces: string[],
+    options: BootstrapStreamItemsOptions = {}
+  ): Promise<BootstrapSnapshot> {
+    const excluded = options.excludeStreams ?? new Set<string>();
+    const includeStreams = options.includeStreams;
+    const namesOnly = options.namesOnly === true;
+    const namesOnlyStreams = options.namesOnlyStreams;
+    const snapshot: BootstrapSnapshot = new Map();
+    const endpoints = this.resolveBootstrapEndpoints(excluded, includeStreams);
+    const parallelism = this.getBootstrapParallelism();
+
+    for (let index = 0; index < endpoints.length; index += parallelism) {
+      const batch = endpoints.slice(index, index + parallelism);
+      const batchResults = await Promise.all(batch.map(async (endpoint) => ({
+        endpoint,
+        result: await this.bootstrapEndpointSnapshot(endpoint, namespaces, namesOnly)
+      })));
+
+      for (const { endpoint, result } of batchResults) {
+        this.mergeBootstrapSnapshot(snapshot, result.snapshot);
+        if (namesOnly && result.usedNamesOnly && namesOnlyStreams) {
+          namesOnlyStreams.add(endpoint.stream);
+        }
+      }
+    }
+
+    return snapshot;
+  }
+
+  public async fastBootstrapStreamItems(
+    namespaces: string[],
+    options: FastBootstrapStreamItemsOptions = {}
+  ): Promise<FastBootstrapStreamItemsResult> {
+    const excluded = options.excludeStreams ?? new Set<string>();
+    const minimumResources = options.minimumResources ?? 900;
+    const additionalBatchSize = Math.max(
+      1,
+      options.additionalBatchSize
+        ?? Math.max(this.getBootstrapParallelism(), 6)
+    );
+    const available = this.availableBootstrapStreams({ excludeStreams: excluded });
+    const availableSet = new Set(available);
+    const loadedStreams = new Set<string>();
+    const namesOnlyStreams = new Set<string>();
+    const snapshot: BootstrapSnapshot = new Map();
+    const bootstrapParallelism = this.getBootstrapParallelism();
+    const reportBatch = (batchSnapshot: BootstrapSnapshot): void => {
+      if (batchSnapshot.size === 0) {
+        return;
+      }
+      options.onBatchSnapshot?.(batchSnapshot);
+    };
+
+    const prioritized = EdaApiClient.FAST_BOOTSTRAP_STREAMS.filter((stream) => availableSet.has(stream));
+    if (prioritized.length > 0) {
+      const prioritizedBatchSize = Math.max(1, Math.min(additionalBatchSize, bootstrapParallelism));
+      for (let index = 0; index < prioritized.length; index += prioritizedBatchSize) {
+        const batch = prioritized.slice(index, index + prioritizedBatchSize);
+        const prioritizedSnapshot = await this.bootstrapStreamItems(namespaces, {
+          excludeStreams: excluded,
+          includeStreams: new Set(batch),
+          namesOnly: true,
+          namesOnlyStreams,
+        });
+        this.mergeBootstrapSnapshot(snapshot, prioritizedSnapshot);
+        reportBatch(prioritizedSnapshot);
+        for (const stream of batch) {
+          loadedStreams.add(stream);
+        }
+        if (this.snapshotResourceCount(snapshot) >= minimumResources) {
+          return { snapshot, loadedStreams, namesOnlyStreams };
+        }
+      }
+    }
+
+    const remaining = available.filter((stream) => !loadedStreams.has(stream));
+    for (let index = 0; index < remaining.length; index += additionalBatchSize) {
+      const batch = remaining.slice(index, index + additionalBatchSize);
+      const batchSnapshot = await this.bootstrapStreamItems(namespaces, {
+        excludeStreams: excluded,
+        includeStreams: new Set(batch),
+        namesOnly: true,
+        namesOnlyStreams,
+      });
+      this.mergeBootstrapSnapshot(snapshot, batchSnapshot);
+      reportBatch(batchSnapshot);
+      for (const stream of batch) {
+        loadedStreams.add(stream);
+      }
+      if (this.snapshotResourceCount(snapshot) >= minimumResources) {
+        break;
+      }
+    }
+
+    return { snapshot, loadedStreams, namesOnlyStreams };
   }
 
   /**
