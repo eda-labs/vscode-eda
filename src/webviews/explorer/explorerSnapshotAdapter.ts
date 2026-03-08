@@ -152,6 +152,27 @@ function getNodeDetails(raw: ResourceData['raw'] | undefined): string | undefine
   return undefined;
 }
 
+function formatResourceLabels(raw: ResourceData['raw'] | undefined): string | undefined {
+  const metadata = raw?.metadata;
+  if (!metadata || typeof metadata !== 'object') {
+    return undefined;
+  }
+  const labelsValue = (metadata as Record<string, unknown>).labels;
+  if (!labelsValue || typeof labelsValue !== 'object' || Array.isArray(labelsValue)) {
+    return undefined;
+  }
+
+  const labels = Object.entries(labelsValue as Record<string, unknown>)
+    .filter(([, value]) => typeof value === 'string' && value.length > 0)
+    .sort((left, right) => left[0].localeCompare(right[0]));
+
+  if (labels.length === 0) {
+    return undefined;
+  }
+
+  return labels.map(([key, value]) => `${key}=${value}`).join('\n');
+}
+
 function buildLightweightResource(
   resourceData: ResourceData,
   item: ExplorerTreeItemLike,
@@ -181,6 +202,10 @@ function buildResourceCommandArgument(item: ExplorerTreeItemLike): Record<string
     kind: resourceData?.kind ?? item.resourceType,
     apiVersion: resourceData?.apiVersion ?? raw?.apiVersion
   };
+  const labelsText = formatResourceLabels(raw);
+  if (labelsText) {
+    arg.labelsText = labelsText;
+  }
 
   if (resourceData) {
     const lightResource = buildLightweightResource(resourceData, item, raw);
@@ -216,7 +241,8 @@ function buildMinimalResourceCommandArgument(item: ExplorerTreeItemLike): Record
     contextValue: item.contextValue,
     name: resourceData?.name ?? label,
     kind: resourceData?.kind ?? item.resourceType,
-    apiVersion: resourceData?.apiVersion ?? raw?.apiVersion
+    apiVersion: resourceData?.apiVersion ?? raw?.apiVersion,
+    labelsText: formatResourceLabels(raw)
   };
 }
 

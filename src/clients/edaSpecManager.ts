@@ -12,6 +12,7 @@ const SERVER_RELATIVE_URL = 'serverRelativeURL';
 const OPERATION_ID = 'operationId';
 const X_EDA_NOKIA_COM = 'x-eda-nokia-com';
 const NAMESPACE_PARAM_PATTERN = /^(namespace|nsname)$/i;
+const CRD_PATH_PATTERN = /^\/apps\/([^/]+)\/([^/]+)(?:\/namespaces\/\{[^}]+\})?\/([^/]+)$/;
 const GENERATE_SPEC_TYPES = process.env.EDA_GENERATE_SPEC_TYPES === 'true';
 
 interface NamespaceData {
@@ -81,6 +82,7 @@ interface VersionResponse {
 export class EdaSpecManager {
   private apiVersion = 'unknown';
   private streamEndpoints: StreamEndpoint[] = [];
+  private streamUiCategories: Record<string, string> = {};
   private namespaceSet: Set<string> = new Set();
   private operationMap: Map<string, string> = new Map();
   private cacheBaseDir = path.join(os.homedir(), '.eda', 'vscode');
@@ -172,6 +174,14 @@ export class EdaSpecManager {
   }
 
   /**
+   * Get stream names mapped to UI categories.
+   */
+  public async getStreamUiCategories(): Promise<Record<string, string>> {
+    await this.initPromise;
+    return { ...this.streamUiCategories };
+  }
+
+  /**
    * Look up the API path for the given operationId
    */
   public async getPathByOperationId(opId: string): Promise<string> {
@@ -216,6 +226,7 @@ export class EdaSpecManager {
         log(`Fetched API specs for version ${this.apiVersion}`, LogLevel.INFO);
       }
       this.streamEndpoints = this.deduplicateEndpoints(endpoints);
+      this.streamUiCategories = await this.loadStreamUiCategories(this.streamEndpoints);
       log(`Discovered ${this.streamEndpoints.length} stream endpoints`, LogLevel.DEBUG);
 
       // Prime namespace set
@@ -322,6 +333,105 @@ export class EdaSpecManager {
     }
 
     return placeholders;
+  }
+
+  private parseUiCategoryResource(resource: unknown): { nameKey: string; category: string } | undefined {
+    if (!resource || typeof resource !== 'object') {
+      return undefined;
+    }
+    const typedResource = resource as Record<string, unknown>;
+    const name = typeof typedResource.name === 'string' ? typedResource.name.trim() : '';
+    if (!name) {
+      return undefined;
+    }
+    const uiCategory =
+      (typeof typedResource.uiCategory === 'string' && typedResource.uiCategory.trim())
+      || (typeof typedResource['ui-category'] === 'string' && typedResource['ui-category'].trim())
+      || '';
+    if (!uiCategory) {
+      return undefined;
+    }
+    return {
+      nameKey: name.toLowerCase(),
+      category: uiCategory
+    };
+  }
+
+  private extractUiCategoriesFromResources(resources: unknown): Record<string, string> {
+    if (!Array.isArray(resources)) {
+      return {};
+    }
+    const categories: Record<string, string> = {};
+    for (const resource of resources) {
+      const entry = this.parseUiCategoryResource(resource);
+      if (!entry) {
+        continue;
+      }
+      categories[entry.nameKey] = entry.category;
+    }
+    return categories;
+  }
+
+  private async fetchAppResourceUiCategories(group: string, version: string): Promise<Record<string, string>> {
+    const paths = [
+      `/apps/${group}/${version}`,
+      `/apis/${group}/${version}`
+    ];
+
+    for (const pathCandidate of paths) {
+      try {
+        const payload = await this.apiClient.fetchJSON<{ resources?: unknown }>(pathCandidate);
+        const categories = this.extractUiCategoriesFromResources(payload?.resources);
+        if (Object.keys(categories).length > 0) {
+          return categories;
+        }
+      } catch {
+        // Ignore category lookup failures and continue best-effort.
+      }
+    }
+
+    return {};
+  }
+
+  private async loadStreamUiCategories(endpoints: StreamEndpoint[]): Promise<Record<string, string>> {
+    const appVersions = new Set<string>();
+    for (const endpoint of endpoints) {
+      const match = CRD_PATH_PATTERN.exec(endpoint.path);
+      if (!match) {
+        continue;
+      }
+      const [, group, version] = match;
+      appVersions.add(`${group}|${version}`);
+    }
+
+    const categoriesByPlural = new Map<string, string>();
+    const sortedAppVersions = Array.from(appVersions).sort((a, b) => a.localeCompare(b));
+    for (const value of sortedAppVersions) {
+      const separator = value.indexOf('|');
+      if (separator <= 0 || separator >= value.length - 1) {
+        continue;
+      }
+      const group = value.slice(0, separator);
+      const version = value.slice(separator + 1);
+      const fetched = await this.fetchAppResourceUiCategories(group, version);
+      for (const [nameKey, category] of Object.entries(fetched)) {
+        if (!categoriesByPlural.has(nameKey)) {
+          categoriesByPlural.set(nameKey, category);
+        }
+      }
+    }
+
+    const streamCategories: Record<string, string> = {};
+    for (const endpoint of endpoints) {
+      const match = CRD_PATH_PATTERN.exec(endpoint.path);
+      const plural = match?.[3];
+      const candidateName = typeof plural === 'string' && plural.length > 0 ? plural : endpoint.stream;
+      const category = categoriesByPlural.get(candidateName.toLowerCase());
+      if (typeof category === 'string' && category.length > 0) {
+        streamCategories[endpoint.stream] = category;
+      }
+    }
+    return streamCategories;
   }
 
   /** Collect operationId to path mappings */
@@ -477,6 +587,7 @@ export class EdaSpecManager {
       const endpoints = await this.fetchAndWriteAllSpecs(apiRoot, version);
       if (endpoints.length > 0) {
         this.streamEndpoints = this.deduplicateEndpoints(endpoints);
+        this.streamUiCategories = await this.loadStreamUiCategories(this.streamEndpoints);
       }
       log(`Background API spec refresh complete for version ${version}`, LogLevel.DEBUG);
     } catch (err) {

@@ -647,6 +647,11 @@ export class EdaClient {
     return this.specManager.getStreamGroups();
   }
 
+  public async getStreamUiCategories(): Promise<Record<string, string>> {
+    await this.initPromise;
+    return this.specManager.getStreamUiCategories();
+  }
+
   public availableBootstrapStreams(
     options: { excludeStreams?: Set<string> } = {}
   ): string[] {

@@ -15,13 +15,14 @@ export abstract class BasePanel {
     viewType: string,
     title: string,
     options?: vscode.WebviewPanelOptions & vscode.WebviewOptions,
-    iconPath?: { light: vscode.Uri; dark: vscode.Uri }
+    iconPath?: { light: vscode.Uri; dark: vscode.Uri },
+    showOptions?: vscode.ViewColumn | { readonly viewColumn: vscode.ViewColumn; readonly preserveFocus?: boolean }
   ) {
     this.context = context;
     this.panel = vscode.window.createWebviewPanel(
       viewType,
       title,
-      vscode.ViewColumn.Active,
+      showOptions ?? vscode.ViewColumn.Active,
       {
         enableScripts: true,
         retainContextWhenHidden: true,

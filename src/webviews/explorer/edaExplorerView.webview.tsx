@@ -20,12 +20,15 @@ import {
   Alert,
   Badge,
   Box,
+  FormControl,
   IconButton,
+  InputLabel,
   InputAdornment,
   ListItemIcon,
   Menu,
   MenuItem,
   Paper,
+  Select,
   Stack,
   TextField,
   Tooltip,
@@ -46,7 +49,7 @@ import {
   type ExplorerTabId
 } from '../shared/explorer/types';
 import { mountWebview } from '../shared/utils';
-import { ResourceSectionTree } from './resourceSectionTree';
+import { ALL_RESOURCE_NAMESPACES_VALUE, ResourceSectionTree } from './resourceSectionTree';
 
 interface ExplorerNodeLabelProps {
   node: ExplorerNode;
@@ -147,6 +150,50 @@ function flattenExpandableNodeIds(nodes: ExplorerNode[]): string[] {
     }
   }
   return ids;
+}
+
+function toRecord(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+function resourceNamespaceFromNode(node: ExplorerNode): string {
+  const commandArg = toRecord(node.commandArg);
+  const namespace = commandArg?.namespace;
+  if (typeof namespace === 'string' && namespace.length > 0) {
+    return namespace;
+  }
+
+  const slash = node.label.indexOf('/');
+  if (slash > 0) {
+    return node.label.slice(0, slash);
+  }
+  return '';
+}
+
+function collectResourceNamespaces(nodes: ExplorerNode[]): string[] {
+  const namespaces = new Set<string>();
+  const stack = [...nodes];
+  while (stack.length > 0) {
+    const next = stack.pop();
+    if (!next) {
+      continue;
+    }
+    if (next.commandArg !== undefined && next.children.length === 0) {
+      const namespace = resourceNamespaceFromNode(next);
+      if (namespace.length > 0) {
+        namespaces.add(namespace);
+      }
+      continue;
+    }
+    for (const child of next.children) {
+      stack.push(child);
+    }
+  }
+
+  return Array.from(namespaces).sort((a, b) => a.localeCompare(b));
 }
 
 type ToolbarActionIconId =
@@ -460,6 +507,7 @@ interface SectionTreeProps {
   expandedItems: string[];
   onExpandedItemsChange: (itemIds: string[]) => void;
   onInvokeAction: (action: ExplorerAction) => void;
+  selectedResourceNamespace: string;
   onOpenActionMenu: (
     event: MouseEvent<HTMLElement>,
     actions: ExplorerAction[],
@@ -489,6 +537,7 @@ interface ResourceSectionToggleButtonProps {
 interface ExplorerSectionCardProps {
   section: ExplorerSectionSnapshot;
   expandedItems: string[];
+  selectedResourceNamespace: string;
   isCollapsed: boolean;
   isDropTarget: boolean;
   isBeingDragged: boolean;
@@ -626,6 +675,7 @@ const SectionTree = memo(function SectionTree({
   expandedItems,
   onExpandedItemsChange,
   onInvokeAction,
+  selectedResourceNamespace,
   onOpenActionMenu
 }: Readonly<SectionTreeProps>) {
   const isLargeAlarmSection = section.id === 'alarms' && section.nodes.length >= LARGE_ALARM_SECTION_ROW_THRESHOLD;
@@ -658,6 +708,7 @@ const SectionTree = memo(function SectionTree({
         nodes={section.nodes}
         expandedItems={expandedItems}
         onExpandedItemsChange={onExpandedItemsChange}
+        selectedNamespace={selectedResourceNamespace}
         enableEntryTooltip={renderOptions.enableEntryTooltip}
         onInvokeAction={onInvokeAction}
         onOpenActionMenu={onOpenActionMenu}
@@ -823,6 +874,7 @@ function ResourceSectionToggleButton({
 function ExplorerSectionCard({
   section,
   expandedItems,
+  selectedResourceNamespace,
   isCollapsed,
   isDropTarget,
   isBeingDragged,
@@ -904,6 +956,7 @@ function ExplorerSectionCard({
             expandedItems={expandedItems}
             onExpandedItemsChange={(itemIds) => onExpandedItemsChange(section.id, itemIds)}
             onInvokeAction={onInvokeAction}
+            selectedResourceNamespace={selectedResourceNamespace}
             onOpenActionMenu={onOpenActionMenu}
           />
         </Box>
@@ -958,6 +1011,7 @@ function EdaExplorerView() {
   const [sectionOrder, setSectionOrder] = useState<ExplorerTabId[]>(EXPLORER_TAB_ORDER);
   const [collapsedBySection, setCollapsedBySection] = useState<Partial<Record<ExplorerTabId, boolean>>>({});
   const [filterText, setFilterText] = useState('');
+  const [selectedResourceNamespace, setSelectedResourceNamespace] = useState(ALL_RESOURCE_NAMESPACES_VALUE);
   const [expandedByTab, setExpandedByTab] = useState<Partial<Record<ExplorerTabId, string[]>>>({
     resources: []
   });
@@ -1139,6 +1193,24 @@ function EdaExplorerView() {
     }
     return map;
   }, [sections]);
+
+  const resourceNamespaceOptions = useMemo(() => {
+    const resourceSection = sectionsById.get('resources');
+    if (!resourceSection) {
+      return [];
+    }
+    return collectResourceNamespaces(resourceSection.nodes);
+  }, [sectionsById]);
+
+  useEffect(() => {
+    if (selectedResourceNamespace === ALL_RESOURCE_NAMESPACES_VALUE) {
+      return;
+    }
+    if (resourceNamespaceOptions.includes(selectedResourceNamespace)) {
+      return;
+    }
+    setSelectedResourceNamespace(ALL_RESOURCE_NAMESPACES_VALUE);
+  }, [resourceNamespaceOptions, selectedResourceNamespace]);
 
   const orderedSections = useMemo(() => {
     const visible: ExplorerSectionSnapshot[] = [];
@@ -1368,6 +1440,23 @@ function EdaExplorerView() {
         </Alert>
       )}
 
+      <FormControl size="small" fullWidth disabled={resourceNamespaceOptions.length === 0}>
+        <InputLabel id="explorer-namespace-select-label">Namespace</InputLabel>
+        <Select
+          labelId="explorer-namespace-select-label"
+          label="Namespace"
+          value={selectedResourceNamespace}
+          onChange={(event) => {
+            setSelectedResourceNamespace(String(event.target.value));
+          }}
+        >
+          <MenuItem value={ALL_RESOURCE_NAMESPACES_VALUE}>All Namespaces</MenuItem>
+          {resourceNamespaceOptions.map((namespace) => (
+            <MenuItem key={namespace} value={namespace}>{namespace}</MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+
       <Stack direction="row" spacing={1} alignItems="center">
         <TextField
           size="small"
@@ -1458,6 +1547,7 @@ function EdaExplorerView() {
             key={section.id}
             section={section}
             expandedItems={expandedByTab[section.id] ?? []}
+            selectedResourceNamespace={selectedResourceNamespace}
             isCollapsed={collapsedBySection[section.id] ?? false}
             isDropTarget={dragOverSection === section.id && draggingSection !== section.id}
             isBeingDragged={draggingSection === section.id}

@@ -37,6 +37,7 @@ import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand'
 import { registerDashboardCommands } from './commands/dashboardCommands';
 import { registerApplyYamlFileCommand } from './commands/applyYamlFileCommand';
 import { registerResourceBrowserCommand } from './commands/resourceBrowserCommand';
+import { registerExplorerResourceListCommand } from './commands/explorerResourceListCommand';
 import { EdaExplorerViewProvider } from './webviews/explorer/edaExplorerViewProvider';
 import { setAuthLogger } from './clients/edaAuthClient';
 
@@ -552,6 +553,7 @@ async function initializeTreeViewsAndCommands(
   registerBasketCommands(context);
   registerDashboardCommands(context);
   registerResourceBrowserCommand(context);
+  registerExplorerResourceListCommand(context);
   registerCredentialCommands(context);
   registerApplyYamlFileCommand(context);
 }
