@@ -63,6 +63,7 @@ interface ResourceSectionRowProps {
   resolveNodePrimaryAction: (node: ExplorerNode) => ExplorerAction | undefined;
   canBuildResourceActions: (node: ExplorerNode) => boolean;
   getNodeActionList: (node: ExplorerNode) => ExplorerAction[];
+  resolveNodeCountLabel: (node: ExplorerNode) => string | undefined;
   renderPrimaryLabel: RenderPrimaryLabel;
   colorTextPrimary: string;
   showResourceActionButtons: boolean;
@@ -384,6 +385,51 @@ function sortResources(resources: ExplorerNode[]): ExplorerNode[] {
     });
 }
 
+function countResourcesForNamespace(resources: ExplorerNode[], selectedNamespace: string): number {
+  if (selectedNamespace === ALL_RESOURCE_NAMESPACES_VALUE) {
+    return resources.length;
+  }
+  let count = 0;
+  for (const resource of resources) {
+    if (getResourceNamespace(resource) === selectedNamespace) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function formatResourceCountLabel(selectedCount: number, totalCount: number): string | undefined {
+  if (totalCount <= 0) {
+    return undefined;
+  }
+  return `(${selectedCount}/${totalCount})`;
+}
+
+function buildEdaNodeCountLabelById(
+  lookup: EdaResourceLookup,
+  selectedNamespace: string
+): Map<string, string> {
+  const labels = new Map<string, string>();
+
+  for (const [categoryId, resources] of lookup.resourcesByCategoryId.entries()) {
+    const selectedCount = countResourcesForNamespace(resources, selectedNamespace);
+    const label = formatResourceCountLabel(selectedCount, resources.length);
+    if (label) {
+      labels.set(categoryId, label);
+    }
+  }
+
+  for (const [streamId, resources] of lookup.resourcesByStreamId.entries()) {
+    const selectedCount = countResourcesForNamespace(resources, selectedNamespace);
+    const label = formatResourceCountLabel(selectedCount, resources.length);
+    if (label) {
+      labels.set(streamId, label);
+    }
+  }
+
+  return labels;
+}
+
 function findFirstEdaSelectionNodeId(nodes: ExplorerNode[]): string | undefined {
   for (const node of nodes) {
     if (node.contextValue !== 'resource-category') {
@@ -415,6 +461,7 @@ const ResourceSectionRow = memo(function ResourceSectionRow({
   resolveNodePrimaryAction,
   canBuildResourceActions,
   getNodeActionList,
+  resolveNodeCountLabel,
   renderPrimaryLabel,
   colorTextPrimary,
   showResourceActionButtons
@@ -422,6 +469,7 @@ const ResourceSectionRow = memo(function ResourceSectionRow({
   const primaryAction = resolveNodePrimaryAction(node);
   const hasEntryTooltip = enableEntryTooltip && Boolean(node.tooltip) && !hasChildren;
   const indentation = depth * 1.6;
+  const nodeCountLabel = resolveNodeCountLabel(node);
   const menuState = buildNodeMenuState(
     node,
     canBuildResourceActions,
@@ -506,7 +554,16 @@ const ResourceSectionRow = memo(function ResourceSectionRow({
             cursor: hasChildren || primaryAction ? 'pointer' : 'default'
           }}
         >
-          {renderPrimaryLabel(node, hasEntryTooltip, primaryAction)}
+          <Stack direction="row" spacing={0.6} alignItems="center" sx={{ minWidth: 0 }}>
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              {renderPrimaryLabel(node, hasEntryTooltip, primaryAction)}
+            </Box>
+            {nodeCountLabel && (
+              <Typography variant="caption" color="text.secondary" sx={{ flex: '0 0 auto' }}>
+                {nodeCountLabel}
+              </Typography>
+            )}
+          </Stack>
           {(node.description || node.statusDescription) && (
             <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
               {node.description || node.statusDescription}
@@ -552,6 +609,16 @@ export const ResourceSectionTree = memo(function ResourceSectionTree({
   );
   const treeNodeIds = useMemo(() => collectNodeIds(treeNodes), [treeNodes]);
   const edaLookup = useMemo(() => buildEdaResourceLookup(nodes), [nodes]);
+  const edaNodeCountLabelById = useMemo(
+    () => buildEdaNodeCountLabelById(edaLookup, selectedNamespace),
+    [edaLookup, selectedNamespace]
+  );
+  const resolveNodeCountLabel = useCallback((node: ExplorerNode): string | undefined => {
+    if (node.contextValue === 'resource-category' || edaLookup.streamById.has(node.id)) {
+      return edaNodeCountLabelById.get(node.id);
+    }
+    return undefined;
+  }, [edaLookup, edaNodeCountLabelById]);
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(undefined);
 
@@ -567,6 +634,7 @@ export const ResourceSectionTree = memo(function ResourceSectionTree({
   const shouldVirtualize = visibleRows.length >= LARGE_RESOURCE_ROW_THRESHOLD;
 
   const expandedItemsRef = useRef(expandedItems);
+  const selectedNamespaceRef = useRef(selectedNamespace);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
@@ -626,6 +694,22 @@ export const ResourceSectionTree = memo(function ResourceSectionTree({
   const handleVirtualizedScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
     setScrollTop(event.currentTarget.scrollTop);
   }, []);
+
+  useEffect(() => {
+    if (selectedNamespaceRef.current === selectedNamespace) {
+      return;
+    }
+    selectedNamespaceRef.current = selectedNamespace;
+
+    const nodeIdToOpen = selectedNodeId && treeNodeIds.has(selectedNodeId)
+      ? selectedNodeId
+      : findFirstEdaSelectionNodeId(treeNodes);
+    if (!nodeIdToOpen) {
+      return;
+    }
+
+    handleOpenResourceList(nodeIdToOpen);
+  }, [handleOpenResourceList, selectedNamespace, selectedNodeId, treeNodeIds, treeNodes]);
 
   useEffect(() => {
     if (!shouldVirtualize) {
@@ -716,6 +800,7 @@ export const ResourceSectionTree = memo(function ResourceSectionTree({
             resolveNodePrimaryAction={resolveNodePrimaryAction}
             canBuildResourceActions={canBuildResourceActions}
             getNodeActionList={getNodeActionList}
+            resolveNodeCountLabel={resolveNodeCountLabel}
             renderPrimaryLabel={renderPrimaryLabel}
             colorTextPrimary={colorTextPrimary}
             showResourceActionButtons={showResourceActionButtons}
