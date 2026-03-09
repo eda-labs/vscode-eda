@@ -1362,37 +1362,57 @@ function createExplorerMock(send: SendMessage, options: MockHostOptions): MockHo
     }
   };
 
-  const handleRenderMetrics = (message: WebviewCommand): void => {
-    if (!useRealDataSource || readyEventPublished || realLoadStartedAt <= 0) {
-      return;
-    }
+  const shouldPublishRenderMetrics = (): boolean =>
+    useRealDataSource && !readyEventPublished && realLoadStartedAt > 0;
 
-    const snapshotId = typeof message.snapshotId === 'number' ? message.snapshotId : 0;
-    const renderMs = typeof message.renderMs === 'number' ? message.renderMs : 0;
-    const totalNodes = typeof message.totalNodes === 'number' ? message.totalNodes : 0;
-    const resourceLeafCount = typeof message.resourceLeafCount === 'number' ? message.resourceLeafCount : 0;
+  const metricNumber = (value: unknown): number => numberField(value) ?? 0;
 
-    if (resourceLeafCount <= 0) {
-      return;
-    }
+  const renderMetricsFromMessage = (message: WebviewCommand): {
+    snapshotId: number;
+    renderMs: number;
+    totalNodes: number;
+    resourceLeafCount: number;
+  } => ({
+    snapshotId: metricNumber(message.snapshotId),
+    renderMs: metricNumber(message.renderMs),
+    totalNodes: metricNumber(message.totalNodes),
+    resourceLeafCount: metricNumber(message.resourceLeafCount)
+  });
 
-    readyEventPublished = true;
+  const publishRealExplorerReadyMetrics = (metrics: {
+    snapshotId: number;
+    renderMs: number;
+    totalNodes: number;
+    resourceLeafCount: number;
+  }): void => {
     const readyMs = Math.max(0, window.performance.now() - realLoadStartedAt);
-
     publishExplorerReadyEvent({
       source: 'real-eda',
       targetUrl: realSnapshotMetadata?.targetUrl,
       apiBaseUrl: realSnapshotMetadata?.apiBaseUrl,
       loadMs: realSnapshotMetadata?.stats?.durationMs,
       readyMs: Math.round(readyMs * 100) / 100,
-      renderMs,
-      snapshotId,
-      totalNodes,
-      resourceLeafCount,
+      renderMs: metrics.renderMs,
+      snapshotId: metrics.snapshotId,
+      totalNodes: metrics.totalNodes,
+      resourceLeafCount: metrics.resourceLeafCount,
       discoveredStreams: realSnapshotMetadata?.stats?.discoveredStreams,
       loadedStreams: realSnapshotMetadata?.stats?.loadedStreams,
       namespaceCount: realSnapshotMetadata?.stats?.namespaces
     });
+  };
+
+  const handleRenderMetrics = (message: WebviewCommand): void => {
+    if (!shouldPublishRenderMetrics()) {
+      return;
+    }
+    const metrics = renderMetricsFromMessage(message);
+    if (metrics.resourceLeafCount <= 0) {
+      return;
+    }
+
+    readyEventPublished = true;
+    publishRealExplorerReadyMetrics(metrics);
   };
 
   return {

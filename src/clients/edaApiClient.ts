@@ -635,58 +635,83 @@ export class EdaApiClient {
     );
   }
 
+  private nonEmptyString(value: unknown): string | undefined {
+    return typeof value === 'string' && value.length > 0 ? value : undefined;
+  }
+
+  private dbFallbackIdentity(endpoint: StreamEndpoint): { apiVersion: string; kind: string } {
+    const pathMatch = endpoint.path.match(CRD_PATH_PATTERN);
+    if (!pathMatch) {
+      return { apiVersion: '', kind: '' };
+    }
+    return {
+      apiVersion: `${pathMatch[1]}/${pathMatch[2]}`,
+      kind: this.kindFromPlural(pathMatch[3]),
+    };
+  }
+
+  private dbEntryKeyNames(entryKey: string): string[] {
+    return Array.from(entryKey.matchAll(DB_KEY_NAME_PATTERN))
+      .map((match) => match[1])
+      .filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0);
+  }
+
+  private dbEntryName(
+    metadata: Record<string, unknown>,
+    entryValue: Record<string, unknown>,
+    keyNames: string[]
+  ): string | undefined {
+    const metadataName = this.nonEmptyString(metadata.name);
+    if (metadataName) {
+      return metadataName;
+    }
+
+    const entryName = this.nonEmptyString(entryValue.name);
+    if (entryName) {
+      return entryName;
+    }
+
+    return keyNames.length > 0 ? keyNames[keyNames.length - 1] : undefined;
+  }
+
+  private dbEntryNamespace(
+    metadata: Record<string, unknown>,
+    entryValue: Record<string, unknown>,
+    keyNames: string[]
+  ): string | undefined {
+    const metadataNamespace = this.nonEmptyString(metadata.namespace);
+    if (metadataNamespace) {
+      return metadataNamespace;
+    }
+
+    const flatNamespace = this.nonEmptyString(entryValue['namespace.name']);
+    if (flatNamespace) {
+      return flatNamespace;
+    }
+
+    const entryNamespace = this.nonEmptyString(entryValue.namespace);
+    if (entryNamespace) {
+      return entryNamespace;
+    }
+
+    return keyNames.length >= 2 ? keyNames[0] : undefined;
+  }
+
   private resourceFromDbEntry(
     endpoint: StreamEndpoint,
     entryKey: string,
     entryValue: Record<string, unknown>
   ): K8sResource | undefined {
-    const pathMatch = endpoint.path.match(CRD_PATH_PATTERN);
-    const fallbackApiVersion = pathMatch ? `${pathMatch[1]}/${pathMatch[2]}` : '';
-    const fallbackKind = pathMatch ? this.kindFromPlural(pathMatch[3]) : '';
-
-    const metadataRaw = entryValue.metadata;
-    const metadata = this.isRecord(metadataRaw) ? metadataRaw : {};
-
-    let name = typeof metadata.name === 'string' && metadata.name
-      ? metadata.name
-      : undefined;
-    if (!name && typeof entryValue.name === 'string' && entryValue.name) {
-      name = entryValue.name;
-    }
-
-    let namespace = typeof metadata.namespace === 'string' && metadata.namespace
-      ? metadata.namespace
-      : undefined;
-    if (!namespace && typeof entryValue['namespace.name'] === 'string' && entryValue['namespace.name']) {
-      namespace = entryValue['namespace.name'];
-    }
-    if (!namespace && typeof entryValue.namespace === 'string' && entryValue.namespace) {
-      namespace = entryValue.namespace;
-    }
-
-    const keyNames = Array.from(entryKey.matchAll(DB_KEY_NAME_PATTERN))
-      .map((match) => match[1])
-      .filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0);
-    if (!namespace && keyNames.length >= 2) {
-      namespace = keyNames[0];
-    }
-    if (!name && keyNames.length > 0) {
-      name = keyNames[keyNames.length - 1];
-    }
-
+    const { apiVersion: fallbackApiVersion, kind: fallbackKind } = this.dbFallbackIdentity(endpoint);
+    const metadata = this.isRecord(entryValue.metadata) ? entryValue.metadata : {};
+    const keyNames = this.dbEntryKeyNames(entryKey);
+    const name = this.dbEntryName(metadata, entryValue, keyNames);
     if (!name) {
       return undefined;
     }
-    if (!namespace) {
-      namespace = this.getCoreNamespace();
-    }
-
-    const apiVersion = typeof entryValue.apiVersion === 'string' && entryValue.apiVersion
-      ? entryValue.apiVersion
-      : fallbackApiVersion;
-    const kind = typeof entryValue.kind === 'string' && entryValue.kind
-      ? entryValue.kind
-      : fallbackKind;
+    const namespace = this.dbEntryNamespace(metadata, entryValue, keyNames) ?? this.getCoreNamespace();
+    const apiVersion = this.nonEmptyString(entryValue.apiVersion) ?? fallbackApiVersion;
+    const kind = this.nonEmptyString(entryValue.kind) ?? fallbackKind;
 
     const resource: K8sResource = {
       metadata: {
@@ -719,44 +744,50 @@ export class EdaApiClient {
     return normalized;
   }
 
-  private queryRowsFromOps(holder: Record<string, unknown>): Record<string, unknown>[] {
-    const opsValue = holder.op ?? holder.Op;
-    let candidates: Record<string, unknown>[] = [];
-    if (Array.isArray(opsValue)) {
-      candidates = this.toRecordArray(opsValue);
-    } else if (
+  private hasInsertOrModify(holder: Record<string, unknown>): boolean {
+    return (
       this.isRecord(holder.insert_or_modify)
       || this.isRecord(holder.Insert_or_modify)
       || this.isRecord(holder.insertOrModify)
       || this.isRecord(holder.InsertOrModify)
-    ) {
-      candidates = [holder];
-    }
+    );
+  }
 
+  private opCandidates(holder: Record<string, unknown>): Record<string, unknown>[] {
+    const opsValue = holder.op ?? holder.Op;
+    if (Array.isArray(opsValue)) {
+      return this.toRecordArray(opsValue);
+    }
+    if (this.hasInsertOrModify(holder)) {
+      return [holder];
+    }
+    return [];
+  }
+
+  private opInsertOrModify(candidate: Record<string, unknown>): Record<string, unknown> | undefined {
+    const value = candidate.insert_or_modify
+      ?? candidate.Insert_or_modify
+      ?? candidate.insertOrModify
+      ?? candidate.InsertOrModify;
+    return this.isRecord(value) ? value : undefined;
+  }
+
+  private queryRowsFromOpCandidate(candidate: Record<string, unknown>): Record<string, unknown>[] {
+    const insertOrModify = this.opInsertOrModify(candidate);
+    if (!insertOrModify) {
+      return [];
+    }
+    const opRows = insertOrModify.rows ?? insertOrModify.Rows;
+    if (!Array.isArray(opRows)) {
+      return [];
+    }
+    return this.normalizeQueryRows(opRows);
+  }
+
+  private queryRowsFromOps(holder: Record<string, unknown>): Record<string, unknown>[] {
     const rows: Record<string, unknown>[] = [];
-    for (const candidate of candidates) {
-      const insertOrModify = candidate.insert_or_modify
-        ?? candidate.Insert_or_modify
-        ?? candidate.insertOrModify
-        ?? candidate.InsertOrModify;
-      if (!this.isRecord(insertOrModify)) {
-        continue;
-      }
-      const opRows = insertOrModify.rows ?? insertOrModify.Rows;
-      if (!Array.isArray(opRows)) {
-        continue;
-      }
-      for (const row of opRows) {
-        if (!this.isRecord(row)) {
-          continue;
-        }
-        const data = row.data;
-        if (this.isRecord(data)) {
-          rows.push(data);
-        } else {
-          rows.push(row);
-        }
-      }
+    for (const candidate of this.opCandidates(holder)) {
+      rows.push(...this.queryRowsFromOpCandidate(candidate));
     }
     return rows;
   }
@@ -872,61 +903,87 @@ export class EdaApiClient {
     }
   }
 
+  private dbTableCandidatesForSnapshot(endpoint: StreamEndpoint): string[] {
+    const candidates: string[] = [];
+    const cachedTable = this.dbTableByStream.get(endpoint.stream);
+    if (cachedTable) {
+      candidates.push(cachedTable);
+    }
+    for (const candidate of this.dbTableCandidatesForEndpoint(endpoint)) {
+      if (!candidates.includes(candidate)) {
+        candidates.push(candidate);
+      }
+    }
+    return candidates;
+  }
+
+  private dbEntriesFromPayload(payload: unknown): Array<[string, Record<string, unknown>]> {
+    if (this.isRecord(payload)) {
+      const entries = Object.entries(payload)
+        .filter(([, entryValue]) => this.isRecord(entryValue))
+        .map(([entryKey, entryValue]) => [entryKey, entryValue as Record<string, unknown>] as [string, Record<string, unknown>]);
+      if (entries.length > 0 || !this.payloadMayContainRows(payload)) {
+        return entries;
+      }
+      return this.queryRowsFromPayload(payload).map((row) => ['', row]);
+    }
+    if (Array.isArray(payload)) {
+      return this.toRecordArray(payload).map((entry) => ['', entry]);
+    }
+    return [];
+  }
+
+  private snapshotFromDbEntries(
+    endpoint: StreamEndpoint,
+    entries: Array<[string, Record<string, unknown>]>
+  ): BootstrapSnapshot {
+    const snapshot: BootstrapSnapshot = new Map();
+    for (const [entryKey, entryValue] of entries) {
+      const resource = this.resourceFromDbEntry(endpoint, entryKey, entryValue);
+      if (!resource?.metadata?.name || !resource.metadata.namespace) {
+        continue;
+      }
+      const bucket = this.getOrCreateSnapshotBucket(
+        snapshot,
+        endpoint.stream,
+        resource.metadata.namespace
+      );
+      bucket.set(resource.metadata.name, resource);
+    }
+    return snapshot;
+  }
+
+  private async safeFetchDbSnapshotForTable(
+    endpoint: StreamEndpoint,
+    tableName: string
+  ): Promise<BootstrapSnapshot | undefined> {
+    try {
+      const query = new URLSearchParams({
+        fields: DB_MINIMAL_RESOURCE_FIELDS,
+        jsPath: tableName,
+      });
+      const payload = await this.fetchJSON<unknown>(`${DB_DATA_PATH}?${query.toString()}`);
+      const entries = this.dbEntriesFromPayload(payload);
+      return this.snapshotFromDbEntries(endpoint, entries);
+    } catch {
+      return undefined;
+    }
+  }
+
   private async safeFetchDbStreamSnapshot(
     endpoint: StreamEndpoint
   ): Promise<BootstrapSnapshot | undefined> {
     const cachedTable = this.dbTableByStream.get(endpoint.stream);
-    const tableCandidates: string[] = [];
-    if (cachedTable) {
-      tableCandidates.push(cachedTable);
-    }
-    for (const candidate of this.dbTableCandidatesForEndpoint(endpoint)) {
-      if (!tableCandidates.includes(candidate)) {
-        tableCandidates.push(candidate);
-      }
-    }
+    const tableCandidates = this.dbTableCandidatesForSnapshot(endpoint);
     if (tableCandidates.length === 0) {
       return undefined;
     }
 
     for (const tableName of tableCandidates) {
-      try {
-        const query = new URLSearchParams({
-          fields: DB_MINIMAL_RESOURCE_FIELDS,
-          jsPath: tableName,
-        });
-        const payload = await this.fetchJSON<unknown>(`${DB_DATA_PATH}?${query.toString()}`);
+      const snapshot = await this.safeFetchDbSnapshotForTable(endpoint, tableName);
+      if (snapshot) {
         this.dbTableByStream.set(endpoint.stream, tableName);
-
-        let entries: Array<[string, Record<string, unknown>]> = [];
-        if (this.isRecord(payload)) {
-          entries = Object.entries(payload)
-            .filter(([, entryValue]) => this.isRecord(entryValue))
-            .map(([entryKey, entryValue]) => [entryKey, entryValue as Record<string, unknown>]);
-          if (entries.length === 0 && this.payloadMayContainRows(payload)) {
-            entries = this.queryRowsFromPayload(payload).map((row) => ['', row]);
-          }
-        } else if (Array.isArray(payload)) {
-          entries = this.toRecordArray(payload).map((entry) => ['', entry]);
-        }
-
-        const snapshot: BootstrapSnapshot = new Map();
-        for (const [entryKey, entryValue] of entries) {
-          const resource = this.resourceFromDbEntry(endpoint, entryKey, entryValue);
-          if (!resource || !resource.metadata?.name || !resource.metadata.namespace) {
-            continue;
-          }
-          const bucket = this.getOrCreateSnapshotBucket(
-            snapshot,
-            endpoint.stream,
-            resource.metadata.namespace
-          );
-          bucket.set(resource.metadata.name, resource);
-        }
-
         return snapshot;
-      } catch {
-        // Try the next possible table name.
       }
     }
 
@@ -989,6 +1046,86 @@ export class EdaApiClient {
     return ordered;
   }
 
+  private namespaceRequestsForEndpoint(
+    endpoint: StreamEndpoint,
+    namespaces: string[]
+  ): Array<{ namespace: string; path: string }> {
+    const namespaceToken = `{${endpoint.namespaceParam || 'namespace'}}`;
+    return namespaces
+      .map((namespace) => ({
+        namespace,
+        path: endpoint.path.replace(namespaceToken, encodeURIComponent(namespace))
+      }))
+      .filter((request) => !request.path.includes('{'));
+  }
+
+  private appendNamespacedItemsToSnapshot(
+    snapshot: BootstrapSnapshot,
+    stream: string,
+    namespace: string,
+    items: K8sResource[]
+  ): void {
+    if (items.length === 0) {
+      return;
+    }
+    const bucket = this.getOrCreateSnapshotBucket(snapshot, stream, namespace);
+    for (const item of items) {
+      const metadata = this.isRecord(item.metadata)
+        ? item.metadata
+        : undefined;
+      const name = this.extractResourceName(item, metadata);
+      if (name) {
+        bucket.set(name, item);
+      }
+    }
+  }
+
+  private itemNamespace(metadata: Record<string, unknown> | undefined): string {
+    const namespace = this.nonEmptyString(metadata?.namespace);
+    return namespace ?? this.getCoreNamespace();
+  }
+
+  private appendClusterItemsToSnapshot(
+    snapshot: BootstrapSnapshot,
+    stream: string,
+    items: K8sResource[]
+  ): void {
+    for (const item of items) {
+      const metadata = this.isRecord(item.metadata)
+        ? item.metadata
+        : undefined;
+      const name = this.extractResourceName(item, metadata);
+      if (!name) {
+        continue;
+      }
+      const namespace = this.itemNamespace(metadata);
+      const bucket = this.getOrCreateSnapshotBucket(snapshot, stream, namespace);
+      bucket.set(name, item);
+    }
+  }
+
+  private async appendEndpointNamespaceBatches(
+    endpoint: StreamEndpoint,
+    stream: string,
+    namespaces: string[],
+    snapshot: BootstrapSnapshot
+  ): Promise<void> {
+    const namespaceRequests = this.namespaceRequestsForEndpoint(endpoint, namespaces);
+    const namespaceParallelism = this.getBootstrapNamespaceParallelism();
+
+    for (let index = 0; index < namespaceRequests.length; index += namespaceParallelism) {
+      const batch = namespaceRequests.slice(index, index + namespaceParallelism);
+      const batchResults = await Promise.all(batch.map(async (request) => ({
+        namespace: request.namespace,
+        items: await this.safeFetchStreamItems(request.path)
+      })));
+
+      for (const { namespace, items } of batchResults) {
+        this.appendNamespacedItemsToSnapshot(snapshot, stream, namespace, items);
+      }
+    }
+  }
+
   private async bootstrapEndpointSnapshot(
     endpoint: StreamEndpoint,
     namespaces: string[],
@@ -1009,61 +1146,12 @@ export class EdaApiClient {
     const snapshot: BootstrapSnapshot = new Map();
 
     if (endpoint.namespaced) {
-      const namespaceToken = `{${endpoint.namespaceParam || 'namespace'}}`;
-      const namespaceRequests = namespaces
-        .map((namespace) => ({
-          namespace,
-          path: endpoint.path.replace(namespaceToken, encodeURIComponent(namespace))
-        }))
-        .filter((request) => !request.path.includes('{'));
-      const namespaceParallelism = this.getBootstrapNamespaceParallelism();
-
-      for (let index = 0; index < namespaceRequests.length; index += namespaceParallelism) {
-        const batch = namespaceRequests.slice(index, index + namespaceParallelism);
-        const batchResults = await Promise.all(batch.map(async (request) => ({
-          namespace: request.namespace,
-          items: await this.safeFetchStreamItems(request.path)
-        })));
-
-        for (const { namespace, items } of batchResults) {
-          if (items.length === 0) {
-            continue;
-          }
-          const bucket = this.getOrCreateSnapshotBucket(snapshot, stream, namespace);
-          for (const item of items) {
-            const metadata = this.isRecord(item.metadata)
-              ? item.metadata
-              : undefined;
-            const name = this.extractResourceName(item, metadata);
-            if (!name) {
-              continue;
-            }
-            bucket.set(name, item);
-          }
-        }
-      }
+      await this.appendEndpointNamespaceBatches(endpoint, stream, namespaces, snapshot);
       return { snapshot, usedNamesOnly: false };
     }
 
     const items = await this.safeFetchStreamItems(endpoint.path);
-    if (items.length === 0) {
-      return { snapshot, usedNamesOnly: false };
-    }
-    for (const item of items) {
-      const metadata = this.isRecord(item.metadata)
-        ? item.metadata
-        : undefined;
-      const namespace = typeof metadata?.namespace === 'string' && metadata.namespace.length > 0
-        ? metadata.namespace
-        : this.getCoreNamespace();
-      const name = this.extractResourceName(item, metadata);
-      if (!name) {
-        continue;
-      }
-      const bucket = this.getOrCreateSnapshotBucket(snapshot, stream, namespace);
-      bucket.set(name, item);
-    }
-
+    this.appendClusterItemsToSnapshot(snapshot, stream, items);
     return { snapshot, usedNamesOnly: false };
   }
 
