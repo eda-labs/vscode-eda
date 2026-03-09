@@ -110,10 +110,6 @@ export class EdaExplorerViewProvider implements vscode.WebviewViewProvider, vsco
     this.filterableProviders = [
       providers.dashboardProvider,
       providers.namespaceProvider,
-      providers.alarmProvider,
-      providers.deviationProvider,
-      providers.basketProvider,
-      providers.transactionProvider,
       providers.helpProvider
     ];
 

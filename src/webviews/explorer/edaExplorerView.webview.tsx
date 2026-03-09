@@ -75,7 +75,6 @@ const COLOR_PRIMARY_MAIN = 'primary.main';
 const COLOR_DIVIDER = 'divider';
 const DEFAULT_EXPANDED_SECTIONS = new Set<ExplorerTabId>(['dashboards', 'resources']);
 const FILTER_UPDATE_DEBOUNCE_MS = 250;
-const LARGE_ALARM_SECTION_ROW_THRESHOLD = 500;
 const CMD_VIEW_STREAM_ITEM = 'vscode-eda.viewStreamItem';
 const CMD_VIEW_RESOURCE = 'vscode-eda.viewResource';
 const CMD_EDIT_RESOURCE = 'vscode-eda.switchToEditResource';
@@ -128,6 +127,15 @@ function formatSectionTitle(section: ExplorerSectionSnapshot): string {
     return section.label;
   }
   return `${section.label} (${section.count})`;
+}
+
+function parseCountFromDashboardLabel(label: string): number {
+  const match = label.match(/\((\d+)\)\s*$/);
+  if (!match || typeof match[1] !== 'string') {
+    return 0;
+  }
+  const count = Number.parseInt(match[1], 10);
+  return Number.isNaN(count) ? 0 : count;
 }
 
 function flattenExpandableNodeIds(nodes: ExplorerNode[]): string[] {
@@ -196,42 +204,16 @@ function collectResourceNamespaces(nodes: ExplorerNode[]): string[] {
 }
 
 type ToolbarActionIconId =
-  | 'createResource'
-  | 'rejectAllDeviations'
-  | 'commitBasket'
-  | 'dryRunBasket'
-  | 'discardBasket'
-  | 'setTransactionLimit';
+  | 'createResource';
 
 const TOOLBAR_ACTION_ICONS: Record<ToolbarActionIconId, SvgIconComponent> = {
-  createResource: AddIcon,
-  rejectAllDeviations: CloseIcon,
-  commitBasket: PlayArrowIcon,
-  dryRunBasket: FactCheckIcon,
-  discardBasket: DeleteOutlineIcon,
-  setTransactionLimit: SettingsIcon
+  createResource: AddIcon
 };
 
 function toolbarActionIconId(action: ExplorerAction): ToolbarActionIconId | undefined {
   if (action.command === 'vscode-eda.createResource') {
     return 'createResource';
   }
-  if (action.command === 'vscode-eda.rejectAllDeviations') {
-    return 'rejectAllDeviations';
-  }
-  if (action.command === 'vscode-eda.commitBasket') {
-    return 'commitBasket';
-  }
-  if (action.command === 'vscode-eda.dryRunBasket') {
-    return 'dryRunBasket';
-  }
-  if (action.command === 'vscode-eda.discardBasket') {
-    return 'discardBasket';
-  }
-  if (action.command === 'vscode-eda.setTransactionLimit') {
-    return 'setTransactionLimit';
-  }
-
   return undefined;
 }
 
@@ -547,7 +529,6 @@ interface ExplorerSectionCardProps {
   isCollapsed: boolean;
   isDropTarget: boolean;
   isBeingDragged: boolean;
-  onSetSectionRef: (sectionId: ExplorerTabId, element: HTMLDivElement | null) => void;
   onSectionDragStart: (sectionId: ExplorerTabId) => (event: DragEvent<HTMLDivElement>) => void;
   onSectionDragOver: (sectionId: ExplorerTabId) => (event: DragEvent<HTMLDivElement>) => void;
   onSectionDrop: (sectionId: ExplorerTabId) => (event: DragEvent<HTMLDivElement>) => void;
@@ -603,79 +584,6 @@ function renderTreeNodes(
   });
 }
 
-interface AlarmSectionListProps {
-  nodes: ExplorerNode[];
-  enableEntryTooltip: boolean;
-  onInvokeAction: (action: ExplorerAction) => void;
-}
-
-const AlarmSectionList = memo(function AlarmSectionList({
-  nodes,
-  enableEntryTooltip,
-  onInvokeAction
-}: Readonly<AlarmSectionListProps>) {
-  return (
-    <Box role="list" sx={{ minHeight: 0 }}>
-      {nodes.map((node) => {
-        const primaryAction = resolveNodePrimaryAction(node);
-        const hasEntryTooltip = enableEntryTooltip && Boolean(node.tooltip);
-        const labelBody = <ExplorerNodeLabelBody node={node} primaryAction={primaryAction} />;
-        const label = hasEntryTooltip
-          ? (
-            <Tooltip
-              title={node.tooltip || ''}
-              placement="bottom"
-              enterDelay={400}
-              leaveDelay={0}
-              disableInteractive
-              slotProps={{
-                popper: { sx: { pointerEvents: 'none' }, modifiers: [{ name: 'offset', options: { offset: [0, 6] } }, { name: 'flip', options: { fallbackPlacements: ['top'] } }, { name: 'preventOverflow', options: { padding: 8, altAxis: true } }] },
-                tooltip: { sx: { maxWidth: 'min(320px, calc(100vw - 24px))', whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }
-              }}
-            >
-              {labelBody}
-            </Tooltip>
-          )
-          : labelBody;
-
-        return (
-          <Box
-            key={node.id}
-            role="listitem"
-            onClick={(event) => {
-              if (!primaryAction) {
-                return;
-              }
-              event.preventDefault();
-              event.stopPropagation();
-              onInvokeAction(primaryAction);
-            }}
-            sx={{
-              minHeight: 24,
-              px: 0.75,
-              py: 0.3,
-              borderRadius: 0.75,
-              cursor: primaryAction ? 'pointer' : 'default',
-              contentVisibility: 'auto',
-              containIntrinsicSize: '24px',
-              '&:hover': primaryAction ? {
-                bgcolor: (theme: Theme) => alpha(theme.palette.action.hover, 0.6)
-              } : undefined
-            }}
-          >
-            {label}
-            {(node.description || node.statusDescription) && (
-              <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', ml: 2.1 }}>
-                {node.description || node.statusDescription}
-              </Typography>
-            )}
-          </Box>
-        );
-      })}
-    </Box>
-  );
-});
-
 const SectionTree = memo(function SectionTree({
   section,
   expandedItems,
@@ -684,27 +592,15 @@ const SectionTree = memo(function SectionTree({
   selectedResourceNamespace,
   onOpenActionMenu
 }: Readonly<SectionTreeProps>) {
-  const isLargeAlarmSection = section.id === 'alarms' && section.nodes.length >= LARGE_ALARM_SECTION_ROW_THRESHOLD;
   const renderOptions = useMemo<TreeRenderOptions>(() => ({
-    enableEntryTooltip: !isLargeAlarmSection
-  }), [isLargeAlarmSection]);
+    enableEntryTooltip: true
+  }), []);
 
   if (section.nodes.length === 0) {
     return (
       <Typography variant="body2" color="text.secondary">
         No items found.
       </Typography>
-    );
-  }
-
-  const isFlatAlarmSection = section.id === 'alarms' && section.nodes.every(node => node.children.length === 0);
-  if (isFlatAlarmSection) {
-    return (
-      <AlarmSectionList
-        nodes={section.nodes}
-        enableEntryTooltip={renderOptions.enableEntryTooltip}
-        onInvokeAction={onInvokeAction}
-      />
     );
   }
 
@@ -892,7 +788,6 @@ function ExplorerSectionCard({
   isCollapsed,
   isDropTarget,
   isBeingDragged,
-  onSetSectionRef,
   onSectionDragStart,
   onSectionDragOver,
   onSectionDrop,
@@ -905,26 +800,10 @@ function ExplorerSectionCard({
   onExpandAllInSection,
   onCollapseAllInSection
 }: Readonly<ExplorerSectionCardProps>) {
-  const keepMountedWhenCollapsed = section.id === 'alarms';
-  const [hasMountedContent, setHasMountedContent] = useState(!isCollapsed);
-
-  useEffect(() => {
-    if (!isCollapsed && !hasMountedContent) {
-      setHasMountedContent(true);
-    }
-  }, [hasMountedContent, isCollapsed]);
-
-  const shouldRenderContent = keepMountedWhenCollapsed ? hasMountedContent : !isCollapsed;
-  const contentHidden = keepMountedWhenCollapsed && isCollapsed;
+  const shouldRenderContent = !isCollapsed;
 
   return (
-    <Paper
-      variant="outlined"
-      ref={(element: HTMLDivElement | null) => {
-        onSetSectionRef(section.id, element);
-      }}
-      sx={getSectionPaperSx(isDropTarget)}
-    >
+    <Paper variant="outlined" sx={getSectionPaperSx(isDropTarget)}>
       <Box
         draggable
         onDragStart={onSectionDragStart(section.id)}
@@ -968,7 +847,7 @@ function ExplorerSectionCard({
       </Box>
 
       {shouldRenderContent && (
-        <Box sx={{ p: 1, display: contentHidden ? 'none' : 'block' }}>
+        <Box sx={{ p: 1 }}>
           <SectionTree
             section={section}
             expandedItems={expandedItems}
@@ -1037,7 +916,6 @@ function EdaExplorerView() {
   const [draggingSection, setDraggingSection] = useState<ExplorerTabId | null>(null);
   const [dragOverSection, setDragOverSection] = useState<ExplorerTabId | null>(null);
   const [actionMenuState, setActionMenuState] = useState<ExplorerActionMenuState | null>(null);
-  const sectionRefs = useRef<Partial<Record<ExplorerTabId, HTMLDivElement | null>>>({});
   const resourcesExpandedBeforeFilterRef = useRef<string[] | null>(null);
   const resourcesCollapsedBeforeFilterRef = useRef<boolean | null>(null);
   const pendingFilterSyncRef = useRef<string | null>(null);
@@ -1240,8 +1118,19 @@ function EdaExplorerView() {
     }
     return visible;
   }, [sectionOrder, sectionsById]);
+  const basketCount = useMemo(() => {
+    const dashboardSection = sectionsById.get('dashboards');
+    if (!dashboardSection) {
+      return 0;
+    }
 
-  const basketCount = useMemo(() => sectionsById.get('basket')?.count ?? 0, [sectionsById]);
+    const basketEntry = dashboardSection.nodes.find(node => node.label.toLowerCase().startsWith('basket'));
+    if (!basketEntry) {
+      return 0;
+    }
+
+    return parseCountFromDashboardLabel(basketEntry.label);
+  }, [sectionsById]);
   const filterUpdateTimeoutRef = useRef<number | null>(null);
 
   const invokeAction = useCallback((action: ExplorerAction) => {
@@ -1249,6 +1138,14 @@ function EdaExplorerView() {
       command: 'invokeCommand',
       commandId: action.command,
       args: action.args
+    });
+  }, [postMessage]);
+
+  const invokeCommandById = useCallback((commandId: string, args?: unknown[]) => {
+    postMessage({
+      command: 'invokeCommand',
+      commandId,
+      args
     });
   }, [postMessage]);
 
@@ -1347,11 +1244,32 @@ function EdaExplorerView() {
   }, [handleFilterChange]);
 
   const openSettings = useCallback(() => {
-    postMessage({
-      command: 'invokeCommand',
-      commandId: 'vscode-eda.configureTargets'
-    });
-  }, [postMessage]);
+    invokeCommandById('vscode-eda.configureTargets');
+  }, [invokeCommandById]);
+
+  const openBasketDashboard = useCallback(() => {
+    invokeCommandById('vscode-eda.showDashboard', ['Basket']);
+  }, [invokeCommandById]);
+
+  const commitBasket = useCallback(() => {
+    invokeCommandById('vscode-eda.commitBasket');
+  }, [invokeCommandById]);
+
+  const dryRunBasket = useCallback(() => {
+    invokeCommandById('vscode-eda.dryRunBasket');
+  }, [invokeCommandById]);
+
+  const discardBasket = useCallback(() => {
+    invokeCommandById('vscode-eda.discardBasket');
+  }, [invokeCommandById]);
+
+  const rejectAllDeviations = useCallback(() => {
+    invokeCommandById('vscode-eda.rejectAllDeviations');
+  }, [invokeCommandById]);
+
+  const setTransactionLimit = useCallback(() => {
+    invokeCommandById('vscode-eda.setTransactionLimit');
+  }, [invokeCommandById]);
 
   const expandAllInSection = useCallback((sectionId: ExplorerTabId, expandedItemIds: string[]) => {
     startTransition(() => {
@@ -1383,25 +1301,6 @@ function EdaExplorerView() {
       ...current,
       resources: false
     }));
-  }, []);
-
-  const setSectionRef = useCallback((sectionId: ExplorerTabId, element: HTMLDivElement | null) => {
-    sectionRefs.current[sectionId] = element;
-  }, []);
-
-  const focusBasketSection = useCallback(() => {
-    setCollapsedBySection(current => ({
-      ...current,
-      basket: false
-    }));
-
-    const basketSection = sectionRefs.current.basket;
-    if (basketSection) {
-      basketSection.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start'
-      });
-    }
   }, []);
 
   const handleSectionDragStart = useCallback((sectionId: ExplorerTabId) => (event: DragEvent<HTMLDivElement>) => {
@@ -1508,10 +1407,60 @@ function EdaExplorerView() {
           }}
         />
 
-        <Tooltip title="Open Basket">
+        <Tooltip title="Commit Basket">
           <IconButton
             size="small"
-            onClick={focusBasketSection}
+            onClick={commitBasket}
+            sx={TOOLBAR_ICON_BUTTON_SX}
+          >
+            <PlayArrowIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+
+        <Tooltip title="Dry Run Basket">
+          <IconButton
+            size="small"
+            onClick={dryRunBasket}
+            sx={TOOLBAR_ICON_BUTTON_SX}
+          >
+            <FactCheckIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+
+        <Tooltip title="Discard Basket">
+          <IconButton
+            size="small"
+            onClick={discardBasket}
+            sx={TOOLBAR_ICON_BUTTON_SX}
+          >
+            <DeleteOutlineIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+
+        <Tooltip title="Reject All Deviations">
+          <IconButton
+            size="small"
+            onClick={rejectAllDeviations}
+            sx={TOOLBAR_ICON_BUTTON_SX}
+          >
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+
+        <Tooltip title="Set Transaction Limit">
+          <IconButton
+            size="small"
+            onClick={setTransactionLimit}
+            sx={TOOLBAR_ICON_BUTTON_SX}
+          >
+            <SettingsIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+
+        <Tooltip title="Open Basket Dashboard">
+          <IconButton
+            size="small"
+            onClick={openBasketDashboard}
             sx={{
               border: '1px solid',
               borderColor: COLOR_DIVIDER,
@@ -1569,7 +1518,6 @@ function EdaExplorerView() {
             isCollapsed={collapsedBySection[section.id] ?? false}
             isDropTarget={dragOverSection === section.id && draggingSection !== section.id}
             isBeingDragged={draggingSection === section.id}
-            onSetSectionRef={setSectionRef}
             onSectionDragStart={handleSectionDragStart}
             onSectionDragOver={handleSectionDragOver}
             onSectionDrop={handleSectionDrop}

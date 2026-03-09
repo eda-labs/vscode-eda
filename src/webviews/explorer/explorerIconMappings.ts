@@ -4,10 +4,6 @@ import type { NokiaExplorerIconName } from './nokiaExplorerIcons';
 const SECTION_ICON_MAP: Record<ExplorerTabId, NokiaExplorerIconName> = {
   dashboards: 'home',
   resources: 'workflow',
-  alarms: 'alarmclock',
-  deviations: 'checkcirclewarning',
-  basket: 'formnumberfield',
-  transactions: 'timehistory',
   help: 'maintenance'
 };
 

@@ -1,4 +1,5 @@
 import {
+  CheckCircleOutline as CheckCircleOutlineIcon,
   Close as CloseIcon,
   DeleteOutline as DeleteOutlineIcon,
   Description as DescriptionIcon,
@@ -8,9 +9,11 @@ import {
   OpenInNew as OpenInNewIcon,
   PlayArrow as PlayArrowIcon,
   RestartAlt as RestartAltIcon,
+  Restore as RestoreIcon,
   Search as SearchIcon,
   Settings as SettingsIcon,
   Terminal as TerminalIcon,
+  Undo as UndoIcon,
   Visibility as VisibilityIcon,
   type SvgIconComponent
 } from '@mui/icons-material';
@@ -18,6 +21,7 @@ import {
   Alert,
   Box,
   Chip,
+  IconButton,
   InputAdornment,
   ListItemIcon,
   Menu,
@@ -38,7 +42,8 @@ import { mountWebview } from '../shared/utils';
 import type {
   ExplorerResourceListIncomingMessage,
   ExplorerResourceListItemPayload,
-  ExplorerResourceListPayload
+  ExplorerResourceListPayload,
+  ExplorerResourceListViewKind
 } from './explorerResourceListTypes';
 
 interface ActionIconRule {
@@ -51,9 +56,18 @@ interface OverflowMenuState {
   actions: ExplorerAction[];
 }
 
+interface HeaderQuickAction {
+  id: string;
+  label: string;
+  commandId: string;
+  icon: SvgIconComponent;
+  destructive?: boolean;
+}
+
 interface ResourceGridRow {
   id: string;
   resource: ExplorerResourceListItemPayload;
+  description: string;
   name: string;
   namespace: string;
   kind: string;
@@ -61,12 +75,65 @@ interface ResourceGridRow {
   labels: string;
   apiVersion: string;
   state: string;
+  alarmSeverity: string;
+  alarmType: string;
+  alarmResource: string;
+  alarmLastChanged: string;
+  deviationStatus: string;
+  deviationPath: string;
+  deviationNodeEndpoint: string;
+  basketOperation: string;
+  basketResourceCount: string;
+  transactionId: string;
+  transactionUser: string;
+  transactionTimestamp: string;
+  transactionDryRun: string;
 }
 
 const ALL_NAMESPACES_VALUE = '__all_namespaces__';
 const INLINE_ACTION_LIMIT = 3;
 const CMD_VIEW_RESOURCE = 'vscode-eda.viewResource';
 const CMD_VIEW_STREAM_ITEM = 'vscode-eda.viewStreamItem';
+const CMD_SHOW_ALARM_DETAILS = 'vscode-eda.showAlarmDetails';
+const CMD_SHOW_DEVIATION_DETAILS = 'vscode-eda.showDeviationDetails';
+const CMD_SHOW_BASKET_TRANSACTION = 'vscode-eda.showBasketTransaction';
+const CMD_SHOW_TRANSACTION_DETAILS = 'vscode-eda.showTransactionDetails';
+const CMD_ACCEPT_DEVIATION = 'vscode-eda.acceptDeviation';
+const CMD_REJECT_DEVIATION = 'vscode-eda.rejectDeviation';
+const CMD_EDIT_BASKET_ITEM = 'vscode-eda.editBasketItem';
+const CMD_REMOVE_BASKET_ITEM = 'vscode-eda.removeBasketItem';
+const CMD_REVERT_TRANSACTION = 'vscode-eda.revertTransaction';
+const CMD_RESTORE_TRANSACTION = 'vscode-eda.restoreTransaction';
+const CMD_COMMIT_BASKET = 'vscode-eda.commitBasket';
+const CMD_DRY_RUN_BASKET = 'vscode-eda.dryRunBasket';
+const CMD_DISCARD_BASKET = 'vscode-eda.discardBasket';
+const CMD_REJECT_ALL_DEVIATIONS = 'vscode-eda.rejectAllDeviations';
+const CMD_SET_TRANSACTION_LIMIT = 'vscode-eda.setTransactionLimit';
+const SEVERITY_COLOR_MAP: Record<string, 'error' | 'warning' | 'info' | 'success' | 'default'> = {
+  critical: 'error',
+  major: 'error',
+  warning: 'warning',
+  minor: 'info',
+  info: 'success'
+};
+const ACTION_ICON_BY_COMMAND: Record<string, SvgIconComponent> = {
+  [CMD_VIEW_STREAM_ITEM]: VisibilityIcon,
+  [CMD_VIEW_RESOURCE]: DescriptionIcon,
+  [CMD_SHOW_ALARM_DETAILS]: VisibilityIcon,
+  [CMD_SHOW_DEVIATION_DETAILS]: VisibilityIcon,
+  [CMD_SHOW_BASKET_TRANSACTION]: DescriptionIcon,
+  [CMD_SHOW_TRANSACTION_DETAILS]: DescriptionIcon,
+  [CMD_ACCEPT_DEVIATION]: CheckCircleOutlineIcon,
+  [CMD_REJECT_DEVIATION]: CloseIcon,
+  [CMD_EDIT_BASKET_ITEM]: EditIcon,
+  [CMD_REMOVE_BASKET_ITEM]: DeleteOutlineIcon,
+  [CMD_REVERT_TRANSACTION]: UndoIcon,
+  [CMD_RESTORE_TRANSACTION]: RestoreIcon,
+  [CMD_COMMIT_BASKET]: PlayArrowIcon,
+  [CMD_DRY_RUN_BASKET]: FactCheckIcon,
+  [CMD_DISCARD_BASKET]: DeleteOutlineIcon,
+  [CMD_SET_TRANSACTION_LIMIT]: SettingsIcon
+};
 
 const STATUS_COLOR_MAP: Record<string, string> = {
   green: 'success.main',
@@ -75,6 +142,18 @@ const STATUS_COLOR_MAP: Record<string, string> = {
   blue: 'info.main',
   gray: 'text.disabled'
 };
+const HEADER_ACTION_BUTTON_SX = {
+  border: '1px solid',
+  borderColor: 'divider',
+  borderRadius: 1,
+  color: 'text.primary',
+  width: 28,
+  height: 28,
+  '&:hover': {
+    borderColor: 'primary.main',
+    bgcolor: 'action.hover'
+  }
+} as const;
 
 const ACTION_ICON_RULES: ActionIconRule[] = [
   { terms: ['viewstreamitem', 'viewresource', 'showyaml', 'yaml'], icon: VisibilityIcon },
@@ -94,6 +173,10 @@ function commandIncludesAny(command: string, terms: string[]): boolean {
 }
 
 function actionIcon(action: ExplorerAction): SvgIconComponent {
+  const direct = ACTION_ICON_BY_COMMAND[action.command];
+  if (direct) {
+    return direct;
+  }
   const command = action.command.toLowerCase();
   const matchedRule = ACTION_ICON_RULES.find(rule => commandIncludesAny(command, rule.terms));
   return matchedRule?.icon ?? MoreVertIcon;
@@ -163,17 +246,96 @@ function normalizeSingleLine(value: string | undefined): string {
   return normalized || '-';
 }
 
+function normalizeBoolean(value: boolean | undefined): string {
+  if (value === undefined) {
+    return '-';
+  }
+  return value ? 'Yes' : 'No';
+}
+
+function booleanSearchToken(
+  value: boolean | undefined,
+  trueText: string,
+  falseText: string
+): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  return value ? trueText : falseText;
+}
+
+function formatTimestamp(value: string | undefined): string {
+  if (!value) {
+    return '-';
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString();
+}
+
+function resolveViewKind(payload: ExplorerResourceListPayload): ExplorerResourceListViewKind {
+  if (payload.viewKind) {
+    return payload.viewKind;
+  }
+
+  if (payload.title === 'Alarms') {
+    return 'alarms';
+  }
+  if (payload.title === 'Deviations') {
+    return 'deviations';
+  }
+  if (payload.title === 'Basket') {
+    return 'basket';
+  }
+  if (payload.title === 'Transactions') {
+    return 'transactions';
+  }
+  return 'resources';
+}
+
+function defaultSortModel(viewKind: ExplorerResourceListViewKind): GridSortModel {
+  if (viewKind === 'alarms') {
+    return [{ field: 'alarmLastChanged', sort: 'desc' }];
+  }
+  if (viewKind === 'transactions') {
+    return [{ field: 'transactionId', sort: 'desc' }];
+  }
+  return [{ field: 'name', sort: 'asc' }];
+}
+
+function severityColor(value: string): 'error' | 'warning' | 'info' | 'success' | 'default' {
+  const normalized = value.trim().toLowerCase();
+  return SEVERITY_COLOR_MAP[normalized] ?? 'default';
+}
+
 function toGridRow(resource: ExplorerResourceListItemPayload): ResourceGridRow {
+  const details = resource.details;
   return {
     id: resource.id,
     resource,
+    description: normalizeSingleLine(resource.description),
     name: normalizeSingleLine(resource.name),
     namespace: normalizeSingleLine(resource.namespace),
     kind: normalizeSingleLine(resource.kind),
     stream: normalizeSingleLine(resource.stream),
     labels: resource.labels || '-',
     apiVersion: normalizeSingleLine(resource.apiVersion),
-    state: normalizeSingleLine(resourceState(resource))
+    state: normalizeSingleLine(resourceState(resource)),
+    alarmSeverity: normalizeSingleLine(details?.alarmSeverity),
+    alarmType: normalizeSingleLine(details?.alarmType),
+    alarmResource: normalizeSingleLine(details?.alarmResource),
+    alarmLastChanged: formatTimestamp(details?.alarmLastChanged),
+    deviationStatus: normalizeSingleLine(details?.deviationStatus),
+    deviationPath: normalizeSingleLine(details?.deviationPath),
+    deviationNodeEndpoint: normalizeSingleLine(details?.deviationNodeEndpoint),
+    basketOperation: normalizeSingleLine(details?.basketOperation),
+    basketResourceCount: details?.basketResourceCount !== undefined ? String(details.basketResourceCount) : '-',
+    transactionId: normalizeSingleLine(details?.transactionId),
+    transactionUser: normalizeSingleLine(details?.transactionUser),
+    transactionTimestamp: formatTimestamp(details?.transactionTimestamp),
+    transactionDryRun: normalizeBoolean(details?.transactionDryRun)
   };
 }
 
@@ -186,6 +348,12 @@ function ExplorerResourceListPanelWebview() {
   const [sortModel, setSortModel] = useState<GridSortModel>([
     { field: 'name', sort: 'asc' }
   ]);
+  const viewKind = useMemo<ExplorerResourceListViewKind>(() => {
+    if (!payload) {
+      return 'resources';
+    }
+    return resolveViewKind(payload);
+  }, [payload]);
 
   useReadySignal();
 
@@ -202,13 +370,68 @@ function ExplorerResourceListPanelWebview() {
     }
   }, []));
 
-  const invokeAction = useCallback((action: ExplorerAction) => {
+  const invokeCommandById = useCallback((commandId: string, args?: unknown[]) => {
     postMessage({
       command: 'invokeCommand',
-      commandId: action.command,
-      args: action.args
+      commandId,
+      args
     });
   }, [postMessage]);
+
+  const invokeAction = useCallback((action: ExplorerAction) => {
+    invokeCommandById(action.command, action.args);
+  }, [invokeCommandById]);
+
+  const headerQuickActions = useMemo<HeaderQuickAction[]>(() => {
+    if (viewKind === 'basket') {
+      return [
+        {
+          id: 'basket-commit',
+          label: 'Commit Basket',
+          commandId: CMD_COMMIT_BASKET,
+          icon: PlayArrowIcon
+        },
+        {
+          id: 'basket-dry-run',
+          label: 'Dry Run Basket',
+          commandId: CMD_DRY_RUN_BASKET,
+          icon: FactCheckIcon
+        },
+        {
+          id: 'basket-discard',
+          label: 'Discard Basket',
+          commandId: CMD_DISCARD_BASKET,
+          icon: DeleteOutlineIcon,
+          destructive: true
+        }
+      ];
+    }
+
+    if (viewKind === 'deviations') {
+      return [
+        {
+          id: 'deviations-reject-all',
+          label: 'Reject All Deviations',
+          commandId: CMD_REJECT_ALL_DEVIATIONS,
+          icon: CloseIcon,
+          destructive: true
+        }
+      ];
+    }
+
+    if (viewKind === 'transactions') {
+      return [
+        {
+          id: 'transactions-settings',
+          label: 'Set Transaction Limit',
+          commandId: CMD_SET_TRANSACTION_LIMIT,
+          icon: SettingsIcon
+        }
+      ];
+    }
+
+    return [];
+  }, [viewKind]);
 
   const filteredResources = useMemo(() => {
     if (!payload) {
@@ -221,6 +444,7 @@ function ExplorerResourceListPanelWebview() {
     }
 
     return payload.resources.filter((resource) => {
+      const details = resource.details;
       return [
         resource.name,
         resource.namespace,
@@ -230,7 +454,22 @@ function ExplorerResourceListPanelWebview() {
         resource.apiVersion,
         resource.state,
         resource.statusDescription,
-        resource.label
+        resource.description,
+        resource.label,
+        details?.alarmSeverity,
+        details?.alarmType,
+        details?.alarmResource,
+        details?.alarmLastChanged,
+        details?.deviationStatus,
+        details?.deviationPath,
+        details?.deviationNodeEndpoint,
+        details?.basketOperation,
+        details?.basketResourceCount !== undefined ? String(details.basketResourceCount) : undefined,
+        details?.transactionId,
+        details?.transactionUser,
+        details?.transactionTimestamp,
+        booleanSearchToken(details?.transactionDryRun, 'yes', 'no'),
+        booleanSearchToken(details?.transactionSuccess, 'success', 'failure')
       ].some((value) => typeof value === 'string' && value.toLowerCase().includes(filter));
     });
   }, [filterText, payload]);
@@ -251,6 +490,10 @@ function ExplorerResourceListPanelWebview() {
       window.removeEventListener('blur', handleWindowBlur);
     };
   }, [closeActionMenu, menuState]);
+
+  useEffect(() => {
+    setSortModel(defaultSortModel(viewKind));
+  }, [viewKind]);
 
   const rows = useMemo<ResourceGridRow[]>(
     () => filteredResources.map(toGridRow),
@@ -329,6 +572,36 @@ function ExplorerResourceListPanelWebview() {
     );
   }, []);
 
+  const renderSeverityCell = useCallback((params: GridRenderCellParams<ResourceGridRow>) => {
+    const value = String(params.value ?? '-');
+    if (value === '-') {
+      return <Typography variant="body2">-</Typography>;
+    }
+    return (
+      <Chip
+        size="small"
+        label={value.toUpperCase()}
+        color={severityColor(value)}
+        variant="outlined"
+      />
+    );
+  }, []);
+
+  const renderDryRunCell = useCallback((params: GridRenderCellParams<ResourceGridRow>) => {
+    const value = String(params.value ?? '-');
+    if (value === '-') {
+      return <Typography variant="body2">-</Typography>;
+    }
+    return (
+      <Chip
+        size="small"
+        label={value}
+        color={value === 'Yes' ? 'warning' : 'default'}
+        variant="outlined"
+      />
+    );
+  }, []);
+
   const renderLabelsCell = useCallback((params: GridRenderCellParams<ResourceGridRow>) => {
     return (
       <Box sx={{ py: 0.25, whiteSpace: 'pre-wrap', lineHeight: 1.35 }}>
@@ -337,8 +610,8 @@ function ExplorerResourceListPanelWebview() {
     );
   }, []);
 
-  const columns = useMemo<GridColDef<ResourceGridRow>[]>(() => [
-    {
+  const columns = useMemo<GridColDef<ResourceGridRow>[]>(() => {
+    const actionsColumn: GridColDef<ResourceGridRow> = {
       field: 'actions',
       headerName: 'Actions',
       width: 120,
@@ -346,27 +619,136 @@ function ExplorerResourceListPanelWebview() {
       sortable: false,
       filterable: false,
       renderCell: renderActionsCell
-    },
-    { field: 'name', headerName: 'Name', minWidth: 180, width: 220 },
-    { field: 'namespace', headerName: 'Namespace', minWidth: 140, width: 180 },
-    { field: 'kind', headerName: 'Kind', minWidth: 150, width: 180 },
-    { field: 'stream', headerName: 'Stream', minWidth: 170, width: 210 },
-    {
-      field: 'labels',
-      headerName: 'Labels',
-      minWidth: 220,
-      width: 320,
-      renderCell: renderLabelsCell
-    },
-    { field: 'apiVersion', headerName: 'API Version', minWidth: 170, width: 220 },
-    {
-      field: 'state',
-      headerName: 'State',
-      minWidth: 180,
-      width: 220,
-      renderCell: renderStateCell
+    };
+
+    if (viewKind === 'alarms') {
+      return [
+        actionsColumn,
+        { field: 'name', headerName: 'Name', minWidth: 200, width: 260 },
+        { field: 'namespace', headerName: 'Namespace', minWidth: 150, width: 190 },
+        {
+          field: 'alarmSeverity',
+          headerName: 'Severity',
+          minWidth: 120,
+          width: 140,
+          renderCell: renderSeverityCell
+        },
+        { field: 'alarmType', headerName: 'Type', minWidth: 140, width: 190 },
+        { field: 'alarmResource', headerName: 'Resource', minWidth: 220, width: 300 },
+        { field: 'alarmLastChanged', headerName: 'Last Changed', minWidth: 180, width: 220 },
+        { field: 'description', headerName: 'Description', minWidth: 260, width: 360 }
+      ];
     }
-  ], [renderActionsCell, renderLabelsCell, renderStateCell]);
+
+    if (viewKind === 'deviations') {
+      return [
+        actionsColumn,
+        { field: 'name', headerName: 'Name', minWidth: 200, width: 260 },
+        { field: 'namespace', headerName: 'Namespace', minWidth: 150, width: 190 },
+        {
+          field: 'deviationStatus',
+          headerName: 'Status',
+          minWidth: 150,
+          width: 190,
+          renderCell: renderStateCell
+        },
+        { field: 'kind', headerName: 'Kind', minWidth: 140, width: 180 },
+        { field: 'deviationNodeEndpoint', headerName: 'Node', minWidth: 180, width: 240 },
+        { field: 'deviationPath', headerName: 'Path', minWidth: 260, width: 360 }
+      ];
+    }
+
+    if (viewKind === 'basket') {
+      return [
+        actionsColumn,
+        { field: 'name', headerName: 'Resource', minWidth: 220, width: 300 },
+        { field: 'namespace', headerName: 'Namespace', minWidth: 150, width: 190 },
+        { field: 'kind', headerName: 'Kind', minWidth: 150, width: 200 },
+        { field: 'basketOperation', headerName: 'Operation', minWidth: 130, width: 150 },
+        { field: 'basketResourceCount', headerName: 'Count', minWidth: 100, width: 120 },
+        { field: 'description', headerName: 'Details', minWidth: 220, width: 300 }
+      ];
+    }
+
+    if (viewKind === 'transactions') {
+      return [
+        actionsColumn,
+        { field: 'transactionId', headerName: 'ID', minWidth: 110, width: 130 },
+        { field: 'transactionUser', headerName: 'User', minWidth: 140, width: 180 },
+        {
+          field: 'state',
+          headerName: 'State',
+          minWidth: 150,
+          width: 190,
+          renderCell: renderStateCell
+        },
+        { field: 'transactionTimestamp', headerName: 'Updated', minWidth: 180, width: 220 },
+        {
+          field: 'transactionDryRun',
+          headerName: 'Dry Run',
+          minWidth: 120,
+          width: 130,
+          renderCell: renderDryRunCell
+        },
+        { field: 'description', headerName: 'Description', minWidth: 240, width: 360 }
+      ];
+    }
+
+    return [
+      actionsColumn,
+      { field: 'name', headerName: 'Name', minWidth: 180, width: 220 },
+      { field: 'namespace', headerName: 'Namespace', minWidth: 140, width: 180 },
+      { field: 'kind', headerName: 'Kind', minWidth: 150, width: 180 },
+      { field: 'stream', headerName: 'Stream', minWidth: 170, width: 210 },
+      {
+        field: 'labels',
+        headerName: 'Labels',
+        minWidth: 220,
+        width: 320,
+        renderCell: renderLabelsCell
+      },
+      { field: 'apiVersion', headerName: 'API Version', minWidth: 170, width: 220 },
+      {
+        field: 'state',
+        headerName: 'State',
+        minWidth: 180,
+        width: 220,
+        renderCell: renderStateCell
+      }
+    ];
+  }, [renderActionsCell, renderDryRunCell, renderLabelsCell, renderSeverityCell, renderStateCell, viewKind]);
+
+  const filterPlaceholder = useMemo(() => {
+    if (viewKind === 'alarms') {
+      return 'Filter alarms';
+    }
+    if (viewKind === 'deviations') {
+      return 'Filter deviations';
+    }
+    if (viewKind === 'basket') {
+      return 'Filter basket items';
+    }
+    if (viewKind === 'transactions') {
+      return 'Filter transactions';
+    }
+    return 'Filter resources';
+  }, [viewKind]);
+
+  const noRowsMessage = useMemo(() => {
+    if (viewKind === 'alarms') {
+      return 'No alarms found';
+    }
+    if (viewKind === 'deviations') {
+      return 'No deviations found';
+    }
+    if (viewKind === 'basket') {
+      return 'No basket items found';
+    }
+    if (viewKind === 'transactions') {
+      return 'No transactions found';
+    }
+    return 'No resources found';
+  }, [viewKind]);
 
   if (!payload) {
     return (
@@ -402,27 +784,57 @@ function ExplorerResourceListPanelWebview() {
         </Stack>
       </Stack>
 
-      <TextField
-        size="small"
-        value={filterText}
-        onChange={(event) => setFilterText(event.target.value)}
-        placeholder="Filter resources"
-        sx={{ mb: 2, width: { xs: '100%', md: 380 } }}
-        slotProps={{
-          input: {
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon fontSize="small" />
-              </InputAdornment>
-            )
-          }
-        }}
-      />
+      <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mb: 2 }}>
+        <TextField
+          size="small"
+          value={filterText}
+          onChange={(event) => setFilterText(event.target.value)}
+          placeholder={filterPlaceholder}
+          sx={{ flex: 1, minWidth: 0 }}
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              )
+            }
+          }}
+        />
+
+        {headerQuickActions.map((action) => {
+          const Icon = action.icon;
+          return (
+            <Tooltip key={action.id} title={action.label}>
+              <IconButton
+                size="small"
+                aria-label={action.label}
+                onClick={() => invokeCommandById(action.commandId)}
+                sx={{
+                  ...HEADER_ACTION_BUTTON_SX,
+                  ...(action.destructive
+                    ? {
+                      color: 'error.main',
+                      borderColor: 'error.main',
+                      '&:hover': {
+                        borderColor: 'error.dark',
+                        bgcolor: 'rgba(211, 47, 47, 0.12)'
+                      }
+                    }
+                    : {})
+                }}
+              >
+                <Icon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          );
+        })}
+      </Stack>
 
       <VsCodeDataGrid<ResourceGridRow>
         rows={rows}
         columns={columns}
-        noRowsMessage="No resources found"
+        noRowsMessage={noRowsMessage}
         footer={(
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
             Count: {rows.length}

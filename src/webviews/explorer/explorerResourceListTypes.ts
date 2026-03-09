@@ -1,5 +1,29 @@
 import type { ExplorerAction } from '../shared/explorer/types';
 
+export type ExplorerResourceListViewKind =
+  | 'resources'
+  | 'alarms'
+  | 'deviations'
+  | 'basket'
+  | 'transactions';
+
+export interface ExplorerResourceListItemDetails {
+  alarmSeverity?: string;
+  alarmType?: string;
+  alarmResource?: string;
+  alarmLastChanged?: string;
+  deviationStatus?: string;
+  deviationPath?: string;
+  deviationNodeEndpoint?: string;
+  basketOperation?: string;
+  basketResourceCount?: number;
+  transactionId?: string;
+  transactionUser?: string;
+  transactionTimestamp?: string;
+  transactionDryRun?: boolean;
+  transactionSuccess?: boolean;
+}
+
 export interface ExplorerResourceListItemPayload {
   id: string;
   label: string;
@@ -13,6 +37,7 @@ export interface ExplorerResourceListItemPayload {
   description?: string;
   statusDescription?: string;
   statusIndicator?: string;
+  details?: ExplorerResourceListItemDetails;
   primaryAction?: ExplorerAction;
   actions: ExplorerAction[];
 }
@@ -20,6 +45,7 @@ export interface ExplorerResourceListItemPayload {
 export interface ExplorerResourceListPayload {
   title: string;
   namespace: string;
+  viewKind?: ExplorerResourceListViewKind;
   resources: ExplorerResourceListItemPayload[];
 }
 

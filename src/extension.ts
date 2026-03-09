@@ -451,8 +451,6 @@ async function initializeTreeViewsAndCommands(
     }
   });
 
-  const dashboardProvider = new DashboardProvider();
-
   const namespaceProvider = new EdaNamespaceProvider();
   initializeProvider('namespace provider', namespaceProvider, 0);
 
@@ -467,6 +465,13 @@ async function initializeTreeViewsAndCommands(
 
   edaTransactionProvider = new EdaTransactionProvider();
   initializeProvider('transaction provider', edaTransactionProvider, nonResourceStartupDelayMs);
+
+  const dashboardProvider = new DashboardProvider({
+    alarmProvider,
+    deviationProvider: edaDeviationProvider,
+    basketProvider: edaTransactionBasketProvider,
+    transactionProvider: edaTransactionProvider
+  });
 
   const helpProvider = new HelpProvider();
 
@@ -496,7 +501,9 @@ async function initializeTreeViewsAndCommands(
     vscode.window.registerWebviewViewProvider(EdaExplorerViewProvider.viewType, explorerProvider, {
       webviewOptions: { retainContextWhenHidden: true }
     }),
+    { dispose: () => dashboardProvider.dispose() },
     { dispose: () => namespaceProvider.dispose() },
+    { dispose: () => alarmProvider.dispose() },
     { dispose: () => edaDeviationProvider.dispose() },
     { dispose: () => edaTransactionBasketProvider.dispose?.() },
     { dispose: () => edaTransactionProvider.dispose() }
@@ -551,7 +558,12 @@ async function initializeTreeViewsAndCommands(
   registerDeviationCommands(context);
   registerTransactionCommands(context);
   registerBasketCommands(context);
-  registerDashboardCommands(context);
+  registerDashboardCommands(context, {
+    alarmProvider,
+    deviationProvider: edaDeviationProvider,
+    basketProvider: edaTransactionBasketProvider,
+    transactionProvider: edaTransactionProvider
+  });
   registerResourceBrowserCommand(context);
   registerExplorerResourceListCommand(context);
   registerCredentialCommands(context);

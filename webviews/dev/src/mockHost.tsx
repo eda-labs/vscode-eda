@@ -863,6 +863,42 @@ const explorerSectionsFixture: ReadonlyArray<ExplorerSectionSnapshot> = [
           'vscode-eda.showDashboard',
           ['Workflows']
         )
+      }),
+      createExplorerNode('dashboards/alarms', 'Alarms (2)', {
+        contextValue: 'eda-dashboard',
+        primaryAction: createExplorerAction(
+          'open-dashboard-alarms',
+          'Open Dashboard',
+          'vscode-eda.showDashboard',
+          ['Alarms']
+        )
+      }),
+      createExplorerNode('dashboards/deviations', 'Deviations (1)', {
+        contextValue: 'eda-dashboard',
+        primaryAction: createExplorerAction(
+          'open-dashboard-deviations',
+          'Open Dashboard',
+          'vscode-eda.showDashboard',
+          ['Deviations']
+        )
+      }),
+      createExplorerNode('dashboards/basket', 'Basket (2)', {
+        contextValue: 'eda-dashboard',
+        primaryAction: createExplorerAction(
+          'open-dashboard-basket',
+          'Open Dashboard',
+          'vscode-eda.showDashboard',
+          ['Basket']
+        )
+      }),
+      createExplorerNode('dashboards/transactions', 'Transactions (2)', {
+        contextValue: 'eda-dashboard',
+        primaryAction: createExplorerAction(
+          'open-dashboard-transactions',
+          'Open Dashboard',
+          'vscode-eda.showDashboard',
+          ['Transactions']
+        )
       })
     ],
     []
@@ -1069,126 +1105,6 @@ const explorerSectionsFixture: ReadonlyArray<ExplorerSectionSnapshot> = [
       })
     ],
     [createExplorerAction('create-resource', 'Create Resource', 'vscode-eda.createResource')]
-  ),
-  createExplorerSection(
-    'alarms',
-    [
-      createExplorerNode('alarms/linkdown-spine01-leaf01', 'MAJOR - Connectivity', {
-        contextValue: 'eda-alarm',
-        description: 'ns: fabric-a',
-        statusIndicator: 'red',
-        statusDescription: 'Major',
-        primaryAction: createExplorerAction(
-          'open-alarm-linkdown-spine01-leaf01',
-          'Show Alarm Details',
-          'vscode-eda.showAlarmDetails',
-          [alarmFixture]
-        )
-      }),
-      createExplorerNode('alarms/interface-down-leaf11', 'MINOR - Interface', {
-        contextValue: 'eda-alarm',
-        description: 'ns: fabric-b',
-        statusIndicator: 'yellow',
-        statusDescription: 'Minor',
-        primaryAction: createExplorerAction(
-          'open-alarm-interface-down-leaf11',
-          'Show Alarm Details',
-          'vscode-eda.showAlarmDetails',
-          [alarmInterfaceFixture]
-        )
-      })
-    ],
-    []
-  ),
-  createExplorerSection(
-    'deviations',
-    [
-      createExplorerNode('deviations/leaf02-bgp-hold-time', 'leaf02-bgp-hold-time', {
-        contextValue: 'eda-deviation',
-        description: 'ns: fabric-a (Pending)',
-        statusIndicator: 'yellow',
-        statusDescription: 'Drifted',
-        primaryAction: createExplorerAction(
-          'open-deviation-leaf02-bgp-hold-time',
-          'Show Deviation Details',
-          'vscode-eda.showDeviationDetails',
-          [
-            {
-              name: 'leaf02-bgp-hold-time',
-              namespace: 'fabric-a',
-              kind: 'Deviation',
-              apiVersion: 'routing.eda.nokia.com/v1alpha1',
-              status: 'Pending',
-              metadata: {
-                name: 'leaf02-bgp-hold-time',
-                namespace: 'fabric-a'
-              }
-            }
-          ]
-        )
-      })
-    ],
-    [createExplorerAction('reject-all-deviations', 'Reject All Deviations', 'vscode-eda.rejectAllDeviations')]
-  ),
-  createExplorerSection(
-    'basket',
-    [
-      createExplorerNode('basket/leaf01-bgp-policy', 'leaf01-bgp-policy', {
-        description: 'BgpNeighbor / fabric-a',
-        statusIndicator: 'blue',
-        primaryAction: createExplorerAction(
-          'edit-basket-leaf01-bgp-policy',
-          'Edit Draft',
-          'vscode-eda.basket.edit',
-          ['leaf01-bgp-policy']
-        )
-      }),
-      createExplorerNode('basket/leaf11-uplink-desc', 'leaf11-uplink-desc', {
-        description: 'InterfaceConfig / fabric-b',
-        statusIndicator: 'blue',
-        primaryAction: createExplorerAction(
-          'edit-basket-leaf11-uplink-desc',
-          'Edit Draft',
-          'vscode-eda.basket.edit',
-          ['leaf11-uplink-desc']
-        )
-      })
-    ],
-    [
-      createExplorerAction('commit-basket', 'Commit Basket', 'vscode-eda.commitBasket'),
-      createExplorerAction('dry-run-basket', 'Dry Run Basket', 'vscode-eda.dryRunBasket'),
-      createExplorerAction('discard-basket', 'Discard Basket', 'vscode-eda.discardBasket')
-    ]
-  ),
-  createExplorerSection(
-    'transactions',
-    [
-      createExplorerNode('transactions/1042', '1042 - admin', {
-        contextValue: 'transaction',
-        description: 'Completed - 2026-02-13T10:42:00Z',
-        statusIndicator: 'green',
-        statusDescription: 'Completed',
-        primaryAction: createExplorerAction(
-          'open-transaction-1042',
-          'Show Transaction Details',
-          'vscode-eda.showTransactionDetails',
-          ['1042']
-        )
-      }),
-      createExplorerNode('transactions/1041', '1041 - automation', {
-        contextValue: 'transaction',
-        description: 'Running - 2026-02-13T10:39:12Z',
-        statusIndicator: 'yellow',
-        statusDescription: 'Running',
-        primaryAction: createExplorerAction(
-          'open-transaction-1041',
-          'Show Transaction Details',
-          'vscode-eda.showTransactionDetails',
-          ['1041']
-        )
-      })
-    ],
-    [createExplorerAction('set-transaction-limit', 'Set Transaction Limit', 'vscode-eda.setTransactionLimit')]
   ),
   createExplorerSection(
     'help',

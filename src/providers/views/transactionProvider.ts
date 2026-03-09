@@ -38,6 +38,10 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
   private refreshHandle: ReturnType<typeof setTimeout> | undefined;
   private refreshIntervalMs = 120;
 
+  public get count(): number {
+    return this.cachedTransactions.length;
+  }
+
   /**
    * Merge new transaction updates into the cached list while
    * maintaining at most 50 entries.
