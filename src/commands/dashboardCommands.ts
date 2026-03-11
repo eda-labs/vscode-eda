@@ -22,6 +22,7 @@ interface DashboardCommandProviders {
 
 interface DashboardTreeProvider {
   getChildren(element?: TreeItemBase): vscode.ProviderResult<TreeItemBase[]>;
+  onDidChangeTreeData?: vscode.Event<TreeItemBase | undefined | null | void>;
 }
 
 interface AlarmLike {
@@ -494,26 +495,40 @@ function toResourceListItem(
   };
 }
 
+async function buildProviderResourceListPayload(
+  title: string,
+  provider: DashboardTreeProvider,
+  viewKind: ExplorerResourceListViewKind
+): Promise<ExplorerResourceListPayload> {
+  const items = await collectLeafItems(provider);
+  const resources = items
+    .map((item, index) => toResourceListItem(item, index, viewKind))
+    .filter((item): item is ExplorerResourceListItemPayload => Boolean(item));
+
+  return {
+    title,
+    namespace: ALL_RESOURCE_NAMESPACES_VALUE,
+    viewKind,
+    resources
+  };
+}
+
 async function openProviderResourceList(
   context: vscode.ExtensionContext,
   title: string,
   provider: DashboardTreeProvider,
   viewKind: ExplorerResourceListViewKind
 ): Promise<void> {
-  const items = await collectLeafItems(provider);
-  const resources = items
-    .map((item, index) => toResourceListItem(item, index, viewKind))
-    .filter((item): item is ExplorerResourceListItemPayload => Boolean(item));
-
-  const payload: ExplorerResourceListPayload = {
-    title,
-    namespace: ALL_RESOURCE_NAMESPACES_VALUE,
-    viewKind,
-    resources
-  };
+  const payload = await buildProviderResourceListPayload(title, provider, viewKind);
+  const dataSource = provider.onDidChangeTreeData
+    ? {
+      loadPayload: () => buildProviderResourceListPayload(title, provider, viewKind),
+      onDidChangeData: provider.onDidChangeTreeData
+    }
+    : undefined;
 
   const { ExplorerResourceListPanel } = await import('../webviews/explorer/explorerResourceListPanel');
-  ExplorerResourceListPanel.show(context, payload);
+  ExplorerResourceListPanel.show(context, payload, dataSource);
 }
 
 export function registerDashboardCommands(

@@ -1251,26 +1251,6 @@ function EdaExplorerView() {
     invokeCommandById('vscode-eda.showDashboard', ['Basket']);
   }, [invokeCommandById]);
 
-  const commitBasket = useCallback(() => {
-    invokeCommandById('vscode-eda.commitBasket');
-  }, [invokeCommandById]);
-
-  const dryRunBasket = useCallback(() => {
-    invokeCommandById('vscode-eda.dryRunBasket');
-  }, [invokeCommandById]);
-
-  const discardBasket = useCallback(() => {
-    invokeCommandById('vscode-eda.discardBasket');
-  }, [invokeCommandById]);
-
-  const rejectAllDeviations = useCallback(() => {
-    invokeCommandById('vscode-eda.rejectAllDeviations');
-  }, [invokeCommandById]);
-
-  const setTransactionLimit = useCallback(() => {
-    invokeCommandById('vscode-eda.setTransactionLimit');
-  }, [invokeCommandById]);
-
   const expandAllInSection = useCallback((sectionId: ExplorerTabId, expandedItemIds: string[]) => {
     startTransition(() => {
       setExpandedByTab(current => ({
@@ -1406,56 +1386,6 @@ function EdaExplorerView() {
             }
           }}
         />
-
-        <Tooltip title="Commit Basket">
-          <IconButton
-            size="small"
-            onClick={commitBasket}
-            sx={TOOLBAR_ICON_BUTTON_SX}
-          >
-            <PlayArrowIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-
-        <Tooltip title="Dry Run Basket">
-          <IconButton
-            size="small"
-            onClick={dryRunBasket}
-            sx={TOOLBAR_ICON_BUTTON_SX}
-          >
-            <FactCheckIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-
-        <Tooltip title="Discard Basket">
-          <IconButton
-            size="small"
-            onClick={discardBasket}
-            sx={TOOLBAR_ICON_BUTTON_SX}
-          >
-            <DeleteOutlineIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-
-        <Tooltip title="Reject All Deviations">
-          <IconButton
-            size="small"
-            onClick={rejectAllDeviations}
-            sx={TOOLBAR_ICON_BUTTON_SX}
-          >
-            <CloseIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-
-        <Tooltip title="Set Transaction Limit">
-          <IconButton
-            size="small"
-            onClick={setTransactionLimit}
-            sx={TOOLBAR_ICON_BUTTON_SX}
-          >
-            <SettingsIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
 
         <Tooltip title="Open Basket Dashboard">
           <IconButton
