@@ -37,6 +37,7 @@ import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand'
 import { registerDashboardCommands } from './commands/dashboardCommands';
 import { registerApplyYamlFileCommand } from './commands/applyYamlFileCommand';
 import { registerResourceBrowserCommand } from './commands/resourceBrowserCommand';
+import { registerExplorerResourceListCommand } from './commands/explorerResourceListCommand';
 import { EdaExplorerViewProvider } from './webviews/explorer/edaExplorerViewProvider';
 import { setAuthLogger } from './clients/edaAuthClient';
 
@@ -413,7 +414,7 @@ async function initializeTreeViewsAndCommands(
   const configuredNonResourceDelay = Number(process.env.EDA_NON_RESOURCE_STARTUP_DELAY_MS);
   const nonResourceStartupDelayMs = (!Number.isNaN(configuredNonResourceDelay) && configuredNonResourceDelay >= 0)
     ? configuredNonResourceDelay
-    : 1200;
+    : 3500;
   const startupTimers = new Set<ReturnType<typeof setTimeout>>();
 
   const initializeProvider = (
@@ -450,8 +451,6 @@ async function initializeTreeViewsAndCommands(
     }
   });
 
-  const dashboardProvider = new DashboardProvider();
-
   const namespaceProvider = new EdaNamespaceProvider();
   initializeProvider('namespace provider', namespaceProvider, 0);
 
@@ -466,6 +465,13 @@ async function initializeTreeViewsAndCommands(
 
   edaTransactionProvider = new EdaTransactionProvider();
   initializeProvider('transaction provider', edaTransactionProvider, nonResourceStartupDelayMs);
+
+  const dashboardProvider = new DashboardProvider({
+    alarmProvider,
+    deviationProvider: edaDeviationProvider,
+    basketProvider: edaTransactionBasketProvider,
+    transactionProvider: edaTransactionProvider
+  });
 
   const helpProvider = new HelpProvider();
 
@@ -495,7 +501,9 @@ async function initializeTreeViewsAndCommands(
     vscode.window.registerWebviewViewProvider(EdaExplorerViewProvider.viewType, explorerProvider, {
       webviewOptions: { retainContextWhenHidden: true }
     }),
+    { dispose: () => dashboardProvider.dispose() },
     { dispose: () => namespaceProvider.dispose() },
+    { dispose: () => alarmProvider.dispose() },
     { dispose: () => edaDeviationProvider.dispose() },
     { dispose: () => edaTransactionBasketProvider.dispose?.() },
     { dispose: () => edaTransactionProvider.dispose() }
@@ -550,8 +558,14 @@ async function initializeTreeViewsAndCommands(
   registerDeviationCommands(context);
   registerTransactionCommands(context);
   registerBasketCommands(context);
-  registerDashboardCommands(context);
+  registerDashboardCommands(context, {
+    alarmProvider,
+    deviationProvider: edaDeviationProvider,
+    basketProvider: edaTransactionBasketProvider,
+    transactionProvider: edaTransactionProvider
+  });
   registerResourceBrowserCommand(context);
+  registerExplorerResourceListCommand(context);
   registerCredentialCommands(context);
   registerApplyYamlFileCommand(context);
 }

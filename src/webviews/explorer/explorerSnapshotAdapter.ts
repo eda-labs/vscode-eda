@@ -152,6 +152,27 @@ function getNodeDetails(raw: ResourceData['raw'] | undefined): string | undefine
   return undefined;
 }
 
+function formatResourceLabels(raw: ResourceData['raw'] | undefined): string | undefined {
+  const metadata = raw?.metadata;
+  if (!metadata || typeof metadata !== 'object') {
+    return undefined;
+  }
+  const labelsValue = (metadata as Record<string, unknown>).labels;
+  if (!labelsValue || typeof labelsValue !== 'object' || Array.isArray(labelsValue)) {
+    return undefined;
+  }
+
+  const labels = Object.entries(labelsValue as Record<string, unknown>)
+    .filter(([, value]) => typeof value === 'string' && value.length > 0)
+    .sort((left, right) => left[0].localeCompare(right[0]));
+
+  if (labels.length === 0) {
+    return undefined;
+  }
+
+  return labels.map(([key, value]) => `${key}=${value}`).join('\n');
+}
+
 function buildLightweightResource(
   resourceData: ResourceData,
   item: ExplorerTreeItemLike,
@@ -181,6 +202,10 @@ function buildResourceCommandArgument(item: ExplorerTreeItemLike): Record<string
     kind: resourceData?.kind ?? item.resourceType,
     apiVersion: resourceData?.apiVersion ?? raw?.apiVersion
   };
+  const labelsText = formatResourceLabels(raw);
+  if (labelsText) {
+    arg.labelsText = labelsText;
+  }
 
   if (resourceData) {
     const lightResource = buildLightweightResource(resourceData, item, raw);
@@ -216,7 +241,8 @@ function buildMinimalResourceCommandArgument(item: ExplorerTreeItemLike): Record
     contextValue: item.contextValue,
     name: resourceData?.name ?? label,
     kind: resourceData?.kind ?? item.resourceType,
-    apiVersion: resourceData?.apiVersion ?? raw?.apiVersion
+    apiVersion: resourceData?.apiVersion ?? raw?.apiVersion,
+    labelsText: formatResourceLabels(raw)
   };
 }
 
@@ -296,39 +322,6 @@ function getResourceActions(contextValue: string | undefined, commandArg: Record
   return [];
 }
 
-function getDeviationActions(contextValue: string | undefined, commandArg: Record<string, unknown>): ExplorerAction[] {
-  if (contextValue !== 'eda-deviation') {
-    return [];
-  }
-
-  return [
-    createAction('vscode-eda.acceptDeviation', 'Accept Deviation', [commandArg]),
-    createAction('vscode-eda.rejectDeviation', 'Reject Deviation', [commandArg])
-  ];
-}
-
-function getTransactionActions(contextValue: string | undefined, commandArg: Record<string, unknown>): ExplorerAction[] {
-  if (contextValue !== 'transaction') {
-    return [];
-  }
-
-  return [
-    createAction('vscode-eda.revertTransaction', 'Revert Transaction', [commandArg]),
-    createAction('vscode-eda.restoreTransaction', 'Restore Transaction', [commandArg])
-  ];
-}
-
-function getBasketActions(contextValue: string | undefined, commandArg: Record<string, unknown>): ExplorerAction[] {
-  if (contextValue !== 'basket-item') {
-    return [];
-  }
-
-  return [
-    createAction('vscode-eda.editBasketItem', 'Edit Basket Item', [commandArg]),
-    createAction('vscode-eda.removeBasketItem', 'Remove Basket Item', [commandArg])
-  ];
-}
-
 function getDashboardActions(contextValue: string | undefined, label: string): ExplorerAction[] {
   if (contextValue !== 'eda-dashboard') {
     return [];
@@ -350,27 +343,6 @@ function getSectionActions(
       return [];
     }
     return getResourceActions(contextValue, commandArg);
-  }
-
-  if (sectionId === 'deviations') {
-    if (!commandArg) {
-      return [];
-    }
-    return getDeviationActions(contextValue, commandArg);
-  }
-
-  if (sectionId === 'transactions') {
-    if (!commandArg) {
-      return [];
-    }
-    return getTransactionActions(contextValue, commandArg);
-  }
-
-  if (sectionId === 'basket') {
-    if (!commandArg) {
-      return [];
-    }
-    return getBasketActions(contextValue, commandArg);
   }
 
   if (sectionId === 'dashboards') {
@@ -396,16 +368,10 @@ function getProviderChildren(provider: ExplorerTreeProvider, element?: TreeItemB
 }
 
 function shouldBuildCommandArgForSection(sectionId: ExplorerTabId): boolean {
-  return sectionId === 'resources'
-    || sectionId === 'deviations'
-    || sectionId === 'transactions'
-    || sectionId === 'basket';
+  return sectionId === 'resources';
 }
 
 function shouldIncludeNodeActions(sectionId: ExplorerTabId): boolean {
-  if (sectionId === 'alarms') {
-    return false;
-  }
   return !(sectionId === 'resources' && !INLINE_RESOURCE_ACTIONS);
 }
 
@@ -485,10 +451,6 @@ function countForSection(sectionId: ExplorerTabId, nodes: ExplorerNode[]): numbe
 
   const byContext: Partial<Record<ExplorerTabId, string>> = {
     dashboards: 'eda-dashboard',
-    alarms: 'eda-alarm',
-    deviations: 'eda-deviation',
-    basket: 'basket-item',
-    transactions: 'transaction',
     help: 'help-link'
   };
 
@@ -503,22 +465,6 @@ function countForSection(sectionId: ExplorerTabId, nodes: ExplorerNode[]): numbe
 function toolbarActionsForSection(sectionId: ExplorerTabId): ExplorerAction[] {
   if (sectionId === 'resources') {
     return [createAction('vscode-eda.createResource', 'Create Resource')];
-  }
-
-  if (sectionId === 'deviations') {
-    return [createAction('vscode-eda.rejectAllDeviations', 'Reject All Deviations')];
-  }
-
-  if (sectionId === 'basket') {
-    return [
-      createAction('vscode-eda.commitBasket', 'Commit Basket'),
-      createAction('vscode-eda.dryRunBasket', 'Dry Run Basket'),
-      createAction('vscode-eda.discardBasket', 'Discard Basket')
-    ];
-  }
-
-  if (sectionId === 'transactions') {
-    return [createAction('vscode-eda.setTransactionLimit', 'Set Transaction Limit')];
   }
 
   return [];
@@ -549,18 +495,6 @@ export function buildExplorerSnapshot(
     }
     if (sectionId === 'resources') {
       return buildSectionSnapshot(sectionId, providers.namespaceProvider);
-    }
-    if (sectionId === 'alarms') {
-      return buildSectionSnapshot(sectionId, providers.alarmProvider);
-    }
-    if (sectionId === 'deviations') {
-      return buildSectionSnapshot(sectionId, providers.deviationProvider);
-    }
-    if (sectionId === 'basket') {
-      return buildSectionSnapshot(sectionId, providers.basketProvider);
-    }
-    if (sectionId === 'transactions') {
-      return buildSectionSnapshot(sectionId, providers.transactionProvider);
     }
     return buildSectionSnapshot(sectionId, providers.helpProvider);
   });

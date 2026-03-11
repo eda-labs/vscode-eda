@@ -103,6 +103,7 @@ function DataTableInner<T extends Record<string, unknown>>({
       <VsCodeDataGrid<TableRow<T>>
         rows={rows}
         columns={gridColumns}
+        autoSizeColumns
         noRowsMessage={emptyMessage}
         footer={(
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>

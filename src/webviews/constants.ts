@@ -10,7 +10,7 @@ export const RESOURCES_DIR = 'resources';
 
 /** Icon file paths */
 export const ICON_LIGHT = 'eda-icon-black.svg';
-export const ICON_DARK = 'eda-icon-white.svg';
+export const ICON_DARK = 'EDA_WHITE.svg';
 
 /** Extension configuration section name */
 export const EXTENSION_CONFIG_SECTION = 'vscode-eda';

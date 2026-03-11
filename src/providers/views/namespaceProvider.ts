@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import { serviceManager } from '../../services/serviceManager';
 import type { KubernetesClient } from '../../clients/kubernetesClient';
 import type { EdaClient } from '../../clients/edaClient';
+import type { BootstrapSnapshot } from '../../clients/edaApiClient';
 import type { ResourceService } from '../../services/resourceService';
 import type { ResourceStatusService } from '../../services/resourceStatusService';
 import { log, LogLevel } from '../../extension';
@@ -16,9 +17,12 @@ import { TreeItemBase } from './treeItem';
 
 // Constants for duplicate strings (sonarjs/no-duplicate-string)
 const STREAM_GROUP_KUBERNETES = 'kubernetes';
+const CONTEXT_RESOURCE_CATEGORY = 'resource-category';
 const CONTEXT_K8S_NAMESPACE = 'k8s-namespace';
-const CONTEXT_STREAM_GROUP = 'stream-group';
 const CONTEXT_STREAM_ITEM = 'stream-item';
+const STREAM_NAMESPACE_SEPARATOR = ':';
+const DEFAULT_FAST_BOOTSTRAP_MIN_RESOURCES = 900;
+const DEFAULT_FAST_BOOTSTRAP_BATCH_SIZE = 12;
 const STREAM_SUBSCRIBE_EXCLUDE = new Set([
   'resultsummary',
   'v1',
@@ -84,6 +88,7 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
 
   private cachedNamespaces: string[] = [];
   private cachedStreamGroups: Record<string, string[]> = {};
+  private cachedStreamUiCategories: Record<string, string> = {};
   private streamData: Map<string, Map<string, K8sResource>> = new Map();
   private k8sStreams: string[] = [];
   private disposables: vscode.Disposable[] = [];
@@ -94,10 +99,14 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
   private pendingSummary?: string;
   private streamRefreshHandle?: ReturnType<typeof setTimeout>;
   private pendingStreamRefresh = false;
+  private namesOnlyBootstrapStreams: Set<string> = new Set();
+  private deferredBootstrapInFlight = false;
   private k8sInitializationHandle?: ReturnType<typeof setTimeout>;
-  private k8sStartupDelayMs = 1000;
+  private k8sStartupDelayMs = 3000;
   private resourceRefreshIntervalMs = 180;
-  private streamRefreshIntervalMs = 120;
+  private streamRefreshIntervalMs = 60;
+  private fastBootstrapMinimumResources = DEFAULT_FAST_BOOTSTRAP_MIN_RESOURCES;
+  private fastBootstrapAdditionalBatchSize = DEFAULT_FAST_BOOTSTRAP_BATCH_SIZE;
 
 constructor() {
     super();
@@ -114,6 +123,14 @@ constructor() {
     const configuredResourceInterval = Number(process.env.EDA_RESOURCE_TREE_REFRESH_MS);
     if (!Number.isNaN(configuredResourceInterval) && configuredResourceInterval >= 0) {
       this.resourceRefreshIntervalMs = configuredResourceInterval;
+    }
+    const configuredBootstrapMinResources = Number(process.env.EDA_FAST_BOOTSTRAP_MIN_RESOURCES);
+    if (!Number.isNaN(configuredBootstrapMinResources) && configuredBootstrapMinResources >= 0) {
+      this.fastBootstrapMinimumResources = configuredBootstrapMinResources;
+    }
+    const configuredBootstrapBatchSize = Number(process.env.EDA_FAST_BOOTSTRAP_BATCH_SIZE);
+    if (!Number.isNaN(configuredBootstrapBatchSize) && configuredBootstrapBatchSize > 0) {
+      this.fastBootstrapAdditionalBatchSize = configuredBootstrapBatchSize;
     }
 
     this.initializeKubernetesClient();
@@ -208,7 +225,11 @@ constructor() {
    */
   public async initialize(): Promise<void> {
     await this.loadStreams();
-    await this.subscribeToKnownEdaStreams();
+    const loadedStreams = await this.loadFastResourceBootstrap();
+    void this.subscribeToKnownEdaStreams().catch((err) => {
+      log(`Failed to start EDA streams in background: ${err}`, LogLevel.DEBUG);
+    });
+    void this.loadDeferredResourceBootstrap(loadedStreams);
     this.scheduleKubernetesInitialization();
     this.edaClient.streamEdaNamespaces().catch(() => {
       // startup path is best-effort; stream errors are surfaced via stream logs/events
@@ -293,13 +314,175 @@ constructor() {
   private async loadStreams(): Promise<void> {
     try {
       this.cachedStreamGroups = await this.edaClient.getStreamGroups();
+      this.cachedStreamUiCategories = await this.edaClient.getStreamUiCategories();
       const groupList = Object.keys(this.cachedStreamGroups).join(', ');
       log(`Discovered stream groups: ${groupList}`, LogLevel.DEBUG);
       if (this.k8sStreams.length > 0) {
         this.cachedStreamGroups[STREAM_GROUP_KUBERNETES] = this.k8sStreams;
       }
     } catch (err) {
+      this.cachedStreamUiCategories = {};
       log(`Failed to load streams: ${err}`, LogLevel.ERROR);
+    }
+  }
+
+  private getBootstrapNamespaces(): string[] {
+    const namespaces = new Set<string>();
+    for (const namespace of this.cachedNamespaces) {
+      if (typeof namespace === 'string' && namespace.length > 0) {
+        namespaces.add(namespace);
+      }
+    }
+    const coreNamespace = this.edaClient.getCoreNamespace();
+    if (typeof coreNamespace === 'string' && coreNamespace.length > 0) {
+      namespaces.add(coreNamespace);
+    }
+    return Array.from(namespaces).sort((a, b) => a.localeCompare(b));
+  }
+
+  private snapshotResourceCount(snapshot: BootstrapSnapshot): number {
+    let count = 0;
+    for (const bucket of snapshot.values()) {
+      count += bucket.size;
+    }
+    return count;
+  }
+
+  private splitStreamNamespaceKey(key: string): { stream: string; namespace: string } | undefined {
+    const separatorIndex = key.indexOf(STREAM_NAMESPACE_SEPARATOR);
+    if (separatorIndex <= 0 || separatorIndex >= key.length - 1) {
+      return undefined;
+    }
+    return {
+      stream: key.slice(0, separatorIndex),
+      namespace: key.slice(separatorIndex + 1)
+    };
+  }
+
+  private mergeBootstrapSnapshot(snapshot: BootstrapSnapshot): boolean {
+    let changed = false;
+    let namespacesChanged = false;
+
+    for (const [key, resources] of snapshot.entries()) {
+      const parts = this.splitStreamNamespaceKey(key);
+      if (!parts) {
+        continue;
+      }
+      const { stream, namespace } = parts;
+      const map = this.getOrCreateStreamNamespaceMap(stream, namespace);
+      if (this.ensureCachedNamespace(namespace)) {
+        namespacesChanged = true;
+      }
+      for (const [name, resource] of resources.entries()) {
+        changed = this.applyIncomingStreamData(map, name, resource) || changed;
+      }
+    }
+
+    if (namespacesChanged) {
+      this.syncNamespacesWithK8s();
+    }
+
+    return changed || namespacesChanged;
+  }
+
+  private async loadFastResourceBootstrap(): Promise<Set<string>> {
+    const namespaces = this.getBootstrapNamespaces();
+    if (namespaces.length === 0) {
+      return new Set<string>();
+    }
+
+    const startedAt = Date.now();
+    try {
+      let postedSnapshot = false;
+      const result = await this.edaClient.fastBootstrapStreamItems(namespaces, {
+        excludeStreams: STREAM_SUBSCRIBE_EXCLUDE,
+        minimumResources: this.fastBootstrapMinimumResources,
+        additionalBatchSize: this.fastBootstrapAdditionalBatchSize,
+        onBatchSnapshot: (batchSnapshot) => {
+          if (!this.mergeBootstrapSnapshot(batchSnapshot)) {
+            return;
+          }
+          if (!postedSnapshot) {
+            postedSnapshot = true;
+            this.refresh();
+            return;
+          }
+          this.scheduleStreamRefresh();
+        }
+      });
+
+      this.namesOnlyBootstrapStreams = new Set(result.namesOnlyStreams);
+      if (!postedSnapshot && this.mergeBootstrapSnapshot(result.snapshot)) {
+        this.refresh();
+      }
+
+      const loadedCount = this.snapshotResourceCount(result.snapshot);
+      const availableStreams = this.edaClient.availableBootstrapStreams({
+        excludeStreams: STREAM_SUBSCRIBE_EXCLUDE
+      });
+      const remainingStreams = Math.max(0, availableStreams.length - result.loadedStreams.size);
+      const elapsed = (Date.now() - startedAt) / 1000;
+      log(
+        `Fast resource bootstrap: ${loadedCount} resources in ${elapsed.toFixed(3)}s `
+        + `(${result.loadedStreams.size} streams, ${remainingStreams} deferred, `
+        + `${result.namesOnlyStreams.size} name-only).`,
+        LogLevel.INFO
+      );
+
+      return result.loadedStreams;
+    } catch (err) {
+      log(`Fast resource bootstrap skipped: ${err}`, LogLevel.DEBUG);
+      this.namesOnlyBootstrapStreams.clear();
+      return new Set<string>();
+    }
+  }
+
+  private async loadDeferredResourceBootstrap(loadedStreams: Set<string>): Promise<void> {
+    if (this.deferredBootstrapInFlight) {
+      return;
+    }
+    this.deferredBootstrapInFlight = true;
+
+    try {
+      const namespaces = this.getBootstrapNamespaces();
+      if (namespaces.length === 0) {
+        return;
+      }
+
+      const availableStreams = this.edaClient.availableBootstrapStreams({
+        excludeStreams: STREAM_SUBSCRIBE_EXCLUDE
+      });
+      const remainingStreams = availableStreams.filter((stream) => !loadedStreams.has(stream));
+      const streamsToLoad = new Set<string>([
+        ...remainingStreams,
+        ...Array.from(this.namesOnlyBootstrapStreams)
+      ]);
+      if (streamsToLoad.size === 0) {
+        return;
+      }
+
+      const snapshot = await this.edaClient.bootstrapStreamItems(namespaces, {
+        excludeStreams: STREAM_SUBSCRIBE_EXCLUDE,
+        includeStreams: streamsToLoad
+      });
+
+      for (const stream of streamsToLoad) {
+        this.namesOnlyBootstrapStreams.delete(stream);
+      }
+
+      if (this.mergeBootstrapSnapshot(snapshot)) {
+        this.scheduleStreamRefresh();
+      }
+
+      log(
+        `Deferred resource bootstrap loaded ${this.snapshotResourceCount(snapshot)} resources `
+        + `from ${streamsToLoad.size} streams.`,
+        LogLevel.DEBUG
+      );
+    } catch (err) {
+      log(`Deferred resource bootstrap skipped: ${err}`, LogLevel.DEBUG);
+    } finally {
+      this.deferredBootstrapInFlight = false;
     }
   }
 
@@ -404,29 +587,6 @@ constructor() {
     return false;
   }
 
-  /** Determine if an EDA namespace should be shown based on the current filter */
-  private namespaceMatches(namespace: string): boolean {
-    if (!this.treeFilter) {
-      return true;
-    }
-    if (this.matchesFilter(namespace)) {
-      return true;
-    }
-    const groups = Object.keys(this.cachedStreamGroups).filter(g => g !== STREAM_GROUP_KUBERNETES);
-    for (const group of groups) {
-      const streams = this.cachedStreamGroups[group] || [];
-      for (const s of streams) {
-        if (!this.streamHasData(namespace, s)) {
-          continue;
-        }
-        if (this.streamMatches(namespace, s)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
   /** Determine if a Kubernetes namespace should be shown based on the current filter */
   private kubernetesNamespaceMatches(namespace: string): boolean {
     if (!this.k8sClient) {
@@ -461,34 +621,6 @@ constructor() {
     return false;
   }
 
-  /**
-   * Determine if a stream group should be shown based on the current filter.
-   * Matches on the group name or any streams/items within it.
-   */
-  private groupMatches(namespace: string, group: string): boolean {
-    if (!this.treeFilter) {
-      return true;
-    }
-    if (this.matchesFilter(group)) {
-      return true;
-    }
-    if (group === STREAM_GROUP_KUBERNETES) {
-      for (const s of this.k8sStreams) {
-        if (this.streamMatches(namespace, s)) {
-          return true;
-        }
-      }
-      return false;
-    }
-    const streams = (this.cachedStreamGroups[group] || []).slice().sort();
-    for (const stream of streams) {
-      if (this.streamMatches(namespace, stream)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   /** Check if a stream currently has any child items */
   private streamHasData(namespace: string, stream: string): boolean {
     if (this.k8sStreams.includes(stream)) {
@@ -499,10 +631,85 @@ constructor() {
     return !!map && map.size > 0;
   }
 
-  /** Determine if a group should be flattened because it only repeats a stream */
-  private isGroupRedundant(group: string): boolean {
-    const streams = (this.cachedStreamGroups[group] || []).slice().sort();
-    return streams.length === 1 && streams[0] === group;
+  private streamHasDataInAnyNamespace(stream: string): boolean {
+    for (const namespace of this.getBootstrapNamespaces()) {
+      if (this.streamHasData(namespace, stream)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private streamMatchesAcrossNamespaces(stream: string, category?: string): boolean {
+    if (!this.treeFilter) {
+      return true;
+    }
+    if (this.matchesFilter(stream)) {
+      return true;
+    }
+    if (category && this.matchesFilter(category)) {
+      return true;
+    }
+    for (const namespace of this.getBootstrapNamespaces()) {
+      if (!this.streamHasData(namespace, stream)) {
+        continue;
+      }
+      if (this.streamMatches(namespace, stream)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private getEffectiveStreamCategory(group: string, stream: string): string {
+    const configured = this.cachedStreamUiCategories[stream];
+    const category = typeof configured === 'string' ? configured.trim() : '';
+    if (category.length > 0) {
+      return category;
+    }
+    return group;
+  }
+
+  private getEdaStreamsByCategory(): Record<string, string[]> {
+    const byCategory = new Map<string, Set<string>>();
+    const groups = Object.keys(this.cachedStreamGroups)
+      .filter(group => group !== STREAM_GROUP_KUBERNETES)
+      .sort();
+
+    for (const group of groups) {
+      const streams = (this.cachedStreamGroups[group] || []).slice().sort();
+      for (const stream of streams) {
+        if (!this.streamHasDataInAnyNamespace(stream)) {
+          continue;
+        }
+        const category = this.getEffectiveStreamCategory(group, stream);
+        if (!byCategory.has(category)) {
+          byCategory.set(category, new Set<string>());
+        }
+        byCategory.get(category)?.add(stream);
+      }
+    }
+
+    const out: Record<string, string[]> = {};
+    for (const [category, streams] of Array.from(byCategory.entries()).sort((a, b) => a[0].localeCompare(b[0]))) {
+      out[category] = Array.from(streams).sort((a, b) => a.localeCompare(b));
+    }
+    return out;
+  }
+
+  private categoryMatches(category: string, streams: string[]): boolean {
+    if (!this.treeFilter) {
+      return true;
+    }
+    if (this.matchesFilter(category)) {
+      return true;
+    }
+    for (const stream of streams) {
+      if (this.streamMatchesAcrossNamespaces(stream, category)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -517,22 +724,23 @@ constructor() {
    */
   getChildren(element?: TreeItemBase): TreeItemBase[] {
     if (!element) {
-      const items = this.getNamespaces();
+      const items = this.getResourceCategories();
       const kRoot = this.getKubernetesRoot();
       if (kRoot) {
         items.push(kRoot);
       }
       return items;
-    } else if (element.contextValue === 'namespace') {
-      return this.getStreamGroups(element.label as string);
+    } else if (element.contextValue === CONTEXT_RESOURCE_CATEGORY) {
+      return this.getStreamsForCategory(element.label as string);
     } else if (element.contextValue === 'k8s-root') {
       return this.getKubernetesNamespaces();
     } else if (element.contextValue === CONTEXT_K8S_NAMESPACE) {
       return this.getKubernetesStreams(element.label as string);
-    } else if (element.contextValue === CONTEXT_STREAM_GROUP) {
-      return this.getStreamsForGroup(element.namespace!, element.streamGroup!);
     } else if (element.contextValue === 'stream') {
-      return this.getItemsForStream(element.namespace!, element.label as string, element.streamGroup);
+      if (element.streamGroup === STREAM_GROUP_KUBERNETES && typeof element.namespace === 'string') {
+        return this.getItemsForStream(element.namespace, element.label as string, element.streamGroup);
+      }
+      return this.getEdaStreamItems(element.label as string, element.streamGroup);
     }
     return [];
   }
@@ -541,43 +749,32 @@ constructor() {
    * Implementation of TreeDataProvider: gets the parent of a tree item
    */
   getParent(element: TreeItemBase): vscode.ProviderResult<TreeItemBase> {
-    if (element.contextValue === 'namespace' || element.contextValue === 'message' || element.contextValue === 'k8s-root') {
+    if (element.contextValue === CONTEXT_RESOURCE_CATEGORY || element.contextValue === 'message' || element.contextValue === 'k8s-root') {
       return null;
     } else if (element.contextValue === CONTEXT_K8S_NAMESPACE) {
       return this.getKubernetesRoot();
-    } else if (element.contextValue === CONTEXT_STREAM_GROUP) {
-      const namespaces = this.getNamespaces();
-      return namespaces.find(ns => ns.label === element.namespace);
     } else if (element.contextValue === 'stream') {
       const group = element.streamGroup ?? '';
-      if (this.isGroupRedundant(group)) {
-        const namespaces = this.getNamespaces();
-        return namespaces.find(ns => ns.label === element.namespace);
-      }
       if (group === STREAM_GROUP_KUBERNETES) {
         const namespaces = this.getKubernetesNamespaces();
         return namespaces.find(ns => ns.label === element.namespace);
       }
-      const groups = this.getStreamGroups(element.namespace!);
-      return groups.find(g => g.streamGroup === element.streamGroup);
+      const categories = this.getResourceCategories();
+      return categories.find(category => category.label === group);
     } else if (element.contextValue === CONTEXT_STREAM_ITEM) {
       const group = element.streamGroup ?? '';
-      if (this.isGroupRedundant(group)) {
-        const flattened = this.getStreamGroups(element.namespace!);
-        return flattened.find(s => s.label === element.resourceType);
-      }
       if (group === STREAM_GROUP_KUBERNETES) {
         const streamItems = this.getKubernetesStreams(element.namespace!);
         return streamItems.find(s => s.label === element.resourceType);
       }
-      const streamItems = this.getStreamsForGroup(element.namespace!, element.streamGroup!);
+      const streamItems = this.getStreamsForCategory(group);
       return streamItems.find(s => s.label === element.resourceType);
     }
     return null;
   }
 
-  private createNamespaceNodeId(namespace: string): string {
-    return `namespace:${encodeURIComponent(namespace)}`;
+  private createResourceCategoryNodeId(category: string): string {
+    return `resource-category:${encodeURIComponent(category)}`;
   }
 
   private createKubernetesRootNodeId(): string {
@@ -588,8 +785,8 @@ constructor() {
     return `k8s-namespace:${encodeURIComponent(namespace)}`;
   }
 
-  private createStreamGroupNodeId(namespace: string, group: string): string {
-    return `stream-group:${encodeURIComponent(namespace)}/${encodeURIComponent(group)}`;
+  private createEdaStreamNodeId(category: string, stream: string): string {
+    return `stream:${encodeURIComponent(category)}/${encodeURIComponent(stream)}`;
   }
 
   private createStreamNodeId(namespace: string, group: string, stream: string): string {
@@ -609,36 +806,35 @@ constructor() {
     return `stream-item:${encodeURIComponent(namespace)}/${encodeURIComponent(group)}/${encodeURIComponent(stream)}/${encodeURIComponent(identity)}`;
   }
 
-  /**
-   * Build the list of namespaces - never hidden by filter
-   */
-  private getNamespaces(): TreeItemBase[] {
-    if (this.cachedNamespaces.length === 0) {
-      const msgItem = new TreeItemBase(
-        'No EDA namespaces found',
-        this.expandAll ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
-        'message'
-      );
-      msgItem.iconPath = new vscode.ThemeIcon('warning');
-      return [msgItem];
+  private getResourceCategories(): TreeItemBase[] {
+    const byCategory = this.getEdaStreamsByCategory();
+    const categories = Object.keys(byCategory).sort((a, b) => a.localeCompare(b));
+    if (categories.length === 0) {
+      const item = new TreeItemBase('No streams found', vscode.TreeItemCollapsibleState.None, 'message');
+      item.iconPath = new vscode.ThemeIcon('info');
+      return [item];
     }
 
-    const sorted = this.cachedNamespaces.slice().sort();
     const items: TreeItemBase[] = [];
-    for (const ns of sorted) {
-      if (!this.namespaceMatches(ns)) {
+    for (const category of categories) {
+      const streams = byCategory[category] || [];
+      if (!this.categoryMatches(category, streams)) {
         continue;
       }
-      const treeItem = new TreeItemBase(
-        ns,
-        this.expandAll ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed,
-        'namespace'
+      const item = new TreeItemBase(
+        category,
+        this.expandAll
+          ? vscode.TreeItemCollapsibleState.Expanded
+          : vscode.TreeItemCollapsibleState.Collapsed,
+        CONTEXT_RESOURCE_CATEGORY
       );
-      treeItem.iconPath = new vscode.ThemeIcon('package');
-      treeItem.namespace = ns;
-      treeItem.id = this.createNamespaceNodeId(ns);
-      items.push(treeItem);
+      item.id = this.createResourceCategoryNodeId(category);
+      item.iconPath = new vscode.ThemeIcon('folder-library');
+      item.streamGroup = category;
+      item.resourceCategory = category;
+      items.push(item);
     }
+
     return items;
   }
 
@@ -699,15 +895,8 @@ constructor() {
     return this.getStreamsForGroup(namespace, STREAM_GROUP_KUBERNETES);
   }
 
-  /** Get visible streams for a group */
-  private getVisibleStreamsForGroup(namespace: string, group: string): string[] {
-    const streams = this.cachedStreamGroups[group] || [];
-    return streams.filter(s => this.streamHasData(namespace, s) && (!this.treeFilter || this.streamMatches(namespace, s)));
-  }
-
-  /** Create a stream tree item */
-  private createStreamTreeItem(namespace: string, group: string, stream: string): TreeItemBase {
-    const key = this.createStreamNodeId(namespace, group, stream);
+  private createEdaStreamTreeItem(category: string, stream: string): TreeItemBase {
+    const key = this.createEdaStreamNodeId(category, stream);
     const isExpanded = this.expandAll || this.expandedStreams.has(key);
     const collapsible = isExpanded
       ? vscode.TreeItemCollapsibleState.Expanded
@@ -715,51 +904,22 @@ constructor() {
     const ti = new TreeItemBase(stream, collapsible, 'stream');
     ti.id = key;
     ti.iconPath = isExpanded ? this.expandedStreamIcon : this.collapsedStreamIcon;
-    ti.namespace = namespace;
-    ti.streamGroup = group;
+    ti.streamGroup = category;
+    ti.resourceCategory = category;
     return ti;
   }
 
-  /** Create a group tree item */
-  private createGroupTreeItem(namespace: string, group: string): TreeItemBase {
-    const collapsible = this.expandAll
-      ? vscode.TreeItemCollapsibleState.Expanded
-      : vscode.TreeItemCollapsibleState.Collapsed;
-    const ti = new TreeItemBase(group, collapsible, CONTEXT_STREAM_GROUP);
-    ti.id = this.createStreamGroupNodeId(namespace, group);
-    ti.iconPath = new vscode.ThemeIcon('folder-library');
-    ti.namespace = namespace;
-    ti.streamGroup = group;
-    return ti;
-  }
-
-  /** Get stream group items under a namespace */
-  private getStreamGroups(namespace: string): TreeItemBase[] {
-    const groups = Object.keys(this.cachedStreamGroups)
-      .filter(g => g !== STREAM_GROUP_KUBERNETES)
-      .sort();
-    if (groups.length === 0) {
-      const item = new TreeItemBase('No streams found', vscode.TreeItemCollapsibleState.None, 'message');
-      item.iconPath = new vscode.ThemeIcon('info');
-      return [item];
-    }
-
+  private getStreamsForCategory(category: string): TreeItemBase[] {
+    const byCategory = this.getEdaStreamsByCategory();
+    const streams = byCategory[category] || [];
+    const categoryMatched = !!this.treeFilter && this.matchesFilter(category);
     const items: TreeItemBase[] = [];
-    for (const g of groups) {
-      if (!this.groupMatches(namespace, g)) {
+    for (const stream of streams) {
+      if (!categoryMatched && !this.streamMatchesAcrossNamespaces(stream, category)) {
         continue;
       }
-      const visibleStreams = this.getVisibleStreamsForGroup(namespace, g);
-      if (visibleStreams.length === 0) {
-        continue;
-      }
-      if (this.isGroupRedundant(g) && visibleStreams[0]) {
-        items.push(this.createStreamTreeItem(namespace, g, visibleStreams[0]));
-      } else {
-        items.push(this.createGroupTreeItem(namespace, g));
-      }
+      items.push(this.createEdaStreamTreeItem(category, stream));
     }
-
     return items;
   }
 
@@ -989,14 +1149,14 @@ constructor() {
   }
 
   /** Get the context value for a stream item based on stream type */
-  private getStreamItemContextValue(stream: string, streamGroup?: string): string {
+  private getStreamItemContextValue(stream: string): string {
     if (stream === 'pods') {
       return 'pod';
     }
     if (stream === 'deployments') {
       return 'k8s-deployment-instance';
     }
-    if (streamGroup === 'core' && stream === 'toponodes') {
+    if (stream === 'toponodes') {
       return 'toponode';
     }
     return CONTEXT_STREAM_ITEM;
@@ -1031,7 +1191,7 @@ constructor() {
   ): TreeItemBase {
     const ti = new TreeItemBase(name, vscode.TreeItemCollapsibleState.None, CONTEXT_STREAM_ITEM, resource);
     ti.id = this.createStreamItemNodeId(namespace, stream, streamGroup, resource, name);
-    ti.contextValue = this.getStreamItemContextValue(stream, streamGroup);
+    ti.contextValue = this.getStreamItemContextValue(stream);
     ti.namespace = namespace;
     ti.resourceType = stream;
     ti.streamGroup = streamGroup;
@@ -1072,21 +1232,59 @@ constructor() {
   }
 
   /** Build items for EDA stream */
-  private getEdaStreamItems(namespace: string, stream: string, streamGroup?: string): TreeItemBase[] {
-    const key = `${stream}:${namespace}`;
-    const map = this.streamData.get(key);
-    if (!map || map.size === 0) {
-      return [this.createNoItemsPlaceholder()];
-    }
-    const items: TreeItemBase[] = [];
-    const parentMatched = this.isParentFilterMatched(stream, streamGroup);
-    for (const [name, resource] of Array.from(map.entries()).sort()) {
-      if (!parentMatched && this.treeFilter && !this.matchesFilter(name)) {
+  private getEdaStreamItems(stream: string, streamGroup?: string): TreeItemBase[] {
+    const entries: Array<{ namespace: string; name: string; resource: K8sResource }> = [];
+    for (const namespace of this.getBootstrapNamespaces()) {
+      const key = `${stream}:${namespace}`;
+      const map = this.streamData.get(key);
+      if (!map || map.size === 0) {
         continue;
       }
-      items.push(this.createResourceTreeItem(name, resource, namespace, stream, streamGroup));
+      for (const [name, resource] of map.entries()) {
+        const resourceNamespace = typeof resource.metadata?.namespace === 'string' && resource.metadata.namespace.length > 0
+          ? resource.metadata.namespace
+          : namespace;
+        entries.push({
+          namespace: resourceNamespace,
+          name,
+          resource
+        });
+      }
     }
-    return items;
+
+    if (entries.length === 0) {
+      return [this.createNoItemsPlaceholder()];
+    }
+
+    const items: TreeItemBase[] = [];
+    const parentMatched = this.isParentFilterMatched(stream, streamGroup);
+    entries.sort((a, b) => {
+      const namespaceCompare = a.namespace.localeCompare(b.namespace);
+      if (namespaceCompare !== 0) {
+        return namespaceCompare;
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+    for (const entry of entries) {
+      const displayName = `${entry.namespace}/${entry.name}`;
+      if (!parentMatched
+        && this.treeFilter
+        && !this.matchesFilter(entry.name)
+        && !this.matchesFilter(displayName)) {
+        continue;
+      }
+      items.push(
+        this.createResourceTreeItem(
+          displayName,
+          entry.resource,
+          entry.namespace,
+          stream,
+          streamGroup
+        )
+      );
+    }
+    return items.length > 0 ? items : [this.createNoItemsPlaceholder()];
   }
 
   /** Build items for a specific stream */
@@ -1094,7 +1292,7 @@ constructor() {
     if (streamGroup === STREAM_GROUP_KUBERNETES) {
       return this.getKubernetesStreamItems(namespace, stream, streamGroup);
     }
-    return this.getEdaStreamItems(namespace, stream, streamGroup);
+    return this.getEdaStreamItems(stream, streamGroup);
   }
 
   public dispose(): void {

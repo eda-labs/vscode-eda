@@ -1,16 +1,13 @@
 import {
   Add as AddIcon,
-  ChevronRight as ChevronRightIcon,
   Close as CloseIcon,
   DeleteOutline as DeleteOutlineIcon,
   Edit as EditIcon,
-  ExpandMore as ExpandMoreIcon,
   FactCheck as FactCheckIcon,
   MoreVert as MoreVertIcon,
   OpenInNew as OpenInNewIcon,
   PlayArrow as PlayArrowIcon,
   RestartAlt as RestartAltIcon,
-  Search as SearchIcon,
   Settings as SettingsIcon,
   ShoppingBasket as ShoppingBasketIcon,
   Terminal as TerminalIcon,
@@ -20,12 +17,15 @@ import {
   Alert,
   Badge,
   Box,
+  FormControl,
   IconButton,
+  InputLabel,
   InputAdornment,
   ListItemIcon,
   Menu,
   MenuItem,
   Paper,
+  Select,
   Stack,
   TextField,
   Tooltip,
@@ -46,7 +46,9 @@ import {
   type ExplorerTabId
 } from '../shared/explorer/types';
 import { mountWebview } from '../shared/utils';
-import { ResourceSectionTree } from './resourceSectionTree';
+import { nodeIconName, sectionIconName } from './explorerIconMappings';
+import { NokiaChevronDownIcon, NokiaChevronRightIcon, NokiaExplorerIcon, NokiaFindIcon } from './nokiaExplorerIcons';
+import { ALL_RESOURCE_NAMESPACES_VALUE, ResourceSectionTree } from './resourceSectionTree';
 
 interface ExplorerNodeLabelProps {
   node: ExplorerNode;
@@ -73,7 +75,6 @@ const COLOR_PRIMARY_MAIN = 'primary.main';
 const COLOR_DIVIDER = 'divider';
 const DEFAULT_EXPANDED_SECTIONS = new Set<ExplorerTabId>(['dashboards', 'resources']);
 const FILTER_UPDATE_DEBOUNCE_MS = 250;
-const LARGE_ALARM_SECTION_ROW_THRESHOLD = 500;
 const CMD_VIEW_STREAM_ITEM = 'vscode-eda.viewStreamItem';
 const CMD_VIEW_RESOURCE = 'vscode-eda.viewResource';
 const CMD_EDIT_RESOURCE = 'vscode-eda.switchToEditResource';
@@ -128,6 +129,15 @@ function formatSectionTitle(section: ExplorerSectionSnapshot): string {
   return `${section.label} (${section.count})`;
 }
 
+function parseCountFromDashboardLabel(label: string): number {
+  const match = label.match(/\((\d+)\)\s*$/);
+  if (!match || typeof match[1] !== 'string') {
+    return 0;
+  }
+  const count = Number.parseInt(match[1], 10);
+  return Number.isNaN(count) ? 0 : count;
+}
+
 function flattenExpandableNodeIds(nodes: ExplorerNode[]): string[] {
   const ids: string[] = [];
   const stack: ExplorerNode[] = [];
@@ -149,43 +159,61 @@ function flattenExpandableNodeIds(nodes: ExplorerNode[]): string[] {
   return ids;
 }
 
+function toRecord(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+function resourceNamespaceFromNode(node: ExplorerNode): string {
+  const commandArg = toRecord(node.commandArg);
+  const namespace = commandArg?.namespace;
+  if (typeof namespace === 'string' && namespace.length > 0) {
+    return namespace;
+  }
+
+  const slash = node.label.indexOf('/');
+  if (slash > 0) {
+    return node.label.slice(0, slash);
+  }
+  return '';
+}
+
+function collectResourceNamespaces(nodes: ExplorerNode[]): string[] {
+  const namespaces = new Set<string>();
+  const stack = [...nodes];
+  while (stack.length > 0) {
+    const next = stack.pop();
+    if (!next) {
+      continue;
+    }
+    if (next.commandArg !== undefined && next.children.length === 0) {
+      const namespace = resourceNamespaceFromNode(next);
+      if (namespace.length > 0) {
+        namespaces.add(namespace);
+      }
+      continue;
+    }
+    for (const child of next.children) {
+      stack.push(child);
+    }
+  }
+
+  return Array.from(namespaces).sort((a, b) => a.localeCompare(b));
+}
+
 type ToolbarActionIconId =
-  | 'createResource'
-  | 'rejectAllDeviations'
-  | 'commitBasket'
-  | 'dryRunBasket'
-  | 'discardBasket'
-  | 'setTransactionLimit';
+  | 'createResource';
 
 const TOOLBAR_ACTION_ICONS: Record<ToolbarActionIconId, SvgIconComponent> = {
-  createResource: AddIcon,
-  rejectAllDeviations: CloseIcon,
-  commitBasket: PlayArrowIcon,
-  dryRunBasket: FactCheckIcon,
-  discardBasket: DeleteOutlineIcon,
-  setTransactionLimit: SettingsIcon
+  createResource: AddIcon
 };
 
 function toolbarActionIconId(action: ExplorerAction): ToolbarActionIconId | undefined {
   if (action.command === 'vscode-eda.createResource') {
     return 'createResource';
   }
-  if (action.command === 'vscode-eda.rejectAllDeviations') {
-    return 'rejectAllDeviations';
-  }
-  if (action.command === 'vscode-eda.commitBasket') {
-    return 'commitBasket';
-  }
-  if (action.command === 'vscode-eda.dryRunBasket') {
-    return 'dryRunBasket';
-  }
-  if (action.command === 'vscode-eda.discardBasket') {
-    return 'discardBasket';
-  }
-  if (action.command === 'vscode-eda.setTransactionLimit') {
-    return 'setTransactionLimit';
-  }
-
   return undefined;
 }
 
@@ -202,7 +230,7 @@ const ENTRY_ACTION_ICON_RULES: EntryActionIconRule[] = [
   { terms: ['accept', 'commit'], icon: PlayArrowIcon },
   { terms: ['showdashboard'], icon: OpenInNewIcon },
   { terms: ['dryrun'], icon: FactCheckIcon },
-  { terms: ['view', 'show', 'describe', 'logs'], icon: SearchIcon },
+  { terms: ['view', 'show', 'describe', 'logs'], icon: NokiaFindIcon },
   { terms: ['terminal', 'ssh'], icon: TerminalIcon },
   { terms: ['restart', 'revert', 'restore'], icon: RestartAltIcon },
   { terms: ['settransactionlimit'], icon: SettingsIcon }
@@ -217,7 +245,6 @@ function entryActionIcon(action: ExplorerAction): SvgIconComponent {
   const matchedRule = ENTRY_ACTION_ICON_RULES.find(rule => commandIncludesAny(command, rule.terms));
   return matchedRule?.icon ?? MoreVertIcon;
 }
-
 function isDestructiveEntryAction(action: ExplorerAction): boolean {
   const command = action.command.toLowerCase();
   return command.includes('delete')
@@ -346,8 +373,16 @@ function ExplorerNodeLabelBody({
   node: ExplorerNode;
   primaryAction: ExplorerAction | undefined;
 }>) {
+  const icon = nodeIconName(node);
+
   return (
     <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
+      {icon && (
+        <NokiaExplorerIcon
+          name={icon}
+          sx={{ fontSize: 16, color: 'text.secondary', flex: '0 0 auto' }}
+        />
+      )}
       <ExplorerNodeIndicator statusIndicator={node.statusIndicator} />
       <Typography variant="body2" noWrap sx={{ fontWeight: primaryAction ? 600 : 500 }}>
         {node.label}
@@ -460,6 +495,7 @@ interface SectionTreeProps {
   expandedItems: string[];
   onExpandedItemsChange: (itemIds: string[]) => void;
   onInvokeAction: (action: ExplorerAction) => void;
+  selectedResourceNamespace: string;
   onOpenActionMenu: (
     event: MouseEvent<HTMLElement>,
     actions: ExplorerAction[],
@@ -489,10 +525,10 @@ interface ResourceSectionToggleButtonProps {
 interface ExplorerSectionCardProps {
   section: ExplorerSectionSnapshot;
   expandedItems: string[];
+  selectedResourceNamespace: string;
   isCollapsed: boolean;
   isDropTarget: boolean;
   isBeingDragged: boolean;
-  onSetSectionRef: (sectionId: ExplorerTabId, element: HTMLDivElement | null) => void;
   onSectionDragStart: (sectionId: ExplorerTabId) => (event: DragEvent<HTMLDivElement>) => void;
   onSectionDragOver: (sectionId: ExplorerTabId) => (event: DragEvent<HTMLDivElement>) => void;
   onSectionDrop: (sectionId: ExplorerTabId) => (event: DragEvent<HTMLDivElement>) => void;
@@ -548,90 +584,17 @@ function renderTreeNodes(
   });
 }
 
-interface AlarmSectionListProps {
-  nodes: ExplorerNode[];
-  enableEntryTooltip: boolean;
-  onInvokeAction: (action: ExplorerAction) => void;
-}
-
-const AlarmSectionList = memo(function AlarmSectionList({
-  nodes,
-  enableEntryTooltip,
-  onInvokeAction
-}: Readonly<AlarmSectionListProps>) {
-  return (
-    <Box role="list" sx={{ minHeight: 0 }}>
-      {nodes.map((node) => {
-        const primaryAction = resolveNodePrimaryAction(node);
-        const hasEntryTooltip = enableEntryTooltip && Boolean(node.tooltip);
-        const labelBody = <ExplorerNodeLabelBody node={node} primaryAction={primaryAction} />;
-        const label = hasEntryTooltip
-          ? (
-            <Tooltip
-              title={node.tooltip || ''}
-              placement="bottom"
-              enterDelay={400}
-              leaveDelay={0}
-              disableInteractive
-              slotProps={{
-                popper: { sx: { pointerEvents: 'none' }, modifiers: [{ name: 'offset', options: { offset: [0, 6] } }, { name: 'flip', options: { fallbackPlacements: ['top'] } }, { name: 'preventOverflow', options: { padding: 8, altAxis: true } }] },
-                tooltip: { sx: { maxWidth: 'min(320px, calc(100vw - 24px))', whiteSpace: 'pre-wrap', wordBreak: 'break-word' } }
-              }}
-            >
-              {labelBody}
-            </Tooltip>
-          )
-          : labelBody;
-
-        return (
-          <Box
-            key={node.id}
-            role="listitem"
-            onClick={(event) => {
-              if (!primaryAction) {
-                return;
-              }
-              event.preventDefault();
-              event.stopPropagation();
-              onInvokeAction(primaryAction);
-            }}
-            sx={{
-              minHeight: 24,
-              px: 0.75,
-              py: 0.3,
-              borderRadius: 0.75,
-              cursor: primaryAction ? 'pointer' : 'default',
-              contentVisibility: 'auto',
-              containIntrinsicSize: '24px',
-              '&:hover': primaryAction ? {
-                bgcolor: (theme: Theme) => alpha(theme.palette.action.hover, 0.6)
-              } : undefined
-            }}
-          >
-            {label}
-            {(node.description || node.statusDescription) && (
-              <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', ml: 2.1 }}>
-                {node.description || node.statusDescription}
-              </Typography>
-            )}
-          </Box>
-        );
-      })}
-    </Box>
-  );
-});
-
 const SectionTree = memo(function SectionTree({
   section,
   expandedItems,
   onExpandedItemsChange,
   onInvokeAction,
+  selectedResourceNamespace,
   onOpenActionMenu
 }: Readonly<SectionTreeProps>) {
-  const isLargeAlarmSection = section.id === 'alarms' && section.nodes.length >= LARGE_ALARM_SECTION_ROW_THRESHOLD;
   const renderOptions = useMemo<TreeRenderOptions>(() => ({
-    enableEntryTooltip: !isLargeAlarmSection
-  }), [isLargeAlarmSection]);
+    enableEntryTooltip: true
+  }), []);
 
   if (section.nodes.length === 0) {
     return (
@@ -641,23 +604,13 @@ const SectionTree = memo(function SectionTree({
     );
   }
 
-  const isFlatAlarmSection = section.id === 'alarms' && section.nodes.every(node => node.children.length === 0);
-  if (isFlatAlarmSection) {
-    return (
-      <AlarmSectionList
-        nodes={section.nodes}
-        enableEntryTooltip={renderOptions.enableEntryTooltip}
-        onInvokeAction={onInvokeAction}
-      />
-    );
-  }
-
   if (section.id === 'resources') {
     return (
       <ResourceSectionTree
         nodes={section.nodes}
         expandedItems={expandedItems}
         onExpandedItemsChange={onExpandedItemsChange}
+        selectedNamespace={selectedResourceNamespace}
         enableEntryTooltip={renderOptions.enableEntryTooltip}
         onInvokeAction={onInvokeAction}
         onOpenActionMenu={onOpenActionMenu}
@@ -684,8 +637,8 @@ const SectionTree = memo(function SectionTree({
       expandedItems={expandedItems}
       onExpandedItemsChange={(_event, itemIds) => onExpandedItemsChange(itemIds)}
       slots={{
-        expandIcon: ChevronRightIcon,
-        collapseIcon: ExpandMoreIcon
+        expandIcon: NokiaChevronRightIcon,
+        collapseIcon: NokiaChevronDownIcon
       }}
       sx={{
         minHeight: 0,
@@ -766,7 +719,11 @@ function SectionCollapseToggleButton({ sectionLabel, isCollapsed, onToggle }: Re
       aria-label={isCollapsed ? `Expand ${sectionLabel}` : `Collapse ${sectionLabel}`}
       sx={{ color: COLOR_TEXT_PRIMARY, p: 0.25 }}
     >
-      {isCollapsed ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+      {isCollapsed ? (
+        <NokiaExplorerIcon name="chevronright" fontSize="small" />
+      ) : (
+        <NokiaExplorerIcon name="chevrondown" fontSize="small" />
+      )}
     </IconButton>
   );
 }
@@ -814,7 +771,11 @@ function ResourceSectionToggleButton({
         aria-label={areAllResourcesExpanded ? 'Collapse all resources' : 'Expand all resources'}
         sx={{ color: COLOR_TEXT_PRIMARY }}
       >
-        {areAllResourcesExpanded ? <ChevronRightIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+        <NokiaExplorerIcon
+          name="arrowcollapsevertical"
+          fontSize="small"
+          sx={{ transform: areAllResourcesExpanded ? 'rotate(180deg)' : 'none' }}
+        />
       </IconButton>
     </Tooltip>
   );
@@ -823,10 +784,10 @@ function ResourceSectionToggleButton({
 function ExplorerSectionCard({
   section,
   expandedItems,
+  selectedResourceNamespace,
   isCollapsed,
   isDropTarget,
   isBeingDragged,
-  onSetSectionRef,
   onSectionDragStart,
   onSectionDragOver,
   onSectionDrop,
@@ -839,26 +800,10 @@ function ExplorerSectionCard({
   onExpandAllInSection,
   onCollapseAllInSection
 }: Readonly<ExplorerSectionCardProps>) {
-  const keepMountedWhenCollapsed = section.id === 'alarms';
-  const [hasMountedContent, setHasMountedContent] = useState(!isCollapsed);
-
-  useEffect(() => {
-    if (!isCollapsed && !hasMountedContent) {
-      setHasMountedContent(true);
-    }
-  }, [hasMountedContent, isCollapsed]);
-
-  const shouldRenderContent = keepMountedWhenCollapsed ? hasMountedContent : !isCollapsed;
-  const contentHidden = keepMountedWhenCollapsed && isCollapsed;
+  const shouldRenderContent = !isCollapsed;
 
   return (
-    <Paper
-      variant="outlined"
-      ref={(element: HTMLDivElement | null) => {
-        onSetSectionRef(section.id, element);
-      }}
-      sx={getSectionPaperSx(isDropTarget)}
-    >
+    <Paper variant="outlined" sx={getSectionPaperSx(isDropTarget)}>
       <Box
         draggable
         onDragStart={onSectionDragStart(section.id)}
@@ -875,6 +820,10 @@ function ExplorerSectionCard({
             event.stopPropagation();
             onToggleSectionCollapsed(section.id);
           }}
+        />
+        <NokiaExplorerIcon
+          name={sectionIconName(section.id)}
+          sx={{ fontSize: 18, color: 'text.secondary', flex: '0 0 auto' }}
         />
         <Box
           onClick={() => onToggleSectionCollapsed(section.id)}
@@ -898,12 +847,13 @@ function ExplorerSectionCard({
       </Box>
 
       {shouldRenderContent && (
-        <Box sx={{ p: 1, display: contentHidden ? 'none' : 'block' }}>
+        <Box sx={{ p: 1 }}>
           <SectionTree
             section={section}
             expandedItems={expandedItems}
             onExpandedItemsChange={(itemIds) => onExpandedItemsChange(section.id, itemIds)}
             onInvokeAction={onInvokeAction}
+            selectedResourceNamespace={selectedResourceNamespace}
             onOpenActionMenu={onOpenActionMenu}
           />
         </Box>
@@ -958,6 +908,7 @@ function EdaExplorerView() {
   const [sectionOrder, setSectionOrder] = useState<ExplorerTabId[]>(EXPLORER_TAB_ORDER);
   const [collapsedBySection, setCollapsedBySection] = useState<Partial<Record<ExplorerTabId, boolean>>>({});
   const [filterText, setFilterText] = useState('');
+  const [selectedResourceNamespace, setSelectedResourceNamespace] = useState(ALL_RESOURCE_NAMESPACES_VALUE);
   const [expandedByTab, setExpandedByTab] = useState<Partial<Record<ExplorerTabId, string[]>>>({
     resources: []
   });
@@ -965,7 +916,6 @@ function EdaExplorerView() {
   const [draggingSection, setDraggingSection] = useState<ExplorerTabId | null>(null);
   const [dragOverSection, setDragOverSection] = useState<ExplorerTabId | null>(null);
   const [actionMenuState, setActionMenuState] = useState<ExplorerActionMenuState | null>(null);
-  const sectionRefs = useRef<Partial<Record<ExplorerTabId, HTMLDivElement | null>>>({});
   const resourcesExpandedBeforeFilterRef = useRef<string[] | null>(null);
   const resourcesCollapsedBeforeFilterRef = useRef<boolean | null>(null);
   const pendingFilterSyncRef = useRef<string | null>(null);
@@ -1140,6 +1090,24 @@ function EdaExplorerView() {
     return map;
   }, [sections]);
 
+  const resourceNamespaceOptions = useMemo(() => {
+    const resourceSection = sectionsById.get('resources');
+    if (!resourceSection) {
+      return [];
+    }
+    return collectResourceNamespaces(resourceSection.nodes);
+  }, [sectionsById]);
+
+  useEffect(() => {
+    if (selectedResourceNamespace === ALL_RESOURCE_NAMESPACES_VALUE) {
+      return;
+    }
+    if (resourceNamespaceOptions.includes(selectedResourceNamespace)) {
+      return;
+    }
+    setSelectedResourceNamespace(ALL_RESOURCE_NAMESPACES_VALUE);
+  }, [resourceNamespaceOptions, selectedResourceNamespace]);
+
   const orderedSections = useMemo(() => {
     const visible: ExplorerSectionSnapshot[] = [];
     for (const sectionId of sectionOrder) {
@@ -1150,8 +1118,19 @@ function EdaExplorerView() {
     }
     return visible;
   }, [sectionOrder, sectionsById]);
+  const basketCount = useMemo(() => {
+    const dashboardSection = sectionsById.get('dashboards');
+    if (!dashboardSection) {
+      return 0;
+    }
 
-  const basketCount = useMemo(() => sectionsById.get('basket')?.count ?? 0, [sectionsById]);
+    const basketEntry = dashboardSection.nodes.find(node => node.label.toLowerCase().startsWith('basket'));
+    if (!basketEntry) {
+      return 0;
+    }
+
+    return parseCountFromDashboardLabel(basketEntry.label);
+  }, [sectionsById]);
   const filterUpdateTimeoutRef = useRef<number | null>(null);
 
   const invokeAction = useCallback((action: ExplorerAction) => {
@@ -1159,6 +1138,14 @@ function EdaExplorerView() {
       command: 'invokeCommand',
       commandId: action.command,
       args: action.args
+    });
+  }, [postMessage]);
+
+  const invokeCommandById = useCallback((commandId: string, args?: unknown[]) => {
+    postMessage({
+      command: 'invokeCommand',
+      commandId,
+      args
     });
   }, [postMessage]);
 
@@ -1257,11 +1244,12 @@ function EdaExplorerView() {
   }, [handleFilterChange]);
 
   const openSettings = useCallback(() => {
-    postMessage({
-      command: 'invokeCommand',
-      commandId: 'vscode-eda.configureTargets'
-    });
-  }, [postMessage]);
+    invokeCommandById('vscode-eda.configureTargets');
+  }, [invokeCommandById]);
+
+  const openBasketDashboard = useCallback(() => {
+    invokeCommandById('vscode-eda.showDashboard', ['Basket']);
+  }, [invokeCommandById]);
 
   const expandAllInSection = useCallback((sectionId: ExplorerTabId, expandedItemIds: string[]) => {
     startTransition(() => {
@@ -1293,25 +1281,6 @@ function EdaExplorerView() {
       ...current,
       resources: false
     }));
-  }, []);
-
-  const setSectionRef = useCallback((sectionId: ExplorerTabId, element: HTMLDivElement | null) => {
-    sectionRefs.current[sectionId] = element;
-  }, []);
-
-  const focusBasketSection = useCallback(() => {
-    setCollapsedBySection(current => ({
-      ...current,
-      basket: false
-    }));
-
-    const basketSection = sectionRefs.current.basket;
-    if (basketSection) {
-      basketSection.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start'
-      });
-    }
   }, []);
 
   const handleSectionDragStart = useCallback((sectionId: ExplorerTabId) => (event: DragEvent<HTMLDivElement>) => {
@@ -1368,6 +1337,23 @@ function EdaExplorerView() {
         </Alert>
       )}
 
+      <FormControl size="small" fullWidth disabled={resourceNamespaceOptions.length === 0}>
+        <InputLabel id="explorer-namespace-select-label">Namespace</InputLabel>
+        <Select
+          labelId="explorer-namespace-select-label"
+          label="Namespace"
+          value={selectedResourceNamespace}
+          onChange={(event) => {
+            setSelectedResourceNamespace(String(event.target.value));
+          }}
+        >
+          <MenuItem value={ALL_RESOURCE_NAMESPACES_VALUE}>All Namespaces</MenuItem>
+          {resourceNamespaceOptions.map((namespace) => (
+            <MenuItem key={namespace} value={namespace}>{namespace}</MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+
       <Stack direction="row" spacing={1} alignItems="center">
         <TextField
           size="small"
@@ -1379,7 +1365,7 @@ function EdaExplorerView() {
             input: {
               startAdornment: (
                 <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
+                  <NokiaExplorerIcon name="find" fontSize="small" />
                 </InputAdornment>
               ),
               endAdornment: filterText.length > 0
@@ -1401,10 +1387,10 @@ function EdaExplorerView() {
           }}
         />
 
-        <Tooltip title="Open Basket">
+        <Tooltip title="Open Basket Dashboard">
           <IconButton
             size="small"
-            onClick={focusBasketSection}
+            onClick={openBasketDashboard}
             sx={{
               border: '1px solid',
               borderColor: COLOR_DIVIDER,
@@ -1458,10 +1444,10 @@ function EdaExplorerView() {
             key={section.id}
             section={section}
             expandedItems={expandedByTab[section.id] ?? []}
+            selectedResourceNamespace={selectedResourceNamespace}
             isCollapsed={collapsedBySection[section.id] ?? false}
             isDropTarget={dragOverSection === section.id && draggingSection !== section.id}
             isBeingDragged={draggingSection === section.id}
-            onSetSectionRef={setSectionRef}
             onSectionDragStart={handleSectionDragStart}
             onSectionDragOver={handleSectionDragOver}
             onSectionDrop={handleSectionDrop}
@@ -1476,7 +1462,6 @@ function EdaExplorerView() {
           />
         ))}
       </Stack>
-
       <Menu
         anchorEl={actionMenuState?.anchorEl || null}
         anchorReference={actionMenuState?.anchorPosition ? 'anchorPosition' : 'anchorEl'}
@@ -1523,5 +1508,4 @@ function EdaExplorerView() {
     </Box>
   );
 }
-
 mountWebview(EdaExplorerView);

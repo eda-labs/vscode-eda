@@ -1,29 +1,17 @@
 export type ExplorerTabId =
   | 'dashboards'
   | 'resources'
-  | 'alarms'
-  | 'deviations'
-  | 'basket'
-  | 'transactions'
   | 'help';
 
 export const EXPLORER_TAB_ORDER: ExplorerTabId[] = [
   'dashboards',
   'resources',
-  'alarms',
-  'deviations',
-  'basket',
-  'transactions',
   'help'
 ];
 
 export const EXPLORER_TAB_LABELS: Record<ExplorerTabId, string> = {
   dashboards: 'Dashboards',
   resources: 'Resources',
-  alarms: 'Alarms',
-  deviations: 'Deviations',
-  basket: 'Basket',
-  transactions: 'Transactions',
   help: 'Help'
 };
 

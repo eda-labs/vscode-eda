@@ -3,11 +3,21 @@ const path = require('node:path');
 const { defineConfig } = require('vite');
 const reactPlugin = require('@vitejs/plugin-react');
 
+const { createRealEdaDevMiddleware } = require('./devEdaMiddleware');
+
 const react = reactPlugin.default || reactPlugin;
 
 module.exports = defineConfig({
   root: __dirname,
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: 'eda-real-explorer-dev-middleware',
+      configureServer(server) {
+        server.middlewares.use(createRealEdaDevMiddleware());
+      }
+    }
+  ],
   base: './',
   resolve: {
     alias: [

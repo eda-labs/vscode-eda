@@ -219,4 +219,153 @@ describe('EdaApiClient token refresh', () => {
       'https://api/apps/topologies.eda.nokia.com/v1alpha1/networktopologies'
     );
   });
+
+  it('bootstraps names-only resources from DB snapshot', async () => {
+    const endpointPath = '/apps/core.eda.nokia.com/v1/namespaces/{namespace}/toponodes';
+    const specManager = {
+      getStreamEndpoints: () => [
+        { path: endpointPath, stream: 'toponodes', namespaced: true, namespaceParam: 'namespace' }
+      ],
+      getCoreNamespace: () => CORE_NAMESPACE
+    } as any;
+
+    const calls: string[] = [];
+    fetchStub.callsFake((url: string) => {
+      const urlText = String(url);
+      calls.push(urlText);
+      if (urlText.startsWith('https://api/core/db/v2/data?')) {
+        return mockResponse(200, {
+          '.namespace{.name=="eda"}.resources.cr.core_eda_nokia_com.v1.toponode{.name=="leaf1"}': {
+            apiVersion: 'core.eda.nokia.com/v1',
+            kind: 'TopoNode',
+            metadata: {
+              name: 'leaf1',
+              namespace: 'eda'
+            }
+          }
+        });
+      }
+      return mockResponse(404, { message: 'unexpected path' });
+    });
+
+    const client = new EdaApiClient(authClient);
+    client.setSpecManager(specManager);
+    const namesOnlyStreams = new Set<string>();
+    const snapshot = await client.bootstrapStreamItems(['eda'], {
+      namesOnly: true,
+      namesOnlyStreams
+    });
+
+    expect(namesOnlyStreams.has('toponodes')).to.equal(true);
+    expect(calls.some((url) => url.includes('/apps/core.eda.nokia.com/v1/namespaces/eda/toponodes'))).to.equal(false);
+
+    const dbCall = new URL(calls[0]);
+    expect(dbCall.pathname).to.equal('/core/db/v2/data');
+    expect(dbCall.searchParams.get('fields')).to.equal('apiVersion,kind,metadata.name,metadata.namespace');
+    expect(dbCall.searchParams.get('jsPath')).to.equal('.namespace.resources.cr.core_eda_nokia_com.v1.toponode');
+
+    const bucket = snapshot.get('toponodes:eda');
+    expect(bucket).to.not.equal(undefined);
+    const resource = bucket?.get('leaf1');
+    expect(resource?.apiVersion).to.equal('core.eda.nokia.com/v1');
+    expect(resource?.kind).to.equal('TopoNode');
+    expect(resource?.metadata?.name).to.equal('leaf1');
+  });
+
+  it('includes DB names-only resources across namespaces during bootstrap', async () => {
+    const endpointPath = '/apps/core.eda.nokia.com/v1/namespaces/{namespace}/toponodes';
+    const specManager = {
+      getStreamEndpoints: () => [
+        { path: endpointPath, stream: 'toponodes', namespaced: true, namespaceParam: 'namespace' }
+      ],
+      getCoreNamespace: () => CORE_NAMESPACE
+    } as any;
+
+    fetchStub.callsFake((url: string) => {
+      const urlText = String(url);
+      if (urlText.startsWith('https://api/core/db/v2/data?')) {
+        return mockResponse(200, {
+          '.namespace{.name=="fabric-a"}.resources.cr.core_eda_nokia_com.v1.toponode{.name=="leaf-a"}': {
+            apiVersion: 'core.eda.nokia.com/v1',
+            kind: 'TopoNode',
+            metadata: {
+              name: 'leaf-a',
+              namespace: 'fabric-a'
+            }
+          },
+          '.namespace{.name=="eda-system"}.resources.cr.core_eda_nokia_com.v1.toponode{.name=="controller"}': {
+            apiVersion: 'core.eda.nokia.com/v1',
+            kind: 'TopoNode',
+            metadata: {
+              name: 'controller',
+              namespace: 'eda-system'
+            }
+          }
+        });
+      }
+      return mockResponse(404, { message: 'unexpected path' });
+    });
+
+    const client = new EdaApiClient(authClient);
+    client.setSpecManager(specManager);
+    const snapshot = await client.bootstrapStreamItems(['eda-system'], {
+      namesOnly: true
+    });
+
+    expect(snapshot.get('toponodes:fabric-a')?.has('leaf-a')).to.equal(true);
+    expect(snapshot.get('toponodes:eda-system')?.has('controller')).to.equal(true);
+  });
+
+  it('falls back to stream endpoint when names-only DB bootstrap fails', async () => {
+    const endpointPath = '/apps/core.eda.nokia.com/v1/namespaces/{namespace}/toponodes';
+    const specManager = {
+      getStreamEndpoints: () => [
+        { path: endpointPath, stream: 'toponodes', namespaced: true, namespaceParam: 'namespace' }
+      ],
+      getCoreNamespace: () => CORE_NAMESPACE
+    } as any;
+
+    const calls: string[] = [];
+    fetchStub.callsFake((url: string) => {
+      const urlText = String(url);
+      calls.push(urlText);
+      if (urlText.startsWith('https://api/core/db/v2/data?')) {
+        return mockResponse(500, { message: 'db unavailable' });
+      }
+      if (urlText === 'https://api/apps/core.eda.nokia.com/v1/namespaces/eda/toponodes') {
+        return mockResponse(200, {
+          items: [
+            {
+              apiVersion: 'core.eda.nokia.com/v1',
+              kind: 'TopoNode',
+              metadata: {
+                name: 'leaf1',
+                namespace: 'eda'
+              },
+              spec: {
+                full: true
+              }
+            }
+          ]
+        });
+      }
+      return mockResponse(404, { message: 'unexpected path' });
+    });
+
+    const client = new EdaApiClient(authClient);
+    client.setSpecManager(specManager);
+    const namesOnlyStreams = new Set<string>();
+    const snapshot = await client.bootstrapStreamItems(['eda'], {
+      namesOnly: true,
+      namesOnlyStreams
+    });
+
+    expect(namesOnlyStreams.size).to.equal(0);
+    expect(calls.some((url) => url.startsWith('https://api/core/db/v2/data?'))).to.equal(true);
+    expect(calls.includes('https://api/apps/core.eda.nokia.com/v1/namespaces/eda/toponodes')).to.equal(true);
+
+    const bucket = snapshot.get('toponodes:eda');
+    const resource = bucket?.get('leaf1');
+    expect(resource?.spec).to.deep.equal({ full: true });
+  });
 });

@@ -4,6 +4,7 @@ src/**
 !src/webviews/**/*.html
 !src/webviews/**/*.css
 test/**
+test-results/**
 
 # Exclude development directories (must come before negation patterns)
 node_modules/**

@@ -1,9 +1,11 @@
 import type { ReactNode, WheelEvent } from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Paper, Typography } from '@mui/material';
 import {
   DataGrid,
+  useGridApiRef,
   type DataGridProps,
+  type GridAutosizeOptions,
   type GridValidRowModel,
   type GridColDef,
   type GridRowIdGetter
@@ -14,6 +16,8 @@ interface VsCodeDataGridProps<R extends GridValidRowModel> {
   columns: GridColDef<R>[];
   getRowId?: GridRowIdGetter<R>;
   loading?: boolean;
+  autoSizeColumns?: boolean;
+  autoSizeOptions?: GridAutosizeOptions;
   toolbar?: ReactNode;
   filters?: ReactNode;
   footer?: ReactNode;
@@ -23,6 +27,26 @@ interface VsCodeDataGridProps<R extends GridValidRowModel> {
 
 const MIN_GRID_HEIGHT = 280;
 const VIEWPORT_BOTTOM_PADDING = 4;
+const DEFAULT_AUTOSIZE_OPTIONS: GridAutosizeOptions = {
+  includeHeaders: true,
+  includeOutliers: true
+};
+
+function autosizeOptionsKey(options: GridAutosizeOptions | undefined): string {
+  if (!options) {
+    return 'default';
+  }
+  const columns = options.columns?.join(',') ?? '*';
+  return [
+    columns,
+    String(options.includeHeaders ?? ''),
+    String(options.includeHeaderFilters ?? ''),
+    String(options.includeOutliers ?? ''),
+    String(options.outliersFactor ?? ''),
+    String(options.expand ?? ''),
+    String(options.disableColumnVirtualization ?? '')
+  ].join('|');
+}
 
 function getAncestorBottomInset(element: HTMLElement | null): number {
   let inset = 0;
@@ -53,15 +77,20 @@ export function VsCodeDataGrid<R extends GridValidRowModel>({
   columns,
   getRowId,
   loading,
+  autoSizeColumns = false,
+  autoSizeOptions,
   toolbar,
   filters,
   footer,
   noRowsMessage = 'No rows',
   dataGridProps
 }: Readonly<VsCodeDataGridProps<R>>) {
+  const apiRef = useGridApiRef();
   const paperRef = useRef<HTMLDivElement | null>(null);
   const footerRef = useRef<HTMLDivElement | null>(null);
   const frameRef = useRef<number | undefined>(undefined);
+  const autoSizeFrameRef = useRef<number | undefined>(undefined);
+  const lastAutoSizeKeyRef = useRef<string>('');
   const [gridHeight, setGridHeight] = useState(360);
 
   const updateGridHeight = useCallback(() => {
@@ -124,6 +153,49 @@ export function VsCodeDataGrid<R extends GridValidRowModel>({
     scheduleGridHeightUpdate();
   }, [scheduleGridHeightUpdate, rows.length, columns.length]);
 
+  const currentAutoSizeKey = useMemo(() => {
+    if (!autoSizeColumns) {
+      return '';
+    }
+    const fieldKey = columns.map((column) => column.field).join(',');
+    return `${fieldKey}|${rows.length}|${autosizeOptionsKey(autoSizeOptions)}`;
+  }, [autoSizeColumns, columns, rows.length, autoSizeOptions]);
+
+  useEffect(() => {
+    if (!autoSizeColumns) {
+      lastAutoSizeKeyRef.current = '';
+      if (autoSizeFrameRef.current !== undefined) {
+        window.cancelAnimationFrame(autoSizeFrameRef.current);
+        autoSizeFrameRef.current = undefined;
+      }
+      return;
+    }
+    if (loading || columns.length === 0) {
+      return;
+    }
+    if (lastAutoSizeKeyRef.current === currentAutoSizeKey) {
+      return;
+    }
+
+    lastAutoSizeKeyRef.current = currentAutoSizeKey;
+    autoSizeFrameRef.current = window.requestAnimationFrame(() => {
+      autoSizeFrameRef.current = undefined;
+      const options = autoSizeOptions ?? DEFAULT_AUTOSIZE_OPTIONS;
+      const gridApi = apiRef.current;
+      if (!gridApi) {
+        return;
+      }
+      void gridApi.autosizeColumns(options).catch(() => {});
+    });
+
+    return () => {
+      if (autoSizeFrameRef.current !== undefined) {
+        window.cancelAnimationFrame(autoSizeFrameRef.current);
+        autoSizeFrameRef.current = undefined;
+      }
+    };
+  }, [apiRef, autoSizeColumns, autoSizeOptions, columns.length, currentAutoSizeKey, loading]);
+
   const handleWheelCapture = useCallback((event: WheelEvent<HTMLDivElement>) => {
     if (!event.shiftKey && Math.abs(event.deltaX) < 1) {
       return;
@@ -164,6 +236,7 @@ export function VsCodeDataGrid<R extends GridValidRowModel>({
         }}
       >
         <DataGrid
+          apiRef={apiRef}
           rows={rows}
           columns={columns}
           getRowId={getRowId}
