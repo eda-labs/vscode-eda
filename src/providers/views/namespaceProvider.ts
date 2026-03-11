@@ -4,11 +4,12 @@ import * as vscode from 'vscode';
 
 import { serviceManager } from '../../services/serviceManager';
 import type { KubernetesClient } from '../../clients/kubernetesClient';
-import type { EdaClient } from '../../clients/edaClient';
+import type { EdaClient, TransactionRequest } from '../../clients/edaClient';
 import type { BootstrapSnapshot } from '../../clients/edaApiClient';
 import type { ResourceService } from '../../services/resourceService';
 import type { ResourceStatusService } from '../../services/resourceStatusService';
 import { log, LogLevel } from '../../extension';
+import { runKubectl } from '../../utils/kubectlRunner';
 import { parseUpdateKey } from '../../utils/parseUpdateKey';
 import { getUpdates } from '../../utils/streamMessageUtils';
 
@@ -23,6 +24,27 @@ const CONTEXT_STREAM_ITEM = 'stream-item';
 const STREAM_NAMESPACE_SEPARATOR = ':';
 const DEFAULT_FAST_BOOTSTRAP_MIN_RESOURCES = 900;
 const DEFAULT_FAST_BOOTSTRAP_BATCH_SIZE = 12;
+const INDEXER_INSTALL_PROMPT =
+  'Resource indexer endpoint is unavailable. Install it now for faster initial indexing?';
+const INDEXER_INSTALL_REMOTE_KUSTOMIZE_URL =
+  'https://github.com/FloSch62/resource-indexer//packages/resource-text-indexer?ref=main';
+const INDEXER_INSTALL_PROGRESS_TITLE = 'Installing Resource Indexer';
+const INDEXER_HTTP_PROXY_GROUP = 'core.eda.nokia.com';
+const INDEXER_HTTP_PROXY_VERSION = 'v1';
+const INDEXER_HTTP_PROXY_KIND = 'HttpProxy';
+const INDEXER_HTTP_PROXY_NAME = 'indexer';
+const INDEXER_HTTP_PROXY_NAMESPACE = 'eda-system';
+const INDEXER_HTTP_PROXY_ROOT_URL =
+  'http://resource-text-indexer.resource-text-indexer.svc.cluster.local:80/';
+const INDEXER_READY_RETRY_ATTEMPTS = 24;
+const INDEXER_READY_RETRY_DELAY_MS = 5000;
+const INDEXER_INSTALL_TIMEOUT_MS = 180000;
+const INDEXER_INSTALL_MAX_BUFFER = 10 * 1024 * 1024;
+const INDEXER_MANUAL_INSTALL_MESSAGE =
+  'Resource indexer endpoint is unavailable and no Kubernetes context is configured for this target. '
+  + 'Install manually: kubectl apply -k '
+  + '"https://github.com/FloSch62/resource-indexer//packages/resource-text-indexer?ref=main", '
+  + 'then commit HttpProxy eda-system/indexer.';
 const STREAM_SUBSCRIBE_EXCLUDE = new Set([
   'resultsummary',
   'v1',
@@ -107,6 +129,8 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
   private streamRefreshIntervalMs = 60;
   private fastBootstrapMinimumResources = DEFAULT_FAST_BOOTSTRAP_MIN_RESOURCES;
   private fastBootstrapAdditionalBatchSize = DEFAULT_FAST_BOOTSTRAP_BATCH_SIZE;
+  private indexerInstallCheckInFlight = false;
+  private indexerInstallPromptShown = false;
 
 constructor() {
     super();
@@ -225,6 +249,7 @@ constructor() {
    */
   public async initialize(): Promise<void> {
     await this.loadStreams();
+    void this.maybePromptIndexerInstall();
     const loadedStreams = await this.loadFastResourceBootstrap();
     void this.subscribeToKnownEdaStreams().catch((err) => {
       log(`Failed to start EDA streams in background: ${err}`, LogLevel.DEBUG);
@@ -275,6 +300,127 @@ constructor() {
         }
       })
     );
+  }
+
+  private hasKubernetesContext(): boolean {
+    if (!this.k8sClient) {
+      return false;
+    }
+    const context = this.k8sClient.getCurrentContext();
+    return typeof context === 'string' && context.length > 0 && context !== 'none';
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
+  }
+
+  private async waitForIndexerAvailability(): Promise<boolean> {
+    for (let attempt = 0; attempt < INDEXER_READY_RETRY_ATTEMPTS; attempt += 1) {
+      if (await this.edaClient.isIndexerAvailable()) {
+        return true;
+      }
+      await this.sleep(INDEXER_READY_RETRY_DELAY_MS);
+    }
+    return false;
+  }
+
+  private async commitIndexerHttpProxy(): Promise<number> {
+    const resource: K8sResource = {
+      apiVersion: `${INDEXER_HTTP_PROXY_GROUP}/${INDEXER_HTTP_PROXY_VERSION}`,
+      kind: INDEXER_HTTP_PROXY_KIND,
+      metadata: {
+        name: INDEXER_HTTP_PROXY_NAME,
+        namespace: INDEXER_HTTP_PROXY_NAMESPACE
+      },
+      spec: {
+        authType: 'atDestination',
+        rootUrl: INDEXER_HTTP_PROXY_ROOT_URL
+      }
+    };
+    const tx: TransactionRequest = {
+      description: 'vscode install resource indexer httpproxy',
+      dryRun: false,
+      retain: true,
+      resultType: 'normal',
+      crs: [{ type: { replace: { value: resource } } }]
+    };
+    return this.edaClient.runTransaction(tx);
+  }
+
+  private async installIndexerInBackground(): Promise<void> {
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: INDEXER_INSTALL_PROGRESS_TITLE,
+        cancellable: false
+      },
+      async (progress) => {
+        progress.report({ message: 'Applying Kubernetes manifests...' });
+        runKubectl(
+          'kubectl',
+          ['apply', '-k', INDEXER_INSTALL_REMOTE_KUSTOMIZE_URL],
+          { timeout: INDEXER_INSTALL_TIMEOUT_MS, maxBuffer: INDEXER_INSTALL_MAX_BUFFER }
+        );
+
+        progress.report({ message: 'Committing HttpProxy resource...' });
+        const transactionId = await this.commitIndexerHttpProxy();
+
+        progress.report({ message: 'Waiting for endpoint readiness...' });
+        const ready = await this.waitForIndexerAvailability();
+        if (ready) {
+          vscode.window.showInformationMessage(
+            `Resource indexer is ready (transaction ${transactionId}).`
+          );
+          return;
+        }
+        vscode.window.showInformationMessage(
+          `Indexer install submitted (transaction ${transactionId}). `
+          + 'Live streams continue until the endpoint becomes ready.'
+        );
+      }
+    );
+  }
+
+  private async maybePromptIndexerInstall(): Promise<void> {
+    if (this.indexerInstallCheckInFlight || this.indexerInstallPromptShown) {
+      return;
+    }
+    this.indexerInstallCheckInFlight = true;
+    try {
+      const available = await this.edaClient.isIndexerAvailable();
+      if (available) {
+        return;
+      }
+
+      this.indexerInstallPromptShown = true;
+      if (!this.hasKubernetesContext()) {
+        log(
+          `${INDEXER_MANUAL_INSTALL_MESSAGE} HttpProxy spec: authType=atDestination, `
+          + `rootUrl=${INDEXER_HTTP_PROXY_ROOT_URL}.`,
+          LogLevel.WARN
+        );
+        vscode.window.showWarningMessage(INDEXER_MANUAL_INSTALL_MESSAGE);
+        return;
+      }
+
+      const choice = await vscode.window.showInformationMessage(
+        INDEXER_INSTALL_PROMPT,
+        'Install',
+        'Not now'
+      );
+      if (choice !== 'Install') {
+        return;
+      }
+      await this.installIndexerInBackground();
+    } catch (err) {
+      const message = String(err);
+      log(`Indexer install flow failed: ${message}`, LogLevel.WARN);
+      vscode.window.showWarningMessage(`Failed to install resource indexer: ${message}`);
+    } finally {
+      this.indexerInstallCheckInFlight = false;
+    }
   }
 
   /**
