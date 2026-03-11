@@ -310,8 +310,47 @@ function severityColor(value: string): 'error' | 'warning' | 'info' | 'success' 
   return SEVERITY_COLOR_MAP[normalized] ?? 'default';
 }
 
+function formatBasketResourceCount(value: number | undefined): string {
+  if (value === undefined) {
+    return '-';
+  }
+  return String(value);
+}
+
+function toGridRowDetailFields(details: ExplorerResourceListItemPayload['details']): Pick<
+  ResourceGridRow,
+  | 'alarmSeverity'
+  | 'alarmType'
+  | 'alarmResource'
+  | 'alarmLastChanged'
+  | 'deviationStatus'
+  | 'deviationPath'
+  | 'deviationNodeEndpoint'
+  | 'basketOperation'
+  | 'basketResourceCount'
+  | 'transactionId'
+  | 'transactionUser'
+  | 'transactionTimestamp'
+  | 'transactionDryRun'
+> {
+  return {
+    alarmSeverity: normalizeSingleLine(details?.alarmSeverity),
+    alarmType: normalizeSingleLine(details?.alarmType),
+    alarmResource: normalizeSingleLine(details?.alarmResource),
+    alarmLastChanged: formatTimestamp(details?.alarmLastChanged),
+    deviationStatus: normalizeSingleLine(details?.deviationStatus),
+    deviationPath: normalizeSingleLine(details?.deviationPath),
+    deviationNodeEndpoint: normalizeSingleLine(details?.deviationNodeEndpoint),
+    basketOperation: normalizeSingleLine(details?.basketOperation),
+    basketResourceCount: formatBasketResourceCount(details?.basketResourceCount),
+    transactionId: normalizeSingleLine(details?.transactionId),
+    transactionUser: normalizeSingleLine(details?.transactionUser),
+    transactionTimestamp: formatTimestamp(details?.transactionTimestamp),
+    transactionDryRun: normalizeBoolean(details?.transactionDryRun)
+  };
+}
+
 function toGridRow(resource: ExplorerResourceListItemPayload): ResourceGridRow {
-  const details = resource.details;
   return {
     id: resource.id,
     resource,
@@ -323,20 +362,62 @@ function toGridRow(resource: ExplorerResourceListItemPayload): ResourceGridRow {
     labels: resource.labels || '-',
     apiVersion: normalizeSingleLine(resource.apiVersion),
     state: normalizeSingleLine(resourceState(resource)),
-    alarmSeverity: normalizeSingleLine(details?.alarmSeverity),
-    alarmType: normalizeSingleLine(details?.alarmType),
-    alarmResource: normalizeSingleLine(details?.alarmResource),
-    alarmLastChanged: formatTimestamp(details?.alarmLastChanged),
-    deviationStatus: normalizeSingleLine(details?.deviationStatus),
-    deviationPath: normalizeSingleLine(details?.deviationPath),
-    deviationNodeEndpoint: normalizeSingleLine(details?.deviationNodeEndpoint),
-    basketOperation: normalizeSingleLine(details?.basketOperation),
-    basketResourceCount: details?.basketResourceCount !== undefined ? String(details.basketResourceCount) : '-',
-    transactionId: normalizeSingleLine(details?.transactionId),
-    transactionUser: normalizeSingleLine(details?.transactionUser),
-    transactionTimestamp: formatTimestamp(details?.transactionTimestamp),
-    transactionDryRun: normalizeBoolean(details?.transactionDryRun)
+    ...toGridRowDetailFields(resource.details)
   };
+}
+
+function resourceBaseSearchValues(resource: ExplorerResourceListItemPayload): Array<string | undefined> {
+  return [
+    resource.name,
+    resource.namespace,
+    resource.kind,
+    resource.stream,
+    resource.labels,
+    resource.apiVersion,
+    resource.state,
+    resource.statusDescription,
+    resource.description,
+    resource.label
+  ];
+}
+
+function resourceTelemetrySearchValues(details: ExplorerResourceListItemPayload['details']): Array<string | undefined> {
+  return [
+    details?.alarmSeverity,
+    details?.alarmType,
+    details?.alarmResource,
+    details?.alarmLastChanged,
+    details?.deviationStatus,
+    details?.deviationPath,
+    details?.deviationNodeEndpoint,
+    details?.basketOperation,
+    details?.basketResourceCount !== undefined ? String(details.basketResourceCount) : undefined
+  ];
+}
+
+function resourceTransactionSearchValues(details: ExplorerResourceListItemPayload['details']): Array<string | undefined> {
+  return [
+    details?.transactionId,
+    details?.transactionUser,
+    details?.transactionTimestamp,
+    booleanSearchToken(details?.transactionDryRun, 'yes', 'no'),
+    booleanSearchToken(details?.transactionSuccess, 'success', 'failure')
+  ];
+}
+
+function resourceDetailSearchValues(details: ExplorerResourceListItemPayload['details']): Array<string | undefined> {
+  return [
+    ...resourceTelemetrySearchValues(details),
+    ...resourceTransactionSearchValues(details)
+  ];
+}
+
+function matchesResourceFilter(resource: ExplorerResourceListItemPayload, filter: string): boolean {
+  const searchableValues = [
+    ...resourceBaseSearchValues(resource),
+    ...resourceDetailSearchValues(resource.details)
+  ];
+  return searchableValues.some((value) => typeof value === 'string' && value.toLowerCase().includes(filter));
 }
 
 function ExplorerResourceListPanelWebview() {
@@ -443,35 +524,7 @@ function ExplorerResourceListPanelWebview() {
       return payload.resources;
     }
 
-    return payload.resources.filter((resource) => {
-      const details = resource.details;
-      return [
-        resource.name,
-        resource.namespace,
-        resource.kind,
-        resource.stream,
-        resource.labels,
-        resource.apiVersion,
-        resource.state,
-        resource.statusDescription,
-        resource.description,
-        resource.label,
-        details?.alarmSeverity,
-        details?.alarmType,
-        details?.alarmResource,
-        details?.alarmLastChanged,
-        details?.deviationStatus,
-        details?.deviationPath,
-        details?.deviationNodeEndpoint,
-        details?.basketOperation,
-        details?.basketResourceCount !== undefined ? String(details.basketResourceCount) : undefined,
-        details?.transactionId,
-        details?.transactionUser,
-        details?.transactionTimestamp,
-        booleanSearchToken(details?.transactionDryRun, 'yes', 'no'),
-        booleanSearchToken(details?.transactionSuccess, 'success', 'failure')
-      ].some((value) => typeof value === 'string' && value.toLowerCase().includes(filter));
-    });
+    return payload.resources.filter(resource => matchesResourceFilter(resource, filter));
   }, [filterText, payload]);
 
   const closeActionMenu = useCallback(() => {

@@ -338,55 +338,67 @@ function buildAdditionalActions(item: TreeItemBase): ExplorerAction[] {
   return [];
 }
 
+function buildAlarmItemDetails(item: TreeItemBase): ExplorerResourceListItemDetails | undefined {
+  const alarm = getAlarmFromItem(item);
+  if (!alarm) {
+    return undefined;
+  }
+  return {
+    alarmSeverity: nonEmptyString(alarm.severity),
+    alarmType: nonEmptyString(alarm.type),
+    alarmResource: nonEmptyString(alarm.resource),
+    alarmLastChanged: nonEmptyString(alarm.lastChanged)
+  };
+}
+
+function buildDeviationItemDetails(item: TreeItemBase): ExplorerResourceListItemDetails | undefined {
+  const deviation = getDeviationFromItem(item);
+  if (!deviation) {
+    return undefined;
+  }
+  const spec = (deviation.spec && typeof deviation.spec === 'object')
+    ? (deviation.spec as { path?: unknown; nodeEndpoint?: unknown })
+    : undefined;
+  return {
+    deviationStatus: nonEmptyString(deviation.status),
+    deviationPath: nonEmptyString(spec?.path),
+    deviationNodeEndpoint: nonEmptyString(spec?.nodeEndpoint)
+  };
+}
+
+function buildBasketItemDetails(item: TreeItemBase): ExplorerResourceListItemDetails {
+  const basket = getBasketFromItem(item);
+  return {
+    basketOperation: getBasketOperation(item, basket),
+    basketResourceCount: getBasketResourceCount(item, basket)
+  };
+}
+
+function buildTransactionItemDetails(item: TreeItemBase): ExplorerResourceListItemDetails {
+  const tx = getTransactionFromItem(item);
+  const fallbackLabel = labelToText(item.label);
+  return {
+    transactionId: getTransactionId(tx, fallbackLabel),
+    transactionUser: getTransactionUser(tx, fallbackLabel),
+    transactionTimestamp: nonEmptyString(tx?.lastChangeTimestamp),
+    transactionDryRun: typeof tx?.dryRun === 'boolean' ? tx.dryRun : undefined,
+    transactionSuccess: typeof tx?.success === 'boolean' ? tx.success : undefined
+  };
+}
+
 function buildItemDetails(item: TreeItemBase, viewKind: ExplorerResourceListViewKind): ExplorerResourceListItemDetails | undefined {
-  if (viewKind === 'alarms') {
-    const alarm = getAlarmFromItem(item);
-    if (!alarm) {
+  switch (viewKind) {
+    case 'alarms':
+      return buildAlarmItemDetails(item);
+    case 'deviations':
+      return buildDeviationItemDetails(item);
+    case 'basket':
+      return buildBasketItemDetails(item);
+    case 'transactions':
+      return buildTransactionItemDetails(item);
+    default:
       return undefined;
-    }
-    return {
-      alarmSeverity: nonEmptyString(alarm.severity),
-      alarmType: nonEmptyString(alarm.type),
-      alarmResource: nonEmptyString(alarm.resource),
-      alarmLastChanged: nonEmptyString(alarm.lastChanged)
-    };
   }
-
-  if (viewKind === 'deviations') {
-    const deviation = getDeviationFromItem(item);
-    if (!deviation) {
-      return undefined;
-    }
-    const spec = (deviation.spec && typeof deviation.spec === 'object')
-      ? (deviation.spec as { path?: unknown; nodeEndpoint?: unknown })
-      : undefined;
-    return {
-      deviationStatus: nonEmptyString(deviation.status),
-      deviationPath: nonEmptyString(spec?.path),
-      deviationNodeEndpoint: nonEmptyString(spec?.nodeEndpoint)
-    };
-  }
-
-  if (viewKind === 'basket') {
-    const basket = getBasketFromItem(item);
-    return {
-      basketOperation: getBasketOperation(item, basket),
-      basketResourceCount: getBasketResourceCount(item, basket)
-    };
-  }
-
-  if (viewKind === 'transactions') {
-    const tx = getTransactionFromItem(item);
-    return {
-      transactionId: getTransactionId(tx, labelToText(item.label)),
-      transactionUser: getTransactionUser(tx, labelToText(item.label)),
-      transactionTimestamp: nonEmptyString(tx?.lastChangeTimestamp),
-      transactionDryRun: typeof tx?.dryRun === 'boolean' ? tx.dryRun : undefined,
-      transactionSuccess: typeof tx?.success === 'boolean' ? tx.success : undefined
-    };
-  }
-
-  return undefined;
 }
 
 async function getProviderChildren(provider: DashboardTreeProvider, element?: TreeItemBase): Promise<TreeItemBase[]> {
@@ -416,81 +428,122 @@ async function collectLeafItems(provider: DashboardTreeProvider): Promise<TreeIt
   return leaves;
 }
 
+function isNonResourceItem(contextValue: string): boolean {
+  return contextValue === 'info' || contextValue === 'message' || contextValue === 'dashboard-empty';
+}
+
+function getAlarmForView(item: TreeItemBase, viewKind: ExplorerResourceListViewKind): AlarmLike | undefined {
+  return viewKind === 'alarms' ? getAlarmFromItem(item) : undefined;
+}
+
+function getTransactionForView(item: TreeItemBase, viewKind: ExplorerResourceListViewKind): TransactionLike | undefined {
+  return viewKind === 'transactions' ? getTransactionFromItem(item) : undefined;
+}
+
+function resolveResourceName(
+  viewKind: ExplorerResourceListViewKind,
+  label: string,
+  alarm: AlarmLike | undefined,
+  details: ExplorerResourceListItemDetails | undefined
+): string {
+  if (viewKind === 'alarms') {
+    return nonEmptyString(alarm?.name) || label;
+  }
+  if (viewKind === 'transactions') {
+    return details?.transactionId || label;
+  }
+  return label;
+}
+
+function resolveResourceNamespace(
+  item: TreeItemBase,
+  viewKind: ExplorerResourceListViewKind,
+  alarm: AlarmLike | undefined
+): string {
+  const fallbackNamespace = getNamespaceFromItem(item);
+  if (viewKind === 'alarms') {
+    return getAlarmNamespace(alarm, fallbackNamespace);
+  }
+  if (viewKind === 'transactions') {
+    return '';
+  }
+  return fallbackNamespace;
+}
+
+function resolveResourceKind(item: TreeItemBase, viewKind: ExplorerResourceListViewKind): string | undefined {
+  if (viewKind === 'alarms') {
+    return 'Alarm';
+  }
+  return getKindFromItem(item) || undefined;
+}
+
+function resolveResourceState(
+  viewKind: ExplorerResourceListViewKind,
+  details: ExplorerResourceListItemDetails | undefined,
+  statusDescription: string | undefined,
+  description: string | undefined,
+  transaction: TransactionLike | undefined
+): string | undefined {
+  const fallbackState = statusDescription || description;
+  if (viewKind === 'alarms') {
+    return details?.alarmSeverity || fallbackState;
+  }
+  if (viewKind === 'deviations') {
+    return details?.deviationStatus || fallbackState;
+  }
+  if (viewKind === 'transactions') {
+    return nonEmptyString(transaction?.state) || fallbackState;
+  }
+  return fallbackState;
+}
+
+function resolveResourceStream(item: TreeItemBase, viewKind: ExplorerResourceListViewKind): string | undefined {
+  if (viewKind !== 'resources') {
+    return undefined;
+  }
+  return item.resourceType || item.streamGroup;
+}
+
+function resolveResourceApiVersion(item: TreeItemBase, viewKind: ExplorerResourceListViewKind): string | undefined {
+  if (viewKind !== 'resources') {
+    return undefined;
+  }
+  return item.resource?.apiVersion;
+}
+
 function toResourceListItem(
   item: TreeItemBase,
   index: number,
   viewKind: ExplorerResourceListViewKind
 ): ExplorerResourceListItemPayload | undefined {
   const contextValue = item.contextValue ?? '';
-  if (contextValue === 'info' || contextValue === 'message' || contextValue === 'dashboard-empty') {
+  if (isNonResourceItem(contextValue)) {
     return undefined;
   }
 
   const label = labelToText(item.label);
   const description = descriptionToText(item.description) || undefined;
-  const primaryAction = commandToAction(item.command);
   const statusDescription = item.status?.description;
-  const rawStatusIndicator = item.status?.indicator;
   const details = buildItemDetails(item, viewKind);
-  const alarm = viewKind === 'alarms' ? getAlarmFromItem(item) : undefined;
-  const transaction = viewKind === 'transactions' ? getTransactionFromItem(item) : undefined;
-
-  const name = (() => {
-    if (viewKind === 'alarms') {
-      return nonEmptyString(alarm?.name) || label;
-    }
-    if (viewKind === 'transactions') {
-      return details?.transactionId || label;
-    }
-    return label;
-  })();
-
-  const namespace = (() => {
-    if (viewKind === 'alarms') {
-      return getAlarmNamespace(alarm, getNamespaceFromItem(item));
-    }
-    if (viewKind === 'transactions') {
-      return '';
-    }
-    return getNamespaceFromItem(item);
-  })();
-
-  const kind = (() => {
-    if (viewKind === 'alarms') {
-      return 'Alarm';
-    }
-    return getKindFromItem(item) || undefined;
-  })();
-
-  const state = (() => {
-    if (viewKind === 'alarms') {
-      return details?.alarmSeverity || statusDescription || description;
-    }
-    if (viewKind === 'deviations') {
-      return details?.deviationStatus || statusDescription || description;
-    }
-    if (viewKind === 'transactions') {
-      return nonEmptyString(transaction?.state) || statusDescription || description;
-    }
-    return statusDescription || description;
-  })();
-
-  const statusIndicator = rawStatusIndicator || deriveStatusIndicator(state);
+  const alarm = getAlarmForView(item, viewKind);
+  const transaction = getTransactionForView(item, viewKind);
+  const state = resolveResourceState(viewKind, details, statusDescription, description, transaction);
+  const statusIndicator = item.status?.indicator || deriveStatusIndicator(state);
 
   return {
     id: item.id || `dashboard-row:${index}:${label}`,
     label,
-    name,
-    namespace,
-    kind,
-    stream: viewKind === 'resources' ? (item.resourceType || item.streamGroup) : undefined,
-    apiVersion: viewKind === 'resources' ? item.resource?.apiVersion : undefined,
+    name: resolveResourceName(viewKind, label, alarm, details),
+    namespace: resolveResourceNamespace(item, viewKind, alarm),
+    kind: resolveResourceKind(item, viewKind),
+    stream: resolveResourceStream(item, viewKind),
+    apiVersion: resolveResourceApiVersion(item, viewKind),
     state: state || undefined,
     description,
     statusDescription,
     statusIndicator,
     details,
-    primaryAction,
+    primaryAction: commandToAction(item.command),
     actions: buildAdditionalActions(item)
   };
 }
