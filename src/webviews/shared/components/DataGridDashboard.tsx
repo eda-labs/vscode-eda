@@ -253,6 +253,7 @@ function DataGridDashboardInner<T extends DataGridMessage>({
       <VsCodeDataGrid<DashboardRow>
         rows={gridRows}
         columns={gridColumns}
+        autoSizeColumns
         noRowsMessage="No rows"
         footer={(
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>

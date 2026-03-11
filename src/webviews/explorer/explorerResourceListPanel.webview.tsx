@@ -887,6 +887,7 @@ function ExplorerResourceListPanelWebview() {
       <VsCodeDataGrid<ResourceGridRow>
         rows={rows}
         columns={columns}
+        autoSizeColumns
         noRowsMessage={noRowsMessage}
         footer={(
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
