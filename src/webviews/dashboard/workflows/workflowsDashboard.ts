@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import { BasePanel } from '../../basePanel';
 import { ALL_NAMESPACES } from '../../constants';
 import { serviceManager } from '../../../services/serviceManager';
+import { namespaceSelectionService } from '../../../services/namespaceSelectionService';
 import type { EdaClient } from '../../../clients/edaClient';
 import { kindToPlural } from '../../../utils/pluralUtils';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
@@ -140,11 +141,13 @@ export class WorkflowsDashboardPanel extends BasePanel {
   private workflowDrafts: Map<string, WorkflowDraftContext> = new Map();
   private workflowSaveDisposable: vscode.Disposable;
   private workflowCloseDisposable: vscode.Disposable;
+  private namespaceSelectionDisposable: vscode.Disposable;
 
   private constructor(context: vscode.ExtensionContext, title: string) {
     super(context, 'workflowsDashboard', title, undefined, BasePanel.getEdaIconPath(context));
 
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
+    this.selectedNamespace = namespaceSelectionService.getSelectedNamespace();
     this.workflowSaveDisposable = vscode.workspace.onDidSaveTextDocument((document) => {
       void this.handleWorkflowDraftSave(document);
     });
@@ -153,6 +156,9 @@ export class WorkflowsDashboardPanel extends BasePanel {
     });
     this.streamDisposable = this.edaClient.onStreamMessage((stream, msg) => {
       this.handleWorkflowStreamMessage(stream, msg);
+    });
+    this.namespaceSelectionDisposable = namespaceSelectionService.onDidChangeSelection((namespace) => {
+      this.applyNamespaceSelection(namespace);
     });
 
     this.panel.onDidChangeViewState((event) => {
@@ -180,11 +186,8 @@ export class WorkflowsDashboardPanel extends BasePanel {
   private async handleWebviewMessage(msg: WebviewMessage): Promise<void> {
     switch (msg.command) {
       case 'ready':
-        this.sendNamespaces();
-        this.requestLoad(ALL_NAMESPACES);
-        break;
-      case 'setNamespace':
-        this.requestLoad(msg.namespace ?? ALL_NAMESPACES);
+        this.postNamespaceSelection();
+        this.requestLoad(this.selectedNamespace);
         break;
       case 'showInTree':
         await vscode.commands.executeCommand('vscode-eda.filterTree', 'workflows');
@@ -224,23 +227,22 @@ export class WorkflowsDashboardPanel extends BasePanel {
     }
   }
 
-  private sendNamespaces(): void {
-    const namespaces = Array.from(new Set([
-      ...this.edaClient.getCachedNamespaces(),
-      ...this.rowMap.keys()
-    ]));
-    namespaces.sort((a, b) => a.localeCompare(b));
-    namespaces.unshift(ALL_NAMESPACES);
-
-    if (!namespaces.includes(this.selectedNamespace)) {
-      this.selectedNamespace = ALL_NAMESPACES;
-    }
-
+  private postNamespaceSelection(): void {
     this.panel.webview.postMessage({
       command: 'init',
-      namespaces,
       selected: this.selectedNamespace
     });
+  }
+
+  private applyNamespaceSelection(namespace: string): void {
+    this.selectedNamespace = namespace;
+    this.panel.webview.postMessage({
+      command: 'namespace',
+      selected: namespace
+    });
+    if (this.panel.visible) {
+      this.requestLoad(namespace);
+    }
   }
 
   private normalizeStreamName(streamName: string): string {
@@ -1133,12 +1135,12 @@ export class WorkflowsDashboardPanel extends BasePanel {
       this.columnSet = previousColumnSet;
     }
 
-    this.sendNamespaces();
+    this.postNamespaceSelection();
     this.postResults();
   }
 
   private reloadPanelData(): void {
-    this.sendNamespaces();
+    this.postNamespaceSelection();
     this.requestLoad(this.selectedNamespace);
   }
 
@@ -1226,6 +1228,7 @@ export class WorkflowsDashboardPanel extends BasePanel {
       panel.subscribedWorkflowStreams.clear();
       panel.workflowSaveDisposable.dispose();
       panel.workflowCloseDisposable.dispose();
+      panel.namespaceSelectionDisposable.dispose();
       panel.workflowDrafts.clear();
       if (WorkflowsDashboardPanel.currentPanel === panel) {
         WorkflowsDashboardPanel.currentPanel = undefined;

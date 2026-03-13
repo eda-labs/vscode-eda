@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { BasePanel } from '../../basePanel';
 import { ALL_NAMESPACES, RESOURCES_DIR } from '../../constants';
 import { serviceManager } from '../../../services/serviceManager';
+import { namespaceSelectionService } from '../../../services/namespaceSelectionService';
 import type { EdaClient } from '../../../clients/edaClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
 import { getUpdates, type StreamMessageWithUpdates } from '../../../utils/streamMessageUtils';
@@ -124,11 +125,6 @@ interface WebviewReadyMessage {
   command: 'ready';
 }
 
-interface WebviewSetNamespaceMessage {
-  command: 'setNamespace';
-  namespace: string;
-}
-
 interface WebviewSshTopoNodeMessage {
   command: 'sshTopoNode';
   name: string;
@@ -144,7 +140,6 @@ interface WebviewOpenResourceMessage {
 
 type WebviewMessage =
   | WebviewReadyMessage
-  | WebviewSetNamespaceMessage
   | WebviewSshTopoNodeMessage
   | WebviewOpenResourceMessage;
 
@@ -167,11 +162,13 @@ export class TopologyFlowDashboardPanel extends BasePanel {
   private groupings: TierSelector[] = [];
   private selectedNamespace = ALL_NAMESPACES;
   private postGraphTimer: ReturnType<typeof setTimeout> | undefined;
+  private namespaceSelectionDisposable: vscode.Disposable;
 
   constructor(context: vscode.ExtensionContext, title: string) {
     super(context, 'topologyFlowDashboard', title, undefined, BasePanel.getEdaIconPath(context));
 
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
+    this.selectedNamespace = namespaceSelectionService.getSelectedNamespace();
 
     const streamDisposable = this.edaClient.onStreamMessage((stream, msg: unknown) => {
       const payload = msg as StreamMessagePayload;
@@ -184,6 +181,7 @@ export class TopologyFlowDashboardPanel extends BasePanel {
 
     this.panel.onDidDispose(() => {
       streamDisposable.dispose();
+      this.namespaceSelectionDisposable.dispose();
       if (this.postGraphTimer) clearTimeout(this.postGraphTimer);
       this.edaClient.closeTopoNodeStream();
       this.edaClient.closeTopoLinkStream();
@@ -191,11 +189,9 @@ export class TopologyFlowDashboardPanel extends BasePanel {
 
     this.panel.webview.onDidReceiveMessage(async (msg: WebviewMessage) => {
       if (msg.command === 'ready') {
-        this.sendNamespaces();
+        this.postNamespaceSelection();
         await this.loadGroupings();
-        await this.loadInitial(ALL_NAMESPACES);
-      } else if (msg.command === 'setNamespace') {
-        await this.loadInitial(msg.namespace);
+        await this.loadInitial(this.selectedNamespace);
       } else if (msg.command === 'sshTopoNode') {
         await vscode.commands.executeCommand('vscode-eda.sshTopoNode', {
           name: msg.name,
@@ -207,6 +203,16 @@ export class TopologyFlowDashboardPanel extends BasePanel {
           raw: msg.raw,
           streamGroup: msg.streamGroup
         });
+      }
+    });
+
+    this.namespaceSelectionDisposable = namespaceSelectionService.onDidChangeSelection((namespace) => {
+      this.applyNamespaceSelection(namespace);
+    });
+    this.panel.onDidChangeViewState((event) => {
+      if (event.webviewPanel.visible) {
+        this.postNamespaceSelection();
+        void this.loadInitial(this.selectedNamespace);
       }
     });
 
@@ -252,17 +258,22 @@ export class TopologyFlowDashboardPanel extends BasePanel {
 </html>`;
   }
 
-  private sendNamespaces(): void {
-    const coreNs = this.edaClient.getCoreNamespace();
-    const namespaces = this.edaClient
-      .getCachedNamespaces()
-      .filter(ns => ns !== coreNs);
-    namespaces.unshift(ALL_NAMESPACES);
+  private postNamespaceSelection(): void {
     this.panel.webview.postMessage({
       command: 'init',
-      namespaces,
       selected: this.selectedNamespace
     });
+  }
+
+  private applyNamespaceSelection(namespace: string): void {
+    this.selectedNamespace = namespace;
+    this.panel.webview.postMessage({
+      command: 'namespace',
+      selected: namespace
+    });
+    if (this.panel.visible) {
+      void this.loadInitial(namespace);
+    }
   }
 
   private async loadGroupings(): Promise<void> {

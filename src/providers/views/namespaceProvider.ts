@@ -6,12 +6,14 @@ import { serviceManager } from '../../services/serviceManager';
 import type { KubernetesClient } from '../../clients/kubernetesClient';
 import type { EdaClient, TransactionRequest } from '../../clients/edaClient';
 import type { BootstrapSnapshot } from '../../clients/edaApiClient';
+import { namespaceSelectionService } from '../../services/namespaceSelectionService';
 import type { ResourceService } from '../../services/resourceService';
 import type { ResourceStatusService } from '../../services/resourceStatusService';
 import { log, LogLevel } from '../../extension';
 import { runKubectl } from '../../utils/kubectlRunner';
 import { parseUpdateKey } from '../../utils/parseUpdateKey';
 import { getUpdates } from '../../utils/streamMessageUtils';
+import { ALL_NAMESPACES } from '../../webviews/constants';
 
 import { FilteredTreeProvider } from './filteredTreeProvider';
 import { TreeItemBase } from './treeItem';
@@ -140,6 +142,7 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
   private fastBootstrapAdditionalBatchSize = DEFAULT_FAST_BOOTSTRAP_BATCH_SIZE;
   private indexerInstallCheckInFlight = false;
   private indexerInstallPromptShown = false;
+  private selectedNamespace = ALL_NAMESPACES;
 
 constructor() {
     super();
@@ -172,6 +175,13 @@ constructor() {
     this.logKubernetesClientStatus();
     this.initializeNamespaceCache();
     this.setupStreamMessageHandler();
+    this.selectedNamespace = namespaceSelectionService.getSelectedNamespace();
+    this.disposables.push(
+      namespaceSelectionService.onDidChangeSelection((namespace) => {
+        this.selectedNamespace = namespace;
+        this.refresh();
+      })
+    );
   }
 
   /** Initialize Kubernetes client and related streams */
@@ -641,6 +651,22 @@ constructor() {
     return Array.from(namespaces).sort((a, b) => a.localeCompare(b));
   }
 
+  public getNamespaceSelectionOptions(): string[] {
+    const namespaces = new Set<string>(this.getBootstrapNamespaces());
+    if (this.k8sClient) {
+      for (const namespace of this.k8sClient.getCachedNamespaces()) {
+        if (namespace) {
+          namespaces.add(namespace);
+        }
+      }
+    }
+    const coreNamespace = this.edaClient.getCoreNamespace();
+    if (coreNamespace) {
+      namespaces.delete(coreNamespace);
+    }
+    return Array.from(namespaces).sort((a, b) => a.localeCompare(b));
+  }
+
   private snapshotResourceCount(snapshot: BootstrapSnapshot): number {
     let count = 0;
     for (const bucket of snapshot.values()) {
@@ -914,7 +940,7 @@ constructor() {
     if (!this.k8sClient) {
       return false;
     }
-    for (const ns of this.k8sClient.getCachedNamespaces()) {
+    for (const ns of this.getSelectedKubernetesNamespaces()) {
       if (this.kubernetesNamespaceMatches(ns)) {
         return true;
       }
@@ -933,7 +959,7 @@ constructor() {
   }
 
   private streamHasDataInAnyNamespace(stream: string): boolean {
-    for (const namespace of this.getBootstrapNamespaces()) {
+    for (const namespace of this.getSelectedBootstrapNamespaces()) {
       if (this.streamHasData(namespace, stream)) {
         return true;
       }
@@ -951,7 +977,7 @@ constructor() {
     if (category && this.matchesFilter(category)) {
       return true;
     }
-    for (const namespace of this.getBootstrapNamespaces()) {
+    for (const namespace of this.getSelectedBootstrapNamespaces()) {
       if (!this.streamHasData(namespace, stream)) {
         continue;
       }
@@ -1162,7 +1188,7 @@ constructor() {
     if (!this.k8sClient) {
       return [];
     }
-    const namespaces = this.k8sClient.getCachedNamespaces().slice().sort();
+    const namespaces = this.getSelectedKubernetesNamespaces();
     if (namespaces.length === 0) {
       const msgItem = new TreeItemBase(
         'No Kubernetes namespaces found',
@@ -1535,7 +1561,7 @@ constructor() {
   /** Build items for EDA stream */
   private getEdaStreamItems(stream: string, streamGroup?: string): TreeItemBase[] {
     const entries: Array<{ namespace: string; name: string; resource: K8sResource }> = [];
-    for (const namespace of this.getBootstrapNamespaces()) {
+    for (const namespace of this.getSelectedBootstrapNamespaces()) {
       const key = `${stream}:${namespace}`;
       const map = this.streamData.get(key);
       if (!map || map.size === 0) {
@@ -1594,6 +1620,25 @@ constructor() {
       return this.getKubernetesStreamItems(namespace, stream, streamGroup);
     }
     return this.getEdaStreamItems(stream, streamGroup);
+  }
+
+  private getSelectedBootstrapNamespaces(): string[] {
+    const namespaces = this.getBootstrapNamespaces();
+    if (this.selectedNamespace === ALL_NAMESPACES) {
+      return namespaces;
+    }
+    return namespaces.includes(this.selectedNamespace) ? [this.selectedNamespace] : [];
+  }
+
+  private getSelectedKubernetesNamespaces(): string[] {
+    if (!this.k8sClient) {
+      return [];
+    }
+    const namespaces = this.k8sClient.getCachedNamespaces().slice().sort();
+    if (this.selectedNamespace === ALL_NAMESPACES) {
+      return namespaces;
+    }
+    return namespaces.filter(namespace => namespace === this.selectedNamespace);
   }
 
   public dispose(): void {

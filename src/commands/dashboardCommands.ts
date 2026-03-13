@@ -5,6 +5,8 @@ import type { EdaDeviationProvider } from '../providers/views/deviationProvider'
 import type { TransactionBasketProvider } from '../providers/views/transactionBasketProvider';
 import type { EdaTransactionProvider } from '../providers/views/transactionProvider';
 import type { TreeItemBase } from '../providers/views/treeItem';
+import { namespaceSelectionService } from '../services/namespaceSelectionService';
+import { ALL_NAMESPACES } from '../webviews/constants';
 import type { ExplorerAction } from '../webviews/shared/explorer/types';
 import type {
   ExplorerResourceListItemDetails,
@@ -72,6 +74,10 @@ interface TransactionLike {
 }
 
 const ALL_RESOURCE_NAMESPACES_VALUE = '__all_namespaces__';
+
+function toExplorerNamespace(namespace: string): string {
+  return namespace === ALL_NAMESPACES ? ALL_RESOURCE_NAMESPACES_VALUE : namespace;
+}
 
 function labelToText(label: string | vscode.TreeItemLabel): string {
   return typeof label === 'string' ? label : label.label;
@@ -553,14 +559,19 @@ async function buildProviderResourceListPayload(
   provider: DashboardTreeProvider,
   viewKind: ExplorerResourceListViewKind
 ): Promise<ExplorerResourceListPayload> {
+  const selectedNamespace = namespaceSelectionService.getSelectedNamespace();
+  const applyNamespaceFilter = selectedNamespace !== ALL_NAMESPACES && viewKind !== 'transactions';
   const items = await collectLeafItems(provider);
-  const resources = items
+  const allResources = items
     .map((item, index) => toResourceListItem(item, index, viewKind))
     .filter((item): item is ExplorerResourceListItemPayload => Boolean(item));
+  const resources = applyNamespaceFilter
+    ? allResources.filter(item => item.namespace === selectedNamespace)
+    : allResources;
 
   return {
     title,
-    namespace: ALL_RESOURCE_NAMESPACES_VALUE,
+    namespace: toExplorerNamespace(selectedNamespace),
     viewKind,
     resources
   };
@@ -573,12 +584,31 @@ async function openProviderResourceList(
   viewKind: ExplorerResourceListViewKind
 ): Promise<void> {
   const payload = await buildProviderResourceListPayload(title, provider, viewKind);
-  const dataSource = provider.onDidChangeTreeData
-    ? {
-      loadPayload: () => buildProviderResourceListPayload(title, provider, viewKind),
-      onDidChangeData: provider.onDidChangeTreeData
-    }
-    : undefined;
+  const dataSource = {
+    loadPayload: () => buildProviderResourceListPayload(title, provider, viewKind),
+    onDidChangeData: ((listener, thisArgs, disposables) => {
+      const invoke = () => listener.call(thisArgs, undefined);
+      const subscriptions: vscode.Disposable[] = [
+        namespaceSelectionService.onDidChangeSelection(() => {
+          invoke();
+        })
+      ];
+      if (provider.onDidChangeTreeData) {
+        subscriptions.push(provider.onDidChangeTreeData(() => {
+          invoke();
+        }));
+      }
+      const composite = new vscode.Disposable(() => {
+        for (const subscription of subscriptions) {
+          subscription.dispose();
+        }
+      });
+      if (Array.isArray(disposables)) {
+        disposables.push(composite);
+      }
+      return composite;
+    }) as vscode.Event<unknown>
+  };
 
   const { ExplorerResourceListPanel } = await import('../webviews/explorer/explorerResourceListPanel');
   ExplorerResourceListPanel.show(context, payload, dataSource);

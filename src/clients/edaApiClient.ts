@@ -1106,6 +1106,20 @@ export class EdaApiClient {
     };
   }
 
+  private resolveIndexerStream(
+    ref: IndexerResourceRef,
+    streamByIdentity: Map<string, string>,
+    allowedStreams: Set<string>
+  ): string | undefined {
+    const identityKey = this.indexerIdentityKey(ref.group, ref.version, ref.kind);
+    const mappedStream = streamByIdentity.get(identityKey);
+    if (mappedStream) {
+      return mappedStream;
+    }
+    const inferredStream = kindToPlural(ref.kind);
+    return allowedStreams.has(inferredStream) ? inferredStream : undefined;
+  }
+
   private async safeFetchIndexerSnapshot(
     excluded: Set<string>,
     includeStreams?: Set<string>
@@ -1147,14 +1161,7 @@ export class EdaApiClient {
           continue;
         }
 
-        const identityKey = this.indexerIdentityKey(ref.group, ref.version, ref.kind);
-        let stream = streamByIdentity.get(identityKey);
-        if (!stream) {
-          const inferredStream = kindToPlural(ref.kind);
-          if (allowedStreams.has(inferredStream)) {
-            stream = inferredStream;
-          }
-        }
+        const stream = this.resolveIndexerStream(ref, streamByIdentity, allowedStreams);
         if (!stream) {
           continue;
         }

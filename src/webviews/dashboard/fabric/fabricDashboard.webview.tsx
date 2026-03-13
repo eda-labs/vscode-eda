@@ -1,16 +1,15 @@
 import React, { useState, useCallback, useRef, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Box, Card, CardContent, FormControl, Grid, InputLabel, MenuItem, Select, Stack, Typography } from '@mui/material';
+import { Box, Card, CardContent, Grid, Stack, Typography } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { LineChart } from '@mui/x-charts/LineChart';
 
-import { usePostMessage, useMessageListener, useReadySignal } from '../../shared/hooks';
+import { useMessageListener, useReadySignal } from '../../shared/hooks';
 import { VSCodeProvider } from '../../shared/context';
 import { WebviewThemeProvider } from '../../shared/theme';
 
 interface FabricMessage {
   command: string;
-  namespaces?: string[];
   selected?: string;
   stats?: {
     total?: number;
@@ -148,7 +147,6 @@ const fabricNodeCommands: Record<string, FabricNodeType> = {
 };
 
 interface MessageHandlers {
-  setNamespaces: React.Dispatch<React.SetStateAction<string[]>>;
   setSelectedNamespace: React.Dispatch<React.SetStateAction<string>>;
   setNodeStats: React.Dispatch<React.SetStateAction<NodeStats>>;
   setInterfaceStats: React.Dispatch<React.SetStateAction<InterfaceStats>>;
@@ -158,8 +156,7 @@ interface MessageHandlers {
 }
 
 function handleInitMessage(msg: FabricMessage, handlers: MessageHandlers): void {
-  handlers.setNamespaces(msg.namespaces || []);
-  handlers.setSelectedNamespace(msg.selected || (msg.namespaces?.[0] || ''));
+  handlers.setSelectedNamespace(msg.selected || 'All Namespaces');
 }
 
 function handleTopoNodeStatsMessage(msg: FabricMessage, handlers: MessageHandlers): void {
@@ -185,10 +182,8 @@ function handleFabricHealthMessage(msg: FabricMessage, handlers: MessageHandlers
 }
 
 function FabricDashboard() {
-  const postMessage = usePostMessage();
   const theme = useTheme();
-  const [namespaces, setNamespaces] = useState<string[]>([]);
-  const [selectedNamespace, setSelectedNamespace] = useState('');
+  const [selectedNamespace, setSelectedNamespace] = useState('All Namespaces');
 
   // Consolidated state objects
   const [nodeStats, setNodeStats] = useState<NodeStats>(initialNodeStats);
@@ -285,7 +280,6 @@ function FabricDashboard() {
 
   const handleMessage = useCallback((msg: FabricMessage) => {
     const handlers: MessageHandlers = {
-      setNamespaces,
       setSelectedNamespace,
       setNodeStats,
       setInterfaceStats,
@@ -303,6 +297,7 @@ function FabricDashboard() {
     // Handle other commands using extracted helper functions
     const commandHandlers: Record<string, (m: FabricMessage, h: MessageHandlers) => void> = {
       init: handleInitMessage,
+      namespace: handleInitMessage,
       topoNodeStats: handleTopoNodeStatsMessage,
       interfaceStats: handleInterfaceStatsMessage,
       trafficStats: handleTrafficStatsMessage,
@@ -317,11 +312,6 @@ function FabricDashboard() {
 
   useReadySignal();
 
-  const handleNamespaceChange = useCallback((ns: string) => {
-    setSelectedNamespace(ns);
-    postMessage({ command: 'getTopoNodeStats', namespace: ns });
-  }, [postMessage]);
-
   return (
     <Box sx={{ p: 3, maxWidth: 1600, mx: 'auto' }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={2} sx={{ mb: 4 }}>
@@ -331,19 +321,9 @@ function FabricDashboard() {
             Real-time monitoring and analytics for your network infrastructure
           </Typography>
         </Box>
-        <FormControl size="small" sx={{ minWidth: 220 }}>
-          <InputLabel id="fabric-namespace">Namespace</InputLabel>
-          <Select
-            labelId="fabric-namespace"
-            value={selectedNamespace}
-            label="Namespace"
-            onChange={(event) => handleNamespaceChange(String(event.target.value))}
-          >
-            {namespaces.map(ns => (
-              <MenuItem key={ns} value={ns}>{ns}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+        <Typography variant="caption" color="text.secondary">
+          Namespace: {selectedNamespace}
+        </Typography>
       </Stack>
 
       <Grid container spacing={2.5} sx={{ mb: 4 }}>

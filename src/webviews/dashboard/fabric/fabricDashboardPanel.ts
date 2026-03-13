@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import { BasePanel } from '../../basePanel';
 import { ALL_NAMESPACES } from '../../constants';
 import { serviceManager } from '../../../services/serviceManager';
+import { namespaceSelectionService } from '../../../services/namespaceSelectionService';
 import type { EdaClient } from '../../../clients/edaClient';
 import type { StreamMessagePayload } from '../../../clients/edaStreamClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
@@ -122,6 +123,7 @@ export class FabricDashboardPanel extends BasePanel {
   private fabricStatusStreamName = '';
   private initialized = false;
   private useFieldsQuery = false;
+  private namespaceSelectionDisposable: vscode.Disposable;
 
   private get fabricQueryBase(): string {
     return this.useFieldsQuery
@@ -133,6 +135,7 @@ export class FabricDashboardPanel extends BasePanel {
     super(context, 'edaDashboard', title, undefined, BasePanel.getEdaIconPath(context));
 
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
+    this.selectedNamespace = namespaceSelectionService.getSelectedNamespace();
     const apiVersion = this.edaClient.getApiVersion();
     this.useFieldsQuery = this.isVersionAtLeast(apiVersion, '25.8');
     this.streamDisposable = this.edaClient.onStreamMessage((stream, msg) => {
@@ -158,14 +161,25 @@ export class FabricDashboardPanel extends BasePanel {
 
     this.panel.onDidDispose(() => {
       this.streamDisposable?.dispose();
+      this.namespaceSelectionDisposable.dispose();
       this.edaClient.closeTopoNodeStream();
       this.edaClient.closeInterfaceStream();
       void this.edaClient.closeEqlStream(this.trafficStreamName);
       void this.closeFabricStreams();
     });
 
+    this.namespaceSelectionDisposable = namespaceSelectionService.onDidChangeSelection((namespace) => {
+      this.applyNamespaceSelection(namespace);
+    });
+
     this.panel.webview.onDidReceiveMessage((msg: unknown) => {
       void this.handleWebviewMessage(msg);
+    });
+    this.panel.onDidChangeViewState((event) => {
+      if (event.webviewPanel.visible) {
+        this.panel.webview.postMessage({ command: 'namespace', selected: this.selectedNamespace });
+        void this.sendAllStats(this.selectedNamespace);
+      }
     });
 
     this.panel.webview.html = this.buildHtml();
@@ -179,10 +193,10 @@ export class FabricDashboardPanel extends BasePanel {
   private async handleWebviewMessage(msg: unknown): Promise<void> {
     const message = msg as { command: string; namespace?: string };
     if (message.command === 'ready') {
-      await this.sendNamespaces();
-      await this.sendAllStats(ALL_NAMESPACES);
+      await this.postNamespaceSelection();
+      await this.sendAllStats(this.selectedNamespace);
     } else if (message.command === 'getTopoNodeStats') {
-      await this.sendAllStats(message.namespace ?? ALL_NAMESPACES);
+      await this.sendAllStats(message.namespace ?? this.selectedNamespace);
     }
   }
 
@@ -223,22 +237,35 @@ export class FabricDashboardPanel extends BasePanel {
     return `<script type="module" nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
-  private async sendNamespaces(): Promise<void> {
+  private getDataNamespaces(): string[] {
     const coreNs = this.edaClient.getCoreNamespace();
-    const namespaces = this.edaClient
+    return this.edaClient
       .getCachedNamespaces()
       .filter(ns => ns !== coreNs);
-    namespaces.unshift(ALL_NAMESPACES);
+  }
+
+  private async postNamespaceSelection(): Promise<void> {
     this.panel.webview.postMessage({
       command: 'init',
-      namespaces,
       selected: this.selectedNamespace
     });
     if (!this.initialized) {
+      const namespaces = this.getDataNamespaces();
       await this.initializeNodeData(namespaces);
       await this.initializeInterfaceData(namespaces);
       this.initializeFabricData(namespaces);
       this.initialized = true;
+    }
+  }
+
+  private applyNamespaceSelection(namespace: string): void {
+    this.selectedNamespace = namespace;
+    this.panel.webview.postMessage({
+      command: 'namespace',
+      selected: namespace
+    });
+    if (this.panel.visible) {
+      void this.sendAllStats(namespace);
     }
   }
 

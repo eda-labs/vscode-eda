@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { BasePanel } from '../../basePanel';
 import { ALL_NAMESPACES } from '../../constants';
 import { serviceManager } from '../../../services/serviceManager';
+import { namespaceSelectionService } from '../../../services/namespaceSelectionService';
 import type { KubernetesClient } from '../../../clients/kubernetesClient';
 import type { EdaClient } from '../../../clients/edaClient';
 
@@ -51,11 +52,17 @@ export class SimnodesDashboardPanel extends BasePanel {
 
     this.kubernetesClient = serviceManager.getClient<KubernetesClient>('kubernetes');
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
+    this.selectedNamespace = namespaceSelectionService.getSelectedNamespace();
 
     // Listen for resource changes to refresh data
     this.disposables.push(
       this.kubernetesClient.onResourceChanged(() => {
         this.refreshData();
+      })
+    );
+    this.disposables.push(
+      namespaceSelectionService.onDidChangeSelection((namespace) => {
+        void this.applyNamespaceSelection(namespace);
       })
     );
 
@@ -73,10 +80,8 @@ export class SimnodesDashboardPanel extends BasePanel {
 
     this.panel.webview.onDidReceiveMessage((msg: { command: string; namespace?: string; name?: string; operatingSystem?: string }) => {
       if (msg.command === 'ready') {
-        this.sendNamespaces();
-        this.loadInitial(ALL_NAMESPACES);
-      } else if (msg.command === 'setNamespace') {
-        this.loadInitial(msg.namespace ?? ALL_NAMESPACES);
+        this.postNamespaceSelection();
+        this.loadInitial(this.selectedNamespace);
       } else if (msg.command === 'showInTree') {
         void vscode.commands.executeCommand(
           'vscode-eda.filterTree',
@@ -98,18 +103,23 @@ export class SimnodesDashboardPanel extends BasePanel {
     return `<script type="module" nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
-  private sendNamespaces(): void {
-    const coreNs = this.edaClient.getCoreNamespace();
-    const namespaces = this.edaClient
-      .getCachedNamespaces()
-      .filter(ns => ns !== coreNs);
-    namespaces.unshift(ALL_NAMESPACES);
+  private postNamespaceSelection(): void {
     this.panel.webview.postMessage({
       command: 'init',
-      namespaces,
       selected: this.selectedNamespace,
       hasKubernetesContext: this.hasKubernetesContext()
     });
+  }
+
+  private async applyNamespaceSelection(namespace: string): Promise<void> {
+    this.selectedNamespace = namespace;
+    this.panel.webview.postMessage({
+      command: 'namespace',
+      selected: namespace
+    });
+    if (this.panel.visible) {
+      this.loadInitial(namespace);
+    }
   }
 
   private flattenObject(obj: Record<string, unknown>, prefix = ''): FlattenedRow {
@@ -244,7 +254,7 @@ export class SimnodesDashboardPanel extends BasePanel {
   }
 
   private reloadPanelData(): void {
-    this.sendNamespaces();
+    this.postNamespaceSelection();
     this.loadInitial(this.selectedNamespace);
   }
 

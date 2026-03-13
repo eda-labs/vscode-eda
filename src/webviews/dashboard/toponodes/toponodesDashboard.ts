@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { BasePanel } from '../../basePanel';
 import { ALL_NAMESPACES } from '../../constants';
 import { serviceManager } from '../../../services/serviceManager';
+import { namespaceSelectionService } from '../../../services/namespaceSelectionService';
 import type { EdaClient } from '../../../clients/edaClient';
 import type { KubernetesClient } from '../../../clients/kubernetesClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
@@ -58,11 +59,13 @@ export class ToponodesDashboardPanel extends BasePanel {
   private columns: string[] = [];
   private columnSet: Set<string> = new Set();
   private selectedNamespace = ALL_NAMESPACES;
+  private namespaceSelectionDisposable: vscode.Disposable;
 
   private constructor(context: vscode.ExtensionContext, title: string) {
     super(context, 'toponodesDashboard', title, undefined, BasePanel.getEdaIconPath(context));
 
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
+    this.selectedNamespace = namespaceSelectionService.getSelectedNamespace();
 
     this.streamDisposable = this.edaClient.onStreamMessage((stream, msg) => {
       if (stream === 'toponodes') {
@@ -70,13 +73,24 @@ export class ToponodesDashboardPanel extends BasePanel {
       }
     });
 
+    this.namespaceSelectionDisposable = namespaceSelectionService.onDidChangeSelection((namespace) => {
+      void this.applyNamespaceSelection(namespace);
+    });
+
     this.panel.onDidDispose(() => {
       this.streamDisposable?.dispose();
       this.edaClient.closeTopoNodeStream();
+      this.namespaceSelectionDisposable.dispose();
     });
 
     this.panel.webview.onDidReceiveMessage(async (msg: WebviewMessage) => {
       await this.handleWebviewMessage(msg);
+    });
+    this.panel.onDidChangeViewState((event) => {
+      if (event.webviewPanel.visible) {
+        this.postNamespaceSelection();
+        void this.loadInitial(this.selectedNamespace);
+      }
     });
 
     this.panel.webview.html = this.buildHtml();
@@ -89,11 +103,8 @@ export class ToponodesDashboardPanel extends BasePanel {
   private async handleWebviewMessage(msg: WebviewMessage): Promise<void> {
     switch (msg.command) {
       case 'ready':
-        this.sendNamespaces();
-        await this.loadInitial(ALL_NAMESPACES);
-        break;
-      case 'setNamespace':
-        await this.loadInitial(msg.namespace ?? ALL_NAMESPACES);
+        this.postNamespaceSelection();
+        await this.loadInitial(this.selectedNamespace);
         break;
       case 'showInTree':
         await vscode.commands.executeCommand('vscode-eda.filterTree', 'toponodes');
@@ -120,18 +131,23 @@ export class ToponodesDashboardPanel extends BasePanel {
     return `<script type="module" nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
-  private sendNamespaces(): void {
-    const coreNs = this.edaClient.getCoreNamespace();
-    const namespaces = this.edaClient
-      .getCachedNamespaces()
-      .filter(ns => ns !== coreNs);
-    namespaces.unshift(ALL_NAMESPACES);
+  private postNamespaceSelection(): void {
     this.panel.webview.postMessage({
       command: 'init',
-      namespaces,
       selected: this.selectedNamespace,
       hasKubernetesContext: this.hasKubernetesContext()
     });
+  }
+
+  private async applyNamespaceSelection(namespace: string): Promise<void> {
+    this.selectedNamespace = namespace;
+    this.panel.webview.postMessage({
+      command: 'namespace',
+      selected: namespace
+    });
+    if (this.panel.visible) {
+      await this.loadInitial(namespace);
+    }
   }
 
   private flattenObject(obj: Record<string, unknown>, prefix = ''): FlattenedRow {

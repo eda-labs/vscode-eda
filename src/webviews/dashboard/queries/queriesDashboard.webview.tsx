@@ -44,7 +44,6 @@ interface Alternative {
 
 interface QueriesMessage {
   command: string;
-  namespaces?: string[];
   selected?: string;
   columns?: string[];
   rows?: unknown[][];
@@ -81,11 +80,9 @@ const initialConversionState: ConversionState = {
 // Message handler helpers
 function handleInitMessage(
   msg: QueriesMessage,
-  setNamespaces: React.Dispatch<React.SetStateAction<string[]>>,
   setSelectedNamespace: React.Dispatch<React.SetStateAction<string>>
 ): void {
-  setNamespaces(msg.namespaces || []);
-  setSelectedNamespace(msg.selected || (msg.namespaces?.[0] || ''));
+  setSelectedNamespace(msg.selected || 'All Namespaces');
 }
 
 function handleClearMessage(
@@ -233,8 +230,7 @@ function QueriesDashboard() {
   const controlHeight = 32;
 
   // Namespace state
-  const [namespaces, setNamespaces] = useState<string[]>([]);
-  const [selectedNamespace, setSelectedNamespace] = useState('');
+  const [selectedNamespace, setSelectedNamespace] = useState('All Namespaces');
 
   // Query state
   const [queryInput, setQueryInput] = useState('');
@@ -258,7 +254,10 @@ function QueriesDashboard() {
   useMessageListener<QueriesMessage>(useCallback((msg) => {
     switch (msg.command) {
       case 'init':
-        handleInitMessage(msg, setNamespaces, setSelectedNamespace);
+        handleInitMessage(msg, setSelectedNamespace);
+        break;
+      case 'namespace':
+        setSelectedNamespace(msg.selected || 'All Namespaces');
         break;
       case 'clear':
         handleClearMessage(setColumns, setAllRows, setSortModel, setStatus);
@@ -583,21 +582,9 @@ function QueriesDashboard() {
           </Menu>
         </Stack>
 
-        <FormControl size="small" sx={{ minWidth: 220 }}>
-          <InputLabel id="query-namespace-label">Namespace</InputLabel>
-          <Select
-            labelId="query-namespace-label"
-            size="small"
-            sx={{ height: controlHeight, '& .MuiSelect-select': { height: controlHeight, display: 'flex', alignItems: 'center' } }}
-            value={selectedNamespace}
-            label="Namespace"
-            onChange={(e) => setSelectedNamespace(String(e.target.value))}
-          >
-            {namespaces.map(ns => (
-              <MenuItem key={ns} value={ns}>{ns}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+        <Typography variant="caption" color="text.secondary" sx={{ minWidth: 180, textAlign: 'right' }}>
+          Namespace: {selectedNamespace}
+        </Typography>
       </Stack>
 
       {queryTypeNote && (

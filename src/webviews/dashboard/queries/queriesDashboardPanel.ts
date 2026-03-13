@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 import { BasePanel } from '../../basePanel';
 import { ALL_NAMESPACES } from '../../constants';
 import { serviceManager } from '../../../services/serviceManager';
+import { namespaceSelectionService } from '../../../services/namespaceSelectionService';
 import type { EdaClient } from '../../../clients/edaClient';
 import { EmbeddingSearchService } from '../../../services/embeddingSearchService';
 import { LogLevel, log } from '../../../extension';
@@ -54,11 +55,14 @@ export class QueriesDashboardPanel extends BasePanel {
   private rows: unknown[][] = [];
   private rowMap: Map<string, unknown[]> = new Map();
   private nqlConversionShown: boolean = false;
+  private selectedNamespace = ALL_NAMESPACES;
+  private namespaceSelectionDisposable: vscode.Disposable;
 
   constructor(context: vscode.ExtensionContext, title: string) {
     super(context, 'queriesDashboard', title, undefined, BasePanel.getEdaIconPath(context));
 
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
+    this.selectedNamespace = namespaceSelectionService.getSelectedNamespace();
     this.embeddingSearch = EmbeddingSearchService.getInstance();
 
     this.streamDisposable = this.edaClient.onStreamMessage((stream, msg) => {
@@ -73,17 +77,22 @@ export class QueriesDashboardPanel extends BasePanel {
 
     this.panel.onDidDispose(() => {
       this.streamDisposable?.dispose();
+      this.namespaceSelectionDisposable.dispose();
       if (this.queryStreamName) {
         void this.edaClient.closeEqlStream(this.queryStreamName);
         void this.edaClient.closeNqlStream(this.queryStreamName);
       }
     });
 
+    this.namespaceSelectionDisposable = namespaceSelectionService.onDidChangeSelection((namespace) => {
+      this.applyNamespaceSelection(namespace);
+    });
+
     this.panel.webview.onDidReceiveMessage(async (msg: WebviewMessage) => {
       if (msg.command === 'ready') {
-        this.sendNamespaces();
+        this.postNamespaceSelection();
       } else if (msg.command === 'runQuery') {
-        await this.handleQuery(msg.query ?? '', msg.namespace ?? '', msg.queryType ?? 'eql');
+        await this.handleQuery(msg.query ?? '', msg.namespace ?? this.selectedNamespace, msg.queryType ?? 'eql');
       } else if (msg.command === 'autocomplete') {
         const query = msg.query ?? '';
         // Only provide autocomplete for EQL queries (starting with .)
@@ -105,16 +114,18 @@ export class QueriesDashboardPanel extends BasePanel {
     return `<script type="module" nonce="${nonce}" src="${scriptUri}"></script>`;
   }
 
-  private sendNamespaces(): void {
-    const coreNs = this.edaClient.getCoreNamespace();
-    const namespaces = this.edaClient
-      .getCachedNamespaces()
-      .filter(ns => ns !== coreNs);
-    namespaces.unshift(ALL_NAMESPACES);
+  private postNamespaceSelection(): void {
     this.panel.webview.postMessage({
       command: 'init',
-      namespaces,
-      selected: ALL_NAMESPACES
+      selected: this.selectedNamespace
+    });
+  }
+
+  private applyNamespaceSelection(namespace: string): void {
+    this.selectedNamespace = namespace;
+    this.panel.webview.postMessage({
+      command: 'namespace',
+      selected: namespace
     });
   }
 
