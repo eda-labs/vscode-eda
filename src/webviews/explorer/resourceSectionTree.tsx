@@ -634,7 +634,6 @@ export const ResourceSectionTree = memo(function ResourceSectionTree({
   const shouldVirtualize = visibleRows.length >= LARGE_RESOURCE_ROW_THRESHOLD;
 
   const expandedItemsRef = useRef(expandedItems);
-  const selectedNamespaceRef = useRef(selectedNamespace);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
@@ -694,22 +693,6 @@ export const ResourceSectionTree = memo(function ResourceSectionTree({
   const handleVirtualizedScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
     setScrollTop(event.currentTarget.scrollTop);
   }, []);
-
-  useEffect(() => {
-    if (selectedNamespaceRef.current === selectedNamespace) {
-      return;
-    }
-    selectedNamespaceRef.current = selectedNamespace;
-
-    const nodeIdToOpen = selectedNodeId && treeNodeIds.has(selectedNodeId)
-      ? selectedNodeId
-      : findFirstEdaSelectionNodeId(treeNodes);
-    if (!nodeIdToOpen) {
-      return;
-    }
-
-    handleOpenResourceList(nodeIdToOpen);
-  }, [handleOpenResourceList, selectedNamespace, selectedNodeId, treeNodeIds, treeNodes]);
 
   useEffect(() => {
     if (!shouldVirtualize) {

@@ -55,6 +55,12 @@ export interface ExplorerFilterStateMessage {
   filterText: string;
 }
 
+export interface ExplorerNamespaceStateMessage {
+  command: 'namespaceState';
+  namespace: string;
+  namespaces?: string[];
+}
+
 export interface ExplorerErrorMessage {
   command: 'error';
   message: string;
@@ -67,6 +73,7 @@ export interface ExplorerExpandAllResourcesMessage {
 export type ExplorerIncomingMessage =
   | ExplorerSnapshotMessage
   | ExplorerFilterStateMessage
+  | ExplorerNamespaceStateMessage
   | ExplorerErrorMessage
   | ExplorerExpandAllResourcesMessage;
 
@@ -77,6 +84,11 @@ export interface ExplorerReadyMessage {
 export interface ExplorerSetFilterMessage {
   command: 'setFilter';
   value: string;
+}
+
+export interface ExplorerSetNamespaceMessage {
+  command: 'setNamespace';
+  namespace: string;
 }
 
 export interface ExplorerInvokeCommandMessage {
@@ -100,6 +112,7 @@ export interface ExplorerRenderMetricsMessage {
 export type ExplorerOutgoingMessage =
   | ExplorerReadyMessage
   | ExplorerSetFilterMessage
+  | ExplorerSetNamespaceMessage
   | ExplorerInvokeCommandMessage
   | ExplorerRequestRefreshMessage
   | ExplorerRenderMetricsMessage;

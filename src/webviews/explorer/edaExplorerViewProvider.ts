@@ -4,11 +4,14 @@ import * as vscode from 'vscode';
 
 import type { TreeItemBase } from '../../providers/views/treeItem';
 import { log, LogLevel } from '../../extension';
+import { namespaceSelectionService } from '../../services/namespaceSelectionService';
+import { ALL_NAMESPACES } from '../constants';
 import type {
   ExplorerInvokeCommandMessage,
   ExplorerOutgoingMessage,
   ExplorerRenderMetricsMessage,
-  ExplorerSetFilterMessage
+  ExplorerSetFilterMessage,
+  ExplorerSetNamespaceMessage
 } from '../shared/explorer/types';
 
 import { buildExplorerSnapshot, type ExplorerSnapshotProviders } from './explorerSnapshotAdapter';
@@ -17,6 +20,7 @@ const REFRESH_DEBOUNCE_MS = 50;
 const MIN_SNAPSHOT_INTERVAL_MS = 25;
 const SNAPSHOT_IN_FLIGHT_TIMEOUT_MS = 350;
 const ALLOW_CONCURRENT_SNAPSHOT_POSTS = true;
+const ALL_RESOURCE_NAMESPACES_VALUE = '__all_namespaces__';
 
 interface FilterableTreeProvider {
   setTreeFilter(filterText: string): void;
@@ -34,6 +38,10 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function isSetFilterMessage(message: ExplorerOutgoingMessage): message is ExplorerSetFilterMessage {
   return message.command === 'setFilter';
+}
+
+function isSetNamespaceMessage(message: ExplorerOutgoingMessage): message is ExplorerSetNamespaceMessage {
+  return message.command === 'setNamespace';
 }
 
 function isInvokeCommandMessage(message: ExplorerOutgoingMessage): message is ExplorerInvokeCommandMessage {
@@ -72,6 +80,14 @@ function toCommandArgument(value: unknown): unknown {
     output[key] = toCommandArgument(nested);
   }
   return output;
+}
+
+function toExplorerNamespace(namespace: string): string {
+  return namespace === ALL_NAMESPACES ? ALL_RESOURCE_NAMESPACES_VALUE : namespace;
+}
+
+function fromExplorerNamespace(namespace: string): string {
+  return namespace === ALL_RESOURCE_NAMESPACES_VALUE ? ALL_NAMESPACES : namespace;
 }
 
 export class EdaExplorerViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
@@ -123,6 +139,11 @@ export class EdaExplorerViewProvider implements vscode.WebviewViewProvider, vsco
     }
 
     this.registerDataListeners();
+    this.disposables.push(
+      namespaceSelectionService.onDidChangeSelection(() => {
+        this.postNamespaceState();
+      })
+    );
   }
 
   private registerDataListeners(): void {
@@ -228,12 +249,18 @@ export class EdaExplorerViewProvider implements vscode.WebviewViewProvider, vsco
     if (message.command === 'ready') {
       this.isReady = true;
       this.postFilterState();
+      this.postNamespaceState();
       this.scheduleSnapshot(0);
       return;
     }
 
     if (isSetFilterMessage(message)) {
       await this.setFilter(message.value);
+      return;
+    }
+
+    if (isSetNamespaceMessage(message)) {
+      namespaceSelectionService.setSelectedNamespace(fromExplorerNamespace(message.namespace));
       return;
     }
 
@@ -401,6 +428,20 @@ export class EdaExplorerViewProvider implements vscode.WebviewViewProvider, vsco
     void this.webviewView.webview.postMessage({
       command: 'filterState',
       filterText: this.filterText
+    });
+  }
+
+  private postNamespaceState(): void {
+    if (!this.webviewView || !this.isReady) {
+      return;
+    }
+
+    const namespace = namespaceSelectionService.getSelectedNamespace();
+    const namespaces = this.providers.namespaceProvider.getNamespaceSelectionOptions();
+    void this.webviewView.webview.postMessage({
+      command: 'namespaceState',
+      namespace: toExplorerNamespace(namespace),
+      namespaces
     });
   }
 

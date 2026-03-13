@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { useState, useCallback, useMemo, useTransition, memo } from 'react';
-import { Box, FormControl, InputLabel, MenuItem, Select, Stack, Typography } from '@mui/material';
+import { Box, Stack, Typography } from '@mui/material';
 import type { GridColDef, GridSortModel } from '@mui/x-data-grid';
 
 import { shallowArrayEquals } from '../utils';
@@ -19,7 +19,6 @@ export interface DataGridAction {
 
 export interface DataGridMessage {
   command: string;
-  namespaces?: string[];
   selected?: string;
   hasKubernetesContext?: boolean;
   columns?: string[];
@@ -54,7 +53,6 @@ export interface DataGridContext {
 
 export interface DataGridToolbarContext extends DataGridContext {
   selectedNamespace: string;
-  namespaces: string[];
 }
 
 interface DashboardRow {
@@ -104,7 +102,6 @@ function DataGridDashboardInner<T extends DataGridMessage>({
   defaultSortDirection = 'asc'
 }: Readonly<DataGridDashboardProps<T>>) {
   const postMessage = usePostMessage();
-  const [namespaces, setNamespaces] = useState<string[]>([]);
   const [selectedNamespace, setSelectedNamespace] = useState('All Namespaces');
   const [columns, setColumns] = useState<string[]>([]);
   const [rows, setRows] = useState<unknown[][]>([]);
@@ -124,8 +121,9 @@ function DataGridDashboardInner<T extends DataGridMessage>({
       setHasKubernetesContext(msg.hasKubernetesContext);
     }
     if (msg.command === 'init') {
-      setNamespaces(msg.namespaces ?? []);
-      setSelectedNamespace(msg.selected ?? msg.namespaces?.[0] ?? '');
+      setSelectedNamespace(msg.selected ?? 'All Namespaces');
+    } else if (msg.command === 'namespace') {
+      setSelectedNamespace(msg.selected ?? 'All Namespaces');
     } else if (msg.command === 'clear') {
       setColumns([]);
       setRows([]);
@@ -164,11 +162,6 @@ function DataGridDashboardInner<T extends DataGridMessage>({
     onMessage?.(msg);
   }, [onMessage, defaultSortColumn, defaultSortDirection]));
 
-  const handleNamespaceChange = useCallback((ns: string) => {
-    setSelectedNamespace(ns);
-    postMessage({ command: 'setNamespace', namespace: ns });
-  }, [postMessage]);
-
   const handleShowInTree = useCallback(() => {
     postMessage({ command: showInTreeCommand });
   }, [postMessage, showInTreeCommand]);
@@ -184,9 +177,8 @@ function DataGridDashboardInner<T extends DataGridMessage>({
 
   const toolbarContext: DataGridToolbarContext = useMemo(() => ({
     ...context,
-    selectedNamespace,
-    namespaces
-  }), [context, selectedNamespace, namespaces]);
+    selectedNamespace
+  }), [context, selectedNamespace]);
 
   const gridRows = useMemo<DashboardRow[]>(() => {
     return rows.map((row, rowIndex) => ({
@@ -232,22 +224,12 @@ function DataGridDashboardInner<T extends DataGridMessage>({
     <Box sx={{ p: 3, maxWidth: 1600, mx: 'auto' }}>
       <Stack direction="row" spacing={1.5} justifyContent="flex-end" alignItems="center" sx={{ mb: 2 }}>
         {renderToolbarActions?.(toolbarContext)}
+        <Typography variant="caption" color="text.secondary">
+          Namespace: {selectedNamespace}
+        </Typography>
         <VSCodeButton onClick={handleShowInTree}>
           Show in VS Code Tree
         </VSCodeButton>
-        <FormControl size="small" sx={{ minWidth: 220 }}>
-          <InputLabel id="namespace-label">Namespace</InputLabel>
-          <Select
-            labelId="namespace-label"
-            value={selectedNamespace}
-            label="Namespace"
-            onChange={(event) => handleNamespaceChange(String(event.target.value))}
-          >
-            {namespaces.map(ns => (
-              <MenuItem key={ns} value={ns}>{ns}</MenuItem>
-            ))}
-          </Select>
-        </FormControl>
       </Stack>
 
       <VsCodeDataGrid<DashboardRow>

@@ -29,7 +29,6 @@ interface BackendEdge {
 
 interface TopologyMessage {
   command: string;
-  namespaces?: string[];
   selected?: string;
   nodes?: BackendNode[];
   edges?: BackendEdge[];
@@ -252,8 +251,7 @@ function groupNodesByTier(nodes: BackendNode[]): Record<number, BackendNode[]> {
 function TopologyFlowDashboard() {
   const postMessage = usePostMessage();
   const theme = useTheme();
-  const [namespaces, setNamespaces] = useState<string[]>([]);
-  const [selectedNamespace, setSelectedNamespace] = useState('');
+  const [selectedNamespace, setSelectedNamespace] = useState('All Namespaces');
   const [labelMode, setLabelMode] = useState<'hide' | 'show' | 'select'>('select');
   const [nodes, setNodes] = useState<FlowNode[]>([]);
   const [edges, setEdges] = useState<TopologyEdge[]>([]);
@@ -406,8 +404,9 @@ function TopologyFlowDashboard() {
   // Handle messages from extension
   useMessageListener<TopologyMessage>(useCallback((msg) => {
     if (msg.command === 'init') {
-      setNamespaces(msg.namespaces ?? []);
-      setSelectedNamespace(msg.selected ?? (msg.namespaces?.[0] ?? ''));
+      setSelectedNamespace(msg.selected ?? 'All Namespaces');
+    } else if (msg.command === 'namespace') {
+      setSelectedNamespace(msg.selected ?? 'All Namespaces');
     } else if (msg.command === 'data') {
       const layoutedNodes = layoutByTier(msg.nodes ?? []);
       const processedEdges = processEdges(msg.edges ?? []);
@@ -458,13 +457,6 @@ function TopologyFlowDashboard() {
     setInfoCard({ type: 'empty' });
   }, []);
 
-  // Handle namespace change
-  const handleNamespaceChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
-    const ns = e.target.value;
-    setSelectedNamespace(ns);
-    postMessage({ command: 'setNamespace', namespace: ns });
-  }, [postMessage]);
-
   // Handle SSH to node
   const handleSshToNode = useCallback((name: string, namespace: string, nodeDetails?: string) => {
     postMessage({
@@ -505,15 +497,7 @@ function TopologyFlowDashboard() {
         <button className="export-btn" onClick={showExportPopupWithDefaults}>
           Export SVG
         </button>
-        <select
-          className="namespace-select"
-          value={selectedNamespace}
-          onChange={handleNamespaceChange}
-        >
-          {namespaces.map(ns => (
-            <option key={ns} value={ns}>{ns}</option>
-          ))}
-        </select>
+        <span className="namespace-value">Namespace: {selectedNamespace}</span>
         <select
           className="label-select"
           value={labelMode}

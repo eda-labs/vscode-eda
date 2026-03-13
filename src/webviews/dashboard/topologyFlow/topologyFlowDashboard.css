@@ -53,7 +53,6 @@
   box-shadow: var(--topology-header-shadow);
 }
 
-.namespace-select,
 .label-select {
   padding: 5px 10px;
   border: 1px solid var(--topology-input-border);
@@ -61,6 +60,12 @@
   background-color: var(--topology-input-bg);
   color: var(--topology-input-fg);
   min-width: 150px;
+}
+
+.namespace-value {
+  font-size: 12px;
+  color: var(--topology-description-fg);
+  padding: 0 4px;
 }
 
 .body {

@@ -909,6 +909,7 @@ function EdaExplorerView() {
   const [collapsedBySection, setCollapsedBySection] = useState<Partial<Record<ExplorerTabId, boolean>>>({});
   const [filterText, setFilterText] = useState('');
   const [selectedResourceNamespace, setSelectedResourceNamespace] = useState(ALL_RESOURCE_NAMESPACES_VALUE);
+  const [namespaceOptions, setNamespaceOptions] = useState<string[]>([]);
   const [expandedByTab, setExpandedByTab] = useState<Partial<Record<ExplorerTabId, string[]>>>({
     resources: []
   });
@@ -1012,6 +1013,16 @@ function EdaExplorerView() {
     setFilterText(message.filterText);
   }, [shouldHandleIncomingFilter]);
 
+  const handleNamespaceStateMessage = useCallback(
+    (message: Extract<ExplorerIncomingMessage, { command: 'namespaceState' }>) => {
+      setSelectedResourceNamespace(message.namespace);
+      if (Array.isArray(message.namespaces)) {
+        setNamespaceOptions(message.namespaces);
+      }
+    },
+    []
+  );
+
   const handleExpandAllResourcesMessage = useCallback(() => {
     const resourceNodes = getSectionById(sections, 'resources')?.nodes ?? [];
     const expandedItemIds = flattenExpandableNodeIds(resourceNodes);
@@ -1032,6 +1043,10 @@ function EdaExplorerView() {
       handleFilterStateMessage(message);
       return;
     }
+    if (message.command === 'namespaceState') {
+      handleNamespaceStateMessage(message);
+      return;
+    }
     if (message.command === 'expandAllResources') {
       handleExpandAllResourcesMessage();
       return;
@@ -1039,7 +1054,7 @@ function EdaExplorerView() {
     if (message.command === 'error') {
       setErrorMessage(message.message);
     }
-  }, [handleExpandAllResourcesMessage, handleFilterStateMessage, handleSnapshotMessage]));
+  }, [handleExpandAllResourcesMessage, handleFilterStateMessage, handleNamespaceStateMessage, handleSnapshotMessage]));
 
   useEffect(() => {
     const pending = pendingRenderMetricsRef.current;
@@ -1098,15 +1113,16 @@ function EdaExplorerView() {
     return collectResourceNamespaces(resourceSection.nodes);
   }, [sectionsById]);
 
-  useEffect(() => {
-    if (selectedResourceNamespace === ALL_RESOURCE_NAMESPACES_VALUE) {
-      return;
+  const namespaceSelectOptions = useMemo(() => {
+    const baseOptions = namespaceOptions.length > 0 ? namespaceOptions : resourceNamespaceOptions;
+    if (
+      selectedResourceNamespace === ALL_RESOURCE_NAMESPACES_VALUE
+      || baseOptions.includes(selectedResourceNamespace)
+    ) {
+      return baseOptions;
     }
-    if (resourceNamespaceOptions.includes(selectedResourceNamespace)) {
-      return;
-    }
-    setSelectedResourceNamespace(ALL_RESOURCE_NAMESPACES_VALUE);
-  }, [resourceNamespaceOptions, selectedResourceNamespace]);
+    return [selectedResourceNamespace, ...baseOptions];
+  }, [namespaceOptions, resourceNamespaceOptions, selectedResourceNamespace]);
 
   const orderedSections = useMemo(() => {
     const visible: ExplorerSectionSnapshot[] = [];
@@ -1344,11 +1360,16 @@ function EdaExplorerView() {
           label="Namespace"
           value={selectedResourceNamespace}
           onChange={(event) => {
-            setSelectedResourceNamespace(String(event.target.value));
+            const namespace = String(event.target.value);
+            setSelectedResourceNamespace(namespace);
+            postMessage({
+              command: 'setNamespace',
+              namespace
+            });
           }}
         >
           <MenuItem value={ALL_RESOURCE_NAMESPACES_VALUE}>All Namespaces</MenuItem>
-          {resourceNamespaceOptions.map((namespace) => (
+          {namespaceSelectOptions.map((namespace) => (
             <MenuItem key={namespace} value={namespace}>{namespace}</MenuItem>
           ))}
         </Select>
