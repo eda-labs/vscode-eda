@@ -68,21 +68,34 @@ jobs:
           npm install -g @vscode/vsce
           vsce package -o "vscode-eda-${{ steps.version.outputs.package }}.vsix"
           
-      - name: Check for VS Code PAT
+      - name: Check for publish tokens
         id: check-pat
         run: |
           if [ -n "${{ secrets.VSCE_PAT }}" ]; then
-            echo "has_pat=true" >> $GITHUB_OUTPUT
+            echo "has_vsce_pat=true" >> $GITHUB_OUTPUT
           else
-            echo "has_pat=false" >> $GITHUB_OUTPUT
+            echo "has_vsce_pat=false" >> $GITHUB_OUTPUT
             echo "⚠️ VSCE_PAT secret not configured - skipping marketplace publish"
+          fi
+
+          if [ -n "${{ secrets.OVSX_PAT }}" ]; then
+            echo "has_ovsx_pat=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_ovsx_pat=false" >> $GITHUB_OUTPUT
+            echo "⚠️ OVSX_PAT secret not configured - skipping Open VSX publish"
           fi
           
       - name: Publish to VS Code Marketplace
-        if: steps.check-pat.outputs.has_pat == 'true'
+        if: steps.check-pat.outputs.has_vsce_pat == 'true'
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: vsce publish -p $VSCE_PAT
+
+      - name: Publish to Open VSX Registry
+        if: steps.check-pat.outputs.has_ovsx_pat == 'true'
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: npx ovsx publish "vscode-eda-${{ steps.version.outputs.package }}.vsix" -p $OVSX_PAT
         
       - name: Upload VSIX to release
         uses: softprops/action-gh-release@v2
