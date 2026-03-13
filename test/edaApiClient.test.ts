@@ -368,4 +368,108 @@ describe('EdaApiClient token refresh', () => {
     const resource = bucket?.get('leaf1');
     expect(resource?.spec).to.deep.equal({ full: true });
   });
+
+  it('uses indexer snapshot for fast bootstrap', async () => {
+    const endpointPath = '/apps/core.eda.nokia.com/v1/namespaces/{namespace}/toponodes';
+    const specManager = {
+      getStreamEndpoints: () => [
+        { path: endpointPath, stream: 'toponodes', namespaced: true, namespaceParam: 'namespace' }
+      ],
+      getCoreNamespace: () => CORE_NAMESPACE
+    } as any;
+
+    const calls: string[] = [];
+    fetchStub.callsFake((url: string) => {
+      const urlText = String(url);
+      calls.push(urlText);
+      if (urlText === 'https://api/core/httpproxy/v1/indexer/resources.txt') {
+        return mockResponse(200, 'eda/core.eda.nokia.com/v1/TopoNode/leaf1 labels={}\n');
+      }
+      return mockResponse(404, { message: 'unexpected path' });
+    });
+
+    const client = new EdaApiClient(authClient);
+    client.setSpecManager(specManager);
+    const result = await client.fastBootstrapStreamItems(['eda'], { minimumResources: 1 });
+
+    expect(calls.includes('https://api/core/httpproxy/v1/indexer/resources.txt')).to.equal(true);
+    expect(calls.some((url) => url.startsWith('https://api/core/db/v2/data?'))).to.equal(false);
+    expect(result.loadedStreams.has('toponodes')).to.equal(true);
+    expect(result.namesOnlyStreams.has('toponodes')).to.equal(true);
+
+    const bucket = result.snapshot.get('toponodes:eda');
+    expect(bucket).to.not.equal(undefined);
+    const resource = bucket?.get('leaf1');
+    expect(resource?.apiVersion).to.equal('core.eda.nokia.com/v1');
+    expect(resource?.kind).to.equal('TopoNode');
+    expect(resource?.metadata?.name).to.equal('leaf1');
+  });
+
+  it('maps indexer kinds to stream names using endpoint identity', async () => {
+    const endpointPath = '/apps/qos.eda.nokia.com/v1/namespaces/{namespace}/forwardingclasss';
+    const specManager = {
+      getStreamEndpoints: () => [
+        { path: endpointPath, stream: 'forwardingclasss', namespaced: true, namespaceParam: 'namespace' }
+      ],
+      getCoreNamespace: () => CORE_NAMESPACE
+    } as any;
+
+    fetchStub.callsFake((url: string) => {
+      const urlText = String(url);
+      if (urlText === 'https://api/core/httpproxy/v1/indexer/resources.txt') {
+        return mockResponse(200, 'eda/qos.eda.nokia.com/v1/ForwardingClass/gold labels={}\n');
+      }
+      return mockResponse(404, { message: 'unexpected path' });
+    });
+
+    const client = new EdaApiClient(authClient);
+    client.setSpecManager(specManager);
+    const result = await client.fastBootstrapStreamItems(['eda'], { minimumResources: 1 });
+
+    expect(result.loadedStreams.has('forwardingclasss')).to.equal(true);
+    expect(result.namesOnlyStreams.has('forwardingclasss')).to.equal(true);
+    expect(result.snapshot.get('forwardingclasss:eda')?.has('gold')).to.equal(true);
+  });
+
+  it('falls back to DB names-only bootstrap when indexer is unavailable', async () => {
+    const endpointPath = '/apps/core.eda.nokia.com/v1/namespaces/{namespace}/toponodes';
+    const specManager = {
+      getStreamEndpoints: () => [
+        { path: endpointPath, stream: 'toponodes', namespaced: true, namespaceParam: 'namespace' }
+      ],
+      getCoreNamespace: () => CORE_NAMESPACE
+    } as any;
+
+    const calls: string[] = [];
+    fetchStub.callsFake((url: string) => {
+      const urlText = String(url);
+      calls.push(urlText);
+      if (urlText === 'https://api/core/httpproxy/v1/indexer/resources.txt') {
+        return mockResponse(500, { message: 'indexer unavailable' });
+      }
+      if (urlText.startsWith('https://api/core/db/v2/data?')) {
+        return mockResponse(200, {
+          '.namespace{.name=="eda"}.resources.cr.core_eda_nokia_com.v1.toponode{.name=="leaf1"}': {
+            apiVersion: 'core.eda.nokia.com/v1',
+            kind: 'TopoNode',
+            metadata: {
+              name: 'leaf1',
+              namespace: 'eda'
+            }
+          }
+        });
+      }
+      return mockResponse(404, { message: 'unexpected path' });
+    });
+
+    const client = new EdaApiClient(authClient);
+    client.setSpecManager(specManager);
+    const result = await client.fastBootstrapStreamItems(['eda'], { minimumResources: 1 });
+
+    expect(calls.includes('https://api/core/httpproxy/v1/indexer/resources.txt')).to.equal(true);
+    expect(calls.some((url) => url.startsWith('https://api/core/db/v2/data?'))).to.equal(true);
+    expect(result.loadedStreams.has('toponodes')).to.equal(true);
+    expect(result.namesOnlyStreams.has('toponodes')).to.equal(true);
+    expect(result.snapshot.get('toponodes:eda')?.has('leaf1')).to.equal(true);
+  });
 });

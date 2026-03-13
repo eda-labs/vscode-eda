@@ -16,6 +16,8 @@ const PARAM_NAMESPACE = '{namespace}';
 const PARAM_TRANSACTION_ID = '{transactionId}';
 const PARAM_NAME = '{name}';
 const DB_DATA_PATH = '/core/db/v2/data';
+const INDEXER_RESOURCES_PATH = '/core/httpproxy/v1/indexer/resources.txt';
+const INDEXER_LABELS_DELIMITER = ' labels=';
 const STREAM_NAMESPACE_SEPARATOR = ':';
 const DEFAULT_CORE_NAMESPACE = 'eda-system';
 const DEFAULT_BOOTSTRAP_PARALLELISM = 8;
@@ -23,6 +25,7 @@ const DEFAULT_BOOTSTRAP_NAMESPACE_PARALLELISM = 2;
 const CRD_PATH_PATTERN = /^\/apps\/([^/]+)\/([^/]+)(?:\/namespaces\/\{[^}]+\})?\/([^/]+)$/;
 const DB_KEY_NAME_PATTERN = /\{\.name=="([^"]+)"\}/g;
 const DB_MINIMAL_RESOURCE_FIELDS = 'apiVersion,kind,metadata.name,metadata.namespace';
+const CORE_API_GROUP = 'core';
 
 // Type definitions for API responses
 
@@ -149,6 +152,19 @@ export interface FastBootstrapStreamItemsResult {
   snapshot: BootstrapSnapshot;
   loadedStreams: Set<string>;
   namesOnlyStreams: Set<string>;
+}
+
+interface IndexerResourceRef {
+  namespace: string;
+  group: string;
+  version: string;
+  kind: string;
+  name: string;
+}
+
+interface IndexerSnapshotResult {
+  snapshot: BootstrapSnapshot;
+  loadedStreams: Set<string>;
 }
 
 /**
@@ -280,6 +296,40 @@ export class EdaApiClient {
     }
 
     return JSON.parse(text) as T;
+  }
+
+  /**
+   * Fetch plain text from API endpoint
+   */
+  private async fetchText(path: string): Promise<string> {
+    await this.authClient.waitForAuth();
+    const url = `${this.authClient.getBaseUrl()}${path}`;
+    log(`GET ${url}`, LogLevel.DEBUG);
+
+    let res = await fetch(url, {
+      headers: this.authClient.getHeaders(),
+      dispatcher: this.authClient.getAgent()
+    });
+    let text = await res.text();
+    log(`GET ${url} -> ${res.status}`, LogLevel.DEBUG);
+
+    if (!res.ok) {
+      if (this.authClient.isTokenExpiredResponse(res.status, text)) {
+        log(MSG_TOKEN_EXPIRED, LogLevel.INFO);
+        await this.authClient.refreshAuth();
+        res = await fetch(url, {
+          headers: this.authClient.getHeaders(),
+          dispatcher: this.authClient.getAgent()
+        });
+        text = await res.text();
+        log(`GET ${url} retry -> ${res.status}`, LogLevel.DEBUG);
+      }
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${text}`);
+      }
+    }
+
+    return text;
   }
 
   /**
@@ -993,6 +1043,153 @@ export class EdaApiClient {
     return undefined;
   }
 
+  private indexerIdentityKey(group: string, version: string, kind: string): string {
+    return `${group}/${version}/${kind}`.toLowerCase();
+  }
+
+  private indexerIdentityFromEndpoint(endpoint: StreamEndpoint): {
+    key: string;
+    stream: string;
+  } | undefined {
+    const match = endpoint.path.match(CRD_PATH_PATTERN);
+    if (!match) {
+      return undefined;
+    }
+    const [, group, version, plural] = match;
+    const kindLower = this.kindFromPlural(plural).toLowerCase();
+    return {
+      key: this.indexerIdentityKey(group, version, kindLower),
+      stream: endpoint.stream
+    };
+  }
+
+  private parseIndexerResourceLine(line: string): IndexerResourceRef | undefined {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+
+    const identity = trimmed.split(INDEXER_LABELS_DELIMITER, 1)[0];
+    const parts = identity.split('/');
+    if (parts.length < 4) {
+      return undefined;
+    }
+
+    const namespace = parts[0];
+    let group: string;
+    let version: string;
+    let kind: string;
+    let name: string;
+
+    if (parts.length === 4) {
+      group = CORE_API_GROUP;
+      version = parts[1];
+      kind = parts[2];
+      name = parts[3];
+    } else {
+      group = parts[1];
+      version = parts[2];
+      kind = parts[3];
+      name = parts.slice(4).join('/');
+    }
+
+    if (!namespace || !group || !version || !kind || !name) {
+      return undefined;
+    }
+
+    return {
+      namespace,
+      group,
+      version,
+      kind,
+      name
+    };
+  }
+
+  private async safeFetchIndexerSnapshot(
+    excluded: Set<string>,
+    includeStreams?: Set<string>
+  ): Promise<IndexerSnapshotResult | undefined> {
+    const endpoints = this.resolveBootstrapEndpoints(excluded, includeStreams);
+    if (endpoints.length === 0) {
+      return undefined;
+    }
+
+    const allowedStreams = new Set<string>();
+    const streamByIdentity = new Map<string, string>();
+    for (const endpoint of endpoints) {
+      if (!endpoint.stream) {
+        continue;
+      }
+      allowedStreams.add(endpoint.stream);
+      const identity = this.indexerIdentityFromEndpoint(endpoint);
+      if (!identity || streamByIdentity.has(identity.key)) {
+        continue;
+      }
+      streamByIdentity.set(identity.key, identity.stream);
+    }
+
+    if (allowedStreams.size === 0) {
+      return undefined;
+    }
+
+    try {
+      const payload = await this.fetchText(INDEXER_RESOURCES_PATH);
+      if (!payload) {
+        return undefined;
+      }
+
+      const snapshot: BootstrapSnapshot = new Map();
+      const loadedStreams = new Set<string>();
+      for (const line of payload.split(/\r?\n/)) {
+        const ref = this.parseIndexerResourceLine(line);
+        if (!ref) {
+          continue;
+        }
+
+        const identityKey = this.indexerIdentityKey(ref.group, ref.version, ref.kind);
+        let stream = streamByIdentity.get(identityKey);
+        if (!stream) {
+          const inferredStream = kindToPlural(ref.kind);
+          if (allowedStreams.has(inferredStream)) {
+            stream = inferredStream;
+          }
+        }
+        if (!stream) {
+          continue;
+        }
+
+        const apiVersion = ref.group === CORE_API_GROUP
+          ? ref.version
+          : `${ref.group}/${ref.version}`;
+        const bucket = this.getOrCreateSnapshotBucket(snapshot, stream, ref.namespace);
+        bucket.set(ref.name, {
+          apiVersion,
+          kind: ref.kind,
+          metadata: {
+            name: ref.name,
+            namespace: ref.namespace,
+          }
+        });
+        loadedStreams.add(stream);
+      }
+
+      if (loadedStreams.size === 0) {
+        return undefined;
+      }
+
+      log(
+        `Indexer bootstrap loaded ${this.snapshotResourceCount(snapshot)} resources `
+        + `from ${loadedStreams.size} streams.`,
+        LogLevel.DEBUG
+      );
+      return { snapshot, loadedStreams };
+    } catch (err) {
+      log(`Indexer bootstrap unavailable: ${err}`, LogLevel.DEBUG);
+      return undefined;
+    }
+  }
+
   public availableBootstrapStreams(
     options: { excludeStreams?: Set<string> } = {}
   ): string[] {
@@ -1209,7 +1406,22 @@ export class EdaApiClient {
       options.onBatchSnapshot?.(batchSnapshot);
     };
 
-    const prioritized = EdaApiClient.FAST_BOOTSTRAP_STREAMS.filter((stream) => availableSet.has(stream));
+    const indexerSnapshot = await this.safeFetchIndexerSnapshot(excluded);
+    if (indexerSnapshot) {
+      this.mergeBootstrapSnapshot(snapshot, indexerSnapshot.snapshot);
+      reportBatch(indexerSnapshot.snapshot);
+      for (const stream of indexerSnapshot.loadedStreams) {
+        loadedStreams.add(stream);
+        namesOnlyStreams.add(stream);
+      }
+      if (this.snapshotResourceCount(snapshot) >= minimumResources) {
+        return { snapshot, loadedStreams, namesOnlyStreams };
+      }
+    }
+
+    const prioritized = EdaApiClient.FAST_BOOTSTRAP_STREAMS.filter(
+      (stream) => availableSet.has(stream) && !loadedStreams.has(stream)
+    );
     if (prioritized.length > 0) {
       const prioritizedBatchSize = Math.max(1, Math.min(additionalBatchSize, bootstrapParallelism));
       for (let index = 0; index < prioritized.length; index += prioritizedBatchSize) {
@@ -1251,6 +1463,15 @@ export class EdaApiClient {
     }
 
     return { snapshot, loadedStreams, namesOnlyStreams };
+  }
+
+  public async isIndexerAvailable(): Promise<boolean> {
+    try {
+      await this.fetchText(`${INDEXER_RESOURCES_PATH}?limit=1`);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**

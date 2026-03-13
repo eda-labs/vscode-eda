@@ -674,6 +674,11 @@ export class EdaClient {
     return this.apiClient.fastBootstrapStreamItems(namespaces, options);
   }
 
+  public async isIndexerAvailable(): Promise<boolean> {
+    await this.initPromise;
+    return this.apiClient.isIndexerAvailable();
+  }
+
   // Compatibility method
   public async executeEdactl(command: string): Promise<string> {
     const regex = /^get\s+deviation\s+(\S+)\s+-n\s+(\S+)\s+-o\s+yaml$/;
