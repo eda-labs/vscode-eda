@@ -26,9 +26,16 @@ const DEFAULT_FAST_BOOTSTRAP_MIN_RESOURCES = 900;
 const DEFAULT_FAST_BOOTSTRAP_BATCH_SIZE = 12;
 const INDEXER_INSTALL_PROMPT =
   'Resource indexer endpoint is unavailable. Install it now for faster initial indexing?';
+const INDEXER_REPOSITORY_URL = 'https://github.com/FloSch62/resource-indexer/';
 const INDEXER_INSTALL_REMOTE_KUSTOMIZE_URL =
   'https://github.com/FloSch62/resource-indexer//packages/resource-text-indexer?ref=main';
 const INDEXER_INSTALL_PROGRESS_TITLE = 'Installing Resource Indexer';
+const INDEXER_UNINSTALL_PROGRESS_TITLE = 'Uninstalling Resource Indexer';
+const INDEXER_PROMPT_ACTION_INSTALL = 'Install';
+const INDEXER_PROMPT_ACTION_NOT_NOW = 'Not now';
+const INDEXER_PROMPT_ACTION_NEVER_ASK = 'Never ask again';
+const INDEXER_PROMPT_ACTION_WHAT_IS_THIS = 'What is this?';
+const INDEXER_INSTALL_PROMPT_SETTING = 'showIndexerInstallPrompt';
 const INDEXER_HTTP_PROXY_GROUP = 'core.eda.nokia.com';
 const INDEXER_HTTP_PROXY_VERSION = 'v1';
 const INDEXER_HTTP_PROXY_KIND = 'HttpProxy';
@@ -43,8 +50,10 @@ const INDEXER_INSTALL_MAX_BUFFER = 10 * 1024 * 1024;
 const INDEXER_MANUAL_INSTALL_MESSAGE =
   'Resource indexer endpoint is unavailable and no Kubernetes context is configured for this target. '
   + 'Install manually: kubectl apply -k '
-  + '"https://github.com/FloSch62/resource-indexer//packages/resource-text-indexer?ref=main", '
+  + `"${INDEXER_INSTALL_REMOTE_KUSTOMIZE_URL}", `
   + 'then commit HttpProxy eda-system/indexer.';
+const INDEXER_MANUAL_UNINSTALL_MESSAGE =
+  'Resource indexer uninstall requires a Kubernetes context for this target.';
 const STREAM_SUBSCRIBE_EXCLUDE = new Set([
   'resultsummary',
   'v1',
@@ -310,6 +319,20 @@ constructor() {
     return typeof context === 'string' && context.length > 0 && context !== 'none';
   }
 
+  private shouldShowIndexerInstallPrompt(): boolean {
+    const configuration = vscode.workspace.getConfiguration('vscode-eda');
+    return configuration.get<boolean>(INDEXER_INSTALL_PROMPT_SETTING, true);
+  }
+
+  private async disableIndexerInstallPrompt(): Promise<void> {
+    const configuration = vscode.workspace.getConfiguration('vscode-eda');
+    await configuration.update(
+      INDEXER_INSTALL_PROMPT_SETTING,
+      false,
+      vscode.ConfigurationTarget.Global
+    );
+  }
+
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => {
       setTimeout(resolve, ms);
@@ -324,6 +347,42 @@ constructor() {
       await this.sleep(INDEXER_READY_RETRY_DELAY_MS);
     }
     return false;
+  }
+
+  private async waitForIndexerUnavailability(): Promise<boolean> {
+    for (let attempt = 0; attempt < INDEXER_READY_RETRY_ATTEMPTS; attempt += 1) {
+      if (!(await this.edaClient.isIndexerAvailable())) {
+        return true;
+      }
+      await this.sleep(INDEXER_READY_RETRY_DELAY_MS);
+    }
+    return false;
+  }
+
+  private async promptIndexerInstallChoice(): Promise<string | undefined> {
+    while (true) {
+      const choice = await vscode.window.showInformationMessage(
+        INDEXER_INSTALL_PROMPT,
+        INDEXER_PROMPT_ACTION_INSTALL,
+        INDEXER_PROMPT_ACTION_NOT_NOW,
+        INDEXER_PROMPT_ACTION_NEVER_ASK,
+        INDEXER_PROMPT_ACTION_WHAT_IS_THIS
+      );
+      if (choice !== INDEXER_PROMPT_ACTION_WHAT_IS_THIS) {
+        return choice;
+      }
+      await vscode.env.openExternal(vscode.Uri.parse(INDEXER_REPOSITORY_URL));
+    }
+  }
+
+  private async hasIndexerHttpProxy(): Promise<boolean> {
+    const resources = await this.edaClient.listResources(
+      INDEXER_HTTP_PROXY_GROUP,
+      INDEXER_HTTP_PROXY_VERSION,
+      INDEXER_HTTP_PROXY_KIND,
+      INDEXER_HTTP_PROXY_NAMESPACE
+    );
+    return resources.some((resource) => resource.metadata?.name === INDEXER_HTTP_PROXY_NAME);
   }
 
   private async commitIndexerHttpProxy(): Promise<number> {
@@ -345,6 +404,35 @@ constructor() {
       retain: true,
       resultType: 'normal',
       crs: [{ type: { replace: { value: resource } } }]
+    };
+    return this.edaClient.runTransaction(tx);
+  }
+
+  private async removeIndexerHttpProxy(): Promise<number | undefined> {
+    const hasHttpProxy = await this.hasIndexerHttpProxy();
+    if (!hasHttpProxy) {
+      return undefined;
+    }
+    const tx: TransactionRequest = {
+      description: 'vscode uninstall resource indexer httpproxy',
+      dryRun: false,
+      retain: true,
+      resultType: 'normal',
+      crs: [
+        {
+          type: {
+            delete: {
+              gvk: {
+                group: INDEXER_HTTP_PROXY_GROUP,
+                version: INDEXER_HTTP_PROXY_VERSION,
+                kind: INDEXER_HTTP_PROXY_KIND
+              },
+              name: INDEXER_HTTP_PROXY_NAME,
+              namespace: INDEXER_HTTP_PROXY_NAMESPACE
+            }
+          }
+        }
+      ]
     };
     return this.edaClient.runTransaction(tx);
   }
@@ -383,8 +471,75 @@ constructor() {
     );
   }
 
+  private async uninstallIndexerInBackground(): Promise<void> {
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: INDEXER_UNINSTALL_PROGRESS_TITLE,
+        cancellable: false
+      },
+      async (progress) => {
+        progress.report({ message: 'Deleting Kubernetes manifests...' });
+        runKubectl(
+          'kubectl',
+          ['delete', '-k', INDEXER_INSTALL_REMOTE_KUSTOMIZE_URL, '--ignore-not-found=true'],
+          { timeout: INDEXER_INSTALL_TIMEOUT_MS, maxBuffer: INDEXER_INSTALL_MAX_BUFFER }
+        );
+
+        progress.report({ message: 'Removing HttpProxy resource...' });
+        const transactionId = await this.removeIndexerHttpProxy();
+
+        progress.report({ message: 'Waiting for endpoint shutdown...' });
+        const removed = await this.waitForIndexerUnavailability();
+        if (removed) {
+          const txSuffix = transactionId !== undefined ? ` (transaction ${transactionId})` : '';
+          vscode.window.showInformationMessage(`Resource indexer is removed${txSuffix}.`);
+          return;
+        }
+        const txMessage = transactionId !== undefined
+          ? ` (transaction ${transactionId}).`
+          : '.';
+        vscode.window.showInformationMessage(
+          'Indexer uninstall submitted'
+          + `${txMessage} Endpoint availability may persist briefly while resources terminate.`
+        );
+      }
+    );
+  }
+
+  public async installResourceIndexer(): Promise<void> {
+    try {
+      if (!this.hasKubernetesContext()) {
+        vscode.window.showWarningMessage(INDEXER_MANUAL_INSTALL_MESSAGE);
+        return;
+      }
+      await this.installIndexerInBackground();
+    } catch (err) {
+      const message = String(err);
+      log(`Indexer install command failed: ${message}`, LogLevel.WARN);
+      vscode.window.showWarningMessage(`Failed to install resource indexer: ${message}`);
+    }
+  }
+
+  public async uninstallResourceIndexer(): Promise<void> {
+    try {
+      if (!this.hasKubernetesContext()) {
+        vscode.window.showWarningMessage(INDEXER_MANUAL_UNINSTALL_MESSAGE);
+        return;
+      }
+      await this.uninstallIndexerInBackground();
+    } catch (err) {
+      const message = String(err);
+      log(`Indexer uninstall command failed: ${message}`, LogLevel.WARN);
+      vscode.window.showWarningMessage(`Failed to uninstall resource indexer: ${message}`);
+    }
+  }
+
   private async maybePromptIndexerInstall(): Promise<void> {
     if (this.indexerInstallCheckInFlight || this.indexerInstallPromptShown) {
+      return;
+    }
+    if (!this.shouldShowIndexerInstallPrompt()) {
       return;
     }
     this.indexerInstallCheckInFlight = true;
@@ -405,12 +560,12 @@ constructor() {
         return;
       }
 
-      const choice = await vscode.window.showInformationMessage(
-        INDEXER_INSTALL_PROMPT,
-        'Install',
-        'Not now'
-      );
-      if (choice !== 'Install') {
+      const choice = await this.promptIndexerInstallChoice();
+      if (choice === INDEXER_PROMPT_ACTION_NEVER_ASK) {
+        await this.disableIndexerInstallPrompt();
+        return;
+      }
+      if (choice !== INDEXER_PROMPT_ACTION_INSTALL) {
         return;
       }
       await this.installIndexerInBackground();

@@ -534,6 +534,12 @@ async function initializeTreeViewsAndCommands(
       namespaceProvider.setExpandAll(true);
       namespaceProvider.refresh();
       explorerProvider.expandAllResources();
+    }),
+    vscode.commands.registerCommand('vscode-eda.installResourceIndexer', async () => {
+      await namespaceProvider.installResourceIndexer();
+    }),
+    vscode.commands.registerCommand('vscode-eda.uninstallResourceIndexer', async () => {
+      await namespaceProvider.uninstallResourceIndexer();
     })
   );
 

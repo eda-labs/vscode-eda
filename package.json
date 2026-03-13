@@ -35,7 +35,9 @@
     "onCommand:vscode-eda.applyYamlFile",
     "onCommand:vscode-eda.applyYamlFile.dryRun",
     "onCommand:vscode-eda.addYamlToBasket",
-    "onCommand:vscode-eda.openResourceBrowser"
+    "onCommand:vscode-eda.openResourceBrowser",
+    "onCommand:vscode-eda.installResourceIndexer",
+    "onCommand:vscode-eda.uninstallResourceIndexer"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -266,6 +268,16 @@
       {
         "command": "vscode-eda.showDashboard",
         "title": "EDA: Show Dashboard"
+      },
+      {
+        "command": "vscode-eda.installResourceIndexer",
+        "title": "EDA: Install Resource Indexer",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "vscode-eda.uninstallResourceIndexer",
+        "title": "EDA: Uninstall Resource Indexer",
+        "icon": "$(trash)"
       }
     ],
     "submenus": [
@@ -286,6 +298,14 @@
         },
         {
           "command": "vscode-eda.configureTargets",
+          "when": "true"
+        },
+        {
+          "command": "vscode-eda.installResourceIndexer",
+          "when": "true"
+        },
+        {
+          "command": "vscode-eda.uninstallResourceIndexer",
           "when": "true"
         },
         {
@@ -455,6 +475,11 @@
           ],
           "default": "full",
           "description": "Color mode for node configuration views"
+        },
+        "vscode-eda.showIndexerInstallPrompt": {
+          "type": "boolean",
+          "default": true,
+          "description": "Prompt to install the optional Resource Indexer when unavailable."
         }
       }
     },
