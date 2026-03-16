@@ -22,6 +22,7 @@ import { ResourceViewDocumentProvider } from './providers/documents/resourceView
 import { SchemaProviderService } from './services/schemaProviderService';
 import { EdaYamlCompletionProvider } from './providers/yaml/edaYamlCompletionProvider';
 import { EdaYamlHoverProvider } from './providers/yaml/edaYamlHoverProvider';
+import { registerEdaYamlCursorSuggest } from './providers/yaml/edaYamlSuggestTrigger';
 import { PodDescribeDocumentProvider } from './providers/documents/podDescribeProvider';
 import { registerPodCommands } from './commands/podCommands';
 import { registerDeploymentCommands } from './commands/deploymentCommands';
@@ -394,12 +395,14 @@ async function initializeServiceArchitecture(
   // Register YAML completion and hover providers for EDA resources
   const yamlSelector: vscode.DocumentSelector = { language: 'yaml' };
   const triggerChars = [':', ' ', '-', '\n', ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'];
+  const yamlCompletionProvider = new EdaYamlCompletionProvider();
   context.subscriptions.push(
     vscode.languages.registerCompletionItemProvider(
-      yamlSelector, new EdaYamlCompletionProvider(), ...triggerChars
+      yamlSelector, yamlCompletionProvider, ...triggerChars
     ),
     vscode.languages.registerHoverProvider(yamlSelector, new EdaYamlHoverProvider())
   );
+  registerEdaYamlCursorSuggest(context, yamlCompletionProvider);
 
   // 7) Create tree providers and register remaining commands
   await initializeTreeViewsAndCommands(context, { activationStartMs });

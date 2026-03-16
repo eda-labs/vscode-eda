@@ -5,7 +5,10 @@ import type { EdaClient } from '../../clients/edaClient';
 import type { EdaCrd } from '../../types';
 import { log, LogLevel } from '../../extension';
 import type { ResourceService } from '../../services/resourceService';
+import type { SchemaProviderService } from '../../services/schemaProviderService';
 import { serviceManager } from '../../services/serviceManager';
+import type { ResolvedJsonSchema, AutoCompleteHint } from '../../providers/yaml/types';
+import { DynamicValueProvider } from '../../providers/yaml/dynamicValueProvider';
 
 import { BasePanel } from '../basePanel';
 
@@ -28,23 +31,6 @@ const MAX_SUGGESTION_PATHS = 320;
 const MAX_SUGGESTION_SAMPLE_RESOURCES = 250;
 const MAX_SUGGESTION_DEPTH = 8;
 const ARRAY_PATH_SEGMENT = '[]';
-const DEFAULT_TOPO_NODE_GROUP = 'core.eda.nokia.com';
-const DEFAULT_TOPO_NODE_VERSION = 'v1';
-const DEFAULT_TOPO_NODE_KIND = 'TopoNode';
-
-interface K8sLikeResource {
-  metadata?: {
-    name?: string;
-    namespace?: string;
-    labels?: Record<string, unknown>;
-  };
-}
-
-interface SchemaStringFieldHint {
-  path: string[];
-  keyName: string;
-  format?: string;
-}
 
 function toPathKey(path: string[]): string {
   return path.join('.');
@@ -148,94 +134,51 @@ function toSuggestionRecord(map: Map<string, Set<string>>): Record<string, strin
   return output;
 }
 
-function schemaFormat(schema: JsonSchemaNode | undefined): string | undefined {
-  if (!schema || !isRecord(schema)) {
-    return undefined;
-  }
-  const format = schema.format;
-  return typeof format === 'string' ? format : undefined;
+/** Collected auto-complete hint with its field path */
+interface FieldAutoCompleteHint {
+  path: string[];
+  hint: AutoCompleteHint;
 }
 
-function collectSchemaStringFieldHints(
-  schema: JsonSchemaNode | undefined,
+/**
+ * Walk a resolved schema recursively, collecting all `x-eda-nokia-com.ui-auto-completes`
+ * entries with their field paths.
+ */
+function collectAutoCompleteHintsFromSchema(
+  schema: ResolvedJsonSchema | undefined,
   path: string[] = [],
-  hints: SchemaStringFieldHint[] = []
-): SchemaStringFieldHint[] {
-  if (!schema) {
-    return hints;
-  }
-  const type = typeof schema.type === 'string' ? schema.type : '';
-
-  if (type === 'object' || (!type && isRecord(schema.properties))) {
-    const properties = schema.properties ?? {};
-    for (const [key, child] of Object.entries(properties)) {
-      collectSchemaStringFieldHints(child, [...path, key], hints);
-    }
-    return hints;
+  results: FieldAutoCompleteHint[] = [],
+  depth = 0
+): FieldAutoCompleteHint[] {
+  if (!schema || depth > MAX_SUGGESTION_DEPTH) {
+    return results;
   }
 
-  if (type === 'array' || (!type && schema.items)) {
-    const itemSchema = schema.items;
-    if (!itemSchema) {
-      return hints;
-    }
-    const itemType = typeof itemSchema.type === 'string' ? itemSchema.type : '';
-    if (itemType === 'string' || (!itemType && !itemSchema.items && !itemSchema.properties)) {
-      hints.push({
-        path: [...path, ARRAY_PATH_SEGMENT],
-        keyName: path[path.length - 1] ?? '',
-        format: schemaFormat(schema) ?? schemaFormat(itemSchema)
-      });
-      return hints;
-    }
-    collectSchemaStringFieldHints(itemSchema, [...path, ARRAY_PATH_SEGMENT], hints);
-    return hints;
-  }
-
-  if (type === 'string') {
-    hints.push({
-      path,
-      keyName: path[path.length - 1] ?? '',
-      format: schemaFormat(schema)
-    });
-  }
-
-  return hints;
-}
-
-function addResourceNamesToPath(
-  suggestions: Map<string, Set<string>>,
-  path: string[],
-  resources: K8sLikeResource[]
-): void {
-  for (const resource of resources.slice(0, MAX_SUGGESTION_SAMPLE_RESOURCES)) {
-    const name = resource.metadata?.name;
-    if (typeof name === 'string' && name.length > 0) {
-      addSuggestion(suggestions, path, name);
+  const hints = schema['x-eda-nokia-com']?.['ui-auto-completes'];
+  if (hints) {
+    for (const hint of hints) {
+      results.push({ path: [...path], hint });
     }
   }
-}
 
-function addLabelSelectorsToPath(
-  suggestions: Map<string, Set<string>>,
-  path: string[],
-  resources: K8sLikeResource[]
-): void {
-  for (const resource of resources.slice(0, MAX_SUGGESTION_SAMPLE_RESOURCES)) {
-    const labels = resource.metadata?.labels;
-    if (!isRecord(labels)) {
-      continue;
-    }
-    for (const [key, rawValue] of Object.entries(labels)) {
-      if (!key) {
-        continue;
-      }
-      addSuggestion(suggestions, path, `${key}=`);
-      if (typeof rawValue === 'string' && rawValue.length > 0) {
-        addSuggestion(suggestions, path, `${key}=${rawValue}`);
-      }
+  if (schema.properties) {
+    for (const [key, child] of Object.entries(schema.properties)) {
+      collectAutoCompleteHintsFromSchema(child, [...path, key], results, depth + 1);
     }
   }
+
+  if (schema.items) {
+    collectAutoCompleteHintsFromSchema(schema.items, [...path, ARRAY_PATH_SEGMENT], results, depth + 1);
+  }
+
+  for (const composition of [schema.allOf, schema.anyOf, schema.oneOf]) {
+    if (!composition) continue;
+    for (const sub of composition) {
+      collectAutoCompleteHintsFromSchema(sub, path, results, depth + 1);
+    }
+  }
+
+  return results;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -276,6 +219,7 @@ export class ResourceCreatePanel extends BasePanel {
   private pendingYamlFromForm: string | undefined;
   private disposed = false;
   private readonly suggestionsCache = new Map<string, ResourceValueSuggestions>();
+  private readonly dynamicValueProvider = new DynamicValueProvider();
 
   private constructor(
     context: vscode.ExtensionContext,
@@ -479,17 +423,10 @@ export class ResourceCreatePanel extends BasePanel {
       log(`Unable to gather resource suggestions for ${this.crd.kind}: ${error}`, LogLevel.DEBUG);
     }
 
-    if (edaClient && this.schema) {
-      try {
-        await this.augmentNodeSuggestionsFromSchema(
-          fieldSuggestions,
-          edaClient,
-          namespaces,
-          scopedNamespace
-        );
-      } catch (error) {
-        log(`Unable to augment node suggestions for ${this.crd.kind}: ${error}`, LogLevel.DEBUG);
-      }
+    try {
+      await this.augmentSuggestionsFromAutoCompleteHints(fieldSuggestions, scopedNamespace);
+    } catch (error) {
+      log(`Unable to augment schema-driven suggestions for ${this.crd.kind}: ${error}`, LogLevel.DEBUG);
     }
 
     const computedSuggestions = {
@@ -501,80 +438,35 @@ export class ResourceCreatePanel extends BasePanel {
     return computedSuggestions;
   }
 
-  private async fetchTopoNodeResources(
-    edaClient: EdaClient,
-    namespaces: Set<string>,
-    scopedNamespace?: string
-  ): Promise<K8sLikeResource[]> {
-    try {
-      const listed = await edaClient.listResources(
-        DEFAULT_TOPO_NODE_GROUP,
-        DEFAULT_TOPO_NODE_VERSION,
-        DEFAULT_TOPO_NODE_KIND,
-        scopedNamespace
-      );
-      if (listed.length > 0) {
-        return listed as K8sLikeResource[];
-      }
-    } catch {
-      // Fall back to namespace-scoped list below.
-    }
-
-    let namespaceList: string[];
-    if (scopedNamespace) {
-      namespaceList = [scopedNamespace];
-    } else if (namespaces.size > 0) {
-      namespaceList = Array.from(namespaces);
-    } else {
-      namespaceList = await edaClient.listNamespaces();
-    }
-    const out: K8sLikeResource[] = [];
-    for (const namespace of namespaceList.slice(0, MAX_SUGGESTION_VALUES)) {
-      try {
-        const nodes = await edaClient.listTopoNodes(namespace);
-        out.push(...(nodes as K8sLikeResource[]));
-      } catch {
-        // Ignore per-namespace failures.
-      }
-    }
-    return out;
-  }
-
-  private async augmentNodeSuggestionsFromSchema(
+  private async augmentSuggestionsFromAutoCompleteHints(
     fieldSuggestions: Map<string, Set<string>>,
-    edaClient: EdaClient,
-    namespaces: Set<string>,
     scopedNamespace?: string
   ): Promise<void> {
-    const hints = collectSchemaStringFieldHints(this.schema ?? undefined);
-    if (hints.length === 0) {
+    let resolvedSchema: ResolvedJsonSchema | null = null;
+    try {
+      const schemaService = serviceManager.getService<SchemaProviderService>('schema-provider');
+      resolvedSchema = schemaService.getResolvedSchemaForKindSync(this.crd.kind);
+    } catch {
+      // Schema service not available
+    }
+
+    if (!resolvedSchema) {
       return;
     }
 
-    const needsNodeData = hints.some((hint) => hint.keyName.toLowerCase().includes('node'));
-    if (!needsNodeData) {
+    const fieldHints = collectAutoCompleteHintsFromSchema(resolvedSchema);
+    if (fieldHints.length === 0) {
       return;
     }
 
-    const topoNodes = await this.fetchTopoNodeResources(edaClient, namespaces, scopedNamespace);
-    if (topoNodes.length === 0) {
-      return;
-    }
-
-    for (const hint of hints) {
-      const key = hint.keyName.toLowerCase();
-      const format = (hint.format ?? '').toLowerCase();
-      const relatesToNode = key.includes('node');
-      if (!relatesToNode) {
-        continue;
+    const fetchPromises = fieldHints.map(async ({ path, hint }) => {
+      const values = await this.dynamicValueProvider.getValuesForHint(hint, scopedNamespace);
+      for (const value of values) {
+        addSuggestion(fieldSuggestions, path, value);
       }
-      const isSelectorField = format === 'labelselector' || key.includes('selector');
-      if (isSelectorField) {
-        addLabelSelectorsToPath(fieldSuggestions, hint.path, topoNodes);
-        continue;
-      }
-      addResourceNamesToPath(fieldSuggestions, hint.path, topoNodes);
-    }
+    });
+
+    await Promise.all(fetchPromises);
   }
 
   private async applyFormUpdate(resource: Record<string, unknown>): Promise<void> {

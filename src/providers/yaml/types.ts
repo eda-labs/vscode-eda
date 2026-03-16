@@ -67,8 +67,12 @@ export interface YamlContext {
   existingSiblingKeys: string[];
   /** Key on the current line (if any) */
   currentKey: string | undefined;
+  /** Partial key typed so far on the current line */
+  currentKeyPrefix: string | undefined;
   /** Partial value typed so far on the current line */
   currentValue: string | undefined;
+  /** Partial scalar array-item value typed after `- ` on the current line */
+  currentArrayItemValue: string | undefined;
   /** The namespace from the document metadata */
   namespace: string | undefined;
 }

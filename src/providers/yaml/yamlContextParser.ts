@@ -25,11 +25,12 @@ export function parseYamlContext(
   const lineIndent = getIndent(lineText);
 
   // Parse key:value on current line
-  const { currentKey, currentValue, isKey, isValue } = parseCurrentLine(lineText, cursorCol);
+  const { currentKey, currentKeyPrefix, currentValue, isKey, isValue } = parseCurrentLine(lineText, cursorCol);
 
   // Check if we're on an array item line
   const trimmed = lineText.trimStart();
   const isArrayItem = trimmed.startsWith('- ');
+  const currentArrayItemValue = parseArrayItemValue(lineText, cursorCol);
 
   // Build path from root to cursor by scanning backwards
   const path = buildPath(document, lineIndex, lineIndent, docStart, isArrayItem);
@@ -46,7 +47,9 @@ export function parseYamlContext(
     isArrayItem,
     existingSiblingKeys,
     currentKey,
+    currentKeyPrefix,
     currentValue,
+    currentArrayItemValue,
     namespace,
   };
 }
@@ -127,21 +130,31 @@ function parseNamespaceField(trimmed: string): string | undefined {
 function parseCurrentLine(
   lineText: string,
   cursorCol: number
-): { currentKey: string | undefined; currentValue: string | undefined; isKey: boolean; isValue: boolean } {
+): {
+  currentKey: string | undefined;
+  currentKeyPrefix: string | undefined;
+  currentValue: string | undefined;
+  isKey: boolean;
+  isValue: boolean;
+} {
   const trimmed = lineText.trimStart();
   const offset = lineText.length - trimmed.length;
 
   // Strip array marker for analysis
   const contentAfterMarker = trimmed.startsWith('- ') ? trimmed.slice(2) : trimmed;
   const markerOffset = trimmed.startsWith('- ') ? 2 : 0;
+  const contentCursorCol = Math.max(0, cursorCol - offset - markerOffset);
+  const contentToCursor = contentAfterMarker.slice(0, contentCursorCol);
 
   // Find colon position in the content
   const colonIndex = contentAfterMarker.indexOf(':');
 
   if (colonIndex === -1) {
+    const keyPrefix = contentToCursor.trim();
     // No colon - we're typing a key
     return {
       currentKey: undefined,
+      currentKeyPrefix: keyPrefix || undefined,
       currentValue: undefined,
       isKey: true,
       isValue: false,
@@ -152,9 +165,12 @@ function parseCurrentLine(
   const absoluteColonPos = offset + markerOffset + colonIndex;
 
   if (cursorCol <= absoluteColonPos) {
+    const key = contentAfterMarker.slice(0, colonIndex).trim();
+    const keyPrefix = contentAfterMarker.slice(0, Math.min(contentCursorCol, colonIndex)).trim();
     // Cursor is before or at the colon - typing a key
     return {
-      currentKey: contentAfterMarker.slice(0, colonIndex).trim() || undefined,
+      currentKey: key || undefined,
+      currentKeyPrefix: keyPrefix || undefined,
       currentValue: undefined,
       isKey: true,
       isValue: false,
@@ -162,14 +178,37 @@ function parseCurrentLine(
   }
 
   // Cursor is after the colon - typing a value
-  const valueText = contentAfterMarker.slice(colonIndex + 1).trim();
+  const valueStart = absoluteColonPos + 1;
+  const valueText = lineText.slice(valueStart, cursorCol).trim();
   const key = contentAfterMarker.slice(0, colonIndex).trim();
   return {
     currentKey: key || undefined,
+    currentKeyPrefix: undefined,
     currentValue: valueText || undefined,
     isKey: false,
     isValue: true,
   };
+}
+
+/** Parse the partially typed scalar value on an array item line (`- value`) */
+function parseArrayItemValue(lineText: string, cursorCol: number): string | undefined {
+  const trimmed = lineText.trimStart();
+  if (!trimmed.startsWith('- ')) {
+    return undefined;
+  }
+
+  const offset = lineText.length - trimmed.length;
+  const valueStart = offset + 2;
+  if (cursorCol < valueStart) {
+    return '';
+  }
+
+  const rawValue = lineText.slice(valueStart, cursorCol);
+  if (rawValue.includes(':')) {
+    return undefined;
+  }
+
+  return rawValue.trim();
 }
 
 /** Build the property path from the document root to the cursor */

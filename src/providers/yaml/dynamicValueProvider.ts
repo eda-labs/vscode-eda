@@ -69,6 +69,21 @@ export class DynamicValueProvider {
     );
   }
 
+  /**
+   * Get label selector suggestions using an existing hint as the target resource.
+   * This preserves the original kind/resource information while switching the
+   * fetch mode to label key=value pairs.
+   */
+  async getLabelSelectorValuesForHint(
+    hint: AutoCompleteHint,
+    namespace?: string
+  ): Promise<string[]> {
+    return this.getValuesForHint(
+      { ...hint, type: 'labelselector' },
+      namespace
+    );
+  }
+
   /** Fetch resource names for a GVR hint */
   private async fetchGvrValues(hint: AutoCompleteHint, namespace?: string): Promise<string[]> {
     if (!hint.group || !hint.version || !hint.resource) {
