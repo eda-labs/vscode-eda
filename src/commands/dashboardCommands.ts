@@ -634,6 +634,9 @@ export function registerDashboardCommands(
       } else if (name === 'Nodes') {
         const { ToponodesDashboardPanel } = await import('../webviews/dashboard/toponodes/toponodesDashboard');
         ToponodesDashboardPanel.show(context, name);
+      } else if (name === 'Pods') {
+        const { PodsDashboardPanel } = await import('../webviews/dashboard/pods/podsDashboard');
+        PodsDashboardPanel.show(context, name);
       } else if (name === 'Simnodes') {
         const { SimnodesDashboardPanel } = await import('../webviews/dashboard/simnodes/simnodesDashboard');
         SimnodesDashboardPanel.show(context, name);

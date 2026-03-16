@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 
+import type { KubernetesClient } from '../../clients/kubernetesClient';
+import { serviceManager } from '../../services/serviceManager';
 import type { EdaAlarmProvider } from './alarmProvider';
 import type { EdaDeviationProvider } from './deviationProvider';
 import type { TransactionBasketProvider } from './transactionBasketProvider';
@@ -25,9 +27,11 @@ export class DashboardProvider extends FilteredTreeProvider<TreeItemBase> implem
 
   constructor(providers?: DashboardCountProviders) {
     super();
+    const hasKubernetesContext = this.hasKubernetesContext();
     this.dashboards = [
       { name: 'Fabric' },
       { name: 'Nodes' },
+      ...(hasKubernetesContext ? [{ name: 'Pods' }] : []),
       { name: 'Queries' },
       { name: 'Resource Browser' },
       { name: 'Simnodes' },
@@ -54,6 +58,19 @@ export class DashboardProvider extends FilteredTreeProvider<TreeItemBase> implem
       providers.basketProvider.onBasketCountChanged(refreshOnChange),
       providers.transactionProvider.onDidChangeTreeData(refreshOnChange)
     );
+  }
+
+  private hasKubernetesContext(): boolean {
+    if (!serviceManager.getClientNames().includes('kubernetes')) {
+      return false;
+    }
+    try {
+      const client = serviceManager.getClient<KubernetesClient>('kubernetes');
+      const context = client.getCurrentContext();
+      return Boolean(context && context !== 'none');
+    } catch {
+      return false;
+    }
   }
 
   private getDisplayLabel(entry: DashboardEntry): string {

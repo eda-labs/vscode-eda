@@ -4,6 +4,7 @@ import path from 'path';
 
 const webviewEntryPoints = {
   toponodesDashboard: 'src/webviews/dashboard/toponodes/toponodesDashboard.webview.tsx',
+  podsDashboard: 'src/webviews/dashboard/pods/podsDashboard.webview.tsx',
   simnodesDashboard: 'src/webviews/dashboard/simnodes/simnodesDashboard.webview.tsx',
   resourceBrowserPanel: 'src/webviews/dashboard/resource/resourceBrowserPanel.webview.tsx',
   fabricDashboard: 'src/webviews/dashboard/fabric/fabricDashboard.webview.tsx',
