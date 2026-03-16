@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { Dispatch, ReactNode, SetStateAction, TransitionStartFunction } from 'react';
 import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useTransition, memo } from 'react';
 import SearchIcon from '@mui/icons-material/Search';
 import { Box, InputAdornment, Stack, TextField, Typography } from '@mui/material';
@@ -53,6 +53,8 @@ export interface DataGridDashboardProps<T extends DataGridMessage> {
   columnMaxWidth?: number;
   /** Maximum number of characters shown before inline truncation */
   longCellPreviewChars?: number;
+  /** Fixed width for the actions column */
+  actionColumnWidth?: number;
   /** Enable grid autosizing for this dashboard */
   autoSizeColumns?: boolean;
   /** Autosize behavior for this dashboard */
@@ -111,6 +113,170 @@ const DEFAULT_COLUMN_MIN_WIDTH = 96;
 const DEFAULT_COLUMN_MAX_WIDTH = 280;
 const DEFAULT_LONG_CELL_PREVIEW_CHARS = 24;
 const INTERACTIVE_COLUMN_MAX_WIDTH = 1200;
+const ALL_NAMESPACES_LABEL = 'All Namespaces';
+
+type NumberStateSetter = Dispatch<SetStateAction<number>>;
+type StringStateSetter = Dispatch<SetStateAction<string>>;
+type StringArrayStateSetter = Dispatch<SetStateAction<string[]>>;
+type RowArrayStateSetter = Dispatch<SetStateAction<unknown[][]>>;
+type SortModelStateSetter = Dispatch<SetStateAction<GridSortModel>>;
+type WidthMapStateSetter = Dispatch<SetStateAction<Record<string, number>>>;
+
+interface GridMessageHandlerState<T extends DataGridMessage> {
+  msg: T;
+  setHasKubernetesContext: Dispatch<SetStateAction<boolean>>;
+  setSelectedNamespace: StringStateSetter;
+  setColumns: StringArrayStateSetter;
+  setRows: RowArrayStateSetter;
+  setRowsRevision: NumberStateSetter;
+  setColumnWidthOverrides: WidthMapStateSetter;
+  setExpandedColumnPreviousWidths: WidthMapStateSetter;
+  setFilterText: StringStateSetter;
+  setSortModel: SortModelStateSetter;
+  startTransition: TransitionStartFunction;
+  defaultSortColumn: string;
+  defaultSortDirection: 'asc' | 'desc';
+}
+
+function pruneInactiveFields(previous: Record<string, number>, activeFields: Set<string>): Record<string, number> {
+  let changed = false;
+  const next: Record<string, number> = {};
+  for (const [field, width] of Object.entries(previous)) {
+    if (activeFields.has(field)) {
+      next[field] = width;
+    } else {
+      changed = true;
+    }
+  }
+  return changed ? next : previous;
+}
+
+function resolveSortField(columns: string[], defaultSortColumn: string): string | undefined {
+  const preferredColumns = [defaultSortColumn, 'name'];
+  for (const preferredColumn of preferredColumns) {
+    if (!preferredColumn) {
+      continue;
+    }
+    const columnIndex = columns.indexOf(preferredColumn);
+    if (columnIndex >= 0) {
+      return `col_${columnIndex}`;
+    }
+  }
+  return undefined;
+}
+
+function applyRowsMessage(
+  msg: DataGridMessage,
+  setColumns: StringArrayStateSetter,
+  setRows: RowArrayStateSetter,
+  setRowsRevision: NumberStateSetter,
+  setSortModel: SortModelStateSetter,
+  startTransition: TransitionStartFunction,
+  defaultSortColumn: string,
+  defaultSortDirection: 'asc' | 'desc'
+): void {
+  const newColumns = msg.columns ?? [];
+  const newRows = msg.rows ?? [];
+  startTransition(() => {
+    setColumns((previousColumns) => {
+      const columnsChanged = !shallowArrayEquals(previousColumns, newColumns);
+      if (columnsChanged) {
+        const sortField = resolveSortField(newColumns, defaultSortColumn);
+        setSortModel(sortField ? [{ field: sortField, sort: defaultSortDirection }] : []);
+      }
+      return newColumns;
+    });
+    setRows(newRows);
+    setRowsRevision((previous) => previous + 1);
+  });
+}
+
+function resetGridState(
+  setColumns: StringArrayStateSetter,
+  setRows: RowArrayStateSetter,
+  setRowsRevision: NumberStateSetter,
+  setColumnWidthOverrides: WidthMapStateSetter,
+  setExpandedColumnPreviousWidths: WidthMapStateSetter,
+  setFilterText: StringStateSetter,
+  setSortModel: SortModelStateSetter
+): void {
+  setColumns([]);
+  setRows([]);
+  setRowsRevision((previous) => previous + 1);
+  setColumnWidthOverrides({});
+  setExpandedColumnPreviousWidths({});
+  setFilterText('');
+  setSortModel([]);
+}
+
+function handleGridMessage<T extends DataGridMessage>({
+  msg,
+  setHasKubernetesContext,
+  setSelectedNamespace,
+  setColumns,
+  setRows,
+  setRowsRevision,
+  setColumnWidthOverrides,
+  setExpandedColumnPreviousWidths,
+  setFilterText,
+  setSortModel,
+  startTransition,
+  defaultSortColumn,
+  defaultSortDirection
+}: GridMessageHandlerState<T>): void {
+  if (typeof msg.hasKubernetesContext === 'boolean') {
+    setHasKubernetesContext(msg.hasKubernetesContext);
+  }
+
+  switch (msg.command) {
+    case 'init':
+    case 'namespace':
+      setSelectedNamespace(msg.selected ?? ALL_NAMESPACES_LABEL);
+      break;
+    case 'clear':
+      resetGridState(
+        setColumns,
+        setRows,
+        setRowsRevision,
+        setColumnWidthOverrides,
+        setExpandedColumnPreviousWidths,
+        setFilterText,
+        setSortModel
+      );
+      break;
+    case 'results':
+      applyRowsMessage(
+        msg,
+        setColumns,
+        setRows,
+        setRowsRevision,
+        setSortModel,
+        startTransition,
+        defaultSortColumn,
+        defaultSortDirection
+      );
+      break;
+    default:
+      break;
+  }
+}
+
+function resolveDashboardProps<T extends DataGridMessage>(props: Readonly<DataGridDashboardProps<T>>) {
+  return {
+    ...props,
+    showInTreeCommand: props.showInTreeCommand ?? 'showInTree',
+    defaultSortColumn: props.defaultSortColumn ?? 'name',
+    defaultSortDirection: props.defaultSortDirection ?? 'asc',
+    enableFilter: props.enableFilter ?? true,
+    filterPlaceholder: props.filterPlaceholder ?? 'Filter rows',
+    rowHeight: props.rowHeight ?? 36,
+    columnMinWidth: props.columnMinWidth ?? DEFAULT_COLUMN_MIN_WIDTH,
+    columnMaxWidth: props.columnMaxWidth ?? DEFAULT_COLUMN_MAX_WIDTH,
+    longCellPreviewChars: props.longCellPreviewChars ?? DEFAULT_LONG_CELL_PREVIEW_CHARS,
+    actionColumnWidth: props.actionColumnWidth ?? 120,
+    autoSizeColumns: props.autoSizeColumns ?? false
+  };
+}
 
 function formatGridCellValue(value: unknown): string {
   if (value === null || value === undefined) {
@@ -562,25 +728,27 @@ function estimateColumnWidth(header: string, minWidth: number, maxWidth: number)
   return Math.max(minWidth, Math.min(maxWidth, estimated));
 }
 
-function DataGridDashboardInner<T extends DataGridMessage>({
-  renderActions,
-  renderCell,
-  renderToolbarActions,
-  onMessage,
-  showInTreeCommand = 'showInTree',
-  defaultSortColumn = 'name',
-  defaultSortDirection = 'asc',
-  enableFilter = true,
-  filterPlaceholder = 'Filter rows',
-  rowHeight = 36,
-  columnMinWidth = DEFAULT_COLUMN_MIN_WIDTH,
-  columnMaxWidth = DEFAULT_COLUMN_MAX_WIDTH,
-  longCellPreviewChars = DEFAULT_LONG_CELL_PREVIEW_CHARS,
-  autoSizeColumns = false,
-  autoSizeOptions
-}: Readonly<DataGridDashboardProps<T>>) {
+function DataGridDashboardInner<T extends DataGridMessage>(props: Readonly<DataGridDashboardProps<T>>) {
+  const {
+    renderActions,
+    renderCell,
+    renderToolbarActions,
+    onMessage,
+    showInTreeCommand,
+    defaultSortColumn,
+    defaultSortDirection,
+    enableFilter,
+    filterPlaceholder,
+    rowHeight,
+    columnMinWidth,
+    columnMaxWidth,
+    longCellPreviewChars,
+    actionColumnWidth,
+    autoSizeColumns,
+    autoSizeOptions
+  } = resolveDashboardProps(props);
   const postMessage = usePostMessage();
-  const [selectedNamespace, setSelectedNamespace] = useState('All Namespaces');
+  const [selectedNamespace, setSelectedNamespace] = useState(ALL_NAMESPACES_LABEL);
   const [columns, setColumns] = useState<string[]>([]);
   const [rows, setRows] = useState<unknown[][]>([]);
   const [rowsRevision, setRowsRevision] = useState(0);
@@ -600,82 +768,30 @@ function DataGridDashboardInner<T extends DataGridMessage>({
 
   useEffect(() => {
     const activeFields = new Set(columns.map((_column, index) => `col_${index}`));
-    setColumnWidthOverrides((previous) => {
-      let changed = false;
-      const next: Record<string, number> = {};
-      for (const [field, width] of Object.entries(previous)) {
-        if (activeFields.has(field)) {
-          next[field] = width;
-        } else {
-          changed = true;
-        }
-      }
-      return changed ? next : previous;
-    });
-    setExpandedColumnPreviousWidths((previous) => {
-      let changed = false;
-      const next: Record<string, number> = {};
-      for (const [field, width] of Object.entries(previous)) {
-        if (activeFields.has(field)) {
-          next[field] = width;
-        } else {
-          changed = true;
-        }
-      }
-      return changed ? next : previous;
-    });
+    setColumnWidthOverrides((previous) => pruneInactiveFields(previous, activeFields));
+    setExpandedColumnPreviousWidths((previous) => pruneInactiveFields(previous, activeFields));
   }, [columns]);
 
-  useMessageListener<T>(useCallback((msg) => {
-    if (typeof msg.hasKubernetesContext === 'boolean') {
-      setHasKubernetesContext(msg.hasKubernetesContext);
-    }
-    if (msg.command === 'init') {
-      setSelectedNamespace(msg.selected ?? 'All Namespaces');
-    } else if (msg.command === 'namespace') {
-      setSelectedNamespace(msg.selected ?? 'All Namespaces');
-    } else if (msg.command === 'clear') {
-      setColumns([]);
-      setRows([]);
-      setRowsRevision(previous => previous + 1);
-      setColumnWidthOverrides({});
-      setExpandedColumnPreviousWidths({});
-      setFilterText('');
-      setSortModel([]);
-    } else if (msg.command === 'results') {
-      const newColumns = msg.columns ?? [];
-      const newRows = msg.rows ?? [];
-      startTransition(() => {
-        setColumns(prev => {
-          const colsChanged = !shallowArrayEquals(prev, newColumns);
-          if (colsChanged) {
-            const preferredColumns = [defaultSortColumn, 'name'];
-            let sortField: string | undefined;
-            for (const preferredColumn of preferredColumns) {
-              if (!preferredColumn) {
-                continue;
-              }
-              const columnIndex = newColumns.indexOf(preferredColumn);
-              if (columnIndex >= 0) {
-                sortField = `col_${columnIndex}`;
-                break;
-              }
-            }
-
-            if (sortField) {
-              setSortModel([{ field: sortField, sort: defaultSortDirection }]);
-            } else {
-              setSortModel([]);
-            }
-          }
-          return newColumns;
-        });
-        setRows(newRows);
-        setRowsRevision(previous => previous + 1);
-      });
-    }
+  const handleMessage = useCallback((msg: T) => {
+    handleGridMessage({
+      msg,
+      setHasKubernetesContext,
+      setSelectedNamespace,
+      setColumns,
+      setRows,
+      setRowsRevision,
+      setColumnWidthOverrides,
+      setExpandedColumnPreviousWidths,
+      setFilterText,
+      setSortModel,
+      startTransition,
+      defaultSortColumn,
+      defaultSortDirection
+    });
     onMessage?.(msg);
-  }, [onMessage, defaultSortColumn, defaultSortDirection]));
+  }, [onMessage, defaultSortColumn, defaultSortDirection, startTransition]);
+
+  useMessageListener<T>(handleMessage);
 
   const handleShowInTree = useCallback(() => {
     postMessage({ command: showInTreeCommand });
@@ -721,6 +837,10 @@ function DataGridDashboardInner<T extends DataGridMessage>({
   const effectiveLongCellPreviewChars = useMemo(
     () => Math.max(8, toFinitePositiveInteger(longCellPreviewChars, DEFAULT_LONG_CELL_PREVIEW_CHARS)),
     [longCellPreviewChars]
+  );
+  const effectiveActionColumnWidth = useMemo(
+    () => Math.max(96, toFinitePositiveInteger(actionColumnWidth, 120)),
+    [actionColumnWidth]
   );
 
   const hasLabelsColumn = useMemo(() => columns.includes('labels'), [columns]);
@@ -814,7 +934,10 @@ function DataGridDashboardInner<T extends DataGridMessage>({
       headerName: 'Actions',
       sortable: false,
       filterable: false,
-      width: 120,
+      resizable: false,
+      width: effectiveActionColumnWidth,
+      minWidth: effectiveActionColumnWidth,
+      maxWidth: effectiveActionColumnWidth,
       renderCell: (params) => renderActions(params.row.raw, context)
     };
 
@@ -865,6 +988,7 @@ function DataGridDashboardInner<T extends DataGridMessage>({
     renderActions,
     renderCell,
     context,
+    effectiveActionColumnWidth,
     columnWidths,
     columnMinWidths,
     effectiveLongCellPreviewChars,

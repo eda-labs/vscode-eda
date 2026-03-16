@@ -103,6 +103,7 @@ function PodsDashboard() {
   return (
     <DataGridDashboard<PodsMessage>
       defaultSortColumn="name"
+      actionColumnWidth={150}
       autoSizeColumns
       renderActions={renderActions}
       renderCell={renderCell}
