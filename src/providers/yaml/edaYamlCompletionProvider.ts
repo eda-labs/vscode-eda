@@ -174,10 +174,12 @@ export class EdaYamlCompletionProvider implements vscode.CompletionItemProvider 
     for (const { key, detail, sortOrder } of rootKeys) {
       if (siblingSet.has(key)) continue;
       const item = new vscode.CompletionItem(key, vscode.CompletionItemKind.Property);
-      item.detail = detail;
+      item.detail = this.buildRootKeySummary(key);
       item.sortText = sortOrder;
       item.filterText = this.buildFilterText(key, editContext.filterPrefix);
       item.range = editContext.replaceRange;
+      item.documentation = this.buildRootKeyDocumentation(key, detail);
+      this.setSuggestionDescription(item, this.buildRootKeyActionDescription(key));
 
       if (key === 'metadata' || key === 'spec') {
         item.insertText = new vscode.SnippetString(`${key}:\n${' '.repeat(editContext.childIndent)}$0`);
@@ -247,15 +249,11 @@ export class EdaYamlCompletionProvider implements vscode.CompletionItemProvider 
       const item = new vscode.CompletionItem(comp.key, vscode.CompletionItemKind.Property);
 
       // Documentation
-      item.documentation = this.buildDocumentation(comp.schema);
+      item.documentation = this.buildKeyDocumentation(comp.key, comp.schema, comp.required);
 
       // Detail line
-      const parts: string[] = [];
-      if (comp.schema.type) parts.push(comp.schema.type);
-      if (comp.required) parts.push('required');
-      const title = comp.schema['x-eda-nokia-com']?.['ui-title'] ?? comp.schema.title;
-      if (title) parts.push(title);
-      if (parts.length > 0) item.detail = parts.join(' · ');
+      item.detail = this.buildKeyMetadataSummary(comp.schema, comp.required);
+      this.setSuggestionDescription(item, this.buildKeyActionDescription(comp.key, comp.schema));
 
       // Sort order: required first, then by schema order, then alphabetical
       item.sortText = `${comp.required ? '0' : '1'}${String(comp.orderPriority).padStart(5, '0')}${comp.key}`;
@@ -358,12 +356,15 @@ export class EdaYamlCompletionProvider implements vscode.CompletionItemProvider 
       seenValues.add(vc.value);
       const item = new vscode.CompletionItem(vc.value, vscode.CompletionItemKind.Value);
       if (vc.isDefault) {
-        item.detail = 'default';
         item.preselect = true;
       }
-      if (vc.description) {
-        item.documentation = new vscode.MarkdownString(vc.description);
-      }
+      item.detail = vc.isDefault ? 'Default schema value' : undefined;
+      item.documentation = this.buildValueDocumentation(
+        vc.value,
+        vc.description,
+        vc.isDefault ? ['Default schema value'] : [],
+        `${editContext.insertPrefix}${vc.value}`
+      );
       item.sortText = String(sortIndex++).padStart(4, '0');
       item.filterText = this.buildFilterText(vc.value, editContext.filterPrefix);
       item.range = editContext.replaceRange;
@@ -447,7 +448,13 @@ export class EdaYamlCompletionProvider implements vscode.CompletionItemProvider 
       }
       seenValues.add(value);
       const item = new vscode.CompletionItem(value, vscode.CompletionItemKind.Reference);
-      item.detail = detail;
+      item.detail = this.buildDynamicSuggestionSummary(detail);
+      item.documentation = this.buildValueDocumentation(
+        value,
+        undefined,
+        [detail],
+        `${editContext.insertPrefix}${value}`
+      );
       item.sortText = `9${String(sortIndex++).padStart(4, '0')}`;
       item.filterText = this.buildFilterText(value, editContext.filterPrefix);
       item.range = editContext.replaceRange;
@@ -885,33 +892,275 @@ export class EdaYamlCompletionProvider implements vscode.CompletionItemProvider 
   }
 
   /** Build rich Markdown documentation for a schema property */
-  private buildDocumentation(schema: ResolvedJsonSchema): vscode.MarkdownString {
+  private buildKeyDocumentation(
+    key: string,
+    schema: ResolvedJsonSchema,
+    required: boolean
+  ): vscode.MarkdownString {
+    const constraints: string[] = [];
+    if (schema.pattern) constraints.push(`Pattern: \`${schema.pattern}\``);
+    if (schema.minimum !== undefined) constraints.push(`Minimum: \`${schema.minimum}\``);
+    if (schema.maximum !== undefined) constraints.push(`Maximum: \`${schema.maximum}\``);
+    if (schema.minLength !== undefined) constraints.push(`Min length: \`${schema.minLength}\``);
+    if (schema.maxLength !== undefined) constraints.push(`Max length: \`${schema.maxLength}\``);
+
+    const metadata: string[] = [];
+    if (schema.type) metadata.push(`Type: \`${schema.type}\``);
+    if (schema.format) metadata.push(`Format: \`${schema.format}\``);
+    if (required) metadata.push('Required field');
+    if (schema.default !== undefined) metadata.push(`Default: \`${JSON.stringify(schema.default)}\``);
+    if (schema.enum) {
+      metadata.push(`Allowed values: ${schema.enum.map(value => `\`${String(value)}\``).join(', ')}`);
+    }
+    metadata.push(...constraints);
+
+    return this.buildMarkdownDocumentation(
+      schema['x-eda-nokia-com']?.['ui-title'] ?? schema.title,
+      schema.description,
+      metadata,
+      this.buildKeyPreview(key, schema)
+    );
+  }
+
+  private buildRootKeyDocumentation(key: string, description: string): vscode.MarkdownString {
+    const metadata: string[] = [];
+    if (key === 'apiVersion' || key === 'kind') {
+      metadata.push('Scalar field');
+    }
+    if (key === 'metadata' || key === 'spec') {
+      metadata.push('Object field');
+    }
+
+    return this.buildMarkdownDocumentation(key, description, metadata, this.buildRootKeyPreview(key));
+  }
+
+  private buildValueDocumentation(
+    value: string,
+    description: string | undefined,
+    metadata: string[] = [],
+    insertPreview: string | undefined = undefined
+  ): vscode.MarkdownString {
+    return this.buildMarkdownDocumentation(value, description, metadata, insertPreview);
+  }
+
+  private buildRootKeyPreview(key: string): string {
+    if (key === 'metadata') {
+      return ['metadata:', '  name: <name>'].join('\n');
+    }
+    if (key === 'spec') {
+      return ['spec:', '  <field>: <value>'].join('\n');
+    }
+    if (key === 'kind') {
+      return 'kind: Banner';
+    }
+    if (key === 'apiVersion') {
+      return 'apiVersion: siteinfo.eda.nokia.com/v1alpha1';
+    }
+
+    return `${key}: <value>`;
+  }
+
+  private buildKeyPreview(key: string, schema: ResolvedJsonSchema): string {
+    if (schema.type === 'object') {
+      return [`${key}:`, '  <field>: <value>'].join('\n');
+    }
+
+    if (schema.type === 'array') {
+      const itemPreview = schema.format === 'labelselector'
+        ? 'key=value'
+        : this.buildScalarPreview(schema.items);
+      return [`${key}:`, `  - ${itemPreview}`].join('\n');
+    }
+
+    if (schema.type === 'boolean') {
+      const defaultValue = typeof schema.default === 'boolean' ? String(schema.default) : 'true';
+      return `${key}: ${defaultValue}`;
+    }
+
+    if (schema.enum && schema.enum.length > 0) {
+      return `${key}: ${String(schema.enum[0])}`;
+    }
+
+    if (schema.default !== undefined) {
+      return `${key}: ${JSON.stringify(schema.default)}`;
+    }
+
+    return `${key}: ${this.buildScalarPreview(schema)}`;
+  }
+
+  private buildScalarPreview(schema: ResolvedJsonSchema | undefined): string {
+    if (!schema) {
+      return '<value>';
+    }
+
+    if (schema.format === 'labelselector') {
+      return 'key=value';
+    }
+
+    if (schema.enum && schema.enum.length > 0) {
+      return String(schema.enum[0]);
+    }
+
+    if (schema.default !== undefined) {
+      return String(schema.default);
+    }
+
+    if (schema.type === 'integer' || schema.type === 'number') {
+      return '0';
+    }
+
+    if (schema.type === 'boolean') {
+      return 'true';
+    }
+
+    return '<value>';
+  }
+
+  private buildRootKeySummary(key: string): string {
+    if (key === 'metadata' || key === 'spec') {
+      return 'Object field';
+    }
+
+    return 'Scalar field';
+  }
+
+  private buildRootKeyActionDescription(key: string): string {
+    if (key === 'apiVersion') {
+      return 'Set API version';
+    }
+    if (key === 'kind') {
+      return 'Set resource kind';
+    }
+    if (key === 'metadata') {
+      return 'Add metadata block';
+    }
+    if (key === 'spec') {
+      return 'Add specification block';
+    }
+
+    return `Add ${this.humanizeIdentifier(key)}`;
+  }
+
+  private buildKeyMetadataSummary(schema: ResolvedJsonSchema, required: boolean): string | undefined {
+    const parts: string[] = [];
+    if (schema.type) {
+      parts.push(schema.type);
+    }
+    if (schema.format) {
+      parts.push(schema.format);
+    }
+    if (required) {
+      parts.push('required');
+    }
+
+    return parts.length > 0 ? parts.join(' · ') : undefined;
+  }
+
+  private buildKeyActionDescription(key: string, schema: ResolvedJsonSchema): string {
+    const name = this.getSuggestionName(key, schema);
+
+    if (schema.type === 'object') {
+      return `Add ${name} block`;
+    }
+
+    if (schema.type === 'array') {
+      return `Add ${name} list`;
+    }
+
+    return `Set ${name}`;
+  }
+
+  private buildDynamicSuggestionSummary(detail: string): string {
+    if (detail.startsWith('label selector from ')) {
+      return `Label selector suggestion from ${detail.slice('label selector from '.length)}`;
+    }
+
+    if (detail.startsWith('from ')) {
+      return `Suggested from ${detail.slice('from '.length)}`;
+    }
+
+    return detail;
+  }
+
+  private getSuggestionName(key: string, schema: ResolvedJsonSchema): string {
+    const title = schema['x-eda-nokia-com']?.['ui-title'] ?? schema.title;
+    if (title && title.trim().length > 0) {
+      return title.trim().toLowerCase();
+    }
+
+    return this.humanizeIdentifier(key);
+  }
+
+  private humanizeIdentifier(value: string): string {
+    return value
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .replace(/[-_]+/g, ' ')
+      .trim()
+      .toLowerCase();
+  }
+
+  private setSuggestionDescription(item: vscode.CompletionItem, description: string | undefined): void {
+    if (!description) {
+      return;
+    }
+
+    const compactDescription = this.compactSuggestionDescription(description);
+    if (!compactDescription) {
+      return;
+    }
+
+    const label = typeof item.label === 'string' ? item.label : item.label.label;
+    item.label = {
+      label,
+      description: compactDescription
+    };
+  }
+
+  private compactSuggestionDescription(description: string): string | undefined {
+    const normalized = description.replace(/\s+/g, ' ').trim();
+    if (normalized.length === 0) {
+      return undefined;
+    }
+
+    if (normalized.length <= 48) {
+      return normalized;
+    }
+
+    return `${normalized.slice(0, 45).trimEnd()}...`;
+  }
+
+  private buildMarkdownDocumentation(
+    title: string | undefined,
+    description: string | undefined,
+    metadata: string[] = [],
+    preview: string | undefined = undefined
+  ): vscode.MarkdownString {
     const md = new vscode.MarkdownString();
-    md.isTrusted = true;
-
-    const ext = schema['x-eda-nokia-com'];
-    const title = ext?.['ui-title'] ?? schema.title;
     if (title) {
-      md.appendMarkdown(`**${title}**\n\n`);
+      md.appendMarkdown('### ');
+      md.appendText(title);
+      md.appendMarkdown('\n\n');
     }
 
-    if (schema.description) {
-      md.appendMarkdown(`${schema.description}\n\n`);
+    if (description) {
+      md.appendMarkdown('**Description**\n\n');
+      md.appendText(description);
+      md.appendMarkdown('\n\n');
     }
 
-    const details: string[] = [];
-    if (schema.type) details.push(`**Type:** \`${schema.type}\``);
-    if (schema.format) details.push(`**Format:** \`${schema.format}\``);
-    if (schema.default !== undefined) details.push(`**Default:** \`${JSON.stringify(schema.default)}\``);
-    if (schema.pattern) details.push(`**Pattern:** \`${schema.pattern}\``);
-    if (schema.enum) details.push(`**Values:** ${schema.enum.map(v => `\`${v}\``).join(', ')}`);
-    if (schema.minimum !== undefined) details.push(`**Min:** ${schema.minimum}`);
-    if (schema.maximum !== undefined) details.push(`**Max:** ${schema.maximum}`);
-    if (schema.minLength !== undefined) details.push(`**Min length:** ${schema.minLength}`);
-    if (schema.maxLength !== undefined) details.push(`**Max length:** ${schema.maxLength}`);
+    if (metadata.length > 0) {
+      md.appendMarkdown('**Details**\n\n');
+      for (const entry of metadata) {
+        md.appendMarkdown(`- ${entry}\n`);
+      }
+      md.appendMarkdown('\n');
+    }
 
-    if (details.length > 0) {
-      md.appendMarkdown(details.join('  \n'));
+    if (preview) {
+      md.appendMarkdown('**Insert**\n\n');
+      md.appendMarkdown('```yaml\n');
+      md.appendText(preview);
+      md.appendMarkdown('\n```\n');
     }
 
     return md;

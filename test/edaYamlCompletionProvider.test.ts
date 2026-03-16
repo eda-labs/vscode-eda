@@ -43,6 +43,20 @@ function getItemByLabel(
   return (items ?? []).find(item => (typeof item.label === 'string' ? item.label : item.label.label) === label);
 }
 
+function getDocumentationValue(item: vscode.CompletionItem | undefined): string | undefined {
+  if (!item || !item.documentation || typeof item.documentation === 'string') {
+    return typeof item?.documentation === 'string' ? item.documentation : undefined;
+  }
+  return item.documentation.value;
+}
+
+function getLabelDescription(item: vscode.CompletionItem | undefined): string | undefined {
+  if (!item || typeof item.label === 'string') {
+    return undefined;
+  }
+  return item.label.description;
+}
+
 function renderCompletionInsertText(item: vscode.CompletionItem): string {
   let rawInsertText: string;
   if (typeof item.insertText === 'string') {
@@ -445,6 +459,58 @@ describe('EdaYamlCompletionProvider', () => {
     expect(range?.start.character).to.equal(6);
     expect(range?.end.line).to.equal(6);
     expect(range?.end.character).to.equal(8);
+  });
+
+  it('keeps Banner key suggestions clean and renders rich markdown in documentation', async () => {
+    const provider = new EdaYamlCompletionProvider();
+    const document = createDocument([
+      'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+      'kind: Banner',
+      'metadata:',
+      '  namespace: eda',
+      'spec:',
+      '  '
+    ].join('\n'));
+
+    const items = await provider.provideCompletionItems(
+      document,
+      { line: 5, character: 2 } as vscode.Position,
+      {} as vscode.CancellationToken,
+      {} as vscode.CompletionContext
+    );
+
+    const nodeSelector = getItemByLabel(items, 'nodeSelector');
+    expect(getLabelDescription(nodeSelector)).to.equal('Add node selector list');
+    expect(nodeSelector?.detail).to.equal('array · labelselector');
+    expect(getDocumentationValue(getItemByLabel(items, 'nodeSelector'))).to.equal(
+      '### Node Selector\n\n**Description**\n\nSelect nodes by label.\n\n**Details**\n\n- Type: `array`\n- Format: `labelselector`\n\n**Insert**\n\n```yaml\nnodeSelector:\n  - key=value\n```\n'
+    );
+  });
+
+  it('shows markdown documentation for Banner node suggestions from cluster data', async () => {
+    const provider = new EdaYamlCompletionProvider();
+    sinon.stub((provider as any).dynamicProvider, 'getValuesForHint').resolves(['leaf1']);
+    const document = createDocument([
+      'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+      'kind: Banner',
+      'metadata:',
+      '  namespace: eda',
+      'spec:',
+      '  nodes:',
+      '    - '
+    ].join('\n'));
+
+    const items = await provider.provideCompletionItems(
+      document,
+      { line: 6, character: 6 } as vscode.Position,
+      {} as vscode.CancellationToken,
+      {} as vscode.CompletionContext
+    );
+
+    expect(getItemByLabel(items, 'leaf1')?.detail).to.equal('Suggested from toponodes');
+    expect(getDocumentationValue(getItemByLabel(items, 'leaf1'))).to.equal(
+      '### leaf1\n\n**Details**\n\n- from toponodes\n\n**Insert**\n\n```yaml\nleaf1\n```\n'
+    );
   });
 
   it('logs a Banner cursor-completion matrix and applies completions exactly at valid insertion points', async () => {
