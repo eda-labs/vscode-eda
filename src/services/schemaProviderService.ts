@@ -10,6 +10,7 @@ import { ResourceViewDocumentProvider } from '../providers/documents/resourceVie
 import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
 import type { EdaCrd } from '../types';
 import type { KubernetesClient } from '../clients/kubernetesClient';
+import type { ResolvedJsonSchema } from '../providers/yaml/types';
 
 import { serviceManager } from './serviceManager';
 import { CoreService } from './coreService';
@@ -112,6 +113,11 @@ export class SchemaProviderService extends CoreService {
   private customResourceDefinitionsPromise: Promise<EdaCrd[]> | undefined;
   private yamlApi: YamlExtensionApi | null = null;
 
+  /** In-memory cache of fully resolved schemas (no $ref pointers) for sync access */
+  private resolvedSchemaCache = new Map<string, ResolvedJsonSchema>();
+  /** Map of kind -> apiVersion extracted during schema loading */
+  private kindApiVersionMap = new Map<string, string>();
+
   constructor() {
     super();
     this.schemaCacheDir = path.join(os.homedir(), '.eda', 'vscode', 'schemas');
@@ -188,6 +194,8 @@ export class SchemaProviderService extends CoreService {
   private async loadSchemas(): Promise<void> {
     this.schemaCache.clear();
     this.clusterSchemaCache.clear();
+    this.resolvedSchemaCache.clear();
+    this.kindApiVersionMap.clear();
     this.customResourceDefinitionsCache = undefined;
     this.customResourceDefinitionsPromise = undefined;
     if (!fs.existsSync(this.schemaCacheDir)) {
@@ -209,19 +217,45 @@ export class SchemaProviderService extends CoreService {
     }
   }
 
+  /** Extract kind string from a schema entry */
+  private static extractKind(name: string, schema: JsonSchema): string | undefined {
+    const kindProperty = schema?.properties?.kind as JsonSchemaProperty | undefined;
+    const kind =
+      kindProperty?.default ||
+      (Array.isArray(kindProperty?.enum) ? kindProperty.enum[0] : undefined) ||
+      name.split('.').pop();
+    return typeof kind === 'string' ? kind : undefined;
+  }
+
+  /** Extract apiVersion string from a schema entry */
+  private static extractApiVersion(schema: JsonSchema): string | undefined {
+    const prop = schema?.properties?.apiVersion as JsonSchemaProperty | undefined;
+    const version = prop?.default ?? (Array.isArray(prop?.enum) ? prop.enum[0] : undefined);
+    return typeof version === 'string' ? version : undefined;
+  }
+
   private async processSpecFile(file: string): Promise<void> {
     try {
       const content = await fs.promises.readFile(file, UTF8);
       const json = JSON.parse(content) as OpenApiSpec;
       const schemas: Record<string, JsonSchema> = json.components?.schemas ?? {};
       for (const [name, schema] of Object.entries(schemas)) {
-        const kindProperty = schema?.properties?.kind as JsonSchemaProperty | undefined;
-        const kind =
-          kindProperty?.default ||
-          (Array.isArray(kindProperty?.enum) ? kindProperty.enum[0] : undefined) ||
-          name.split('.').pop();
-        if (typeof kind === 'string') {
-          await this.cacheSchema(kind, schema);
+        const kind = SchemaProviderService.extractKind(name, schema);
+        if (!kind) continue;
+
+        await this.cacheSchema(kind, schema);
+
+        // Resolve $refs and cache the resolved schema in memory for sync access
+        const resolved = SchemaProviderService.resolveSchemaRefs(
+          schema as Record<string, unknown>,
+          schemas as Record<string, Record<string, unknown>>
+        ) as ResolvedJsonSchema;
+        this.resolvedSchemaCache.set(kind, resolved);
+
+        // Track apiVersion from schema
+        const apiVersion = SchemaProviderService.extractApiVersion(schema);
+        if (apiVersion) {
+          this.kindApiVersionMap.set(kind, apiVersion);
         }
       }
     } catch (err) {
@@ -526,6 +560,84 @@ export class SchemaProviderService extends CoreService {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Get a fully-resolved schema for a kind (sync, from in-memory cache).
+   * Returns null if the kind is not known.
+   */
+  public getResolvedSchemaForKindSync(kind: string): ResolvedJsonSchema | null {
+    return this.resolvedSchemaCache.get(kind) ?? null;
+  }
+
+  /** Get all known resource kind names (sorted) */
+  public getAvailableKinds(): string[] {
+    return Array.from(this.resolvedSchemaCache.keys()).sort();
+  }
+
+  /** Get all known apiVersion strings (deduplicated, sorted) */
+  public getAvailableApiVersions(): string[] {
+    return [...new Set(this.kindApiVersionMap.values())].sort();
+  }
+
+  /**
+   * Recursively resolve $ref pointers in a schema object.
+   * Uses cycle detection via a visited Set to prevent infinite loops.
+   */
+  private static resolveSchemaRefs(
+    schema: Record<string, unknown>,
+    allSchemas: Record<string, Record<string, unknown>>,
+    visited?: Set<string>
+  ): Record<string, unknown> {
+    const seen = visited ?? new Set<string>();
+
+    // Handle $ref
+    if (typeof schema.$ref === 'string') {
+      const refPath = schema.$ref as string;
+      // Extract schema name from "#/components/schemas/Name"
+      const refName = refPath.replace('#/components/schemas/', '');
+      if (seen.has(refName)) {
+        // Cycle detected - return empty object to break the loop
+        return {};
+      }
+      const target = allSchemas[refName];
+      if (target) {
+        seen.add(refName);
+        const resolved = SchemaProviderService.resolveSchemaRefs(target, allSchemas, seen);
+        seen.delete(refName);
+        return resolved;
+      }
+      return {};
+    }
+
+    const result: Record<string, unknown> = {};
+
+    for (const [key, value] of Object.entries(schema)) {
+      if (key === '$ref') continue;
+
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        result[key] = SchemaProviderService.resolveSchemaRefs(
+          value as Record<string, unknown>,
+          allSchemas,
+          seen
+        );
+      } else if (Array.isArray(value)) {
+        result[key] = value.map(item => {
+          if (item && typeof item === 'object' && !Array.isArray(item)) {
+            return SchemaProviderService.resolveSchemaRefs(
+              item as Record<string, unknown>,
+              allSchemas,
+              seen
+            );
+          }
+          return item;
+        });
+      } else {
+        result[key] = value;
+      }
+    }
+
+    return result;
   }
 
   public dispose(): void {

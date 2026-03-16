@@ -483,6 +483,16 @@
         }
       }
     },
+    "configurationDefaults": {
+      "[yaml]": {
+        "editor.quickSuggestions": {
+          "other": true,
+          "comments": false,
+          "strings": true
+        },
+        "editor.suggest.showWords": false
+      }
+    },
     "keybindings": [
       {
         "command": "vscode-eda.filterTree",
