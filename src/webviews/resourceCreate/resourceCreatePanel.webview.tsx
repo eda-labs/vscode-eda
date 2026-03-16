@@ -69,6 +69,18 @@ function schemaType(schema: JsonSchemaNode | undefined): string {
   return '';
 }
 
+function isPrimitiveSchemaType(type: string): boolean {
+  return type === 'string' || type === 'number' || type === 'integer' || type === 'boolean';
+}
+
+function schemaFormat(schema: JsonSchemaNode | undefined): string {
+  if (!schema) {
+    return '';
+  }
+  const raw = (schema as Record<string, unknown>).format;
+  return typeof raw === 'string' ? raw : '';
+}
+
 function hasSchemaComposition(schema: JsonSchemaNode): boolean {
   return Boolean(
     (Array.isArray(schema.oneOf) && schema.oneOf.length > 0)
@@ -598,6 +610,7 @@ interface PrimitiveFieldProps {
   required: boolean;
   value: unknown;
   suggestions?: string[];
+  compact?: boolean;
   onChange: (next: unknown) => void;
 }
 
@@ -608,6 +621,7 @@ function PrimitiveField({
   required,
   value,
   suggestions,
+  compact,
   onChange
 }: Readonly<PrimitiveFieldProps>) {
   const type = schemaType(schema);
@@ -632,6 +646,15 @@ function PrimitiveField({
   })();
 
   if (type === 'boolean') {
+    if (compact) {
+      return (
+        <Switch
+          size="small"
+          checked={enabled}
+          onChange={(event) => onChange(event.target.checked)}
+        />
+      );
+    }
     return (
       <Stack spacing={0.75}>
         <FieldTitle
@@ -650,6 +673,30 @@ function PrimitiveField({
 
   if (type === 'number' || type === 'integer') {
     const numericValue = typeof value === 'number' ? String(value) : '';
+    if (compact) {
+      return (
+        <TextField
+          size="small"
+          fullWidth
+          type="number"
+          value={numericValue}
+          onChange={(event) => {
+            const raw = event.target.value;
+            if (raw.trim().length === 0) {
+              onChange(undefined);
+              return;
+            }
+            const parsed = type === 'integer'
+              ? Number.parseInt(raw, 10)
+              : Number.parseFloat(raw);
+            if (!Number.isNaN(parsed)) {
+              onChange(parsed);
+            }
+          }}
+          inputProps={type === 'integer' ? { step: 1 } : { step: 'any' }}
+        />
+      );
+    }
     return (
       <Stack spacing={0.75}>
         <FieldTitle
@@ -683,6 +730,15 @@ function PrimitiveField({
   }
 
   const stringValue = value === undefined || value === null ? '' : String(value);
+  if (compact) {
+    return (
+      <SuggestiveTextField
+        value={stringValue}
+        onChange={(nextValue) => onChange(nextValue)}
+        options={textOptions}
+      />
+    );
+  }
   return (
     <Stack spacing={0.75}>
       <FieldTitle
@@ -815,10 +871,66 @@ function SchemaFieldRenderer({
     if (!itemsSchema) {
       return <UnsupportedFieldNotice path={path} schema={schema} />;
     }
+    const itemType = schemaType(itemsSchema);
+    const isPrimitiveArray = isPrimitiveSchemaType(itemType);
     const arrayValue = Array.isArray(currentValue) ? currentValue : [];
     const workingResource = Array.isArray(currentValue)
       ? resource
       : setValueAtPath(resource, path, arrayValue);
+    const addLabel = schemaFormat(schema) === 'labelselector' ? 'Add a Label Selector' : 'Add Item';
+
+    if (isPrimitiveArray) {
+      return (
+        <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5 }}>
+          <FieldTitle label={label} description={schema.description} required={required} />
+          <Stack spacing={0.75}>
+            {arrayValue.map((_entry, index) => (
+              <Stack key={`${pathToLabel(path)}[${index}]`} direction="row" spacing={0.75} alignItems="center">
+                <IconButton
+                  size="small"
+                  color="error"
+                  aria-label={`Remove ${label} item ${index + 1}`}
+                  onClick={() => onResourceChange(removeArrayItemAtPath(workingResource, path, index))}
+                  sx={{ p: 0.25 }}
+                >
+                  <DeleteOutlineIcon fontSize="small" />
+                </IconButton>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <PrimitiveField
+                    label={`${label}[${index}]`}
+                    path={[...path, index]}
+                    schema={itemsSchema}
+                    required={false}
+                    value={arrayValue[index]}
+                    suggestions={suggestions?.[pathToSuggestionKey([...path, index])]}
+                    compact
+                    onChange={(nextValue) => onResourceChange(
+                      setValueAtPath(workingResource, [...path, index], nextValue)
+                    )}
+                  />
+                </Box>
+              </Stack>
+            ))}
+            <Box>
+              <Button
+                variant="text"
+                size="small"
+                startIcon={<AddIcon fontSize="small" />}
+                onClick={() => onResourceChange(
+                  addArrayItemAtPath(
+                    workingResource,
+                    path,
+                    defaultFromSchema(itemsSchema)
+                  )
+                )}
+              >
+                {addLabel}
+              </Button>
+            </Box>
+          </Stack>
+        </Box>
+      );
+    }
 
     return (
       <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5 }}>
@@ -871,7 +983,7 @@ function SchemaFieldRenderer({
                 )
               )}
             >
-              Add Item
+              {addLabel}
             </Button>
           </Box>
         </Stack>
