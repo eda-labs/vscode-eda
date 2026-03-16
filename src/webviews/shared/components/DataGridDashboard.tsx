@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
-import { useState, useCallback, useMemo, useTransition, memo } from 'react';
-import { Box, Stack, Typography } from '@mui/material';
-import type { GridColDef, GridSortModel } from '@mui/x-data-grid';
+import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useTransition, memo } from 'react';
+import SearchIcon from '@mui/icons-material/Search';
+import { Box, InputAdornment, Stack, TextField, Typography } from '@mui/material';
+import type { GridAutosizeOptions, GridColDef, GridSortModel } from '@mui/x-data-grid';
 
 import { shallowArrayEquals } from '../utils';
 import { usePostMessage, useMessageListener, useReadySignal } from '../hooks';
@@ -40,6 +41,22 @@ export interface DataGridDashboardProps<T extends DataGridMessage> {
   defaultSortColumn?: string;
   /** Default sort direction */
   defaultSortDirection?: 'asc' | 'desc';
+  /** Enable client-side row filtering */
+  enableFilter?: boolean;
+  /** Placeholder text for the filter input */
+  filterPlaceholder?: string;
+  /** Row height for the data grid */
+  rowHeight?: number | 'auto';
+  /** Minimum width for data columns */
+  columnMinWidth?: number;
+  /** Maximum width for data columns */
+  columnMaxWidth?: number;
+  /** Maximum number of characters shown before inline truncation */
+  longCellPreviewChars?: number;
+  /** Enable grid autosizing for this dashboard */
+  autoSizeColumns?: boolean;
+  /** Autosize behavior for this dashboard */
+  autoSizeOptions?: GridAutosizeOptions;
 }
 
 export interface DataGridContext {
@@ -59,6 +76,41 @@ interface DashboardRow {
   id: string;
   raw: unknown[];
 }
+
+interface ParsedLabel {
+  key: string;
+  value: string;
+}
+
+interface LabelsCellProps {
+  value: string;
+  rowId: string;
+}
+
+interface LabelChipProps {
+  label: ParsedLabel;
+  expanded: boolean;
+  setMeasureRef?: (element: HTMLDivElement | null) => void;
+}
+
+interface ExpandableTextCellProps {
+  value: string;
+  rowId: string;
+  column: string;
+  previewChars: number;
+  renderValue?: (value: string) => ReactNode;
+  onRequestExpandWidth?: () => void;
+  onRequestCollapseWidth?: () => void;
+}
+
+const LABEL_CHIP_GAP_PX = 6;
+const LABEL_CHIP_MAX_WIDTH_PX = 192;
+const MORE_BUTTON_RESERVED_WIDTH_PX = 72;
+const LABEL_COLUMN_MIN_WIDTH_PX = LABEL_CHIP_MAX_WIDTH_PX + MORE_BUTTON_RESERVED_WIDTH_PX + 24;
+const DEFAULT_COLUMN_MIN_WIDTH = 96;
+const DEFAULT_COLUMN_MAX_WIDTH = 280;
+const DEFAULT_LONG_CELL_PREVIEW_CHARS = 24;
+const INTERACTIVE_COLUMN_MAX_WIDTH = 1200;
 
 function formatGridCellValue(value: unknown): string {
   if (value === null || value === undefined) {
@@ -86,10 +138,428 @@ function formatGridCellValue(value: unknown): string {
   return String(value);
 }
 
-function estimateColumnWidth(header: string): number {
+function parseLabelLine(line: string): ParsedLabel {
+  const separatorIndex = line.indexOf('=');
+  if (separatorIndex < 0) {
+    return {
+      key: 'label',
+      value: line
+    };
+  }
+  return {
+    key: line.slice(0, separatorIndex).trim() || 'label',
+    value: line.slice(separatorIndex + 1).trim()
+  };
+}
+
+function parseLabels(value: string): ParsedLabel[] {
+  const lines = value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  return lines.map((line) => parseLabelLine(line));
+}
+
+function estimateLabelWidth(label: ParsedLabel): number {
+  const textLength = `${label.key}${label.value}`.length;
+  const estimatedTextWidth = Math.min(textLength, 64) * 7;
+  return Math.max(72, estimatedTextWidth + 28);
+}
+
+function LabelChip({ label, expanded, setMeasureRef }: Readonly<LabelChipProps>): ReactNode {
+  return (
+    <Box
+      ref={setMeasureRef}
+      title={`${label.key}=${label.value}`}
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'baseline',
+        gap: 0.5,
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 0.75,
+        bgcolor: 'action.hover',
+        px: 0.75,
+        py: 0.25,
+        minWidth: 0,
+        maxWidth: expanded ? '100%' : `${LABEL_CHIP_MAX_WIDTH_PX}px`,
+        flexShrink: 0
+      }}
+    >
+      <Typography
+        variant="caption"
+        component="span"
+        sx={{ fontFamily: 'monospace', color: 'text.secondary', lineHeight: 1.2, whiteSpace: 'nowrap' }}
+      >
+        {label.key}
+      </Typography>
+      <Typography
+        variant="body2"
+        component="span"
+        sx={{
+          fontFamily: 'monospace',
+          lineHeight: 1.2,
+          whiteSpace: expanded ? 'normal' : 'nowrap',
+          overflow: expanded ? 'visible' : 'hidden',
+          textOverflow: expanded ? 'clip' : 'ellipsis',
+          wordBreak: expanded ? 'break-word' : 'normal'
+        }}
+      >
+        {label.value}
+      </Typography>
+    </Box>
+  );
+}
+
+function LabelsCell({ value, rowId }: Readonly<LabelsCellProps>): ReactNode {
+  const labels = useMemo(() => parseLabels(value), [value]);
+  const [expanded, setExpanded] = useState(false);
+  const [cellWidth, setCellWidth] = useState(0);
+  const [visibleCount, setVisibleCount] = useState(labels.length);
+  const cellRef = useRef<HTMLDivElement | null>(null);
+  const measurementRefs = useRef<Array<HTMLDivElement | null>>([]);
+
+  useEffect(() => {
+    setExpanded(false);
+  }, [rowId, value]);
+
+  useEffect(() => {
+    measurementRefs.current = measurementRefs.current.slice(0, labels.length);
+  }, [labels.length]);
+
+  useEffect(() => {
+    const element = cellRef.current;
+    if (!element) {
+      return;
+    }
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const width = Math.floor(entry.contentRect.width);
+        setCellWidth((previous) => (previous === width ? previous : width));
+      }
+    });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
+  const fitLabelsInWidth = useCallback((availableWidth: number): number => {
+    if (labels.length === 0) {
+      return 0;
+    }
+    if (availableWidth <= 0) {
+      return 1;
+    }
+
+    let usedWidth = 0;
+    let count = 0;
+    for (let index = 0; index < labels.length; index += 1) {
+      const measurement = measurementRefs.current[index];
+      const measuredWidth = measurement
+        ? Math.ceil(measurement.getBoundingClientRect().width)
+        : estimateLabelWidth(labels[index]);
+      const candidateWidth = count === 0
+        ? measuredWidth
+        : usedWidth + LABEL_CHIP_GAP_PX + measuredWidth;
+      if (candidateWidth > availableWidth) {
+        break;
+      }
+      usedWidth = candidateWidth;
+      count += 1;
+    }
+    return Math.max(1, count);
+  }, [labels]);
+
+  useLayoutEffect(() => {
+    if (expanded) {
+      setVisibleCount(labels.length);
+      return;
+    }
+    if (labels.length === 0) {
+      setVisibleCount(0);
+      return;
+    }
+
+    let count = fitLabelsInWidth(cellWidth);
+    if (count < labels.length) {
+      count = fitLabelsInWidth(Math.max(0, cellWidth - MORE_BUTTON_RESERVED_WIDTH_PX));
+    }
+    setVisibleCount((previous) => (previous === count ? previous : count));
+  }, [cellWidth, expanded, fitLabelsInWidth, labels.length]);
+
+  if (labels.length === 0) {
+    return '';
+  }
+
+  const hiddenCount = Math.max(0, labels.length - visibleCount);
+  const visibleLabels = expanded ? labels : labels.slice(0, visibleCount);
+
+  if (expanded) {
+    return (
+      <Box ref={cellRef} sx={{ position: 'relative', width: '100%', minWidth: 0 }}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 0.75, py: 0.25 }}>
+          {visibleLabels.map((label, index) => (
+            <LabelChip
+              key={`${label.key}-${label.value}-${index}`}
+              label={label}
+              expanded
+            />
+          ))}
+          {labels.length > 1 && (
+            <Box
+              component="button"
+              type="button"
+              onClick={() => setExpanded(false)}
+              sx={{
+                border: 'none',
+                bgcolor: 'transparent',
+                color: 'primary.main',
+                p: 0,
+                cursor: 'pointer',
+                fontSize: '0.75rem',
+                lineHeight: 1.2,
+                whiteSpace: 'nowrap',
+                textDecoration: 'underline'
+              }}
+            >
+              Show less
+            </Box>
+          )}
+        </Box>
+      </Box>
+    );
+  }
+
+  return (
+    <Box ref={cellRef} sx={{ position: 'relative', width: '100%', minWidth: 0 }}>
+      <Box sx={{ position: 'absolute', visibility: 'hidden', pointerEvents: 'none', height: 0, overflow: 'hidden' }}>
+        <Box sx={{ display: 'inline-flex', gap: 0.75, whiteSpace: 'nowrap' }}>
+          {labels.map((label, index) => (
+            <LabelChip
+              key={`measure-${label.key}-${label.value}-${index}`}
+              label={label}
+              expanded={false}
+              setMeasureRef={(element) => {
+                measurementRefs.current[index] = element;
+              }}
+            />
+          ))}
+        </Box>
+      </Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, width: '100%', minWidth: 0 }}>
+        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, minWidth: 0, overflow: 'hidden' }}>
+          {visibleLabels.map((label, index) => (
+            <LabelChip
+              key={`${label.key}-${label.value}-${index}`}
+              label={label}
+              expanded={false}
+            />
+          ))}
+        </Box>
+        {hiddenCount > 0 && (
+          <Box
+            component="button"
+            type="button"
+            onClick={() => setExpanded(true)}
+            sx={{
+              border: 'none',
+              bgcolor: 'transparent',
+              color: 'primary.main',
+              p: 0,
+              cursor: 'pointer',
+              fontSize: '0.75rem',
+              lineHeight: 1.2,
+              whiteSpace: 'nowrap',
+              textDecoration: 'underline'
+            }}
+          >
+            +{hiddenCount} more
+          </Box>
+        )}
+      </Box>
+    </Box>
+  );
+}
+
+function toFinitePositiveInteger(value: number | undefined, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.max(1, Math.floor(value));
+}
+
+function collapseWhitespace(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function getCollapsedCellText(value: string, previewChars: number): { text: string; truncated: boolean } {
+  const collapsed = collapseWhitespace(value);
+  if (!collapsed) {
+    return { text: '', truncated: false };
+  }
+  if (collapsed.length <= previewChars) {
+    return { text: collapsed, truncated: false };
+  }
+  const headLength = Math.max(1, previewChars - 3);
+  return {
+    text: `${collapsed.slice(0, headLength).trimEnd()}...`,
+    truncated: true
+  };
+}
+
+function estimateExpandedColumnWidth(value: string, minWidth: number, maxWidth: number): number {
+  const collapsed = collapseWhitespace(value);
+  if (!collapsed) {
+    return minWidth;
+  }
+  const estimated = (Math.min(collapsed.length, 320) * 7) + 84;
+  return Math.max(minWidth, Math.min(maxWidth, estimated));
+}
+
+function ExpandableTextCell({
+  value,
+  rowId,
+  column,
+  previewChars,
+  renderValue,
+  onRequestExpandWidth,
+  onRequestCollapseWidth
+}: Readonly<ExpandableTextCellProps>): ReactNode {
+  const [expanded, setExpanded] = useState(false);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+  const [didMeasureOverflow, setDidMeasureOverflow] = useState(false);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setExpanded(false);
+  }, [rowId, column, value]);
+
+  const normalizedValue = useMemo(
+    () => collapseWhitespace(value),
+    [value]
+  );
+  const isExpandable = useMemo(
+    () => getCollapsedCellText(normalizedValue, previewChars).truncated,
+    [normalizedValue, previewChars]
+  );
+  useLayoutEffect(() => {
+    const element = contentRef.current;
+    if (!element) {
+      return;
+    }
+
+    const evaluateOverflow = () => {
+      const hasOverflow = (element.scrollWidth - element.clientWidth) > 1;
+      setIsOverflowing((previous) => (previous === hasOverflow ? previous : hasOverflow));
+      setDidMeasureOverflow(true);
+    };
+
+    evaluateOverflow();
+    const observer = new ResizeObserver(() => {
+      evaluateOverflow();
+    });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, [normalizedValue, rowId, column, expanded]);
+
+  let shouldShowMore = false;
+  if (!expanded) {
+    shouldShowMore = didMeasureOverflow ? isOverflowing : isExpandable;
+  }
+  const shouldShowLess = expanded;
+  const hasToggle = shouldShowMore || shouldShowLess;
+  const displayValue = normalizedValue;
+  const content = renderValue
+    ? renderValue(displayValue)
+    : (
+      <Typography
+        variant="body2"
+        component="span"
+        sx={{
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: expanded ? 'clip' : 'ellipsis',
+          wordBreak: 'normal'
+        }}
+      >
+        {displayValue}
+      </Typography>
+    );
+
+  if (!hasToggle) {
+    return (
+      <Box title={value} sx={{ width: '100%', minWidth: 0, overflow: 'hidden' }}>
+        {content}
+      </Box>
+    );
+  }
+
+  return (
+    <Box
+      sx={{
+        width: '100%',
+        minWidth: 0,
+        display: 'flex',
+        alignItems: expanded ? 'flex-start' : 'center',
+        gap: 0.75
+      }}
+    >
+      <Box
+        ref={contentRef}
+        title={expanded ? undefined : value}
+        sx={{
+          minWidth: 0,
+          flex: 1,
+          overflow: 'hidden',
+          whiteSpace: 'nowrap',
+          textOverflow: expanded ? 'clip' : 'ellipsis',
+          wordBreak: 'normal'
+        }}
+      >
+        {content}
+      </Box>
+      <Box
+        component="button"
+        type="button"
+        onClick={() => {
+          if (expanded) {
+            onRequestCollapseWidth?.();
+          } else {
+            onRequestExpandWidth?.();
+          }
+          setExpanded(previous => !previous);
+        }}
+        sx={{
+          border: 'none',
+          bgcolor: 'transparent',
+          color: 'primary.main',
+          p: 0,
+          cursor: 'pointer',
+          fontSize: '0.75rem',
+          lineHeight: 1.2,
+          whiteSpace: 'nowrap',
+          textDecoration: 'underline'
+        }}
+      >
+        {expanded ? 'less' : 'more'}
+      </Box>
+    </Box>
+  );
+}
+
+function estimateColumnMinWidth(header: string, minWidth: number, maxWidth: number): number {
+  const normalizedHeaderLength = Math.max(4, header.trim().length);
+  const estimated = (Math.min(normalizedHeaderLength, 24) * 7) + 28;
+  return Math.max(minWidth, Math.min(maxWidth, estimated));
+}
+
+function estimateColumnWidth(header: string, minWidth: number, maxWidth: number): number {
   const normalizedHeaderLength = header.trim().length;
-  const estimated = (Math.min(normalizedHeaderLength, 32) * 7) + 56;
-  return Math.max(140, Math.min(320, estimated));
+  const estimated = (Math.min(Math.max(normalizedHeaderLength, 4), 32) * 7) + 48;
+  return Math.max(minWidth, Math.min(maxWidth, estimated));
 }
 
 function DataGridDashboardInner<T extends DataGridMessage>({
@@ -99,12 +569,24 @@ function DataGridDashboardInner<T extends DataGridMessage>({
   onMessage,
   showInTreeCommand = 'showInTree',
   defaultSortColumn = 'name',
-  defaultSortDirection = 'asc'
+  defaultSortDirection = 'asc',
+  enableFilter = true,
+  filterPlaceholder = 'Filter rows',
+  rowHeight = 36,
+  columnMinWidth = DEFAULT_COLUMN_MIN_WIDTH,
+  columnMaxWidth = DEFAULT_COLUMN_MAX_WIDTH,
+  longCellPreviewChars = DEFAULT_LONG_CELL_PREVIEW_CHARS,
+  autoSizeColumns = false,
+  autoSizeOptions
 }: Readonly<DataGridDashboardProps<T>>) {
   const postMessage = usePostMessage();
   const [selectedNamespace, setSelectedNamespace] = useState('All Namespaces');
   const [columns, setColumns] = useState<string[]>([]);
   const [rows, setRows] = useState<unknown[][]>([]);
+  const [rowsRevision, setRowsRevision] = useState(0);
+  const [columnWidthOverrides, setColumnWidthOverrides] = useState<Record<string, number>>({});
+  const [expandedColumnPreviousWidths, setExpandedColumnPreviousWidths] = useState<Record<string, number>>({});
+  const [filterText, setFilterText] = useState('');
   const [hasKubernetesContext, setHasKubernetesContext] = useState(true);
   const [sortModel, setSortModel] = useState<GridSortModel>([]);
   const [, startTransition] = useTransition();
@@ -115,6 +597,34 @@ function DataGridDashboardInner<T extends DataGridMessage>({
   const nsIdx = useMemo(() => columns.indexOf('namespace'), [columns]);
 
   const getColumnIndex = useCallback((name: string) => columns.indexOf(name), [columns]);
+
+  useEffect(() => {
+    const activeFields = new Set(columns.map((_column, index) => `col_${index}`));
+    setColumnWidthOverrides((previous) => {
+      let changed = false;
+      const next: Record<string, number> = {};
+      for (const [field, width] of Object.entries(previous)) {
+        if (activeFields.has(field)) {
+          next[field] = width;
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : previous;
+    });
+    setExpandedColumnPreviousWidths((previous) => {
+      let changed = false;
+      const next: Record<string, number> = {};
+      for (const [field, width] of Object.entries(previous)) {
+        if (activeFields.has(field)) {
+          next[field] = width;
+        } else {
+          changed = true;
+        }
+      }
+      return changed ? next : previous;
+    });
+  }, [columns]);
 
   useMessageListener<T>(useCallback((msg) => {
     if (typeof msg.hasKubernetesContext === 'boolean') {
@@ -127,6 +637,10 @@ function DataGridDashboardInner<T extends DataGridMessage>({
     } else if (msg.command === 'clear') {
       setColumns([]);
       setRows([]);
+      setRowsRevision(previous => previous + 1);
+      setColumnWidthOverrides({});
+      setExpandedColumnPreviousWidths({});
+      setFilterText('');
       setSortModel([]);
     } else if (msg.command === 'results') {
       const newColumns = msg.columns ?? [];
@@ -157,6 +671,7 @@ function DataGridDashboardInner<T extends DataGridMessage>({
           return newColumns;
         });
         setRows(newRows);
+        setRowsRevision(previous => previous + 1);
       });
     }
     onMessage?.(msg);
@@ -180,16 +695,117 @@ function DataGridDashboardInner<T extends DataGridMessage>({
     selectedNamespace
   }), [context, selectedNamespace]);
 
+  const filteredRows = useMemo(() => {
+    if (!enableFilter) {
+      return rows;
+    }
+    const normalizedFilter = filterText.trim().toLowerCase();
+    if (!normalizedFilter) {
+      return rows;
+    }
+    return rows.filter((row) => row.some((cell) => formatGridCellValue(cell).toLowerCase().includes(normalizedFilter)));
+  }, [enableFilter, filterText, rows]);
+
+  const effectiveColumnMinWidth = useMemo(
+    () => Math.max(64, toFinitePositiveInteger(columnMinWidth, DEFAULT_COLUMN_MIN_WIDTH)),
+    [columnMinWidth]
+  );
+  const effectiveColumnMaxWidth = useMemo(() => {
+    const parsed = toFinitePositiveInteger(columnMaxWidth, DEFAULT_COLUMN_MAX_WIDTH);
+    return Math.max(parsed, effectiveColumnMinWidth);
+  }, [columnMaxWidth, effectiveColumnMinWidth]);
+  const interactiveColumnMaxWidth = useMemo(
+    () => Math.max(effectiveColumnMaxWidth, INTERACTIVE_COLUMN_MAX_WIDTH),
+    [effectiveColumnMaxWidth]
+  );
+  const effectiveLongCellPreviewChars = useMemo(
+    () => Math.max(8, toFinitePositiveInteger(longCellPreviewChars, DEFAULT_LONG_CELL_PREVIEW_CHARS)),
+    [longCellPreviewChars]
+  );
+
+  const hasLabelsColumn = useMemo(() => columns.includes('labels'), [columns]);
+  const effectiveRowHeight = useMemo<number | 'auto'>(() => {
+    if (hasLabelsColumn) {
+      return 'auto';
+    }
+    return rowHeight;
+  }, [hasLabelsColumn, rowHeight]);
+
+  const handleColumnWidthChange = useCallback((params: { field?: string; colDef?: { field?: string }; width: number }) => {
+    const field = params.field ?? params.colDef?.field;
+    if (!field || !field.startsWith('col_')) {
+      return;
+    }
+    const width = toFinitePositiveInteger(params.width, 1);
+    setColumnWidthOverrides((previous) => (previous[field] === width
+      ? previous
+      : {
+        ...previous,
+        [field]: width
+      }));
+  }, []);
+
+  const requestColumnExpand = useCallback((field: string, value: string, minWidth: number, currentWidth: number) => {
+    setExpandedColumnPreviousWidths((previous) => {
+      if (previous[field] !== undefined) {
+        return previous;
+      }
+      return {
+        ...previous,
+        [field]: currentWidth
+      };
+    });
+
+    const estimatedWidth = estimateExpandedColumnWidth(value, currentWidth, interactiveColumnMaxWidth);
+    setColumnWidthOverrides((previous) => {
+      const current = previous[field] ?? currentWidth;
+      const targetWidth = Math.max(current + 120, estimatedWidth);
+      const nextWidth = Math.max(minWidth, Math.min(interactiveColumnMaxWidth, targetWidth));
+      if (previous[field] === nextWidth) {
+        return previous;
+      }
+      return {
+        ...previous,
+        [field]: nextWidth
+      };
+    });
+  }, [interactiveColumnMaxWidth]);
+
+  const requestColumnCollapse = useCallback((field: string, fallbackWidth: number, minWidth: number) => {
+    const previousWidth = expandedColumnPreviousWidths[field];
+    const targetWidth = previousWidth ?? fallbackWidth;
+    const nextWidth = Math.max(minWidth, Math.min(interactiveColumnMaxWidth, targetWidth));
+
+    setColumnWidthOverrides((previous) => (previous[field] === nextWidth
+      ? previous
+      : {
+        ...previous,
+        [field]: nextWidth
+      }));
+    setExpandedColumnPreviousWidths((previous) => {
+      if (previous[field] === undefined) {
+        return previous;
+      }
+      const next = { ...previous };
+      delete next[field];
+      return next;
+    });
+  }, [expandedColumnPreviousWidths, interactiveColumnMaxWidth]);
+
   const gridRows = useMemo<DashboardRow[]>(() => {
-    return rows.map((row, rowIndex) => ({
-      id: String(rowIndex),
+    return filteredRows.map((row, rowIndex) => ({
+      id: `${rowsRevision}-${rowIndex}`,
       raw: row
     }));
-  }, [rows]);
+  }, [filteredRows, rowsRevision]);
 
+  const columnMinWidths = useMemo<number[]>(
+    () => columns.map((column) => estimateColumnMinWidth(column, effectiveColumnMinWidth, effectiveColumnMaxWidth)),
+    [columns, effectiveColumnMaxWidth, effectiveColumnMinWidth]
+  );
   const columnWidths = useMemo<number[]>(
-    () => columns.map((column) => estimateColumnWidth(column)),
-    [columns]
+    () => columns.map((column, index) => estimateColumnWidth(column, columnMinWidths[index], effectiveColumnMaxWidth)),
+    [columns, columnMinWidths, effectiveColumnMaxWidth]
   );
 
   const gridColumns = useMemo<GridColDef<DashboardRow>[]>(() => {
@@ -204,25 +820,84 @@ function DataGridDashboardInner<T extends DataGridMessage>({
 
     const dataColumns = columns.map<GridColDef<DashboardRow>>((column, columnIndex) => {
       const field = `col_${columnIndex}`;
+      const isLabelsColumn = column === 'labels';
+      const minWidth = isLabelsColumn
+        ? Math.max(columnMinWidths[columnIndex], LABEL_COLUMN_MIN_WIDTH_PX)
+        : columnMinWidths[columnIndex];
+      const maxWidth = Math.max(interactiveColumnMaxWidth, minWidth);
+      const widthOverride = columnWidthOverrides[field];
+      const width = widthOverride
+        ? Math.max(minWidth, Math.min(maxWidth, widthOverride))
+        : Math.max(minWidth, columnWidths[columnIndex]);
+
       return {
         field,
         headerName: column,
-        width: columnWidths[columnIndex],
-        minWidth: 140,
+        width,
+        minWidth,
+        maxWidth,
         valueGetter: (_value, row) => row.raw[columnIndex],
         renderCell: (params) => {
           const value = formatGridCellValue(params.row.raw[columnIndex]);
-          return <>{renderCell ? renderCell(value, column, columnIndex, params.row.raw) : value}</>;
+          if (isLabelsColumn) {
+            return <LabelsCell value={value} rowId={params.row.id} />;
+          }
+          return (
+            <ExpandableTextCell
+              value={value}
+              rowId={params.row.id}
+              column={column}
+              previewChars={effectiveLongCellPreviewChars}
+              onRequestExpandWidth={() => requestColumnExpand(field, value, minWidth, width)}
+              onRequestCollapseWidth={() => requestColumnCollapse(field, Math.max(minWidth, columnWidths[columnIndex]), minWidth)}
+              renderValue={renderCell
+                ? (displayValue) => renderCell(displayValue, column, columnIndex, params.row.raw)
+                : undefined}
+            />
+          );
         }
       };
     });
 
     return [actionColumn, ...dataColumns];
-  }, [columns, renderActions, renderCell, context, columnWidths]);
+  }, [
+    columns,
+    renderActions,
+    renderCell,
+    context,
+    columnWidths,
+    columnMinWidths,
+    effectiveLongCellPreviewChars,
+    columnWidthOverrides,
+    interactiveColumnMaxWidth,
+    requestColumnExpand,
+    requestColumnCollapse
+  ]);
 
   return (
     <Box sx={{ p: 3, maxWidth: 1600, mx: 'auto' }}>
-      <Stack direction="row" spacing={1.5} justifyContent="flex-end" alignItems="center" sx={{ mb: 2 }}>
+      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 2 }}>
+        {enableFilter && (
+          <TextField
+            size="small"
+            value={filterText}
+            onChange={(event) => setFilterText(event.target.value)}
+            placeholder={filterPlaceholder}
+            sx={{ flex: 1, minWidth: 0 }}
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                )
+              }
+            }}
+          />
+        )}
+        {!enableFilter && (
+          <Box sx={{ flex: 1 }} />
+        )}
         {renderToolbarActions?.(toolbarContext)}
         <Typography variant="caption" color="text.secondary">
           Namespace: {selectedNamespace}
@@ -235,17 +910,19 @@ function DataGridDashboardInner<T extends DataGridMessage>({
       <VsCodeDataGrid<DashboardRow>
         rows={gridRows}
         columns={gridColumns}
-        autoSizeColumns
+        autoSizeColumns={autoSizeColumns}
+        autoSizeOptions={autoSizeOptions}
         noRowsMessage="No rows"
         footer={(
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-            Count: {gridRows.length}
+            Count: {gridRows.length}{enableFilter && filterText.trim() ? `/${rows.length}` : ''}
           </Typography>
         )}
         dataGridProps={{
           sortModel,
           onSortModelChange: setSortModel,
-          getRowHeight: () => 36
+          onColumnWidthChange: handleColumnWidthChange,
+          getRowHeight: () => effectiveRowHeight
         }}
       />
     </Box>
