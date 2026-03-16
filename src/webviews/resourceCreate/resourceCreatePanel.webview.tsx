@@ -1022,6 +1022,7 @@ function ResourceCreatePanelView() {
   const [isOutlineCollapsed, setIsOutlineCollapsed] = useState(false);
   const suppressPostRef = useRef(false);
   const initializedRef = useRef(false);
+  const lastRequestedNamespaceRef = useRef<string | null>(null);
 
   useReadySignal();
 
@@ -1037,7 +1038,13 @@ function ResourceCreatePanelView() {
       setSuggestions(message.suggestions);
       setYamlError(null);
       setResourceFromHost(message.resource);
+      const initMetadata = isRecord(message.resource.metadata) ? message.resource.metadata : {};
+      lastRequestedNamespaceRef.current = typeof initMetadata.namespace === 'string' ? initMetadata.namespace.trim() : '';
       initializedRef.current = true;
+      return;
+    }
+    if (message.command === 'suggestions') {
+      setSuggestions(message.suggestions);
       return;
     }
     if (message.command === 'yamlModel') {
@@ -1051,20 +1058,24 @@ function ResourceCreatePanelView() {
   }, [setResourceFromHost]));
 
   useEffect(() => {
-    if (!initializedRef.current || !resource) {
-      return;
-    }
-    if (yamlError) {
-      return;
-    }
+    if (!initializedRef.current || !resource || yamlError) return;
     if (suppressPostRef.current) {
       suppressPostRef.current = false;
       return;
     }
-    postMessage({
-      command: 'formUpdate',
-      resource
-    });
+    postMessage({ command: 'formUpdate', resource });
+  }, [postMessage, resource, yamlError]);
+
+  useEffect(() => {
+    if (!initializedRef.current || !resource || yamlError) return;
+    const metadataValue = isRecord(resource.metadata) ? resource.metadata : {};
+    const selectedNamespace = typeof metadataValue.namespace === 'string' ? metadataValue.namespace.trim() : '';
+    if (lastRequestedNamespaceRef.current === selectedNamespace) return;
+    const timeoutHandle = window.setTimeout(() => {
+      lastRequestedNamespaceRef.current = selectedNamespace;
+      postMessage({ command: 'refreshSuggestions', resource });
+    }, 220);
+    return () => window.clearTimeout(timeoutHandle);
   }, [postMessage, resource, yamlError]);
 
   const metadata = useMemo(() => {

@@ -259,7 +259,10 @@ function isWebviewMessage(message: unknown): message is ResourceCreateWebviewMes
     return false;
   }
   const command = message.command;
-  return command === 'ready' || command === 'formUpdate' || command === 'executeAction';
+  return command === 'ready'
+    || command === 'formUpdate'
+    || command === 'executeAction'
+    || command === 'refreshSuggestions';
 }
 
 export class ResourceCreatePanel extends BasePanel {
@@ -272,7 +275,7 @@ export class ResourceCreatePanel extends BasePanel {
   private readonly subscriptions: vscode.Disposable[] = [];
   private pendingYamlFromForm: string | undefined;
   private disposed = false;
-  private suggestionsCache: ResourceValueSuggestions | null = null;
+  private readonly suggestionsCache = new Map<string, ResourceValueSuggestions>();
 
   private constructor(
     context: vscode.ExtensionContext,
@@ -344,6 +347,18 @@ export class ResourceCreatePanel extends BasePanel {
 
     if (message.command === 'executeAction') {
       await this.executeAction(message.action);
+      return;
+    }
+
+    if (message.command === 'refreshSuggestions') {
+      if (!isRecord(message.resource)) {
+        return;
+      }
+      const suggestions = await this.getSuggestions(message.resource);
+      this.postMessage({
+        command: 'suggestions',
+        suggestions
+      });
     }
   }
 
@@ -395,15 +410,21 @@ export class ResourceCreatePanel extends BasePanel {
   }
 
   private async getSuggestions(resource: Record<string, unknown>): Promise<ResourceValueSuggestions> {
-    if (this.suggestionsCache) {
-      return this.suggestionsCache;
+    const metadata = isRecord(resource.metadata) ? resource.metadata : {};
+    const selectedNamespace = typeof metadata.namespace === 'string'
+      ? metadata.namespace.trim()
+      : '';
+    const scopedNamespace = selectedNamespace.length > 0 ? selectedNamespace : undefined;
+    const cacheKey = selectedNamespace.length > 0 ? selectedNamespace : '__all__';
+    const cachedSuggestions = this.suggestionsCache.get(cacheKey);
+    if (cachedSuggestions) {
+      return cachedSuggestions;
     }
 
     const fieldSuggestions = new Map<string, Set<string>>();
     collectSuggestionValues(resource, [], fieldSuggestions);
 
     const namespaces = new Set<string>();
-    const metadata = isRecord(resource.metadata) ? resource.metadata : {};
     if (typeof metadata.namespace === 'string' && metadata.namespace.length > 0) {
       namespaces.add(metadata.namespace);
     }
@@ -443,7 +464,8 @@ export class ResourceCreatePanel extends BasePanel {
         const knownResources = await edaClient.listResources(
           this.crd.group,
           this.crd.version,
-          this.crd.kind
+          this.crd.kind,
+          this.crd.namespaced ? scopedNamespace : undefined
         );
         for (const item of knownResources.slice(0, MAX_SUGGESTION_SAMPLE_RESOURCES)) {
           collectSuggestionValues(item, [], fieldSuggestions);
@@ -459,29 +481,37 @@ export class ResourceCreatePanel extends BasePanel {
 
     if (edaClient && this.schema) {
       try {
-        await this.augmentNodeSuggestionsFromSchema(fieldSuggestions, edaClient, namespaces);
+        await this.augmentNodeSuggestionsFromSchema(
+          fieldSuggestions,
+          edaClient,
+          namespaces,
+          scopedNamespace
+        );
       } catch (error) {
         log(`Unable to augment node suggestions for ${this.crd.kind}: ${error}`, LogLevel.DEBUG);
       }
     }
 
-    this.suggestionsCache = {
+    const computedSuggestions = {
       namespaces: Array.from(namespaces).sort((left, right) => left.localeCompare(right)),
       fields: toSuggestionRecord(fieldSuggestions)
     };
+    this.suggestionsCache.set(cacheKey, computedSuggestions);
 
-    return this.suggestionsCache;
+    return computedSuggestions;
   }
 
   private async fetchTopoNodeResources(
     edaClient: EdaClient,
-    namespaces: Set<string>
+    namespaces: Set<string>,
+    scopedNamespace?: string
   ): Promise<K8sLikeResource[]> {
     try {
       const listed = await edaClient.listResources(
         DEFAULT_TOPO_NODE_GROUP,
         DEFAULT_TOPO_NODE_VERSION,
-        DEFAULT_TOPO_NODE_KIND
+        DEFAULT_TOPO_NODE_KIND,
+        scopedNamespace
       );
       if (listed.length > 0) {
         return listed as K8sLikeResource[];
@@ -490,9 +520,14 @@ export class ResourceCreatePanel extends BasePanel {
       // Fall back to namespace-scoped list below.
     }
 
-    const namespaceList = namespaces.size > 0
-      ? Array.from(namespaces)
-      : await edaClient.listNamespaces();
+    let namespaceList: string[];
+    if (scopedNamespace) {
+      namespaceList = [scopedNamespace];
+    } else if (namespaces.size > 0) {
+      namespaceList = Array.from(namespaces);
+    } else {
+      namespaceList = await edaClient.listNamespaces();
+    }
     const out: K8sLikeResource[] = [];
     for (const namespace of namespaceList.slice(0, MAX_SUGGESTION_VALUES)) {
       try {
@@ -508,7 +543,8 @@ export class ResourceCreatePanel extends BasePanel {
   private async augmentNodeSuggestionsFromSchema(
     fieldSuggestions: Map<string, Set<string>>,
     edaClient: EdaClient,
-    namespaces: Set<string>
+    namespaces: Set<string>,
+    scopedNamespace?: string
   ): Promise<void> {
     const hints = collectSchemaStringFieldHints(this.schema ?? undefined);
     if (hints.length === 0) {
@@ -520,7 +556,7 @@ export class ResourceCreatePanel extends BasePanel {
       return;
     }
 
-    const topoNodes = await this.fetchTopoNodeResources(edaClient, namespaces);
+    const topoNodes = await this.fetchTopoNodeResources(edaClient, namespaces, scopedNamespace);
     if (topoNodes.length === 0) {
       return;
     }

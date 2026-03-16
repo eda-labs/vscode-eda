@@ -40,10 +40,16 @@ export interface ResourceCreateYamlErrorMessage {
   error: string;
 }
 
+export interface ResourceCreateSuggestionsMessage {
+  command: 'suggestions';
+  suggestions: ResourceValueSuggestions;
+}
+
 export type ResourceCreatePanelToWebviewMessage =
   | ResourceCreateInitMessage
   | ResourceCreateYamlModelMessage
-  | ResourceCreateYamlErrorMessage;
+  | ResourceCreateYamlErrorMessage
+  | ResourceCreateSuggestionsMessage;
 
 export interface ResourceCreateReadyMessage {
   command: 'ready';
@@ -59,7 +65,13 @@ export interface ResourceCreateExecuteActionMessage {
   action: 'commit' | 'dryRun' | 'basket';
 }
 
+export interface ResourceCreateRefreshSuggestionsMessage {
+  command: 'refreshSuggestions';
+  resource: Record<string, unknown>;
+}
+
 export type ResourceCreateWebviewMessage =
   | ResourceCreateReadyMessage
   | ResourceCreateFormUpdateMessage
-  | ResourceCreateExecuteActionMessage;
+  | ResourceCreateExecuteActionMessage
+  | ResourceCreateRefreshSuggestionsMessage;

@@ -3,9 +3,11 @@ import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
 
 import { serviceManager } from '../services/serviceManager';
+import { namespaceSelectionService } from '../services/namespaceSelectionService';
 import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
 import type { SchemaProviderService } from '../services/schemaProviderService';
 import { log, LogLevel } from '../extension';
+import { ALL_NAMESPACES } from '../webviews/constants';
 import type { JsonSchemaNode } from '../webviews/resourceCreate/types';
 
 /** Kubernetes resource metadata */
@@ -56,6 +58,10 @@ export function registerResourceCreateCommand(
 
       // Start with a minimal manifest so users can fill fields from the form or YAML.
       const { group, version, namespaced } = selected.crd;
+      const selectedNamespace = namespaceSelectionService.getSelectedNamespace();
+      const defaultNamespace = selectedNamespace && selectedNamespace !== ALL_NAMESPACES
+        ? selectedNamespace
+        : DEFAULT_CREATE_NAMESPACE;
 
       const schema = await schemaService.getSchemaForKind(selected.crd.kind);
 
@@ -63,7 +69,7 @@ export function registerResourceCreateCommand(
         apiVersion: `${group}/${version}`,
         kind: selected.crd.kind,
         metadata: {
-          ...(namespaced ? { namespace: DEFAULT_CREATE_NAMESPACE } : {}),
+          ...(namespaced ? { namespace: defaultNamespace } : {}),
         },
         spec: {},
       };
