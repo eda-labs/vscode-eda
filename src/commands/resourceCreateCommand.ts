@@ -81,7 +81,8 @@ export function registerResourceCreateCommand(
       await ResourceCreatePanel.show(context, {
         resourceUri: uri,
         crd: selected.crd,
-        schema: schema as JsonSchemaNode | null
+        schema: schema as JsonSchemaNode | null,
+        mode: 'create'
       });
 
       // Ensure schema provider service is loaded so schema will be associated

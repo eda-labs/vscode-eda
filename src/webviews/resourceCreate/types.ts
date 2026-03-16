@@ -21,6 +21,12 @@ export interface ResourceCreateInitMessage {
   schema: JsonSchemaNode | null;
   resource: Record<string, unknown>;
   yaml: string;
+  suggestions: ResourceValueSuggestions;
+}
+
+export interface ResourceValueSuggestions {
+  namespaces: string[];
+  fields: Record<string, string[]>;
 }
 
 export interface ResourceCreateYamlModelMessage {

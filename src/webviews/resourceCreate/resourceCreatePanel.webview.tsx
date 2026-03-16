@@ -13,6 +13,7 @@ import ShoppingBasketOutlinedIcon from '@mui/icons-material/ShoppingBasketOutlin
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Card,
@@ -21,7 +22,6 @@ import {
   FormControlLabel,
   IconButton,
   InputAdornment,
-  MenuItem,
   Stack,
   Switch,
   TextField,
@@ -37,6 +37,7 @@ import { mountWebview } from '../shared/utils';
 import type {
   JsonSchemaNode,
   ResourceCreatePanelToWebviewMessage,
+  ResourceValueSuggestions,
   ResourceCreateWebviewMessage
 } from './types';
 
@@ -169,6 +170,12 @@ function pathToLabel(path: PathSegment[]): string {
   }
   return path
     .map(segment => (typeof segment === 'number' ? `[${segment}]` : segment))
+    .join('.');
+}
+
+function pathToSuggestionKey(path: PathSegment[]): string {
+  return path
+    .map(segment => (typeof segment === 'number' ? '[]' : segment))
     .join('.');
 }
 
@@ -519,12 +526,78 @@ function KeyValueEditor({
   );
 }
 
+interface SuggestiveTextFieldProps {
+  value: string;
+  onChange: (nextValue: string) => void;
+  options?: string[];
+  placeholder?: string;
+  error?: boolean;
+  helperText?: ReactNode;
+}
+
+function SuggestiveTextField({
+  value,
+  onChange,
+  options,
+  placeholder,
+  error,
+  helperText
+}: Readonly<SuggestiveTextFieldProps>) {
+  const normalizedOptions = useMemo(() => {
+    const bucket = new Set<string>();
+    for (const candidate of options ?? []) {
+      const normalized = String(candidate ?? '').trim();
+      if (normalized.length > 0) {
+        bucket.add(normalized);
+      }
+    }
+    const current = value.trim();
+    if (current.length > 0) {
+      bucket.add(current);
+    }
+    return Array.from(bucket).sort((left, right) => left.localeCompare(right));
+  }, [options, value]);
+
+  return (
+    <Autocomplete
+      freeSolo
+      openOnFocus
+      autoHighlight
+      options={normalizedOptions}
+      value={value}
+      inputValue={value}
+      onChange={(_event, nextValue) => {
+        const nextString = typeof nextValue === 'string'
+          ? nextValue
+          : String(nextValue ?? '');
+        onChange(nextString);
+      }}
+      onInputChange={(_event, nextInputValue, reason) => {
+        if (reason === 'input' || reason === 'clear') {
+          onChange(nextInputValue);
+        }
+      }}
+      renderInput={(params) => (
+        <TextField
+          {...params}
+          size="small"
+          fullWidth
+          placeholder={placeholder}
+          error={error}
+          helperText={helperText}
+        />
+      )}
+    />
+  );
+}
+
 interface PrimitiveFieldProps {
   label: string;
   path: PathSegment[];
   schema: JsonSchemaNode;
   required: boolean;
   value: unknown;
+  suggestions?: string[];
   onChange: (next: unknown) => void;
 }
 
@@ -534,39 +607,29 @@ function PrimitiveField({
   schema,
   required,
   value,
+  suggestions,
   onChange
 }: Readonly<PrimitiveFieldProps>) {
   const type = schemaType(schema);
   const enumValues = Array.isArray(schema.enum) ? schema.enum : [];
-  const enabled = Boolean(value);
   const requiredMissing = required && isRequiredValueMissing(value);
-
-  if (enumValues.length > 0) {
-    const selected = value === undefined || value === null ? '' : String(value);
-    return (
-      <Stack spacing={0.75}>
-        <FieldTitle
-          label={label}
-          description={schema.description}
-          required={required}
-          requiredMissing={requiredMissing}
-        />
-        <TextField
-          select
-          size="small"
-          fullWidth
-          value={selected}
-          onChange={(event) => onChange(event.target.value)}
-        >
-          {enumValues.map(item => (
-            <MenuItem key={String(item)} value={String(item)}>
-              {String(item)}
-            </MenuItem>
-          ))}
-        </TextField>
-      </Stack>
-    );
-  }
+  const enabled = Boolean(value);
+  const enumOptions = enumValues.map(item => String(item));
+  const textOptions = (() => {
+    const bucket = new Set<string>();
+    for (const option of suggestions ?? []) {
+      const normalized = String(option ?? '').trim();
+      if (normalized.length > 0) {
+        bucket.add(normalized);
+      }
+    }
+    for (const option of enumOptions) {
+      if (option.trim().length > 0) {
+        bucket.add(option);
+      }
+    }
+    return Array.from(bucket).sort((left, right) => left.localeCompare(right));
+  })();
 
   if (type === 'boolean') {
     return (
@@ -628,11 +691,10 @@ function PrimitiveField({
         required={required}
         requiredMissing={requiredMissing}
       />
-      <TextField
-        size="small"
-        fullWidth
+      <SuggestiveTextField
         value={stringValue}
-        onChange={(event) => onChange(event.target.value)}
+        onChange={(nextValue) => onChange(nextValue)}
+        options={textOptions}
         helperText={required && stringValue.trim().length === 0 ? `${pathToLabel(path)} is required` : undefined}
         error={required && stringValue.trim().length === 0}
       />
@@ -647,6 +709,7 @@ interface SchemaFieldRendererProps {
   label: string;
   required: boolean;
   depth: number;
+  suggestions?: Record<string, string[]>;
   onResourceChange: (next: Record<string, unknown>) => void;
 }
 
@@ -657,6 +720,7 @@ function SchemaFieldRenderer({
   label,
   required,
   depth,
+  suggestions,
   onResourceChange
 }: Readonly<SchemaFieldRendererProps>) {
   if (depth > MAX_RENDER_DEPTH) {
@@ -704,6 +768,7 @@ function SchemaFieldRenderer({
               label={key}
               required
               depth={depth + 1}
+              suggestions={suggestions}
               onResourceChange={onResourceChange}
             />
           ))}
@@ -729,6 +794,7 @@ function SchemaFieldRenderer({
                   label={key}
                   required={false}
                   depth={depth + 1}
+                  suggestions={suggestions}
                   onResourceChange={onResourceChange}
                 />
               </OptionalFieldToggle>
@@ -781,6 +847,7 @@ function SchemaFieldRenderer({
                   label={`${label}[${index}]`}
                   required={false}
                   depth={depth + 1}
+                  suggestions={suggestions}
                   onResourceChange={onResourceChange}
                 />
                 {entry === undefined && (
@@ -819,6 +886,7 @@ function SchemaFieldRenderer({
       schema={schema}
       required={required}
       value={currentValue}
+      suggestions={suggestions?.[pathToSuggestionKey(path)]}
       onChange={(nextValue) => onResourceChange(setValueAtPath(resource, path, nextValue))}
     />
   );
@@ -836,6 +904,7 @@ function ResourceCreatePanelView() {
   const [crd, setCrd] = useState<EdaCrd | null>(null);
   const [schema, setSchema] = useState<JsonSchemaNode | null>(null);
   const [resource, setResource] = useState<Record<string, unknown> | null>(null);
+  const [suggestions, setSuggestions] = useState<ResourceValueSuggestions>({ namespaces: [], fields: {} });
   const [yamlError, setYamlError] = useState<string | null>(null);
   const [outlineFilter, setOutlineFilter] = useState('');
   const [isOutlineCollapsed, setIsOutlineCollapsed] = useState(false);
@@ -853,6 +922,7 @@ function ResourceCreatePanelView() {
     if (message.command === 'init') {
       setCrd(message.crd);
       setSchema(message.schema);
+      setSuggestions(message.suggestions);
       setYamlError(null);
       setResourceFromHost(message.resource);
       initializedRef.current = true;
@@ -895,6 +965,26 @@ function ResourceCreatePanelView() {
 
   const nameValue = typeof metadata.name === 'string' ? metadata.name : '';
   const namespaceValue = typeof metadata.namespace === 'string' ? metadata.namespace : '';
+  const fieldSuggestions = suggestions.fields;
+  const metadataNameOptions = useMemo(() => {
+    const options = fieldSuggestions['metadata.name'] ?? [];
+    const current = nameValue.trim();
+    if (current.length === 0 || options.includes(current)) {
+      return options;
+    }
+    return [...options, current].sort((left, right) => left.localeCompare(right));
+  }, [fieldSuggestions, nameValue]);
+  const namespaceOptions = useMemo(() => {
+    const options = new Set<string>([
+      ...(fieldSuggestions['metadata.namespace'] ?? []),
+      ...suggestions.namespaces
+    ]);
+    const current = namespaceValue.trim();
+    if (current.length > 0) {
+      options.add(current);
+    }
+    return Array.from(options).sort((left, right) => left.localeCompare(right));
+  }, [fieldSuggestions, namespaceValue, suggestions.namespaces]);
   const labelsEnabled = hasValueAtPath(resource, ['metadata', 'labels']);
   const annotationsEnabled = hasValueAtPath(resource, ['metadata', 'annotations']);
   const isNamespaced = crd?.namespaced ?? false;
@@ -1168,12 +1258,11 @@ function ResourceCreatePanelView() {
                   <Stack spacing={1.5}>
                     <Box id="metadata-name">
                       <FieldTitle label="Name" required requiredMissing={nameValue.trim().length === 0} />
-                      <TextField
-                        size="small"
-                        fullWidth
+                      <SuggestiveTextField
                         placeholder={`Enter ${crd.kind.toLowerCase()} name`}
                         value={nameValue}
-                        onChange={(event) => setResource(setValueAtPath(resource, ['metadata', 'name'], event.target.value))}
+                        onChange={(nextValue) => setResource(setValueAtPath(resource, ['metadata', 'name'], nextValue))}
+                        options={metadataNameOptions}
                         error={nameValue.trim().length === 0}
                         helperText={nameValue.trim().length === 0 ? 'Name is required' : undefined}
                       />
@@ -1181,12 +1270,11 @@ function ResourceCreatePanelView() {
                     {isNamespaced && (
                       <Box id="metadata-namespace">
                         <FieldTitle label="Namespace" required requiredMissing={namespaceValue.trim().length === 0} />
-                        <TextField
-                          size="small"
-                          fullWidth
+                        <SuggestiveTextField
                           placeholder="eda"
                           value={namespaceValue}
-                          onChange={(event) => setResource(setValueAtPath(resource, ['metadata', 'namespace'], event.target.value))}
+                          onChange={(nextValue) => setResource(setValueAtPath(resource, ['metadata', 'namespace'], nextValue))}
+                          options={namespaceOptions}
                           error={namespaceValue.trim().length === 0}
                           helperText={namespaceValue.trim().length === 0 ? 'Namespace is required for this resource kind' : undefined}
                         />
@@ -1259,6 +1347,7 @@ function ResourceCreatePanelView() {
                             label={formatFieldLabel(key)}
                             required
                             depth={1}
+                            suggestions={fieldSuggestions}
                             onResourceChange={setResource}
                           />
                         </Box>
@@ -1284,6 +1373,7 @@ function ResourceCreatePanelView() {
                                 label={formatFieldLabel(key)}
                                 required={false}
                                 depth={1}
+                                suggestions={fieldSuggestions}
                                 onResourceChange={setResource}
                               />
                             </OptionalFieldToggle>
