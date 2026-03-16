@@ -39,7 +39,7 @@ function isWebviewMessage(message: unknown): message is ResourceCreateWebviewMes
     return false;
   }
   const command = message.command;
-  return command === 'ready' || command === 'formUpdate';
+  return command === 'ready' || command === 'formUpdate' || command === 'executeAction';
 }
 
 export class ResourceCreatePanel extends BasePanel {
@@ -115,6 +115,37 @@ export class ResourceCreatePanel extends BasePanel {
         return;
       }
       await this.applyFormUpdate(message.resource);
+      return;
+    }
+
+    if (message.command === 'executeAction') {
+      await this.executeAction(message.action);
+    }
+  }
+
+  private async executeAction(action: 'commit' | 'dryRun' | 'basket'): Promise<void> {
+    let commandOptions: {
+      skipPrompt: true;
+      bypassChangesCheck: true;
+      action: 'apply' | 'dryRun' | 'basket';
+    };
+    if (action === 'basket') {
+      commandOptions = { skipPrompt: true, bypassChangesCheck: true, action: 'basket' };
+    } else if (action === 'dryRun') {
+      commandOptions = { skipPrompt: true, bypassChangesCheck: true, action: 'dryRun' };
+    } else {
+      commandOptions = { skipPrompt: true, bypassChangesCheck: true, action: 'apply' };
+    }
+
+    try {
+      await vscode.commands.executeCommand(
+        'vscode-eda.applyResourceChanges',
+        this.resourceUri,
+        commandOptions
+      );
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      vscode.window.showErrorMessage(`Failed to execute "${action}" action: ${message}`);
     }
   }
 

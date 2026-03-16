@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
 import AddIcon from '@mui/icons-material/Add';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import PlayArrowOutlinedIcon from '@mui/icons-material/PlayArrowOutlined';
 import SearchIcon from '@mui/icons-material/Search';
+import ShoppingBasketOutlinedIcon from '@mui/icons-material/ShoppingBasketOutlined';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import {
   Alert,
@@ -14,11 +19,13 @@ import {
   CardContent,
   Collapse,
   FormControlLabel,
+  IconButton,
   InputAdornment,
   MenuItem,
   Stack,
   Switch,
   TextField,
+  Tooltip,
   Typography
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
@@ -393,9 +400,6 @@ function OptionalFieldToggle({
           )}
         </Stack>
         <Stack direction="row" spacing={0.25} alignItems="center">
-          <Typography variant="caption" color="text.secondary" sx={{ minWidth: 18 }}>
-            {enabled ? 'On' : 'Off'}
-          </Typography>
           <Switch size="small" checked={enabled} onChange={(event) => onToggle(event.target.checked)} />
           <ExpandMoreIcon
             fontSize="small"
@@ -834,6 +838,7 @@ function ResourceCreatePanelView() {
   const [resource, setResource] = useState<Record<string, unknown> | null>(null);
   const [yamlError, setYamlError] = useState<string | null>(null);
   const [outlineFilter, setOutlineFilter] = useState('');
+  const [isOutlineCollapsed, setIsOutlineCollapsed] = useState(false);
   const suppressPostRef = useRef(false);
   const initializedRef = useRef(false);
 
@@ -947,6 +952,13 @@ function ResourceCreatePanelView() {
     node?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }, []);
 
+  const executeAction = useCallback((action: 'commit' | 'dryRun' | 'basket') => {
+    postMessage({
+      command: 'executeAction',
+      action
+    });
+  }, [postMessage]);
+
   if (!resource || !crd) {
     return (
       <Box sx={{ p: 2 }}>
@@ -961,163 +973,165 @@ function ResourceCreatePanelView() {
   const specOutline = filteredOutlineEntries.filter(entry => entry.section === 'Specification');
   const surfaceBorder = alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.24 : 0.18);
   const hoverHighlight = alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.18 : 0.1);
+  const outlineWidth = isOutlineCollapsed ? 40 : 212;
+  const actionsDisabled = Boolean(yamlError);
 
   return (
     <Box sx={{ height: '100vh', bgcolor: 'background.default' }}>
       <Stack direction="row" sx={{ height: '100%', minWidth: 0 }}>
         <Box
           sx={{
-            width: 212,
+            width: outlineWidth,
             flexShrink: 0,
             borderRight: 1,
             borderColor: surfaceBorder,
             bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.38 : 0.62),
             display: 'flex',
             flexDirection: 'column',
-            minHeight: '100%'
+            minHeight: '100%',
+            transition: 'width 180ms ease'
           }}
         >
-          <Box sx={{ px: 2.5, py: 1.4, borderBottom: 1, borderColor: surfaceBorder }}>
-            <Typography variant="h6" sx={{ fontWeight: 500, letterSpacing: 0.1 }}>
-              {formatKindTitle(crd.kind)}
-            </Typography>
-          </Box>
-          <Box sx={{ px: 2, py: 1.2, borderBottom: 1, borderColor: surfaceBorder }}>
-            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: 1 }}>
-              <AccountTreeOutlinedIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                Outline
-              </Typography>
-            </Stack>
-            <TextField
-              size="small"
-              fullWidth
-              placeholder="Search"
-              value={outlineFilter}
-              onChange={(event) => setOutlineFilter(event.target.value)}
-              sx={{
-                '& .MuiOutlinedInput-root': {
-                  height: 32
-                }
-              }}
-              slotProps={{
-                input: {
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <SearchIcon fontSize="small" />
-                    </InputAdornment>
-                  )
-                }
-              }}
-            />
-          </Box>
-          <Box sx={{ px: 1.25, py: 1, overflowY: 'auto', flex: 1 }}>
-            <Stack spacing={1.5}>
-              <Box>
-                <Stack direction="row" alignItems="center" spacing={0.5} sx={{ px: 0.75 }}>
-                  <ExpandMoreIcon fontSize="small" sx={{ color: 'text.secondary' }} />
-                  <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                    Metadata
+          {!isOutlineCollapsed && (
+            <>
+              <Box sx={{ px: 2.5, py: 1.4, borderBottom: 1, borderColor: surfaceBorder }}>
+                <Typography variant="h6" sx={{ fontWeight: 500, letterSpacing: 0.1 }}>
+                  {formatKindTitle(crd.kind)}
+                </Typography>
+              </Box>
+              <Box sx={{ px: 2, py: 1.2, borderBottom: 1, borderColor: surfaceBorder }}>
+                <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: 1 }}>
+                  <AccountTreeOutlinedIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                    Outline
                   </Typography>
                 </Stack>
-                <Stack spacing={0.2} sx={{ mt: 0.4 }}>
-                  {metadataOutline.map(entry => (
-                    <Button
-                      key={entry.id}
-                      size="small"
-                      color="inherit"
-                      onClick={() => scrollToEntry(entry.id)}
-                      sx={{
-                        justifyContent: 'flex-start',
-                        px: 3,
-                        py: 0.35,
-                        minHeight: 28,
-                        textTransform: 'none',
-                        color: 'text.primary',
-                        borderRadius: 0.75,
-                        fontWeight: 500,
-                        '&:hover': {
-                          bgcolor: hoverHighlight
-                        }
-                      }}
-                    >
-                      {entry.label}
-                    </Button>
-                  ))}
+                <TextField
+                  size="small"
+                  fullWidth
+                  placeholder="Search"
+                  value={outlineFilter}
+                  onChange={(event) => setOutlineFilter(event.target.value)}
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      height: 32
+                    }
+                  }}
+                  slotProps={{
+                    input: {
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <SearchIcon fontSize="small" />
+                        </InputAdornment>
+                      )
+                    }
+                  }}
+                />
+              </Box>
+              <Box sx={{ px: 1.25, py: 1, overflowY: 'auto', flex: 1 }}>
+                <Stack spacing={1.5}>
+                  <Box>
+                    <Stack direction="row" alignItems="center" spacing={0.5} sx={{ px: 0.75 }}>
+                      <ExpandMoreIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                        Metadata
+                      </Typography>
+                    </Stack>
+                    <Stack spacing={0.2} sx={{ mt: 0.4 }}>
+                      {metadataOutline.map(entry => (
+                        <Button
+                          key={entry.id}
+                          size="small"
+                          color="inherit"
+                          onClick={() => scrollToEntry(entry.id)}
+                          sx={{
+                            justifyContent: 'flex-start',
+                            px: 3,
+                            py: 0.35,
+                            minHeight: 28,
+                            textTransform: 'none',
+                            color: 'text.primary',
+                            borderRadius: 0.75,
+                            fontWeight: 500,
+                            '&:hover': {
+                              bgcolor: hoverHighlight
+                            }
+                          }}
+                        >
+                          {entry.label}
+                        </Button>
+                      ))}
+                    </Stack>
+                  </Box>
+                  <Box>
+                    <Stack direction="row" alignItems="center" spacing={0.5} sx={{ px: 0.75 }}>
+                      <ExpandMoreIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+                      <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                        Specification
+                      </Typography>
+                    </Stack>
+                    <Stack spacing={0.2} sx={{ mt: 0.4 }}>
+                      {specOutline.map(entry => (
+                        <Button
+                          key={entry.id}
+                          size="small"
+                          color="inherit"
+                          onClick={() => scrollToEntry(entry.id)}
+                          sx={{
+                            justifyContent: 'flex-start',
+                            px: 3,
+                            py: 0.35,
+                            minHeight: 28,
+                            textTransform: 'none',
+                            color: 'text.primary',
+                            borderRadius: 0.75,
+                            fontWeight: 500,
+                            '&:hover': {
+                              bgcolor: hoverHighlight
+                            }
+                          }}
+                        >
+                          {entry.label}
+                        </Button>
+                      ))}
+                      {specOutline.length === 0 && (
+                        <Typography variant="body2" color="text.secondary" sx={{ px: 3, py: 0.6 }}>
+                          No fields
+                        </Typography>
+                      )}
+                    </Stack>
+                  </Box>
                 </Stack>
               </Box>
-              <Box>
-                <Stack direction="row" alignItems="center" spacing={0.5} sx={{ px: 0.75 }}>
-                  <ExpandMoreIcon fontSize="small" sx={{ color: 'text.secondary' }} />
-                  <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                    Specification
-                  </Typography>
-                </Stack>
-                <Stack spacing={0.2} sx={{ mt: 0.4 }}>
-                  {specOutline.map(entry => (
-                    <Button
-                      key={entry.id}
-                      size="small"
-                      color="inherit"
-                      onClick={() => scrollToEntry(entry.id)}
-                      sx={{
-                        justifyContent: 'flex-start',
-                        px: 3,
-                        py: 0.35,
-                        minHeight: 28,
-                        textTransform: 'none',
-                        color: 'text.primary',
-                        borderRadius: 0.75,
-                        fontWeight: 500,
-                        '&:hover': {
-                          bgcolor: hoverHighlight
-                        }
-                      }}
-                    >
-                      {entry.label}
-                    </Button>
-                  ))}
-                  {specOutline.length === 0 && (
-                    <Typography variant="body2" color="text.secondary" sx={{ px: 3, py: 0.6 }}>
-                      No fields
-                    </Typography>
-                  )}
-                </Stack>
-              </Box>
-            </Stack>
-          </Box>
+            </>
+          )}
         </Box>
 
         <Box sx={{ flex: 1, minWidth: 0, overflowY: 'auto', position: 'relative' }}>
-          <Box
+          <IconButton
+            size="small"
+            onClick={() => setIsOutlineCollapsed(current => !current)}
             sx={{
               position: 'absolute',
-              display: { xs: 'none', md: 'flex' },
               left: -10,
               top: '50%',
               transform: 'translateY(-50%)',
-              width: 20,
-              height: 20,
-              borderRadius: '50%',
-              alignItems: 'center',
-              justifyContent: 'center',
+              zIndex: 5,
               bgcolor: alpha(theme.palette.primary.main, 0.3),
               border: 1,
               borderColor: surfaceBorder
             }}
           >
-            <ExpandMoreIcon sx={{ fontSize: 14, transform: 'rotate(-90deg)' }} />
-          </Box>
-          <Box sx={{ p: { xs: 0.75, md: 1.5 }, minHeight: '100%' }}>
-            <Box
-              sx={{
-                border: 1,
-                borderColor: surfaceBorder,
-                bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.28 : 0.76),
-                minHeight: '100%',
-                display: 'flex',
-                flexDirection: 'column'
-              }}
+            {isOutlineCollapsed ? <ChevronRightIcon sx={{ fontSize: 16 }} /> : <ChevronLeftIcon sx={{ fontSize: 16 }} />}
+          </IconButton>
+            <Box sx={{ p: { xs: 0.75, md: 1.5 }, minHeight: '100%' }}>
+              <Box
+                sx={{
+                  bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.28 : 0.76),
+                  minHeight: '100%',
+                  display: 'flex',
+                  flexDirection: 'column'
+                }}
             >
               {yamlError && (
                 <Alert
@@ -1137,7 +1151,13 @@ function ResourceCreatePanelView() {
                 </Alert>
               )}
 
-              <Box sx={yamlError ? { opacity: 0.7, pointerEvents: 'none' } : undefined}>
+                <Box sx={{
+                  ...(yamlError ? { opacity: 0.7, pointerEvents: 'none' } : undefined),
+                  display: 'flex',
+                  flexDirection: 'column',
+                  minHeight: '100%'
+                }}
+                >
                 <Box
                   id="section-metadata"
                   sx={{ px: { xs: 1.5, md: 2.8 }, py: { xs: 1.4, md: 2 }, borderBottom: 1, borderColor: surfaceBorder }}
@@ -1281,6 +1301,58 @@ function ResourceCreatePanelView() {
                       No schema is available for spec fields. Continue editing on the YAML side.
                     </Alert>
                   )}
+                </Box>
+                  <Box
+                    sx={{
+                      mt: 'auto',
+                      px: { xs: 1.5, md: 2.8 },
+                      py: 1,
+                      borderTop: 1,
+                      borderColor: surfaceBorder,
+                      position: 'sticky',
+                      bottom: 0,
+                      bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.72 : 0.92),
+                      display: 'flex',
+                      justifyContent: 'flex-end',
+                      gap: 0.5
+                    }}
+                  >
+                  <Tooltip title="Add To Basket">
+                    <span>
+                      <IconButton
+                        size="small"
+                        color="inherit"
+                        disabled={actionsDisabled}
+                        onClick={() => executeAction('basket')}
+                      >
+                        <ShoppingBasketOutlinedIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Dry Run">
+                    <span>
+                      <IconButton
+                        size="small"
+                        color="inherit"
+                        disabled={actionsDisabled}
+                        onClick={() => executeAction('dryRun')}
+                      >
+                        <FactCheckOutlinedIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Commit">
+                    <span>
+                      <IconButton
+                        size="small"
+                        color="inherit"
+                        disabled={actionsDisabled}
+                        onClick={() => executeAction('commit')}
+                      >
+                        <PlayArrowOutlinedIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
                 </Box>
               </Box>
             </Box>

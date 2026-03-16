@@ -810,7 +810,7 @@ function getOrReconstructOriginalResource(
  * Handles apply when skipPrompt option is set.
  */
 async function handleSkipPromptApply(
-  options: { dryRun?: boolean },
+  options: { dryRun?: boolean; action?: 'apply' | 'dryRun' | 'basket' },
   edaClient: EdaClient,
   resourceEditProvider: ResourceEditDocumentProvider,
   resourceViewProvider: ResourceViewDocumentProvider,
@@ -818,6 +818,20 @@ async function handleSkipPromptApply(
   resource: K8sResource,
   resourceKey: string
 ): Promise<void> {
+  if (options.action === 'basket') {
+    await addResourceToBasket(documentUri, resourceEditProvider, resource);
+    return;
+  }
+
+  if (options.action === 'dryRun') {
+    const confirmed = await showResourceDiff(resourceEditProvider, documentUri, { confirmActionLabel: 'Dry Run' });
+    if (!confirmed) {
+      return;
+    }
+    await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: true });
+    return;
+  }
+
   if (options.dryRun) {
     await validateAndPromptForApply(
       edaClient, resourceEditProvider, resourceViewProvider, documentUri, resource
@@ -974,6 +988,7 @@ export function registerResourceEditCommands(
       dryRun?: boolean;
       skipPrompt?: boolean;
       bypassChangesCheck?: boolean;
+      action?: 'apply' | 'dryRun' | 'basket';
     } = {}) => {
       try {
         // Validate and parse the document
@@ -1366,6 +1381,9 @@ function scheduleDiffProviderCleanup(diffProvider: vscode.Disposable): void {
 function getDiffConfirmMessage(confirmLabel: string): string {
   if (confirmLabel === 'Continue') {
     return 'Continue with the operation?';
+  }
+  if (confirmLabel === 'Dry Run') {
+    return 'Run a dry run validation for this resource?';
   }
   return 'Apply changes to the resource?';
 }

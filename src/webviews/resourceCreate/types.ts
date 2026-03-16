@@ -48,6 +48,12 @@ export interface ResourceCreateFormUpdateMessage {
   resource: Record<string, unknown>;
 }
 
+export interface ResourceCreateExecuteActionMessage {
+  command: 'executeAction';
+  action: 'commit' | 'dryRun' | 'basket';
+}
+
 export type ResourceCreateWebviewMessage =
   | ResourceCreateReadyMessage
-  | ResourceCreateFormUpdateMessage;
+  | ResourceCreateFormUpdateMessage
+  | ResourceCreateExecuteActionMessage;
