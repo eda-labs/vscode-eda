@@ -59,7 +59,10 @@ export class EdaYamlHoverProvider implements vscode.HoverProvider {
         return undefined;
       }
 
-      const md = this.buildHoverContent(word, propSchema, targetPath);
+      const md = this.buildHoverContent(propSchema, targetPath);
+      if (md.value.trim().length === 0) {
+        return undefined;
+      }
       return new vscode.Hover(md, wordRange);
     } catch (err) {
       log(`YAML hover error: ${err}`, LogLevel.DEBUG);
@@ -84,7 +87,6 @@ export class EdaYamlHoverProvider implements vscode.HoverProvider {
   }
 
   private buildHoverContent(
-    word: string,
     schema: ResolvedJsonSchema,
     path: string[]
   ): vscode.MarkdownString {
@@ -92,19 +94,10 @@ export class EdaYamlHoverProvider implements vscode.HoverProvider {
     md.isTrusted = true;
 
     const ext = schema['x-eda-nokia-com'];
-    const title = ext?.['ui-title'] ?? schema.title ?? word;
-
-    md.appendMarkdown(`### ${title}\n\n`);
 
     if (path.length > 0) {
       md.appendMarkdown(`*Path:* \`${path.join('.')}\`\n\n`);
     }
-
-    if (schema.description) {
-      md.appendMarkdown(`${schema.description}\n\n`);
-    }
-
-    md.appendMarkdown('---\n\n');
 
     // Append schema detail lines
     for (const line of this.buildSchemaDetailLines(schema)) {

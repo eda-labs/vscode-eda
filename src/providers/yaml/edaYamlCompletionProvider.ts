@@ -70,7 +70,13 @@ export class EdaYamlCompletionProvider implements vscode.CompletionItemProvider 
         return undefined;
       }
 
-      return this.getSchemaCompletions(document, schema, ctx, position, keyEditContext);
+      return this.getSchemaCompletions(
+        document,
+        schema,
+        ctx,
+        position,
+        keyEditContext
+      );
     } catch (err) {
       log(`YAML completion error: ${err}`, LogLevel.DEBUG);
       return undefined;
@@ -114,7 +120,10 @@ export class EdaYamlCompletionProvider implements vscode.CompletionItemProvider 
     }
 
     if (ctx.isKey) {
-      return this.getSchemaKeyCompletions(schemaAtPath, ctx.existingSiblingKeys, keyEditContext);
+      if (!this.shouldSuggestKeysAtPosition(document, position)) {
+        return undefined;
+      }
+      return this.getSchemaKeyCompletions(document, position, ctx.path, schemaAtPath, ctx.existingSiblingKeys, keyEditContext);
     }
 
     if (!ctx.isValue || !ctx.currentKey) {
@@ -240,28 +249,28 @@ export class EdaYamlCompletionProvider implements vscode.CompletionItemProvider 
 
   /** Generate key completions from schema */
   private getSchemaKeyCompletions(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    fieldPath: string[],
     schema: ResolvedJsonSchema,
     existingSiblings: string[],
     editContext: KeyEditContext
   ): vscode.CompletionItem[] {
     const completions = getKeyCompletions(schema, existingSiblings);
+    const insertAsArrayItem = this.shouldInsertArrayItemKey(document, position, fieldPath, schema);
     return completions.map((comp) => {
       const item = new vscode.CompletionItem(comp.key, vscode.CompletionItemKind.Property);
 
-      // Documentation
       item.documentation = this.buildKeyDocumentation(comp.key, comp.schema, comp.required);
-
-      // Detail line
       item.detail = this.buildKeyMetadataSummary(comp.schema, comp.required);
       this.setSuggestionDescription(item, this.buildKeyActionDescription(comp.key, comp.schema));
 
-      // Sort order: required first, then by schema order, then alphabetical
       item.sortText = `${comp.required ? '0' : '1'}${String(comp.orderPriority).padStart(5, '0')}${comp.key}`;
       item.filterText = this.buildFilterText(comp.key, editContext.filterPrefix);
       item.range = editContext.replaceRange;
-
-      // Insert text with type-aware snippets
-      item.insertText = this.buildKeySnippet(comp.key, comp.schema, editContext.childIndent);
+      item.insertText = insertAsArrayItem
+        ? this.buildArrayItemKeySnippet(comp.key, comp.schema, editContext.childIndent)
+        : this.buildKeySnippet(comp.key, comp.schema, editContext.childIndent);
 
       return item;
     });
@@ -505,6 +514,39 @@ export class EdaYamlCompletionProvider implements vscode.CompletionItemProvider 
     }
 
     return undefined;
+  }
+
+  private shouldSuggestKeysAtPosition(
+    document: vscode.TextDocument,
+    position: vscode.Position
+  ): boolean {
+    const lineIndent = this.getLineIndent(document.lineAt(position.line).text);
+    return lineIndent % 2 === 0;
+  }
+
+  private shouldInsertArrayItemKey(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    fieldPath: string[],
+    schema: ResolvedJsonSchema
+  ): boolean {
+    if (schema.type !== 'array' || !schema.items) {
+      return false;
+    }
+
+    const lineText = document.lineAt(position.line).text;
+    if (lineText.trimStart().startsWith('- ')) {
+      return false;
+    }
+
+    const declarationLine = this.findArrayDeclarationLine(document, fieldPath, position.line);
+    if (declarationLine === undefined) {
+      return false;
+    }
+
+    const declarationIndent = this.getLineIndent(document.lineAt(declarationLine).text);
+    const currentIndent = this.getLineIndent(lineText);
+    return currentIndent === declarationIndent + 2;
   }
 
   private getKeyEditContext(
@@ -863,11 +905,19 @@ export class EdaYamlCompletionProvider implements vscode.CompletionItemProvider 
 
     // Object type: add colon and newline with indent
     if (type === 'object') {
+      const requiredBody = this.buildRequiredObjectSnippetBody(schema, childIndent, 1);
+      if (requiredBody.snippet) {
+        return new vscode.SnippetString(`${key}:\n${requiredBody.snippet}$0`);
+      }
       return new vscode.SnippetString(`${key}:\n${nestedIndent}$0`);
     }
 
     // Array type: add colon and array item
     if (type === 'array') {
+      const requiredArray = this.buildRequiredArraySnippetBody(schema, childIndent, 1);
+      if (requiredArray.snippet) {
+        return new vscode.SnippetString(`${key}:\n${requiredArray.snippet}$0`);
+      }
       return new vscode.SnippetString(`${key}:\n${nestedIndent}- $0`);
     }
 
@@ -889,6 +939,230 @@ export class EdaYamlCompletionProvider implements vscode.CompletionItemProvider 
     }
 
     return new vscode.SnippetString(`${key}: $0`);
+  }
+
+  private buildArrayItemKeySnippet(
+    key: string,
+    schema: ResolvedJsonSchema,
+    childIndent: number
+  ): vscode.SnippetString {
+    const nestedIndent = ' '.repeat(childIndent + 2);
+    const type = schema.type;
+
+    if (type === 'object') {
+      const requiredBody = this.buildRequiredObjectSnippetBody(schema, childIndent + 2, 1);
+      if (requiredBody.snippet) {
+        return new vscode.SnippetString(`- ${key}:\n${requiredBody.snippet}$0`);
+      }
+      return new vscode.SnippetString(`- ${key}:\n${nestedIndent}$0`);
+    }
+
+    if (type === 'array') {
+      const requiredArray = this.buildRequiredArraySnippetBody(schema, childIndent + 2, 1);
+      if (requiredArray.snippet) {
+        return new vscode.SnippetString(`- ${key}:\n${requiredArray.snippet}$0`);
+      }
+      return new vscode.SnippetString(`- ${key}:\n${nestedIndent}- $0`);
+    }
+
+    if (type === 'boolean') {
+      const def = schema.default !== undefined ? String(schema.default) : 'true';
+      return new vscode.SnippetString(`- ${key}: \${1|${def === 'true' ? 'true,false' : 'false,true'}|}`);
+    }
+
+    if (schema.enum && schema.enum.length > 0) {
+      const choices = schema.enum.map(v => v === null ? 'null' : String(v)).join(',');
+      return new vscode.SnippetString(`- ${key}: \${1|${choices}|}`);
+    }
+
+    if (schema.default !== undefined) {
+      return new vscode.SnippetString(`- ${key}: \${1:${String(schema.default)}}`);
+    }
+
+    return new vscode.SnippetString(`- ${key}: $0`);
+  }
+
+  private buildRequiredObjectSnippetBody(
+    schema: ResolvedJsonSchema,
+    indent: number,
+    tabstop: number
+  ): { snippet?: string; nextTabstop: number } {
+    const requiredKeys = schema.required ?? [];
+    const properties = schema.properties ?? {};
+    const lines: string[] = [];
+    let nextTabstop = tabstop;
+
+    for (const key of requiredKeys) {
+      const propertySchema = properties[key];
+      if (!propertySchema) {
+        continue;
+      }
+
+      const propertySnippet = this.buildRequiredPropertySnippet(key, propertySchema, indent, nextTabstop);
+      lines.push(propertySnippet.snippet);
+      nextTabstop = propertySnippet.nextTabstop;
+    }
+
+    return {
+      snippet: lines.length > 0 ? lines.join('\n') : undefined,
+      nextTabstop
+    };
+  }
+
+  private buildRequiredPropertySnippet(
+    key: string,
+    schema: ResolvedJsonSchema,
+    indent: number,
+    tabstop: number
+  ): { snippet: string; nextTabstop: number } {
+    const indentText = ' '.repeat(indent);
+    const type = this.getSchemaShapeType(schema);
+
+    if (type === 'object') {
+      const nested = this.buildRequiredObjectSnippetBody(schema, indent + 2, tabstop);
+      if (nested.snippet) {
+        return {
+          snippet: `${indentText}${key}:\n${nested.snippet}`,
+          nextTabstop: nested.nextTabstop
+        };
+      }
+
+      return {
+        snippet: `${indentText}${key}:\n${' '.repeat(indent + 2)}${this.buildNamedPlaceholder(key, tabstop)}`,
+        nextTabstop: tabstop + 1
+      };
+    }
+
+    if (type === 'array') {
+      const arrayBody = this.buildRequiredArraySnippetBody(schema, indent + 2, tabstop);
+      return {
+        snippet: `${indentText}${key}:\n${arrayBody.snippet ?? `${' '.repeat(indent + 2)}- ${this.buildNamedPlaceholder(this.singularizeKey(key), tabstop)}`}`,
+        nextTabstop: arrayBody.snippet ? arrayBody.nextTabstop : tabstop + 1
+      };
+    }
+
+    const scalarValue = this.buildScalarSnippetValue(key, schema, tabstop);
+    return {
+      snippet: `${indentText}${key}: ${scalarValue.value}`,
+      nextTabstop: scalarValue.nextTabstop
+    };
+  }
+
+  private buildRequiredArraySnippetBody(
+    schema: ResolvedJsonSchema,
+    indent: number,
+    tabstop: number
+  ): { snippet?: string; nextTabstop: number } {
+    const itemSchema = schema.items;
+
+    if (!itemSchema) {
+      return {
+        snippet: undefined,
+        nextTabstop: tabstop
+      };
+    }
+
+    const itemType = this.getSchemaShapeType(itemSchema);
+    if (itemType === 'object') {
+      const indentText = ' '.repeat(indent);
+      const nested = this.buildRequiredObjectSnippetBody(itemSchema, indent + 2, tabstop);
+      if (nested.snippet) {
+        const [firstLine, ...remainingLines] = nested.snippet.split('\n');
+        const firstInline = firstLine.trimStart();
+        return {
+          snippet: remainingLines.length > 0
+            ? `${indentText}- ${firstInline}\n${remainingLines.join('\n')}`
+            : `${indentText}- ${firstInline}`,
+          nextTabstop: nested.nextTabstop
+        };
+      }
+
+      return {
+        snippet: undefined,
+        nextTabstop: tabstop
+      };
+    }
+
+    return {
+      snippet: undefined,
+      nextTabstop: tabstop
+    };
+  }
+
+  private buildScalarSnippetValue(
+    keyHint: string,
+    schema: ResolvedJsonSchema,
+    tabstop: number
+  ): { value: string; nextTabstop: number } {
+    if (schema.type === 'boolean') {
+      const defaultValue = schema.default !== undefined ? String(schema.default) : 'true';
+      return {
+        value: `\${${tabstop}|${defaultValue === 'true' ? 'true,false' : 'false,true'}|}`,
+        nextTabstop: tabstop + 1
+      };
+    }
+
+    if (schema.enum && schema.enum.length > 0) {
+      const choices = schema.enum.map(value => value === null ? 'null' : this.escapeSnippetChoice(String(value))).join(',');
+      return {
+        value: `\${${tabstop}|${choices}|}`,
+        nextTabstop: tabstop + 1
+      };
+    }
+
+    if (schema.default !== undefined) {
+      return {
+        value: `\${${tabstop}:${this.escapeSnippetPlaceholder(String(schema.default))}}`,
+        nextTabstop: tabstop + 1
+      };
+    }
+
+    if (schema.type === 'integer' || schema.type === 'number') {
+      return {
+        value: `\${${tabstop}:0}`,
+        nextTabstop: tabstop + 1
+      };
+    }
+
+    return {
+      value: this.buildNamedPlaceholder(keyHint, tabstop),
+      nextTabstop: tabstop + 1
+    };
+  }
+
+  private buildNamedPlaceholder(keyHint: string, tabstop: number): string {
+    return `\${${tabstop}:<${this.escapeSnippetPlaceholder(keyHint)}>}`;
+  }
+
+  private getSchemaShapeType(schema: ResolvedJsonSchema): string | undefined {
+    if (schema.type) {
+      return schema.type;
+    }
+    if (schema.properties) {
+      return 'object';
+    }
+    if (schema.items) {
+      return 'array';
+    }
+    return undefined;
+  }
+
+  private singularizeKey(value: string): string {
+    if (value.endsWith('ies') && value.length > 3) {
+      return `${value.slice(0, -3)}y`;
+    }
+    if (value.endsWith('s') && !value.endsWith('ss') && value.length > 1) {
+      return value.slice(0, -1);
+    }
+    return value;
+  }
+
+  private escapeSnippetPlaceholder(value: string): string {
+    return value.replace(/[$}\\]/g, '\\$&');
+  }
+
+  private escapeSnippetChoice(value: string): string {
+    return value.replace(/([\\|,])/g, '\\$1');
   }
 
   /** Build rich Markdown documentation for a schema property */
@@ -1158,11 +1432,16 @@ export class EdaYamlCompletionProvider implements vscode.CompletionItemProvider 
 
     if (preview) {
       md.appendMarkdown('**Insert**\n\n');
-      md.appendMarkdown('```yaml\n');
-      md.appendText(preview);
-      md.appendMarkdown('\n```\n');
+      md.appendMarkdown(this.buildCodeFence(preview, 'yaml'));
+      md.appendMarkdown('\n');
     }
 
     return md;
+  }
+
+  private buildCodeFence(value: string, language?: string): string {
+    const fence = value.includes('```') ? '~~~~' : '```';
+    const info = language ?? '';
+    return `${fence}${info}\n${value}\n${fence}\n`;
   }
 }

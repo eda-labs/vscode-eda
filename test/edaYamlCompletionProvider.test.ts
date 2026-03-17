@@ -165,7 +165,34 @@ describe('EdaYamlCompletionProvider', () => {
     properties: {
       spec: {
         type: 'object',
+        required: ['members'],
         properties: {
+          description: {
+            type: 'string'
+          },
+          enabled: {
+            type: 'boolean',
+            default: true
+          },
+          members: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['interface', 'node'],
+              properties: {
+                interface: {
+                  type: 'string'
+                },
+                node: {
+                  type: 'string'
+                },
+                enabled: {
+                  type: 'boolean',
+                  default: true
+                }
+              }
+            }
+          },
           ethernet: {
             type: 'object',
             properties: {
@@ -236,6 +263,242 @@ describe('EdaYamlCompletionProvider', () => {
       version: 'v1',
       resource: 'toponodes'
     });
+  });
+
+  it('expands required Interface spec fields when inserting the spec key', async () => {
+    const provider = new EdaYamlCompletionProvider();
+    const text = [
+      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'kind: Interface',
+      'metadata:',
+      '  namespace: eda',
+      ''
+    ].join('\n');
+    const document = createDocument(text);
+    const position = { line: 4, character: 0 } as vscode.Position;
+
+    const items = await provider.provideCompletionItems(
+      document,
+      position,
+      {} as vscode.CancellationToken,
+      {} as vscode.CompletionContext
+    );
+
+    const specItem = getItemByLabel(items, 'spec');
+    expect(specItem).to.not.equal(undefined);
+    expect(applyCompletion(text, position, specItem!)).to.equal([
+      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'kind: Interface',
+      'metadata:',
+      '  namespace: eda',
+      'spec:',
+      '  members:',
+      '    - interface: <interface>',
+      '      node: <node>'
+    ].join('\n'));
+  });
+
+  it('suggests missing keys inside Interface members items without bubbling up spec keys', async () => {
+    const provider = new EdaYamlCompletionProvider();
+    const document = createDocument([
+      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'kind: Interface',
+      'metadata:',
+      '  namespace: eda',
+      'spec:',
+      '  members:',
+      '    - interface: ethernet-1/1',
+      '      '
+    ].join('\n'));
+
+    const items = await provider.provideCompletionItems(
+      document,
+      { line: 7, character: 6 } as vscode.Position,
+      {} as vscode.CancellationToken,
+      {} as vscode.CompletionContext
+    );
+
+    const labels = getLabels(items);
+    expect(labels).to.include.members(['node', 'enabled']);
+    expect(labels).to.not.include('members');
+    expect(new Set(labels).size).to.equal(labels.length);
+  });
+
+  it('does not suggest schema keys on misaligned indentation under spec', async () => {
+    const provider = new EdaYamlCompletionProvider();
+    const document = createDocument([
+      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'kind: Interface',
+      'metadata:',
+      '  namespace: eda',
+      'spec:',
+      '  members:',
+      '    - interface: ethernet-1/1',
+      '      node: leaf1',
+      ' '
+    ].join('\n'));
+
+    const items = await provider.provideCompletionItems(
+      document,
+      { line: 8, character: 1 } as vscode.Position,
+      {} as vscode.CancellationToken,
+      {} as vscode.CompletionContext
+    );
+
+    expect(getLabels(items)).to.not.include('members');
+  });
+
+  it('adds the dash when inserting a new Interface members item', async () => {
+    const provider = new EdaYamlCompletionProvider();
+    const text = [
+      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'kind: Interface',
+      'metadata:',
+      '  namespace: eda',
+      'spec:',
+      '  members:',
+      '    - interface: ethernet-1/1',
+      '      node: leaf1',
+      '      enabled: true',
+      '    '
+    ].join('\n');
+    const document = createDocument(text);
+    const position = { line: 9, character: 4 } as vscode.Position;
+
+    const items = await provider.provideCompletionItems(
+      document,
+      position,
+      {} as vscode.CancellationToken,
+      {} as vscode.CompletionContext
+    );
+
+    const interfaceItem = getItemByLabel(items, 'interface');
+    expect(interfaceItem).to.not.equal(undefined);
+    expect(applyCompletion(text, position, interfaceItem!)).to.equal([
+      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'kind: Interface',
+      'metadata:',
+      '  namespace: eda',
+      'spec:',
+      '  members:',
+      '    - interface: ethernet-1/1',
+      '      node: leaf1',
+      '      enabled: true',
+      '    - interface: '
+    ].join('\n'));
+  });
+
+  it('suggests missing keys for the current Interface members item only', async () => {
+    const provider = new EdaYamlCompletionProvider();
+    const document = createDocument([
+      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'kind: Interface',
+      'metadata:',
+      '  namespace: eda',
+      'spec:',
+      '  members:',
+      '    - interface: ethernet-1/1',
+      '      node: leaf1',
+      '      enabled: true',
+      '    - interface: test',
+      '      '
+    ].join('\n'));
+
+    const items = await provider.provideCompletionItems(
+      document,
+      { line: 10, character: 6 } as vscode.Position,
+      {} as vscode.CancellationToken,
+      {} as vscode.CompletionContext
+    );
+
+    const labels = getLabels(items);
+    expect(labels).to.include('node');
+    expect(labels).to.not.include('members');
+  });
+
+  it('suggests spec-level Interface keys after the members list at sibling indentation', async () => {
+    const provider = new EdaYamlCompletionProvider();
+    const document = createDocument([
+      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'kind: Interface',
+      'metadata:',
+      '  namespace: eda',
+      '  name: test',
+      'spec:',
+      '  members:',
+      '    - interface: ethernet-1/1',
+      '      node: leaf1',
+      '      enabled: true',
+      '    - interface: ethernet-1/2',
+      '      node: leaf2',
+      '      enabled: true',
+      '  '
+    ].join('\n'));
+
+    const items = await provider.provideCompletionItems(
+      document,
+      { line: 13, character: 2 } as vscode.Position,
+      {} as vscode.CancellationToken,
+      {} as vscode.CompletionContext
+    );
+
+    const labels = getLabels(items);
+    expect(labels).to.include.members(['description', 'enabled', 'ethernet']);
+    expect(labels).to.not.include.members(['interface', 'node', 'members']);
+  });
+
+  it('keeps Interface sibling insertions undashed after members and filters used spec keys', async () => {
+    const provider = new EdaYamlCompletionProvider();
+    const text = [
+      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'kind: Interface',
+      'metadata:',
+      '  namespace: eda',
+      '  name: test',
+      'spec:',
+      '  members:',
+      '    - interface: ethernet-1/1',
+      '      node: leaf1',
+      '      enabled: true',
+      '    - interface: ethernet-1/2',
+      '      node: leaf2',
+      '      enabled: true',
+      '  description: asdfds',
+      '  '
+    ].join('\n');
+    const document = createDocument(text);
+    const position = { line: 14, character: 2 } as vscode.Position;
+
+    const items = await provider.provideCompletionItems(
+      document,
+      position,
+      {} as vscode.CancellationToken,
+      {} as vscode.CompletionContext
+    );
+
+    const labels = getLabels(items);
+    expect(labels).to.include.members(['enabled', 'ethernet']);
+    expect(labels).to.not.include.members(['description', 'interface', 'node']);
+
+    const enabledItem = getItemByLabel(items, 'enabled');
+    expect(enabledItem).to.not.equal(undefined);
+    expect(applyCompletion(text, position, enabledItem!)).to.equal([
+      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'kind: Interface',
+      'metadata:',
+      '  namespace: eda',
+      '  name: test',
+      'spec:',
+      '  members:',
+      '    - interface: ethernet-1/1',
+      '      node: leaf1',
+      '      enabled: true',
+      '    - interface: ethernet-1/2',
+      '      node: leaf2',
+      '      enabled: true',
+      '  description: asdfds',
+      '  enabled: true'
+    ].join('\n'));
   });
 
   it('suggests scalar array values on a blank indented line before typing a dash', async () => {
@@ -483,7 +746,26 @@ describe('EdaYamlCompletionProvider', () => {
     expect(getLabelDescription(nodeSelector)).to.equal('Add node selector list');
     expect(nodeSelector?.detail).to.equal('array · labelselector');
     expect(getDocumentationValue(getItemByLabel(items, 'nodeSelector'))).to.equal(
-      '### Node Selector\n\n**Description**\n\nSelect nodes by label.\n\n**Details**\n\n- Type: `array`\n- Format: `labelselector`\n\n**Insert**\n\n```yaml\nnodeSelector:\n  - key=value\n```\n'
+      '### Node Selector\n\n**Description**\n\nSelect nodes by label.\n\n**Details**\n\n- Type: `array`\n- Format: `labelselector`\n\n**Insert**\n\n```yaml\nnodeSelector:\n  - key=value\n```\n\n'
+    );
+  });
+
+  it('renders object previews in completion documentation without escaped placeholder text', async () => {
+    const provider = new EdaYamlCompletionProvider();
+    const document = createDocument([
+      'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+      ''
+    ].join('\n'));
+
+    const items = await provider.provideCompletionItems(
+      document,
+      { line: 1, character: 0 } as vscode.Position,
+      {} as vscode.CancellationToken,
+      {} as vscode.CompletionContext
+    );
+
+    expect(getDocumentationValue(getItemByLabel(items, 'spec'))).to.equal(
+      '### spec\n\n**Description**\n\nResource specification\n\n**Details**\n\n- Object field\n\n**Insert**\n\n```yaml\nspec:\n  <field>: <value>\n```\n\n'
     );
   });
 
@@ -509,7 +791,7 @@ describe('EdaYamlCompletionProvider', () => {
 
     expect(getItemByLabel(items, 'leaf1')?.detail).to.equal('Suggested from toponodes');
     expect(getDocumentationValue(getItemByLabel(items, 'leaf1'))).to.equal(
-      '### leaf1\n\n**Details**\n\n- from toponodes\n\n**Insert**\n\n```yaml\nleaf1\n```\n'
+      '### leaf1\n\n**Details**\n\n- from toponodes\n\n**Insert**\n\n```yaml\nleaf1\n```\n\n'
     );
   });
 
@@ -522,29 +804,6 @@ describe('EdaYamlCompletionProvider', () => {
     ]);
 
     const scenarios: CursorScenario[] = [
-      {
-        name: 'spec one-space blank line suggests child keys without typing',
-        text: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
-          'kind: Banner',
-          'metadata:',
-          '  namespace: eda',
-          'spec:',
-          ' '
-        ].join('\n'),
-        position: { line: 5, character: 1 } as vscode.Position,
-        includeLabels: ['nodes', 'nodeSelector'],
-        selectedLabel: 'nodeSelector',
-        expectedAppliedText: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
-          'kind: Banner',
-          'metadata:',
-          '  namespace: eda',
-          'spec:',
-          ' nodeSelector:',
-          '   - '
-        ].join('\n')
-      },
       {
         name: 'spec blank line suggests child keys without typing',
         text: [
@@ -803,7 +1062,7 @@ describe('EdaYamlCompletionProvider', () => {
     console.log(logLines.join('\n'));
   });
 
-  it('logs Banner no-typing auto-trigger positions, including one-space indentation under spec', async () => {
+  it('logs Banner no-typing auto-trigger positions and skips misaligned indentation under spec', async () => {
     const provider = new EdaYamlCompletionProvider();
     sinon.stub((provider as any).dynamicProvider, 'getValuesForHint').resolves(['leaf1', 'spine1']);
     sinon.stub((provider as any).dynamicProvider, 'getLabelSelectorValuesForHint').resolves([
@@ -823,7 +1082,8 @@ describe('EdaYamlCompletionProvider', () => {
           ' '
         ].join('\n'),
         position: { line: 5, character: 1 } as vscode.Position,
-        includeLabels: ['nodes', 'nodeSelector']
+        includeLabels: [] as string[],
+        expectedShouldTrigger: false
       },
       {
         name: 'spec two-space blank line',
@@ -836,7 +1096,8 @@ describe('EdaYamlCompletionProvider', () => {
           '  '
         ].join('\n'),
         position: { line: 5, character: 2 } as vscode.Position,
-        includeLabels: ['nodes', 'nodeSelector']
+        includeLabels: ['nodes', 'nodeSelector'],
+        expectedShouldTrigger: true
       },
       {
         name: 'nodes blank line',
@@ -850,7 +1111,8 @@ describe('EdaYamlCompletionProvider', () => {
           '    '
         ].join('\n'),
         position: { line: 6, character: 4 } as vscode.Position,
-        includeLabels: ['leaf1', 'spine1']
+        includeLabels: ['leaf1', 'spine1'],
+        expectedShouldTrigger: true
       },
       {
         name: 'nodeSelector blank line',
@@ -864,7 +1126,8 @@ describe('EdaYamlCompletionProvider', () => {
           '    '
         ].join('\n'),
         position: { line: 6, character: 4 } as vscode.Position,
-        includeLabels: ['eda.nokia.com/role=leaf', 'containerlab=managedSrl']
+        includeLabels: ['eda.nokia.com/role=leaf', 'containerlab=managedSrl'],
+        expectedShouldTrigger: true
       }
     ];
 
@@ -877,7 +1140,10 @@ describe('EdaYamlCompletionProvider', () => {
       ).to.equal(true);
 
       const result = await collectSuggestibleCompletions(provider, document, scenario.position);
-      expect(result.shouldTrigger, `${scenario.name} should auto-trigger suggestions`).to.equal(true);
+      expect(
+        result.shouldTrigger,
+        `${scenario.name} should ${scenario.expectedShouldTrigger ? '' : 'not '}auto-trigger suggestions`
+      ).to.equal(scenario.expectedShouldTrigger);
       for (const label of scenario.includeLabels) {
         expect(result.labels, `${scenario.name} should suggest ${label}`).to.include(label);
       }

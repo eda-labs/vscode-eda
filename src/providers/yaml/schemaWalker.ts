@@ -28,27 +28,27 @@ export function walkSchemaToPath(
   schema: ResolvedJsonSchema,
   path: string[]
 ): SchemaAtPath {
-  let current = mergeCompositions(schema);
+  let current = mergeSchemaCompositions(schema);
 
   for (const segment of path) {
     const props = current.properties;
     if (props && segment in props) {
-      current = mergeCompositions(props[segment]);
+      current = mergeSchemaCompositions(props[segment]);
       continue;
     }
 
     // Try items for array types
     if (current.items) {
-      const itemSchema = mergeCompositions(current.items);
+      const itemSchema = mergeSchemaCompositions(current.items);
       if (itemSchema.properties && segment in itemSchema.properties) {
-        current = mergeCompositions(itemSchema.properties[segment]);
+        current = mergeSchemaCompositions(itemSchema.properties[segment]);
         continue;
       }
     }
 
     // Try additionalProperties
     if (current.additionalProperties && typeof current.additionalProperties === 'object') {
-      current = mergeCompositions(current.additionalProperties);
+      current = mergeSchemaCompositions(current.additionalProperties);
       continue;
     }
 
@@ -66,11 +66,11 @@ export function getKeyCompletions(
   schema: ResolvedJsonSchema,
   existingSiblings: string[]
 ): KeyCompletion[] {
-  const merged = mergeCompositions(schema);
+  const merged = mergeSchemaCompositions(schema);
 
   // If it's an array, offer completions for the item schema
   const target = (merged.type === 'array' && merged.items)
-    ? mergeCompositions(merged.items)
+    ? mergeSchemaCompositions(merged.items)
     : merged;
 
   const props = target.properties;
@@ -83,7 +83,7 @@ export function getKeyCompletions(
 
   const completions: KeyCompletion[] = [];
 
-  for (const [key, propSchema] of Object.entries(props)) {
+  for (const [key, propSchema] of Object.entries(props) as Array<[string, ResolvedJsonSchema]>) {
     if (siblingSet.has(key)) {
       continue;
     }
@@ -114,7 +114,7 @@ export function getKeyCompletions(
  * Returns enum values, defaults, boolean options, and type hints.
  */
 export function getValueCompletions(schema: ResolvedJsonSchema): ValueCompletion[] {
-  const merged = mergeCompositions(schema);
+  const merged = mergeSchemaCompositions(schema);
   const completions: ValueCompletion[] = [];
   const seen = new Set<string>();
 
@@ -194,7 +194,7 @@ function collectCompositionValues(
  * Extract auto-complete hints from the schema's x-eda-nokia-com extension.
  */
 export function getAutoCompleteHints(schema: ResolvedJsonSchema): AutoCompleteHint[] {
-  const merged = mergeCompositions(schema);
+  const merged = mergeSchemaCompositions(schema);
   return merged['x-eda-nokia-com']?.['ui-auto-completes'] ?? [];
 }
 
@@ -202,14 +202,14 @@ export function getAutoCompleteHints(schema: ResolvedJsonSchema): AutoCompleteHi
  * Check if a field has labelselector format.
  */
 export function isLabelSelector(schema: ResolvedJsonSchema): boolean {
-  const merged = mergeCompositions(schema);
+  const merged = mergeSchemaCompositions(schema);
   return merged.format === 'labelselector';
 }
 
 /**
  * Merge allOf/anyOf/oneOf into a single flattened schema for completion purposes.
  */
-function mergeCompositions(schema: ResolvedJsonSchema): ResolvedJsonSchema {
+export function mergeSchemaCompositions(schema: ResolvedJsonSchema): ResolvedJsonSchema {
   if (!schema.allOf && !schema.anyOf && !schema.oneOf) {
     return schema;
   }
@@ -226,7 +226,7 @@ function mergeCompositions(schema: ResolvedJsonSchema): ResolvedJsonSchema {
   ];
 
   for (const sub of compositions) {
-    const resolved = mergeCompositions(sub);
+    const resolved = mergeSchemaCompositions(sub);
     mergeStructuralFields(merged, resolved);
     mergeScalarFields(merged, resolved);
   }

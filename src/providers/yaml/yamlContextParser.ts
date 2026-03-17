@@ -240,21 +240,15 @@ function buildPath(
       continue;
     }
 
-    const indent = getIndent(text);
+    const mapping = getMappingLineInfo(text);
+    if (!mapping || mapping.keyIndent >= currentIndent) {
+      continue;
+    }
 
-    if (indent < currentIndent) {
-      // This line is a parent
-      const strippedLine = trimmed.startsWith('- ') ? trimmed.slice(2) : trimmed;
-      const colonIdx = strippedLine.indexOf(':');
-      if (colonIdx > 0) {
-        const key = strippedLine.slice(0, colonIdx).trim();
-        const valueAfterColon = strippedLine.slice(colonIdx + 1).trim();
-        // Only add to path if this is a parent key (value is empty or block)
-        if (valueAfterColon === '' || valueAfterColon === '|' || valueAfterColon === '>') {
-          path.unshift(key);
-          currentIndent = indent;
-        }
-      }
+    // Only add to path if this is a parent key (value is empty or block)
+    if (mapping.valueAfterColon === '' || mapping.valueAfterColon === '|' || mapping.valueAfterColon === '>') {
+      path.unshift(mapping.key);
+      currentIndent = mapping.keyIndent;
     }
 
     if (currentIndent === 0) {
@@ -272,20 +266,13 @@ function extractKeyFromLine(trimmed: string): string | undefined {
   return colonIdx > 0 ? content.slice(0, colonIdx).trim() : undefined;
 }
 
-/** Check if a line at the given indent is a sibling of the target level */
-function isSiblingIndent(indent: number, lineIndent: number, effectiveIndent: number, isArrayItem: boolean): boolean {
-  return indent === lineIndent || (isArrayItem && indent === effectiveIndent);
-}
-
 /** Scan lines in a direction, collecting sibling keys */
 function scanForSiblingKeys(
   document: vscode.TextDocument,
   start: number,
   end: number,
   step: number,
-  lineIndent: number,
-  effectiveIndent: number,
-  isArrayItem: boolean
+  targetKeyIndent: number
 ): string[] {
   const keys: string[] = [];
   for (let i = start; step > 0 ? i < end : i >= end; i += step) {
@@ -293,11 +280,15 @@ function scanForSiblingKeys(
     const trimmed = text.trim();
     if (trimmed === '' || trimmed.startsWith('#')) continue;
     if (step > 0 && trimmed === '---') break;
-    const indent = getIndent(text);
-    if (indent < lineIndent && !trimmed.startsWith('- ')) break;
-    if (isSiblingIndent(indent, lineIndent, effectiveIndent, isArrayItem)) {
-      const key = extractKeyFromLine(trimmed);
-      if (key) keys.push(key);
+    const mapping = getMappingLineInfo(text);
+    if (!mapping) {
+      continue;
+    }
+    if (mapping.keyIndent < targetKeyIndent) {
+      break;
+    }
+    if (mapping.keyIndent === targetKeyIndent) {
+      keys.push(mapping.key);
     }
   }
   return keys;
@@ -311,18 +302,148 @@ function collectSiblingKeys(
   docStart: number,
   isArrayItem: boolean
 ): string[] {
-  const effectiveIndent = isArrayItem
-    ? getIndent(document.lineAt(lineIndex).text) + 2
-    : lineIndent;
+  const currentLineText = document.lineAt(lineIndex).text;
+  const currentMapping = getMappingLineInfo(currentLineText);
+  const targetKeyIndent = currentMapping?.keyIndent
+    ?? (isArrayItem ? getIndent(currentLineText) + 2 : lineIndent);
+  const arrayItemScope = getArrayItemObjectScope(document, lineIndex, docStart, targetKeyIndent);
 
-  const backward = scanForSiblingKeys(document, lineIndex - 1, docStart, -1, lineIndent, effectiveIndent, isArrayItem);
-  const forward = scanForSiblingKeys(document, lineIndex + 1, document.lineCount, 1, lineIndent, effectiveIndent, isArrayItem);
+  if (arrayItemScope) {
+    const scopedKeys = collectScopedSiblingKeys(
+      document,
+      targetKeyIndent,
+      arrayItemScope.startLine,
+      arrayItemScope.endLine
+    );
+    if (currentMapping?.key) {
+      scopedKeys.push(currentMapping.key);
+    }
+    return [...new Set(scopedKeys)];
+  }
 
-  const currentKey = extractKeyFromLine(document.lineAt(lineIndex).text.trim());
+  const backward = scanForSiblingKeys(document, lineIndex - 1, docStart, -1, targetKeyIndent);
+  const forward = scanForSiblingKeys(document, lineIndex + 1, document.lineCount, 1, targetKeyIndent);
+
+  const currentKey = currentMapping?.key ?? extractKeyFromLine(currentLineText.trim());
   const allKeys = [...backward, ...forward];
   if (currentKey) allKeys.push(currentKey);
 
   return [...new Set(allKeys)];
+}
+
+function getArrayItemObjectScope(
+  document: vscode.TextDocument,
+  lineIndex: number,
+  docStart: number,
+  targetKeyIndent: number
+): { startLine: number; endLine: number } | undefined {
+  if (targetKeyIndent < 2) {
+    return undefined;
+  }
+
+  const startLine = findArrayItemStartLine(document, lineIndex, docStart, targetKeyIndent - 2);
+  if (startLine === undefined) {
+    return undefined;
+  }
+
+  const startMapping = getMappingLineInfo(document.lineAt(startLine).text);
+  if (!startMapping || startMapping.keyIndent !== targetKeyIndent) {
+    return undefined;
+  }
+
+  const itemIndent = getIndent(document.lineAt(startLine).text);
+  let endLine = document.lineCount;
+
+  for (let line = startLine + 1; line < document.lineCount; line += 1) {
+    const text = document.lineAt(line).text;
+    const trimmed = text.trim();
+
+    if (trimmed === '' || trimmed.startsWith('#')) {
+      continue;
+    }
+    if (trimmed === '---') {
+      endLine = line;
+      break;
+    }
+
+    const indent = getIndent(text);
+    if (indent < itemIndent) {
+      endLine = line;
+      break;
+    }
+    if (indent === itemIndent && trimmed.startsWith('- ')) {
+      endLine = line;
+      break;
+    }
+  }
+
+  return { startLine, endLine };
+}
+
+function findArrayItemStartLine(
+  document: vscode.TextDocument,
+  lineIndex: number,
+  docStart: number,
+  itemIndent: number
+): number | undefined {
+  for (let line = lineIndex; line >= docStart; line -= 1) {
+    const text = document.lineAt(line).text;
+    const trimmed = text.trim();
+    if (trimmed === '' || trimmed.startsWith('#')) {
+      continue;
+    }
+
+    const indent = getIndent(text);
+    if (indent < itemIndent) {
+      break;
+    }
+    if (indent === itemIndent && trimmed.startsWith('- ')) {
+      return line;
+    }
+  }
+
+  return undefined;
+}
+
+function collectScopedSiblingKeys(
+  document: vscode.TextDocument,
+  targetKeyIndent: number,
+  startLine: number,
+  endLine: number
+): string[] {
+  const keys: string[] = [];
+
+  for (let line = startLine; line < endLine; line += 1) {
+    const mapping = getMappingLineInfo(document.lineAt(line).text);
+    if (mapping?.keyIndent === targetKeyIndent) {
+      keys.push(mapping.key);
+    }
+  }
+
+  return keys;
+}
+
+interface MappingLineInfo {
+  key: string;
+  keyIndent: number;
+  valueAfterColon: string;
+}
+
+function getMappingLineInfo(lineText: string): MappingLineInfo | undefined {
+  const trimmed = lineText.trimStart();
+  const lineIndent = getIndent(lineText);
+  const isArrayInlineMap = trimmed.startsWith('- ');
+  const content = isArrayInlineMap ? trimmed.slice(2) : trimmed;
+  const colonIdx = content.indexOf(':');
+  if (colonIdx <= 0) {
+    return undefined;
+  }
+
+  return {
+    key: content.slice(0, colonIdx).trim(),
+    keyIndent: isArrayInlineMap ? lineIndent + 2 : lineIndent,
+    valueAfterColon: content.slice(colonIdx + 1).trim()
+  };
 }
 
 /** Get the number of leading spaces in a line */
