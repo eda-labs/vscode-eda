@@ -387,7 +387,7 @@ function TopologyFlowDashboard() {
         for (let idx = 0; idx < tierNodes.length; idx++) {
           const node = tierNodes[idx];
           const nodeName = topologyNodeIdToName(node.id);
-          const persisted = persistedPositions[nodeName];
+          const persisted = persistedPositions[node.id] ?? persistedPositions[nodeName];
           result.push({
             id: node.id,
             type: 'deviceNode',

@@ -356,6 +356,7 @@ export class TopologyFlowDashboardPanel extends BasePanel {
 
     if (ns === ALL_NAMESPACES) {
       this.savedPositionsByNamespace.clear();
+      await this.loadSavedPositionsForNamespaces(target);
     } else {
       await this.loadSavedPositionsForNamespace(ns);
     }
@@ -379,12 +380,62 @@ export class TopologyFlowDashboardPanel extends BasePanel {
   }
 
   private async loadSavedPositionsForNamespace(namespace: string): Promise<void> {
-    try {
-      const topology = await this.getTopologyByName(namespace);
-      this.savedPositionsByNamespace.set(namespace, this.parseSavedPositions(topology));
-    } catch {
-      this.savedPositionsByNamespace.set(namespace, {});
+    await this.loadSavedPositionsForNamespaces([namespace]);
+  }
+
+  private async loadSavedPositionsForNamespaces(namespaces: string[]): Promise<void> {
+    const uniqueNamespaces = Array.from(new Set(namespaces.filter(Boolean)));
+    if (uniqueNamespaces.length === 0) {
+      return;
     }
+
+    try {
+      const topologies = (await this.edaClient.listResources(
+        TOPOLOGY_GROUP,
+        TOPOLOGY_VERSION,
+        TOPOLOGY_KIND
+      )) as Topology[];
+
+      const topologyByName = new Map<string, Topology>();
+      if (Array.isArray(topologies)) {
+        for (const topology of topologies) {
+          const topologyName = topology.metadata?.name;
+          if (!topologyName) {
+            continue;
+          }
+          topologyByName.set(topologyName, topology);
+        }
+      }
+
+      for (const namespace of uniqueNamespaces) {
+        this.savedPositionsByNamespace.set(
+          namespace,
+          this.parseSavedPositions(topologyByName.get(namespace))
+        );
+      }
+    } catch {
+      for (const namespace of uniqueNamespaces) {
+        this.savedPositionsByNamespace.set(namespace, {});
+      }
+    }
+  }
+
+  private buildMergedSavedPositions(namespaces: string[]): NodePositionMap {
+    const merged: NodePositionMap = {};
+
+    for (const namespace of namespaces) {
+      const savedForNamespace = this.savedPositionsByNamespace.get(namespace);
+      if (!savedForNamespace) {
+        continue;
+      }
+
+      for (const [nodeName, position] of Object.entries(savedForNamespace)) {
+        const namespacedNodeId = nodeName.includes('/') ? nodeName : `${namespace}/${nodeName}`;
+        merged[namespacedNodeId] = position;
+      }
+    }
+
+    return normalizeNodePositionMap(merged);
   }
 
   private postSaveResult(ok: boolean, message: string, positions: NodePositionMap): void {
@@ -620,7 +671,7 @@ export class TopologyFlowDashboardPanel extends BasePanel {
 
     const savedPositions =
       this.selectedNamespace === ALL_NAMESPACES
-        ? undefined
+        ? this.buildMergedSavedPositions(namespaces)
         : this.savedPositionsByNamespace.get(this.selectedNamespace) ?? {};
 
     void this.panel.webview.postMessage({ command: 'data', nodes, edges, savedPositions });
