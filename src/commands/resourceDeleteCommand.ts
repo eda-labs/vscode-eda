@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 
 import type { EdaClient } from '../clients/edaClient';
 import { log, LogLevel, edaOutputChannel, edaTransactionBasketProvider } from '../extension';
+import type { SchemaProviderService } from '../services/schemaProviderService';
 import { serviceManager } from '../services/serviceManager';
 import { runKubectl } from '../utils/kubectlRunner';
 import type { Transaction } from '../providers/views/transactionBasketProvider';
@@ -42,11 +43,96 @@ function formatNamespaceSuffix(namespace: string | undefined): string {
   return namespace ? ` in namespace '${namespace}'` : '';
 }
 
+function normalizeResourceName(resourceName: string, namespace: string | undefined): string {
+  if (!namespace) {
+    return resourceName;
+  }
+
+  const namespacePrefix = `${namespace}/`;
+  if (!resourceName.startsWith(namespacePrefix)) {
+    return resourceName;
+  }
+
+  const normalized = resourceName.slice(namespacePrefix.length);
+  return normalized.length > 0 ? normalized : resourceName;
+}
+
+function hasKindDerivedFromResourceType(kind: string, resourceType: string | undefined): boolean {
+  if (!resourceType) {
+    return false;
+  }
+  return kind.toLowerCase() === resourceType.toLowerCase();
+}
+
+/**
+ * Resolve missing EDA metadata from CRD definitions when stream payloads omit apiVersion/kind details.
+ */
+async function resolveEdaResourceInfo(info: ResourceInfo): Promise<ResourceInfo> {
+  if (!info.streamGroup || info.streamGroup === 'kubernetes') {
+    return info;
+  }
+
+  const kindDerivedFromResourceType = hasKindDerivedFromResourceType(info.kind, info.resourceType);
+  if (info.apiVersion && info.resourceType && !kindDerivedFromResourceType) {
+    return info;
+  }
+
+  let schemaProvider: SchemaProviderService;
+  try {
+    schemaProvider = serviceManager.getService<SchemaProviderService>('schema-provider');
+  } catch {
+    return info;
+  }
+
+  let definitions: Awaited<ReturnType<SchemaProviderService['getCustomResourceDefinitions']>>;
+  try {
+    definitions = await schemaProvider.getCustomResourceDefinitions();
+  } catch (err: unknown) {
+    log(`Failed to load CRD metadata while deleting resource: ${String(err)}`, LogLevel.DEBUG);
+    return info;
+  }
+
+  if (!Array.isArray(definitions) || definitions.length === 0) {
+    return info;
+  }
+
+  const expectedGroup = info.streamGroup.toLowerCase();
+  const expectedPlural = info.resourceType?.toLowerCase();
+  const expectedKind = info.kind.toLowerCase();
+
+  const byPluralAndGroup = expectedPlural
+    ? definitions.find(def => (
+      def.plural.toLowerCase() === expectedPlural
+      && def.group.toLowerCase() === expectedGroup
+    ))
+    : undefined;
+  const byPlural = expectedPlural
+    ? definitions.find(def => def.plural.toLowerCase() === expectedPlural)
+    : undefined;
+  const byKindAndGroup = definitions.find(def => (
+    def.kind.toLowerCase() === expectedKind
+    && def.group.toLowerCase() === expectedGroup
+  ));
+  const byKind = definitions.find(def => def.kind.toLowerCase() === expectedKind);
+
+  const match = byPluralAndGroup ?? byPlural ?? byKindAndGroup ?? byKind;
+  if (!match) {
+    return info;
+  }
+
+  return {
+    ...info,
+    apiVersion: info.apiVersion ?? `${match.group}/${match.version}`,
+    resourceType: info.resourceType ?? match.plural,
+    kind: kindDerivedFromResourceType ? match.kind : info.kind
+  };
+}
+
 /**
  * Extracts resource information from a tree item
  */
 function extractResourceInfo(treeItem: ResourceTreeItem): ResourceInfo | null {
-  const resourceName = treeItem.resource?.name ?? treeItem.label;
+  const rawResourceName = treeItem.resource?.name ?? treeItem.label;
   const resourceNamespace = treeItem.namespace;
   const streamGroup = treeItem.streamGroup;
   const apiVersion = treeItem.resource?.raw?.apiVersion ?? treeItem.resource?.apiVersion;
@@ -58,9 +144,10 @@ function extractResourceInfo(treeItem: ResourceTreeItem): ResourceInfo | null {
     resourceKind = treeItem.resourceType.charAt(0).toUpperCase() + treeItem.resourceType.slice(1);
   }
 
-  if (!resourceName || !resourceKind) {
+  if (!rawResourceName || !resourceKind) {
     return null;
   }
+  const resourceName = normalizeResourceName(rawResourceName, resourceNamespace);
 
   return {
     name: resourceName,
@@ -112,15 +199,22 @@ async function addDeleteToBasket(info: ResourceInfo): Promise<boolean> {
     return false;
   }
 
-  if (!info.apiVersion) {
+  const resolvedInfo = await resolveEdaResourceInfo(info);
+
+  if (!resolvedInfo.apiVersion) {
     vscode.window.showErrorMessage(MSG_MISSING_API_VERSION);
     return false;
   }
 
-  const tx = createDeleteTransaction(info.apiVersion, info.kind, info.name, info.namespace);
+  const tx = createDeleteTransaction(
+    resolvedInfo.apiVersion,
+    resolvedInfo.kind,
+    resolvedInfo.name,
+    resolvedInfo.namespace
+  );
   await edaTransactionBasketProvider.addTransaction(tx);
   vscode.window.showInformationMessage(
-    `Added delete for ${info.kind} '${info.name}' to transaction basket.`
+    `Added delete for ${resolvedInfo.kind} '${resolvedInfo.name}' to transaction basket.`
   );
   return true;
 }
@@ -130,22 +224,24 @@ async function addDeleteToBasket(info: ResourceInfo): Promise<boolean> {
  */
 async function deleteEdaResource(info: ResourceInfo): Promise<void> {
   const edaClient = serviceManager.getClient<EdaClient>('eda');
-  if (!info.apiVersion) {
+  const resolvedInfo = await resolveEdaResourceInfo(info);
+
+  if (!resolvedInfo.apiVersion) {
     throw new Error('Missing apiVersion for EDA resource');
   }
-  if (!info.resourceType) {
+  if (!resolvedInfo.resourceType) {
     throw new Error('Missing resourceType for EDA resource');
   }
-  const [group, version] = info.apiVersion.split('/');
+  const [group, version] = resolvedInfo.apiVersion.split('/');
   await edaClient.deleteCustomResource(
     group,
     version,
-    info.namespace,
-    info.resourceType,
-    info.name,
-    !!info.namespace
+    resolvedInfo.namespace,
+    resolvedInfo.resourceType,
+    resolvedInfo.name,
+    !!resolvedInfo.namespace
   );
-  vscode.window.showInformationMessage(`${info.kind} '${info.name}' deleted successfully.`);
+  vscode.window.showInformationMessage(`${resolvedInfo.kind} '${resolvedInfo.name}' deleted successfully.`);
   log('EDA delete completed', LogLevel.INFO, true);
 }
 

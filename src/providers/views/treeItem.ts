@@ -69,6 +69,7 @@ export class TreeItemBase extends vscode.TreeItem {
         namespace: resource.metadata?.namespace,
         uid: resource.metadata?.uid,
         kind: resource.kind,
+        apiVersion: resource.apiVersion,
         raw: resource
       };
     }
@@ -98,6 +99,7 @@ export class TreeItemBase extends vscode.TreeItem {
         namespace: data.metadata?.namespace ?? this.namespace,
         uid: data.metadata?.uid,
         kind: data.kind,
+        apiVersion: data.apiVersion,
         raw: data
       };
     } else {
@@ -134,7 +136,7 @@ export class TreeItemBase extends vscode.TreeItem {
       resourceType: this.resourceType,
       kind: this._resourceData?.kind ?? this.resourceType,
       uid: this._resourceData?.uid,
-      apiVersion: this._resourceData?.raw?.apiVersion,
+      apiVersion: this._resourceData?.apiVersion ?? this._resourceData?.raw?.apiVersion,
       streamGroup: this.streamGroup,
       raw: this._resourceData?.raw
     };

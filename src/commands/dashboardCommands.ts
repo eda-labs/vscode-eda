@@ -514,7 +514,7 @@ function resolveResourceApiVersion(item: TreeItemBase, viewKind: ExplorerResourc
   if (viewKind !== 'resources') {
     return undefined;
   }
-  return item.resource?.apiVersion;
+  return item.resource?.apiVersion ?? item.resource?.raw?.apiVersion;
 }
 
 function toResourceListItem(
