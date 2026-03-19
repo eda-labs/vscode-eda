@@ -7,6 +7,12 @@ import { namespaceSelectionService } from '../../../services/namespaceSelectionS
 import type { EdaClient } from '../../../clients/edaClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
 import { getUpdates, type StreamMessageWithUpdates } from '../../../utils/streamMessageUtils';
+import {
+  type NodePositionMap,
+  normalizeNodePositionMap,
+  parseNodePositionAnnotation,
+  serializeNodePositionAnnotation
+} from './topologyPositionUtils';
 
 // --- K8s Resource Types ---
 
@@ -15,6 +21,7 @@ interface K8sMetadata {
   name?: string;
   namespace?: string;
   labels?: Record<string, string>;
+  annotations?: Record<string, string>;
   [key: string]: unknown;
 }
 
@@ -25,6 +32,7 @@ interface K8sResource {
   metadata?: K8sMetadata;
   spec?: Record<string, unknown>;
   status?: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 /** TopoNode resource returned from EDA API */
@@ -71,7 +79,7 @@ interface TopoLink extends K8sResource {
 }
 
 /** Topology resource */
-interface Topology {
+interface Topology extends K8sResource {
   name?: string;
   metadata?: K8sMetadata;
 }
@@ -138,10 +146,17 @@ interface WebviewOpenResourceMessage {
   streamGroup: string;
 }
 
+interface WebviewSaveTopologyPositionsMessage {
+  command: 'saveTopologyPositions';
+  namespace: string;
+  positions: NodePositionMap;
+}
+
 type WebviewMessage =
   | WebviewReadyMessage
   | WebviewSshTopoNodeMessage
-  | WebviewOpenResourceMessage;
+  | WebviewOpenResourceMessage
+  | WebviewSaveTopologyPositionsMessage;
 
 // --- Stream Message Types ---
 
@@ -154,6 +169,13 @@ interface StreamMessagePayload {
   msg: StreamMessageWithUpdates | null | undefined;
 }
 
+const TOPOLOGY_GROUP = 'topologies.eda.nokia.com';
+const TOPOLOGY_VERSION = 'v1alpha1';
+const TOPOLOGY_KIND = 'Topology';
+const TOPOLOGY_PLURAL = 'topologies';
+const TOPOLOGY_BOOTSTRAP_LABEL = 'eda.nokia.com/bootstrap';
+const TOPOLOGY_NODE_POSITIONS_ANNOTATION = 'eda.nokia.com/topology-node-positions';
+
 export class TopologyFlowDashboardPanel extends BasePanel {
   private static currentPanel: TopologyFlowDashboardPanel | undefined;
   private edaClient: EdaClient;
@@ -161,6 +183,7 @@ export class TopologyFlowDashboardPanel extends BasePanel {
   private linkMap: Map<string, TopoLink[]> = new Map();
   private groupings: TierSelector[] = [];
   private selectedNamespace = ALL_NAMESPACES;
+  private savedPositionsByNamespace: Map<string, NodePositionMap> = new Map();
   private postGraphTimer: ReturnType<typeof setTimeout> | undefined;
   private namespaceSelectionDisposable: vscode.Disposable;
 
@@ -203,6 +226,8 @@ export class TopologyFlowDashboardPanel extends BasePanel {
           raw: msg.raw,
           streamGroup: msg.streamGroup
         });
+      } else if (msg.command === 'saveTopologyPositions') {
+        await this.handleSaveTopologyPositions(msg.namespace, msg.positions);
       }
     });
 
@@ -328,7 +353,140 @@ export class TopologyFlowDashboardPanel extends BasePanel {
         /* ignore */
       }
     }
+
+    if (ns === ALL_NAMESPACES) {
+      this.savedPositionsByNamespace.clear();
+    } else {
+      await this.loadSavedPositionsForNamespace(ns);
+    }
+
     this.postGraph();
+  }
+
+  private async getTopologyByName(topologyName: string): Promise<Topology | undefined> {
+    const topologies = (await this.edaClient.listResources(
+      TOPOLOGY_GROUP,
+      TOPOLOGY_VERSION,
+      TOPOLOGY_KIND
+    )) as Topology[];
+
+    return topologies.find((topology) => topology.metadata?.name === topologyName);
+  }
+
+  private parseSavedPositions(topology: Topology | undefined): NodePositionMap {
+    const annotation = topology?.metadata?.annotations?.[TOPOLOGY_NODE_POSITIONS_ANNOTATION];
+    return parseNodePositionAnnotation(annotation);
+  }
+
+  private async loadSavedPositionsForNamespace(namespace: string): Promise<void> {
+    try {
+      const topology = await this.getTopologyByName(namespace);
+      this.savedPositionsByNamespace.set(namespace, this.parseSavedPositions(topology));
+    } catch {
+      this.savedPositionsByNamespace.set(namespace, {});
+    }
+  }
+
+  private postSaveResult(ok: boolean, message: string, positions: NodePositionMap): void {
+    void this.panel.webview.postMessage({
+      command: 'saveTopologyPositionsResult',
+      ok,
+      message,
+      positions
+    });
+  }
+
+  private buildTopologyCreateBody(topologyName: string, positions: NodePositionMap): Topology {
+    return {
+      apiVersion: `${TOPOLOGY_GROUP}/${TOPOLOGY_VERSION}`,
+      kind: TOPOLOGY_KIND,
+      metadata: {
+        name: topologyName,
+        labels: {
+          [TOPOLOGY_BOOTSTRAP_LABEL]: 'true'
+        },
+        annotations: {
+          [TOPOLOGY_NODE_POSITIONS_ANNOTATION]: serializeNodePositionAnnotation(positions)
+        }
+      },
+      spec: {
+        enabled: false,
+        overlays: [{ enabled: true, key: 'status' }]
+      }
+    };
+  }
+
+  private buildTopologyUpdateBody(
+    topology: Topology,
+    topologyName: string,
+    positions: NodePositionMap
+  ): Topology {
+    const metadata = topology.metadata ?? {};
+    const annotations = metadata.annotations ?? {};
+    const { namespace: _discardNamespace, ...metadataWithoutNamespace } = metadata;
+
+    return {
+      ...topology,
+      apiVersion: topology.apiVersion ?? `${TOPOLOGY_GROUP}/${TOPOLOGY_VERSION}`,
+      kind: topology.kind ?? TOPOLOGY_KIND,
+      metadata: {
+        ...metadataWithoutNamespace,
+        name: metadata.name ?? topologyName,
+        annotations: {
+          ...annotations,
+          [TOPOLOGY_NODE_POSITIONS_ANNOTATION]: serializeNodePositionAnnotation(positions)
+        }
+      }
+    };
+  }
+
+  private async handleSaveTopologyPositions(namespace: string, positions: NodePositionMap): Promise<void> {
+    if (namespace === ALL_NAMESPACES) {
+      this.postSaveResult(false, 'Select a single namespace to save layout.', {});
+      return;
+    }
+
+    const normalizedPositions = normalizeNodePositionMap(positions);
+    const topologyName = namespace;
+
+    try {
+      const existingTopology = await this.getTopologyByName(topologyName);
+
+      if (existingTopology) {
+        const topologyResourceName = existingTopology.metadata?.name ?? topologyName;
+        const updateBody = this.buildTopologyUpdateBody(
+          existingTopology,
+          topologyResourceName,
+          normalizedPositions
+        );
+        await this.edaClient.updateCustomResource(
+          TOPOLOGY_GROUP,
+          TOPOLOGY_VERSION,
+          undefined,
+          TOPOLOGY_PLURAL,
+          topologyResourceName,
+          updateBody,
+          false
+        );
+      } else {
+        const createBody = this.buildTopologyCreateBody(topologyName, normalizedPositions);
+        await this.edaClient.createCustomResource(
+          TOPOLOGY_GROUP,
+          TOPOLOGY_VERSION,
+          undefined,
+          TOPOLOGY_PLURAL,
+          createBody,
+          false
+        );
+      }
+
+      this.savedPositionsByNamespace.set(namespace, normalizedPositions);
+      this.postSaveResult(true, `Saved layout for topology ${topologyName}.`, normalizedPositions);
+      this.postGraph();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.postSaveResult(false, `Failed to save layout: ${message}`, normalizedPositions);
+    }
   }
 
   private getTier(labels: Record<string, string>): number {
@@ -460,7 +618,12 @@ export class TopologyFlowDashboardPanel extends BasePanel {
       edges.push(...this.buildEdgesForNamespace(ns));
     }
 
-    void this.panel.webview.postMessage({ command: 'data', nodes, edges });
+    const savedPositions =
+      this.selectedNamespace === ALL_NAMESPACES
+        ? undefined
+        : this.savedPositionsByNamespace.get(this.selectedNamespace) ?? {};
+
+    void this.panel.webview.postMessage({ command: 'data', nodes, edges, savedPositions });
   }
 
   private parseUpdateIdentifiers(up: StreamUpdate): { name: string; ns: string } | null {

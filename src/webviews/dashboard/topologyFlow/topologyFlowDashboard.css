@@ -348,9 +348,31 @@
   background-color: var(--topology-button-secondary-hover-bg);
 }
 
+.export-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.export-btn:disabled:hover {
+  background-color: var(--topology-button-secondary-bg);
+}
+
 .export-btn.cancel {
   background-color: transparent;
   border-color: var(--topology-button-border);
+}
+
+.save-status {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.save-status.success {
+  color: var(--topology-link-up);
+}
+
+.save-status.error {
+  color: var(--topology-link-down);
 }
 
 .export-popup {

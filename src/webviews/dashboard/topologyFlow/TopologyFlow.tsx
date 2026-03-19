@@ -20,6 +20,11 @@ import NamespaceLabelNodeComponent, { type NamespaceLabelNode } from './nodes/Na
 import LinkEdgeComponent, { type LinkEdge, type LinkEdgeData } from './edges/LinkEdge';
 import { getNodeRoleMonogram } from './nodes/icons';
 import { getNodeEdgePoint, createBezierPath } from './geometry';
+import {
+  type NodePositionMap,
+  normalizeNodePositionMap,
+  topologyNodeIdToName
+} from './topologyPositionUtils';
 
 export type FlowNode = TopologyNode | NamespaceLabelNode;
 
@@ -48,10 +53,12 @@ interface TopologyFlowProps {
   readonly labelMode?: 'hide' | 'show' | 'select';
   readonly selectedNodeId?: string | null;
   readonly selectedEdgeId?: string | null;
+  readonly onDevicePositionsChange?: (positions: NodePositionMap) => void;
 }
 
 export interface TopologyFlowRef {
   exportImage: (options: ExportOptions) => Promise<void>;
+  getDeviceNodePositions: () => NodePositionMap;
 }
 
 export interface ExportOptions {
@@ -166,6 +173,18 @@ function downloadSvg(content: string): void {
   URL.revokeObjectURL(url);
 }
 
+function collectDeviceNodePositions(nodes: FlowNode[]): NodePositionMap {
+  const positions: NodePositionMap = {};
+  for (const node of nodes) {
+    if (node.type !== 'deviceNode') {
+      continue;
+    }
+    const key = topologyNodeIdToName(node.id);
+    positions[key] = { x: node.position.x, y: node.position.y };
+  }
+  return normalizeNodePositionMap(positions);
+}
+
 function TopologyFlowInner({
   nodes: initialNodes,
   edges: initialEdges,
@@ -177,6 +196,7 @@ function TopologyFlowInner({
   labelMode = 'select',
   selectedNodeId,
   selectedEdgeId,
+  onDevicePositionsChange,
 }: TopologyFlowProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<LinkEdge>(initialEdges);
@@ -198,6 +218,10 @@ function TopologyFlowInner({
   useEffect(() => {
     setEdges(initialEdges);
   }, [initialEdges, setEdges]);
+
+  useEffect(() => {
+    onDevicePositionsChange?.(collectDeviceNodePositions(nodes));
+  }, [nodes, onDevicePositionsChange]);
 
   const handleNodeClick: NodeMouseHandler<FlowNode> = useCallback(
     (_event, node) => {
@@ -362,7 +386,12 @@ const TopologyFlowWithRef = forwardRef<TopologyFlowRef, TopologyFlowProps>(
       downloadSvg(svg);
     }, [getNodes, getEdges, theme]);
 
-    useImperativeHandle(ref, () => ({ exportImage }), [exportImage]);
+    const getDeviceNodePositions = useCallback(() => {
+      const nodes = getNodes() as FlowNode[];
+      return collectDeviceNodePositions(nodes);
+    }, [getNodes]);
+
+    useImperativeHandle(ref, () => ({ exportImage, getDeviceNodePositions }), [exportImage, getDeviceNodePositions]);
 
     return <TopologyFlowInner {...props} />;
   }

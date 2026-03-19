@@ -2,10 +2,17 @@ import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import type { ColorMode } from '@xyflow/react';
 import { alpha, useTheme } from '@mui/material/styles';
 
+import { ALL_NAMESPACES } from '../../constants';
 import { mountWebview } from '../../shared/utils';
 import { usePostMessage, useMessageListener } from '../../shared/hooks';
 
 import TopologyFlow, { type TopologyNode, type TopologyEdge, type FlowNode, type TopologyFlowRef } from './TopologyFlow';
+import {
+  type NodePositionMap,
+  nodePositionMapsEqual,
+  normalizeNodePositionMap,
+  topologyNodeIdToName
+} from './topologyPositionUtils';
 
 interface BackendNode {
   id: string;
@@ -27,12 +34,26 @@ interface BackendEdge {
   rawResource?: unknown;
 }
 
-interface TopologyMessage {
-  command: string;
+interface TopologyInitMessage {
+  command: 'init' | 'namespace';
   selected?: string;
+}
+
+interface TopologyDataMessage {
+  command: 'data';
   nodes?: BackendNode[];
   edges?: BackendEdge[];
+  savedPositions?: NodePositionMap;
 }
+
+interface TopologySaveResultMessage {
+  command: 'saveTopologyPositionsResult';
+  ok: boolean;
+  message?: string;
+  positions?: NodePositionMap;
+}
+
+type TopologyMessage = TopologyInitMessage | TopologyDataMessage | TopologySaveResultMessage;
 
 interface NodeInfo {
   name: string;
@@ -248,13 +269,29 @@ function groupNodesByTier(nodes: BackendNode[]): Record<number, BackendNode[]> {
   return tiers;
 }
 
+function extractDeviceNodePositions(flowNodes: FlowNode[]): NodePositionMap {
+  const positions: NodePositionMap = {};
+  for (const node of flowNodes) {
+    if (node.type !== 'deviceNode') {
+      continue;
+    }
+    const nodeName = topologyNodeIdToName(node.id);
+    positions[nodeName] = { x: node.position.x, y: node.position.y };
+  }
+  return normalizeNodePositionMap(positions);
+}
+
 function TopologyFlowDashboard() {
   const postMessage = usePostMessage();
   const theme = useTheme();
-  const [selectedNamespace, setSelectedNamespace] = useState('All Namespaces');
+  const [selectedNamespace, setSelectedNamespace] = useState(ALL_NAMESPACES);
   const [labelMode, setLabelMode] = useState<'hide' | 'show' | 'select'>('select');
   const [nodes, setNodes] = useState<FlowNode[]>([]);
   const [edges, setEdges] = useState<TopologyEdge[]>([]);
+  const [savedPositions, setSavedPositions] = useState<NodePositionMap>({});
+  const [currentPositions, setCurrentPositions] = useState<NodePositionMap>({});
+  const [isSavingLayout, setIsSavingLayout] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<{ level: 'success' | 'error'; text: string } | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [infoCard, setInfoCard] = useState<InfoCardState>({ type: 'empty' });
@@ -319,7 +356,7 @@ function TopologyFlowDashboard() {
   }, [postMessage]);
 
   // Layout nodes by namespace and tier
-  const layoutByTier = useCallback((backendNodes: BackendNode[]): FlowNode[] => {
+  const layoutByTier = useCallback((backendNodes: BackendNode[], persistedPositions: NodePositionMap = {}): FlowNode[] => {
     const namespaceGroups = groupNodesByNamespace(backendNodes);
     const sortedNamespaces = Object.keys(namespaceGroups).sort();
     const hasMultipleNamespaces = sortedNamespaces.length > 1;
@@ -349,10 +386,12 @@ function TopologyFlowDashboard() {
 
         for (let idx = 0; idx < tierNodes.length; idx++) {
           const node = tierNodes[idx];
+          const nodeName = topologyNodeIdToName(node.id);
+          const persisted = persistedPositions[nodeName];
           result.push({
             id: node.id,
             type: 'deviceNode',
-            position: { x: currentXOffset + tierXOffset + idx * SPACING_X, y: tierIndex * SPACING_Y },
+            position: persisted ?? { x: currentXOffset + tierXOffset + idx * SPACING_X, y: tierIndex * SPACING_Y },
             data: { label: node.label, tier: node.tier ?? 1, role: node.role, namespace: ns, raw: node.raw }
           });
         }
@@ -401,19 +440,44 @@ function TopologyFlowDashboard() {
     });
   }, []);
 
+  const isAllNamespaces = selectedNamespace === ALL_NAMESPACES;
+  const hasUnsavedChanges = useMemo(
+    () => !nodePositionMapsEqual(currentPositions, savedPositions),
+    [currentPositions, savedPositions]
+  );
+  const saveDisabled = isAllNamespaces || isSavingLayout || !hasUnsavedChanges;
+
   // Handle messages from extension
   useMessageListener<TopologyMessage>(useCallback((msg) => {
-    if (msg.command === 'init') {
-      setSelectedNamespace(msg.selected ?? 'All Namespaces');
-    } else if (msg.command === 'namespace') {
-      setSelectedNamespace(msg.selected ?? 'All Namespaces');
+    if (msg.command === 'init' || msg.command === 'namespace') {
+      setSelectedNamespace(msg.selected ?? ALL_NAMESPACES);
+      setSaveStatus(null);
+      setIsSavingLayout(false);
+      setCurrentPositions({});
+      setSavedPositions({});
     } else if (msg.command === 'data') {
-      const layoutedNodes = layoutByTier(msg.nodes ?? []);
+      const normalizedSavedPositions = normalizeNodePositionMap(msg.savedPositions);
+      const layoutedNodes = layoutByTier(msg.nodes ?? [], normalizedSavedPositions);
       const processedEdges = processEdges(msg.edges ?? []);
+      const baselinePositions = Object.keys(normalizedSavedPositions).length > 0
+        ? normalizedSavedPositions
+        : extractDeviceNodePositions(layoutedNodes);
       setNodes(layoutedNodes);
       setEdges(processedEdges);
+      setSavedPositions(baselinePositions);
+      setCurrentPositions(baselinePositions);
+    } else if (msg.command === 'saveTopologyPositionsResult') {
+      setIsSavingLayout(false);
+      if (msg.ok) {
+        const normalizedSavedPositions = normalizeNodePositionMap(msg.positions ?? currentPositions);
+        setSavedPositions(normalizedSavedPositions);
+        setCurrentPositions(normalizedSavedPositions);
+        setSaveStatus({ level: 'success', text: msg.message ?? 'Layout saved.' });
+      } else {
+        setSaveStatus({ level: 'error', text: msg.message ?? 'Failed to save layout.' });
+      }
     }
-  }, [layoutByTier, processEdges]));
+  }, [currentPositions, layoutByTier, processEdges]));
 
   // Handle node selection
   const handleNodeSelect = useCallback((node: TopologyNode) => {
@@ -472,6 +536,10 @@ function TopologyFlowDashboard() {
     postMessage({ command: 'openResource', raw, streamGroup });
   }, [postMessage]);
 
+  const handleDevicePositionsChange = useCallback((positions: NodePositionMap) => {
+    setCurrentPositions(normalizeNodePositionMap(positions));
+  }, []);
+
   // Show export popup with theme-appropriate defaults
   const showExportPopupWithDefaults = useCallback(() => {
     setExportBgColor(theme.vscode.topology.editorBackground);
@@ -491,13 +559,41 @@ function TopologyFlowDashboard() {
     doExport().catch(() => { /* ignore */ });
   }, [exportBgColor, exportBgTransparent]);
 
+  const handleSaveLayout = useCallback(() => {
+    if (saveDisabled) {
+      return;
+    }
+
+    const positions = normalizeNodePositionMap(
+      topologyRef.current?.getDeviceNodePositions() ?? currentPositions
+    );
+
+    setCurrentPositions(positions);
+    setIsSavingLayout(true);
+    setSaveStatus(null);
+
+    postMessage({
+      command: 'saveTopologyPositions',
+      namespace: selectedNamespace,
+      positions
+    });
+  }, [currentPositions, postMessage, saveDisabled, selectedNamespace]);
+
   return (
     <div className="dashboard" style={topologyCssVars}>
       <div className="header">
+        <button className="export-btn" onClick={handleSaveLayout} disabled={saveDisabled}>
+          {isSavingLayout ? 'Saving...' : 'Save Layout'}
+        </button>
         <button className="export-btn" onClick={showExportPopupWithDefaults}>
           Export SVG
         </button>
         <span className="namespace-value">Namespace: {selectedNamespace}</span>
+        {saveStatus && (
+          <span className={`save-status ${saveStatus.level}`}>
+            {saveStatus.text}
+          </span>
+        )}
         <select
           className="label-select"
           value={labelMode}
@@ -522,6 +618,7 @@ function TopologyFlowDashboard() {
             labelMode={labelMode}
             selectedNodeId={selectedNodeId}
             selectedEdgeId={selectedEdgeId}
+            onDevicePositionsChange={handleDevicePositionsChange}
           />
         </div>
         <div className="info-card">
