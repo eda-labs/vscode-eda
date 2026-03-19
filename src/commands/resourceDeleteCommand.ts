@@ -39,6 +39,9 @@ interface ResourceInfo {
   resourceType: string | undefined;
 }
 
+type CdrDefinitions = Awaited<ReturnType<SchemaProviderService['getCustomResourceDefinitions']>>;
+type CdrDefinition = CdrDefinitions[number];
+
 function formatNamespaceSuffix(namespace: string | undefined): string {
   return namespace ? ` in namespace '${namespace}'` : '';
 }
@@ -64,58 +67,82 @@ function hasKindDerivedFromResourceType(kind: string, resourceType: string | und
   return kind.toLowerCase() === resourceType.toLowerCase();
 }
 
+function shouldResolveMetadataFromCrd(info: ResourceInfo, kindDerivedFromResourceType: boolean): boolean {
+  if (!info.streamGroup || info.streamGroup === 'kubernetes') {
+    return false;
+  }
+  if (info.apiVersion && info.resourceType && !kindDerivedFromResourceType) {
+    return false;
+  }
+  return true;
+}
+
+function getSchemaProviderSafe(): SchemaProviderService | undefined {
+  try {
+    return serviceManager.getService<SchemaProviderService>('schema-provider');
+  } catch {
+    return undefined;
+  }
+}
+
+async function loadCrdDefinitionsSafe(schemaProvider: SchemaProviderService): Promise<CdrDefinitions | undefined> {
+  try {
+    return await schemaProvider.getCustomResourceDefinitions();
+  } catch (err: unknown) {
+    log(`Failed to load CRD metadata while deleting resource: ${String(err)}`, LogLevel.DEBUG);
+    return undefined;
+  }
+}
+
+function findMatchingDefinition(definitions: CdrDefinitions, info: ResourceInfo): CdrDefinition | undefined {
+  const expectedGroup = info.streamGroup?.toLowerCase();
+  const expectedPlural = info.resourceType?.toLowerCase();
+  const expectedKind = info.kind.toLowerCase();
+
+  const byPluralAndGroup = expectedPlural && expectedGroup
+    ? definitions.find(def => def.plural.toLowerCase() === expectedPlural && def.group.toLowerCase() === expectedGroup)
+    : undefined;
+  if (byPluralAndGroup) {
+    return byPluralAndGroup;
+  }
+
+  const byPlural = expectedPlural
+    ? definitions.find(def => def.plural.toLowerCase() === expectedPlural)
+    : undefined;
+  if (byPlural) {
+    return byPlural;
+  }
+
+  const byKindAndGroup = expectedGroup
+    ? definitions.find(def => def.kind.toLowerCase() === expectedKind && def.group.toLowerCase() === expectedGroup)
+    : undefined;
+  if (byKindAndGroup) {
+    return byKindAndGroup;
+  }
+
+  return definitions.find(def => def.kind.toLowerCase() === expectedKind);
+}
+
 /**
  * Resolve missing EDA metadata from CRD definitions when stream payloads omit apiVersion/kind details.
  */
 async function resolveEdaResourceInfo(info: ResourceInfo): Promise<ResourceInfo> {
-  if (!info.streamGroup || info.streamGroup === 'kubernetes') {
-    return info;
-  }
-
   const kindDerivedFromResourceType = hasKindDerivedFromResourceType(info.kind, info.resourceType);
-  if (info.apiVersion && info.resourceType && !kindDerivedFromResourceType) {
+  if (!shouldResolveMetadataFromCrd(info, kindDerivedFromResourceType)) {
     return info;
   }
 
-  let schemaProvider: SchemaProviderService;
-  try {
-    schemaProvider = serviceManager.getService<SchemaProviderService>('schema-provider');
-  } catch {
+  const schemaProvider = getSchemaProviderSafe();
+  if (!schemaProvider) {
     return info;
   }
 
-  let definitions: Awaited<ReturnType<SchemaProviderService['getCustomResourceDefinitions']>>;
-  try {
-    definitions = await schemaProvider.getCustomResourceDefinitions();
-  } catch (err: unknown) {
-    log(`Failed to load CRD metadata while deleting resource: ${String(err)}`, LogLevel.DEBUG);
-    return info;
-  }
-
+  const definitions = await loadCrdDefinitionsSafe(schemaProvider);
   if (!Array.isArray(definitions) || definitions.length === 0) {
     return info;
   }
 
-  const expectedGroup = info.streamGroup.toLowerCase();
-  const expectedPlural = info.resourceType?.toLowerCase();
-  const expectedKind = info.kind.toLowerCase();
-
-  const byPluralAndGroup = expectedPlural
-    ? definitions.find(def => (
-      def.plural.toLowerCase() === expectedPlural
-      && def.group.toLowerCase() === expectedGroup
-    ))
-    : undefined;
-  const byPlural = expectedPlural
-    ? definitions.find(def => def.plural.toLowerCase() === expectedPlural)
-    : undefined;
-  const byKindAndGroup = definitions.find(def => (
-    def.kind.toLowerCase() === expectedKind
-    && def.group.toLowerCase() === expectedGroup
-  ));
-  const byKind = definitions.find(def => def.kind.toLowerCase() === expectedKind);
-
-  const match = byPluralAndGroup ?? byPlural ?? byKindAndGroup ?? byKind;
+  const match = findMatchingDefinition(definitions, info);
   if (!match) {
     return info;
   }

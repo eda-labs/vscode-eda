@@ -1,29 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
-import AddIcon from '@mui/icons-material/Add';
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
-import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
-import PlayArrowOutlinedIcon from '@mui/icons-material/PlayArrowOutlined';
-import SearchIcon from '@mui/icons-material/Search';
-import ShoppingBasketOutlinedIcon from '@mui/icons-material/ShoppingBasketOutlined';
-import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  AccountTreeOutlined as AccountTreeOutlinedIcon,
+  ChevronLeft as ChevronLeftIcon,
+  ChevronRight as ChevronRightIcon,
+  ExpandMore as ExpandMoreIcon,
+  FactCheckOutlined as FactCheckOutlinedIcon,
+  InfoOutlined as InfoOutlinedIcon,
+  PlayArrowOutlined as PlayArrowOutlinedIcon,
+  Search as SearchIcon,
+  ShoppingBasketOutlined as ShoppingBasketOutlinedIcon,
+  WarningAmber as WarningAmberIcon
+} from '@mui/icons-material';
 import {
   Alert,
-  Autocomplete,
   Box,
   Button,
-  Card,
-  CardContent,
-  Collapse,
-  FormControlLabel,
   IconButton,
   InputAdornment,
   Stack,
-  Switch,
   TextField,
   Tooltip,
   Typography
@@ -37,972 +31,24 @@ import { mountWebview } from '../shared/utils';
 import type {
   JsonSchemaNode,
   ResourceCreatePanelToWebviewMessage,
-  ResourceValueSuggestions,
-  ResourceCreateWebviewMessage
+  ResourceCreateWebviewMessage,
+  ResourceValueSuggestions
 } from './types';
+import {
+  defaultFromSchema,
+  FieldTitle,
+  formatFieldLabel,
+  formatKindTitle,
+  hasValueAtPath,
+  KeyValueEditor,
+  OptionalFieldToggle,
+  type PathSegment,
+  SchemaFieldRenderer,
+  setValueAtPath,
+  SuggestiveTextField
+} from './resourceCreatePanelFields';
 
-type PathSegment = string | number;
-
-const MAX_RENDER_DEPTH = 7;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-function cloneResource(resource: Record<string, unknown>): Record<string, unknown> {
-  return JSON.parse(JSON.stringify(resource)) as Record<string, unknown>;
-}
-
-function schemaType(schema: JsonSchemaNode | undefined): string {
-  if (!schema) {
-    return '';
-  }
-  if (typeof schema.type === 'string') {
-    return schema.type;
-  }
-  if (schema.properties) {
-    return 'object';
-  }
-  if (schema.items) {
-    return 'array';
-  }
-  return '';
-}
-
-function isPrimitiveSchemaType(type: string): boolean {
-  return type === 'string' || type === 'number' || type === 'integer' || type === 'boolean';
-}
-
-function schemaFormat(schema: JsonSchemaNode | undefined): string {
-  if (!schema) {
-    return '';
-  }
-  const raw = (schema as Record<string, unknown>).format;
-  return typeof raw === 'string' ? raw : '';
-}
-
-function hasSchemaComposition(schema: JsonSchemaNode): boolean {
-  return Boolean(
-    (Array.isArray(schema.oneOf) && schema.oneOf.length > 0)
-    || (Array.isArray(schema.anyOf) && schema.anyOf.length > 0)
-    || (Array.isArray(schema.allOf) && schema.allOf.length > 0)
-  );
-}
-
-function isUnsupportedSchema(schema: JsonSchemaNode | undefined): boolean {
-  if (!schema) {
-    return true;
-  }
-  if (hasSchemaComposition(schema)) {
-    return true;
-  }
-  if (
-    schema.additionalProperties !== undefined
-    && schema.additionalProperties !== false
-  ) {
-    return true;
-  }
-
-  const type = schemaType(schema);
-  if (type === 'object') {
-    return schema.properties === undefined;
-  }
-  if (type === 'array') {
-    return schema.items === undefined;
-  }
-  return !['string', 'number', 'integer', 'boolean'].includes(type);
-}
-
-function unsupportedReason(schema: JsonSchemaNode | undefined): string {
-  if (!schema) {
-    return 'No schema available for this field.';
-  }
-  if (hasSchemaComposition(schema)) {
-    return 'Schema uses oneOf/anyOf/allOf composition.';
-  }
-  if (
-    schema.additionalProperties !== undefined
-    && schema.additionalProperties !== false
-  ) {
-    return 'Schema uses dynamic object keys (additionalProperties).';
-  }
-  const type = schemaType(schema);
-  if (type === 'object' && !schema.properties) {
-    return 'Object field has no explicit properties.';
-  }
-  if (type === 'array' && !schema.items) {
-    return 'Array field has no item schema.';
-  }
-  return `Unsupported schema type "${type || 'unknown'}".`;
-}
-
-function defaultFromSchema(schema: JsonSchemaNode | undefined): unknown {
-  if (!schema) {
-    return null;
-  }
-  if (Object.prototype.hasOwnProperty.call(schema, 'default')) {
-    return JSON.parse(JSON.stringify(schema.default)) as unknown;
-  }
-  if (Array.isArray(schema.enum) && schema.enum.length > 0) {
-    return JSON.parse(JSON.stringify(schema.enum[0])) as unknown;
-  }
-  const type = schemaType(schema);
-  if (type === 'object') {
-    const required = new Set(schema.required ?? []);
-    const value: Record<string, unknown> = {};
-    const properties = schema.properties ?? {};
-    for (const [key, propSchema] of Object.entries(properties)) {
-      if (isUnsupportedSchema(propSchema)) {
-        continue;
-      }
-      if (required.has(key) || Object.prototype.hasOwnProperty.call(propSchema, 'default')) {
-        value[key] = defaultFromSchema(propSchema);
-      }
-    }
-    return value;
-  }
-  if (type === 'array') {
-    return [];
-  }
-  if (type === 'boolean') {
-    return false;
-  }
-  if (type === 'number' || type === 'integer') {
-    return 0;
-  }
-  if (type === 'string') {
-    return '';
-  }
-  return null;
-}
-
-function pathToLabel(path: PathSegment[]): string {
-  if (path.length === 0) {
-    return '(root)';
-  }
-  return path
-    .map(segment => (typeof segment === 'number' ? `[${segment}]` : segment))
-    .join('.');
-}
-
-function pathToSuggestionKey(path: PathSegment[]): string {
-  return path
-    .map(segment => (typeof segment === 'number' ? '[]' : segment))
-    .join('.');
-}
-
-function formatFieldLabel(raw: string): string {
-  const spaced = raw
-    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/[_-]+/g, ' ');
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
-}
-
-function formatKindTitle(kind: string): string {
-  return kind.endsWith('s') ? kind : `${kind}s`;
-}
-
-function hasValueAtPath(root: unknown, path: PathSegment[]): boolean {
-  return getValueAtPath(root, path) !== undefined;
-}
-
-function isRequiredValueMissing(value: unknown): boolean {
-  if (value === undefined || value === null) {
-    return true;
-  }
-  if (typeof value === 'string') {
-    return value.trim().length === 0;
-  }
-  if (Array.isArray(value)) {
-    return value.length === 0;
-  }
-  return false;
-}
-
-function getValueAtPath(root: unknown, path: PathSegment[]): unknown {
-  let cursor: unknown = root;
-  for (const segment of path) {
-    if (typeof segment === 'number') {
-      if (!Array.isArray(cursor)) {
-        return undefined;
-      }
-      cursor = cursor[segment];
-      continue;
-    }
-    if (!isRecord(cursor)) {
-      return undefined;
-    }
-    cursor = cursor[segment];
-  }
-  return cursor;
-}
-
-function setValueAtPath(
-  resource: Record<string, unknown>,
-  path: PathSegment[],
-  value: unknown
-): Record<string, unknown> {
-  const clone = cloneResource(resource);
-  if (path.length === 0) {
-    return isRecord(value) ? cloneResource(value) : clone;
-  }
-
-  let cursor: unknown = clone;
-  for (let index = 0; index < path.length - 1; index += 1) {
-    const segment = path[index];
-    const nextSegment = path[index + 1];
-    if (typeof segment === 'number') {
-      if (!Array.isArray(cursor)) {
-        return clone;
-      }
-      const arr = cursor;
-      if (!isRecord(arr[segment]) && !Array.isArray(arr[segment])) {
-        arr[segment] = typeof nextSegment === 'number' ? [] : {};
-      }
-      cursor = arr[segment];
-      continue;
-    }
-
-    if (!isRecord(cursor)) {
-      return clone;
-    }
-    const nextValue = cursor[segment];
-    if (!isRecord(nextValue) && !Array.isArray(nextValue)) {
-      cursor[segment] = typeof nextSegment === 'number' ? [] : {};
-    }
-    cursor = cursor[segment];
-  }
-
-  const leaf = path[path.length - 1];
-  if (typeof leaf === 'number') {
-    if (!Array.isArray(cursor)) {
-      return clone;
-    }
-    cursor[leaf] = value;
-    return clone;
-  }
-
-  if (!isRecord(cursor)) {
-    return clone;
-  }
-  if (value === undefined) {
-    delete cursor[leaf];
-  } else {
-    cursor[leaf] = value;
-  }
-  return clone;
-}
-
-function removeArrayItemAtPath(
-  resource: Record<string, unknown>,
-  path: PathSegment[],
-  index: number
-): Record<string, unknown> {
-  const clone = cloneResource(resource);
-  const value = getValueAtPath(clone, path);
-  if (!Array.isArray(value)) {
-    return clone;
-  }
-  value.splice(index, 1);
-  return clone;
-}
-
-function addArrayItemAtPath(
-  resource: Record<string, unknown>,
-  path: PathSegment[],
-  item: unknown
-): Record<string, unknown> {
-  const clone = cloneResource(resource);
-  const value = getValueAtPath(clone, path);
-  if (Array.isArray(value)) {
-    value.push(item);
-    return clone;
-  }
-  return setValueAtPath(clone, path, [item]);
-}
-
-function normalizeStringMap(value: unknown): Record<string, string> {
-  if (!isRecord(value)) {
-    return {};
-  }
-  const output: Record<string, string> = {};
-  for (const [key, entryValue] of Object.entries(value)) {
-    if (typeof entryValue === 'string') {
-      output[key] = entryValue;
-    } else if (entryValue !== undefined && entryValue !== null) {
-      output[key] = String(entryValue);
-    }
-  }
-  return output;
-}
-
-interface UnsupportedFieldNoticeProps {
-  path: PathSegment[];
-  schema: JsonSchemaNode | undefined;
-}
-
-function UnsupportedFieldNotice({ path, schema }: Readonly<UnsupportedFieldNoticeProps>) {
-  return (
-    <Alert severity="info" icon={<InfoOutlinedIcon fontSize="inherit" />} sx={{ mt: 1 }}>
-      <Typography variant="body2" sx={{ fontWeight: 600 }}>
-        {pathToLabel(path)} is YAML-only.
-      </Typography>
-      <Typography variant="body2" color="text.secondary">
-        {unsupportedReason(schema)}
-      </Typography>
-    </Alert>
-  );
-}
-
-interface FieldTitleProps {
-  label: string;
-  description?: string;
-  required?: boolean;
-  requiredMissing?: boolean;
-}
-
-function FieldTitle({ label, description, required, requiredMissing }: Readonly<FieldTitleProps>) {
-  const missing = Boolean(required && requiredMissing);
-  return (
-    <Stack spacing={0.25} sx={{ mb: 1 }}>
-      <Typography variant="subtitle2" sx={{ fontWeight: 700, letterSpacing: 0.15 }}>
-        {label}
-        {' '}
-        <Typography
-          component="span"
-          variant="caption"
-          color={missing ? 'error.main' : 'text.secondary'}
-          sx={{ fontWeight: missing ? 700 : 500 }}
-        >
-          {required ? '(Required)' : '(Optional)'}
-        </Typography>
-      </Typography>
-      {description && (
-        <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.35 }}>
-          {description}
-        </Typography>
-      )}
-    </Stack>
-  );
-}
-
-interface OptionalFieldToggleProps {
-  label: string;
-  description?: string;
-  enabled: boolean;
-  onToggle: (enabled: boolean) => void;
-  children: ReactNode;
-}
-
-function OptionalFieldToggle({
-  label,
-  description,
-  enabled,
-  onToggle,
-  children
-}: Readonly<OptionalFieldToggleProps>) {
-  return (
-    <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, overflow: 'hidden' }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ px: 1.5, py: 1 }}>
-        <Stack spacing={0.25}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 700, letterSpacing: 0.15 }}>
-            {label}
-            {' '}
-            <Typography component="span" variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
-              (Optional)
-            </Typography>
-          </Typography>
-          {description && (
-            <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.35 }}>
-              {description}
-            </Typography>
-          )}
-        </Stack>
-        <Stack direction="row" spacing={0.25} alignItems="center">
-          <Switch size="small" checked={enabled} onChange={(event) => onToggle(event.target.checked)} />
-          <ExpandMoreIcon
-            fontSize="small"
-            color="action"
-            sx={{ transform: enabled ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 160ms ease' }}
-          />
-        </Stack>
-      </Stack>
-      <Collapse in={enabled}>
-        <Box sx={{ borderTop: 1, borderColor: 'divider', px: 1.5, py: 1.25 }}>
-          {children}
-        </Box>
-      </Collapse>
-    </Box>
-  );
-}
-
-interface KeyValueEditorProps {
-  label: string;
-  description?: string;
-  resource: Record<string, unknown>;
-  path: PathSegment[];
-  onResourceChange: (next: Record<string, unknown>) => void;
-}
-
-function KeyValueEditor({
-  label,
-  description,
-  resource,
-  path,
-  onResourceChange
-}: Readonly<KeyValueEditorProps>) {
-  const map = normalizeStringMap(getValueAtPath(resource, path));
-  const entries = Object.entries(map) as Array<[string, string]>;
-
-  const setEntries = useCallback((nextEntries: Array<[string, string]>) => {
-    const nextMap: Record<string, string> = {};
-    for (const [key, value] of nextEntries) {
-      const trimmedKey = key.trim();
-      if (trimmedKey.length > 0) {
-        nextMap[trimmedKey] = value;
-      }
-    }
-    const nextResource = setValueAtPath(
-      resource,
-      path,
-      Object.keys(nextMap).length > 0 ? nextMap : undefined
-    );
-    onResourceChange(nextResource);
-  }, [onResourceChange, path, resource]);
-
-  const updateEntry = useCallback((index: number, key: string, value: string) => {
-    const mutable: Array<[string, string]> = [...entries];
-    if (index < 0 || index >= mutable.length) {
-      return;
-    }
-    mutable[index] = [key, value];
-    setEntries(mutable);
-  }, [entries, setEntries]);
-
-  const addEntry = useCallback(() => {
-    const mutable: Array<[string, string]> = [...entries, [`key-${entries.length + 1}`, '']];
-    setEntries(mutable);
-  }, [entries, setEntries]);
-
-  const removeEntry = useCallback((index: number) => {
-    const mutable: Array<[string, string]> = [...entries];
-    if (index < 0 || index >= mutable.length) {
-      return;
-    }
-    mutable.splice(index, 1);
-    setEntries(mutable);
-  }, [entries, setEntries]);
-
-  return (
-    <Stack spacing={1}>
-      <FieldTitle label={label} description={description} />
-      <Stack spacing={1}>
-        {entries.map(([key, value], index) => (
-          <Stack key={`${key}-${index}`} direction="row" spacing={1} alignItems="center">
-            <TextField
-              size="small"
-              placeholder="Key"
-              value={key}
-              onChange={(event) => updateEntry(index, event.target.value, value)}
-              sx={{ flex: 1 }}
-            />
-            <TextField
-              size="small"
-              placeholder="Value"
-              value={value}
-              onChange={(event) => updateEntry(index, key, event.target.value)}
-              sx={{ flex: 1 }}
-            />
-            <Button
-              aria-label={`Delete ${label} entry`}
-              size="small"
-              color="error"
-              onClick={() => removeEntry(index)}
-            >
-              <DeleteOutlineIcon fontSize="small" />
-            </Button>
-          </Stack>
-        ))}
-        <Box>
-          <Button
-            variant="text"
-            size="small"
-            startIcon={<AddIcon fontSize="small" />}
-            onClick={addEntry}
-          >
-            Add Entry
-          </Button>
-        </Box>
-      </Stack>
-    </Stack>
-  );
-}
-
-interface SuggestiveTextFieldProps {
-  value: string;
-  onChange: (nextValue: string) => void;
-  options?: string[];
-  placeholder?: string;
-  error?: boolean;
-  helperText?: ReactNode;
-}
-
-function SuggestiveTextField({
-  value,
-  onChange,
-  options,
-  placeholder,
-  error,
-  helperText
-}: Readonly<SuggestiveTextFieldProps>) {
-  const normalizedOptions = useMemo(() => {
-    const bucket = new Set<string>();
-    for (const candidate of options ?? []) {
-      const normalized = String(candidate ?? '').trim();
-      if (normalized.length > 0) {
-        bucket.add(normalized);
-      }
-    }
-    const current = value.trim();
-    if (current.length > 0) {
-      bucket.add(current);
-    }
-    return Array.from(bucket).sort((left, right) => left.localeCompare(right));
-  }, [options, value]);
-
-  return (
-    <Autocomplete
-      freeSolo
-      openOnFocus
-      autoHighlight
-      options={normalizedOptions}
-      value={value}
-      inputValue={value}
-      onChange={(_event, nextValue) => {
-        const nextString = typeof nextValue === 'string'
-          ? nextValue
-          : String(nextValue ?? '');
-        onChange(nextString);
-      }}
-      onInputChange={(_event, nextInputValue, reason) => {
-        if (reason === 'input' || reason === 'clear') {
-          onChange(nextInputValue);
-        }
-      }}
-      renderInput={(params) => (
-        <TextField
-          {...params}
-          size="small"
-          fullWidth
-          placeholder={placeholder}
-          error={error}
-          helperText={helperText}
-        />
-      )}
-    />
-  );
-}
-
-interface PrimitiveFieldProps {
-  label: string;
-  path: PathSegment[];
-  schema: JsonSchemaNode;
-  required: boolean;
-  value: unknown;
-  suggestions?: string[];
-  compact?: boolean;
-  onChange: (next: unknown) => void;
-}
-
-function PrimitiveField({
-  label,
-  path,
-  schema,
-  required,
-  value,
-  suggestions,
-  compact,
-  onChange
-}: Readonly<PrimitiveFieldProps>) {
-  const type = schemaType(schema);
-  const enumValues = Array.isArray(schema.enum) ? schema.enum : [];
-  const requiredMissing = required && isRequiredValueMissing(value);
-  const enabled = Boolean(value);
-  const enumOptions = enumValues.map(item => String(item));
-  const textOptions = (() => {
-    const bucket = new Set<string>();
-    for (const option of suggestions ?? []) {
-      const normalized = String(option ?? '').trim();
-      if (normalized.length > 0) {
-        bucket.add(normalized);
-      }
-    }
-    for (const option of enumOptions) {
-      if (option.trim().length > 0) {
-        bucket.add(option);
-      }
-    }
-    return Array.from(bucket).sort((left, right) => left.localeCompare(right));
-  })();
-
-  if (type === 'boolean') {
-    if (compact) {
-      return (
-        <Switch
-          size="small"
-          checked={enabled}
-          onChange={(event) => onChange(event.target.checked)}
-        />
-      );
-    }
-    return (
-      <Stack spacing={0.75}>
-        <FieldTitle
-          label={label}
-          description={schema.description}
-          required={required}
-          requiredMissing={requiredMissing}
-        />
-        <FormControlLabel
-          control={<Switch checked={enabled} onChange={(event) => onChange(event.target.checked)} />}
-          label={enabled ? 'Enabled' : 'Disabled'}
-        />
-      </Stack>
-    );
-  }
-
-  if (type === 'number' || type === 'integer') {
-    const numericValue = typeof value === 'number' ? String(value) : '';
-    if (compact) {
-      return (
-        <TextField
-          size="small"
-          fullWidth
-          type="number"
-          value={numericValue}
-          onChange={(event) => {
-            const raw = event.target.value;
-            if (raw.trim().length === 0) {
-              onChange(undefined);
-              return;
-            }
-            const parsed = type === 'integer'
-              ? Number.parseInt(raw, 10)
-              : Number.parseFloat(raw);
-            if (!Number.isNaN(parsed)) {
-              onChange(parsed);
-            }
-          }}
-          inputProps={type === 'integer' ? { step: 1 } : { step: 'any' }}
-        />
-      );
-    }
-    return (
-      <Stack spacing={0.75}>
-        <FieldTitle
-          label={label}
-          description={schema.description}
-          required={required}
-          requiredMissing={requiredMissing}
-        />
-        <TextField
-          size="small"
-          fullWidth
-          type="number"
-          value={numericValue}
-          onChange={(event) => {
-            const raw = event.target.value;
-            if (raw.trim().length === 0) {
-              onChange(undefined);
-              return;
-            }
-            const parsed = type === 'integer'
-              ? Number.parseInt(raw, 10)
-              : Number.parseFloat(raw);
-            if (!Number.isNaN(parsed)) {
-              onChange(parsed);
-            }
-          }}
-          inputProps={type === 'integer' ? { step: 1 } : { step: 'any' }}
-        />
-      </Stack>
-    );
-  }
-
-  const stringValue = value === undefined || value === null ? '' : String(value);
-  if (compact) {
-    return (
-      <SuggestiveTextField
-        value={stringValue}
-        onChange={(nextValue) => onChange(nextValue)}
-        options={textOptions}
-      />
-    );
-  }
-  return (
-    <Stack spacing={0.75}>
-      <FieldTitle
-        label={label}
-        description={schema.description}
-        required={required}
-        requiredMissing={requiredMissing}
-      />
-      <SuggestiveTextField
-        value={stringValue}
-        onChange={(nextValue) => onChange(nextValue)}
-        options={textOptions}
-        helperText={required && stringValue.trim().length === 0 ? `${pathToLabel(path)} is required` : undefined}
-        error={required && stringValue.trim().length === 0}
-      />
-    </Stack>
-  );
-}
-
-interface SchemaFieldRendererProps {
-  resource: Record<string, unknown>;
-  schema: JsonSchemaNode | undefined;
-  path: PathSegment[];
-  label: string;
-  required: boolean;
-  depth: number;
-  suggestions?: Record<string, string[]>;
-  onResourceChange: (next: Record<string, unknown>) => void;
-}
-
-function SchemaFieldRenderer({
-  resource,
-  schema,
-  path,
-  label,
-  required,
-  depth,
-  suggestions,
-  onResourceChange
-}: Readonly<SchemaFieldRendererProps>) {
-  if (depth > MAX_RENDER_DEPTH) {
-    return <UnsupportedFieldNotice path={path} schema={schema} />;
-  }
-  if (isUnsupportedSchema(schema)) {
-    return <UnsupportedFieldNotice path={path} schema={schema} />;
-  }
-  if (!schema) {
-    return null;
-  }
-
-  const type = schemaType(schema);
-  const currentValue = getValueAtPath(resource, path);
-
-  if (type === 'object') {
-    const properties = schema.properties ?? {};
-    const requiredSet = new Set(schema.required ?? []);
-    const keys = Object.keys(properties).sort((left, right) => {
-      const leftPriority = requiredSet.has(left) ? 0 : 1;
-      const rightPriority = requiredSet.has(right) ? 0 : 1;
-      if (leftPriority !== rightPriority) {
-        return leftPriority - rightPriority;
-      }
-      return left.localeCompare(right);
-    });
-    const requiredKeys = keys.filter(key => requiredSet.has(key));
-    const optionalKeys = keys.filter(key => !requiredSet.has(key));
-
-    const objectValue = isRecord(currentValue) ? currentValue : {};
-    const nextResource = objectValue === currentValue
-      ? resource
-      : setValueAtPath(resource, path, objectValue);
-
-    return (
-      <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5 }}>
-        <FieldTitle label={label} description={schema.description} required={required} />
-        <Stack spacing={1.25}>
-          {requiredKeys.map(key => (
-            <SchemaFieldRenderer
-              key={`${pathToLabel(path)}.${key}`}
-              resource={nextResource}
-              schema={properties[key]}
-              path={[...path, key]}
-              label={key}
-              required
-              depth={depth + 1}
-              suggestions={suggestions}
-              onResourceChange={onResourceChange}
-            />
-          ))}
-          {optionalKeys.map(key => {
-            const fieldPath = [...path, key];
-            const enabled = hasValueAtPath(nextResource, fieldPath);
-            const propertySchema = properties[key];
-            return (
-              <OptionalFieldToggle
-                key={`${pathToLabel(path)}.${key}.optional`}
-                label={key}
-                description={propertySchema?.description}
-                enabled={enabled}
-                onToggle={(nextEnabled) => {
-                  const nextValue = nextEnabled ? defaultFromSchema(propertySchema) : undefined;
-                  onResourceChange(setValueAtPath(nextResource, fieldPath, nextValue));
-                }}
-              >
-                <SchemaFieldRenderer
-                  resource={nextResource}
-                  schema={propertySchema}
-                  path={fieldPath}
-                  label={key}
-                  required={false}
-                  depth={depth + 1}
-                  suggestions={suggestions}
-                  onResourceChange={onResourceChange}
-                />
-              </OptionalFieldToggle>
-            );
-          })}
-          {keys.length === 0 && (
-            <Typography variant="body2" color="text.secondary">
-              No form fields are available for this object.
-            </Typography>
-          )}
-        </Stack>
-      </Box>
-    );
-  }
-
-  if (type === 'array') {
-    const itemsSchema = schema.items;
-    if (!itemsSchema) {
-      return <UnsupportedFieldNotice path={path} schema={schema} />;
-    }
-    const itemType = schemaType(itemsSchema);
-    const isPrimitiveArray = isPrimitiveSchemaType(itemType);
-    const arrayValue = Array.isArray(currentValue) ? currentValue : [];
-    const workingResource = Array.isArray(currentValue)
-      ? resource
-      : setValueAtPath(resource, path, arrayValue);
-    const addLabel = schemaFormat(schema) === 'labelselector' ? 'Add a Label Selector' : 'Add Item';
-
-    if (isPrimitiveArray) {
-      return (
-        <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5 }}>
-          <FieldTitle label={label} description={schema.description} required={required} />
-          <Stack spacing={0.75}>
-            {arrayValue.map((_entry, index) => (
-              <Stack key={`${pathToLabel(path)}[${index}]`} direction="row" spacing={0.75} alignItems="center">
-                <IconButton
-                  size="small"
-                  color="error"
-                  aria-label={`Remove ${label} item ${index + 1}`}
-                  onClick={() => onResourceChange(removeArrayItemAtPath(workingResource, path, index))}
-                  sx={{ p: 0.25 }}
-                >
-                  <DeleteOutlineIcon fontSize="small" />
-                </IconButton>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <PrimitiveField
-                    label={`${label}[${index}]`}
-                    path={[...path, index]}
-                    schema={itemsSchema}
-                    required={false}
-                    value={arrayValue[index]}
-                    suggestions={suggestions?.[pathToSuggestionKey([...path, index])]}
-                    compact
-                    onChange={(nextValue) => onResourceChange(
-                      setValueAtPath(workingResource, [...path, index], nextValue)
-                    )}
-                  />
-                </Box>
-              </Stack>
-            ))}
-            <Box>
-              <Button
-                variant="text"
-                size="small"
-                startIcon={<AddIcon fontSize="small" />}
-                onClick={() => onResourceChange(
-                  addArrayItemAtPath(
-                    workingResource,
-                    path,
-                    defaultFromSchema(itemsSchema)
-                  )
-                )}
-              >
-                {addLabel}
-              </Button>
-            </Box>
-          </Stack>
-        </Box>
-      );
-    }
-
-    return (
-      <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1.5 }}>
-        <FieldTitle label={label} description={schema.description} required={required} />
-        <Stack spacing={1.25}>
-          {arrayValue.map((entry, index) => (
-            <Card key={`${pathToLabel(path)}[${index}]`} variant="outlined" sx={{ borderStyle: 'dashed' }}>
-              <CardContent sx={{ p: 1.25, '&:last-child': { pb: 1.25 } }}>
-                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-                  <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                    Item {index + 1}
-                  </Typography>
-                  <Button
-                    color="error"
-                    size="small"
-                    startIcon={<DeleteOutlineIcon fontSize="small" />}
-                    onClick={() => onResourceChange(removeArrayItemAtPath(workingResource, path, index))}
-                  >
-                    Remove
-                  </Button>
-                </Stack>
-                <SchemaFieldRenderer
-                  resource={workingResource}
-                  schema={itemsSchema}
-                  path={[...path, index]}
-                  label={`${label}[${index}]`}
-                  required={false}
-                  depth={depth + 1}
-                  suggestions={suggestions}
-                  onResourceChange={onResourceChange}
-                />
-                {entry === undefined && (
-                  <Typography variant="caption" color="text.secondary">
-                    Empty item
-                  </Typography>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-          <Box>
-            <Button
-              variant="text"
-              size="small"
-              startIcon={<AddIcon fontSize="small" />}
-              onClick={() => onResourceChange(
-                addArrayItemAtPath(
-                  workingResource,
-                  path,
-                  defaultFromSchema(itemsSchema)
-                )
-              )}
-            >
-              {addLabel}
-            </Button>
-          </Box>
-        </Stack>
-      </Box>
-    );
-  }
-
-  return (
-    <PrimitiveField
-      label={label}
-      path={path}
-      schema={schema}
-      required={required}
-      value={currentValue}
-      suggestions={suggestions?.[pathToSuggestionKey(path)]}
-      onChange={(nextValue) => onResourceChange(setValueAtPath(resource, path, nextValue))}
-    />
-  );
-}
+type ResourceModel = Record<string, unknown>;
 
 interface OutlineEntry {
   id: string;
@@ -1010,12 +56,656 @@ interface OutlineEntry {
   label: string;
 }
 
+interface SpecFieldState {
+  specSchema: JsonSchemaNode | undefined;
+  specProperties: Record<string, JsonSchemaNode | undefined>;
+  specKeys: string[];
+  requiredSpecKeys: string[];
+  optionalSpecKeys: string[];
+}
+
+interface HostMessageHandlers {
+  onInit: (message: Extract<ResourceCreatePanelToWebviewMessage, { command: 'init' }>) => void;
+  onSuggestions: (message: Extract<ResourceCreatePanelToWebviewMessage, { command: 'suggestions' }>) => void;
+  onYamlModel: (message: Extract<ResourceCreatePanelToWebviewMessage, { command: 'yamlModel' }>) => void;
+  onYamlError: (message: Extract<ResourceCreatePanelToWebviewMessage, { command: 'yamlError' }>) => void;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function withCurrentOption(options: string[], currentValue: string): string[] {
+  const current = currentValue.trim();
+  if (current.length === 0 || options.includes(current)) {
+    return options;
+  }
+  return [...options, current].sort((left, right) => left.localeCompare(right));
+}
+
+function buildNamespaceOptions(
+  fieldSuggestions: Record<string, string[]>,
+  suggestionNamespaces: string[],
+  namespaceValue: string
+): string[] {
+  const options = new Set<string>([
+    ...(fieldSuggestions['metadata.namespace'] ?? []),
+    ...suggestionNamespaces
+  ]);
+  const current = namespaceValue.trim();
+  if (current.length > 0) {
+    options.add(current);
+  }
+  return Array.from(options).sort((left, right) => left.localeCompare(right));
+}
+
+function sortKeysByRequired(
+  properties: Record<string, JsonSchemaNode | undefined>,
+  requiredSet: Set<string>
+): string[] {
+  return Object.keys(properties).sort((left, right) => {
+    const leftPriority = requiredSet.has(left) ? 0 : 1;
+    const rightPriority = requiredSet.has(right) ? 0 : 1;
+    if (leftPriority !== rightPriority) {
+      return leftPriority - rightPriority;
+    }
+    return left.localeCompare(right);
+  });
+}
+
+function deriveSpecFieldState(specSchema: JsonSchemaNode | undefined): SpecFieldState {
+  const specProperties = specSchema?.properties ?? {};
+  const requiredSet = new Set(specSchema?.required ?? []);
+  const specKeys = sortKeysByRequired(specProperties, requiredSet);
+  return {
+    specSchema,
+    specProperties,
+    specKeys,
+    requiredSpecKeys: specKeys.filter(key => requiredSet.has(key)),
+    optionalSpecKeys: specKeys.filter(key => !requiredSet.has(key))
+  };
+}
+
+function buildOutlineEntries(isNamespaced: boolean, specKeys: string[]): OutlineEntry[] {
+  const metadataEntries: OutlineEntry[] = [
+    { id: 'metadata-name', section: 'Metadata', label: 'Name' },
+    ...(isNamespaced ? [{ id: 'metadata-namespace', section: 'Metadata' as const, label: 'Namespace' }] : []),
+    { id: 'metadata-labels', section: 'Metadata', label: 'Labels' },
+    { id: 'metadata-annotations', section: 'Metadata', label: 'Annotations' }
+  ];
+  const specEntries: OutlineEntry[] = specKeys.map(key => ({
+    id: `spec-${key}`,
+    section: 'Specification',
+    label: formatFieldLabel(key)
+  }));
+  return [...metadataEntries, ...specEntries];
+}
+
+function filterOutlineEntries(entries: OutlineEntry[], filterValue: string): OutlineEntry[] {
+  const filter = filterValue.trim().toLowerCase();
+  if (filter.length === 0) {
+    return entries;
+  }
+  return entries.filter(entry => entry.label.toLowerCase().includes(filter));
+}
+
+function dispatchHostMessage(message: ResourceCreatePanelToWebviewMessage, handlers: HostMessageHandlers): void {
+  switch (message.command) {
+    case 'init':
+      handlers.onInit(message);
+      return;
+    case 'suggestions':
+      handlers.onSuggestions(message);
+      return;
+    case 'yamlModel':
+      handlers.onYamlModel(message);
+      return;
+    case 'yamlError':
+      handlers.onYamlError(message);
+      return;
+    default:
+      return;
+  }
+}
+
+interface OutlineSectionProps {
+  title: string;
+  entries: OutlineEntry[];
+  hoverHighlight: string;
+  onSelect: (id: string) => void;
+  emptyLabel?: string;
+}
+
+function OutlineSection({
+  title,
+  entries,
+  hoverHighlight,
+  onSelect,
+  emptyLabel
+}: Readonly<OutlineSectionProps>) {
+  return (
+    <Box>
+      <Stack direction="row" alignItems="center" spacing={0.5} sx={{ px: 0.75 }}>
+        <ExpandMoreIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+        <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+          {title}
+        </Typography>
+      </Stack>
+      <Stack spacing={0.2} sx={{ mt: 0.4 }}>
+        {entries.map(entry => (
+          <Button
+            key={entry.id}
+            size="small"
+            color="inherit"
+            onClick={() => onSelect(entry.id)}
+            sx={{
+              justifyContent: 'flex-start',
+              px: 3,
+              py: 0.35,
+              minHeight: 28,
+              textTransform: 'none',
+              color: 'text.primary',
+              borderRadius: 0.75,
+              fontWeight: 500,
+              '&:hover': {
+                bgcolor: hoverHighlight
+              }
+            }}
+          >
+            {entry.label}
+          </Button>
+        ))}
+        {emptyLabel && entries.length === 0 && (
+          <Typography variant="body2" color="text.secondary" sx={{ px: 3, py: 0.6 }}>
+            {emptyLabel}
+          </Typography>
+        )}
+      </Stack>
+    </Box>
+  );
+}
+
+interface OutlinePaneProps {
+  collapsed: boolean;
+  outlineFilter: string;
+  onOutlineFilterChange: (value: string) => void;
+  onSelectEntry: (id: string) => void;
+  metadataEntries: OutlineEntry[];
+  specEntries: OutlineEntry[];
+  hoverHighlight: string;
+  surfaceBorder: string;
+  kind: string;
+}
+
+function OutlinePane({
+  collapsed,
+  outlineFilter,
+  onOutlineFilterChange,
+  onSelectEntry,
+  metadataEntries,
+  specEntries,
+  hoverHighlight,
+  surfaceBorder,
+  kind
+}: Readonly<OutlinePaneProps>) {
+  const outlineWidth = collapsed ? 40 : 212;
+  return (
+    <Box
+      sx={{
+        width: outlineWidth,
+        flexShrink: 0,
+        borderRight: 1,
+        borderColor: surfaceBorder,
+        bgcolor: (theme) => alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.38 : 0.62),
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: '100%',
+        transition: 'width 180ms ease'
+      }}
+    >
+      {!collapsed && (
+        <>
+          <Box sx={{ px: 2.5, py: 1.4, borderBottom: 1, borderColor: surfaceBorder }}>
+            <Typography variant="h6" sx={{ fontWeight: 500, letterSpacing: 0.1 }}>
+              {formatKindTitle(kind)}
+            </Typography>
+          </Box>
+          <Box sx={{ px: 2, py: 1.2, borderBottom: 1, borderColor: surfaceBorder }}>
+            <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: 1 }}>
+              <AccountTreeOutlinedIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                Outline
+              </Typography>
+            </Stack>
+            <TextField
+              size="small"
+              fullWidth
+              placeholder="Search"
+              value={outlineFilter}
+              onChange={(event) => onOutlineFilterChange(event.target.value)}
+              sx={{
+                '& .MuiOutlinedInput-root': {
+                  height: 32
+                }
+              }}
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" />
+                    </InputAdornment>
+                  )
+                }
+              }}
+            />
+          </Box>
+          <Box sx={{ px: 1.25, py: 1, overflowY: 'auto', flex: 1 }}>
+            <Stack spacing={1.5}>
+              <OutlineSection
+                title="Metadata"
+                entries={metadataEntries}
+                hoverHighlight={hoverHighlight}
+                onSelect={onSelectEntry}
+              />
+              <OutlineSection
+                title="Specification"
+                entries={specEntries}
+                hoverHighlight={hoverHighlight}
+                onSelect={onSelectEntry}
+                emptyLabel="No fields"
+              />
+            </Stack>
+          </Box>
+        </>
+      )}
+    </Box>
+  );
+}
+
+interface MetadataSectionProps {
+  resource: ResourceModel;
+  setResource: (next: ResourceModel) => void;
+  kind: string;
+  isNamespaced: boolean;
+  nameValue: string;
+  namespaceValue: string;
+  metadataNameOptions: string[];
+  namespaceOptions: string[];
+  labelsEnabled: boolean;
+  annotationsEnabled: boolean;
+}
+
+function MetadataSection({
+  resource,
+  setResource,
+  kind,
+  isNamespaced,
+  nameValue,
+  namespaceValue,
+  metadataNameOptions,
+  namespaceOptions,
+  labelsEnabled,
+  annotationsEnabled
+}: Readonly<MetadataSectionProps>) {
+  return (
+    <Box
+      id="section-metadata"
+      sx={{ px: { xs: 1.5, md: 2.8 }, py: { xs: 1.4, md: 2 }, borderBottom: 1, borderColor: 'divider' }}
+    >
+      <Typography variant="h5" sx={{ fontWeight: 700, mb: 1.75 }}>
+        Metadata
+      </Typography>
+      <Stack spacing={1.5}>
+        <Box id="metadata-name">
+          <FieldTitle label="Name" required requiredMissing={nameValue.trim().length === 0} />
+          <SuggestiveTextField
+            placeholder={`Enter ${kind.toLowerCase()} name`}
+            value={nameValue}
+            onChange={(nextValue) => setResource(setValueAtPath(resource, ['metadata', 'name'], nextValue))}
+            options={metadataNameOptions}
+            error={nameValue.trim().length === 0}
+            helperText={nameValue.trim().length === 0 ? 'Name is required' : undefined}
+          />
+        </Box>
+        {isNamespaced && (
+          <Box id="metadata-namespace">
+            <FieldTitle label="Namespace" required requiredMissing={namespaceValue.trim().length === 0} />
+            <SuggestiveTextField
+              placeholder="eda"
+              value={namespaceValue}
+              onChange={(nextValue) => setResource(setValueAtPath(resource, ['metadata', 'namespace'], nextValue))}
+              options={namespaceOptions}
+              error={namespaceValue.trim().length === 0}
+              helperText={namespaceValue.trim().length === 0 ? 'Namespace is required for this resource kind' : undefined}
+            />
+          </Box>
+        )}
+        <Box id="metadata-labels">
+          <OptionalFieldToggle
+            label="Labels"
+            description="Optional labels to classify the resource."
+            enabled={labelsEnabled}
+            onToggle={(enabled) => {
+              setResource(setValueAtPath(resource, ['metadata', 'labels'], enabled ? {} : undefined));
+            }}
+          >
+            <KeyValueEditor
+              label="Labels"
+              description="Provide one or more key/value labels."
+              resource={resource}
+              path={['metadata', 'labels']}
+              onResourceChange={setResource}
+            />
+          </OptionalFieldToggle>
+        </Box>
+        <Box id="metadata-annotations">
+          <OptionalFieldToggle
+            label="Annotations"
+            description="Optional annotations for non-identifying metadata."
+            enabled={annotationsEnabled}
+            onToggle={(enabled) => {
+              setResource(setValueAtPath(resource, ['metadata', 'annotations'], enabled ? {} : undefined));
+            }}
+          >
+            <KeyValueEditor
+              label="Annotations"
+              description="Provide one or more key/value annotations."
+              resource={resource}
+              path={['metadata', 'annotations']}
+              onResourceChange={setResource}
+            />
+          </OptionalFieldToggle>
+        </Box>
+      </Stack>
+    </Box>
+  );
+}
+
+interface SpecSectionProps {
+  resource: ResourceModel;
+  setResource: (next: ResourceModel) => void;
+  fieldSuggestions: Record<string, string[]>;
+  specFieldState: SpecFieldState;
+}
+
+function SpecSection({
+  resource,
+  setResource,
+  fieldSuggestions,
+  specFieldState
+}: Readonly<SpecSectionProps>) {
+  const {
+    specSchema,
+    specProperties,
+    specKeys,
+    requiredSpecKeys,
+    optionalSpecKeys
+  } = specFieldState;
+
+  return (
+    <Box id="section-spec" sx={{ px: { xs: 1.5, md: 2.8 }, py: { xs: 1.5, md: 2 } }}>
+      <Typography variant="h5" sx={{ fontWeight: 700, mb: 1.2 }}>
+        Specification
+      </Typography>
+      {specSchema?.description && (
+        <Typography variant="body1" color="text.secondary" sx={{ mb: 1.8, maxWidth: 900 }}>
+          {specSchema.description}
+        </Typography>
+      )}
+      {specSchema ? (
+        <Stack spacing={1.5}>
+          {requiredSpecKeys.map(key => (
+            <Box key={`spec-required-${key}`} id={`spec-${key}`}>
+              <SchemaFieldRenderer
+                resource={resource}
+                schema={specProperties[key]}
+                path={['spec', key]}
+                label={formatFieldLabel(key)}
+                required
+                depth={1}
+                suggestions={fieldSuggestions}
+                onResourceChange={setResource}
+              />
+            </Box>
+          ))}
+          {optionalSpecKeys.map(key => {
+            const fieldPath: PathSegment[] = ['spec', key];
+            const fieldSchema = specProperties[key];
+            return (
+              <Box key={`spec-optional-${key}`} id={`spec-${key}`}>
+                <OptionalFieldToggle
+                  label={formatFieldLabel(key)}
+                  description={fieldSchema?.description}
+                  enabled={hasValueAtPath(resource, fieldPath)}
+                  onToggle={(enabled) => {
+                    const nextValue = enabled ? defaultFromSchema(fieldSchema) : undefined;
+                    setResource(setValueAtPath(resource, fieldPath, nextValue));
+                  }}
+                >
+                  <SchemaFieldRenderer
+                    resource={resource}
+                    schema={fieldSchema}
+                    path={fieldPath}
+                    label={formatFieldLabel(key)}
+                    required={false}
+                    depth={1}
+                    suggestions={fieldSuggestions}
+                    onResourceChange={setResource}
+                  />
+                </OptionalFieldToggle>
+              </Box>
+            );
+          })}
+          {specKeys.length === 0 && (
+            <Typography variant="body2" color="text.secondary">
+              No schema fields are available for spec.
+            </Typography>
+          )}
+        </Stack>
+      ) : (
+        <Alert severity="info" icon={<InfoOutlinedIcon fontSize="inherit" />}>
+          No schema is available for spec fields. Continue editing on the YAML side.
+        </Alert>
+      )}
+    </Box>
+  );
+}
+
+interface ActionBarProps {
+  disabled: boolean;
+  onAction: (action: 'commit' | 'dryRun' | 'basket') => void;
+}
+
+function ActionBar({ disabled, onAction }: Readonly<ActionBarProps>) {
+  return (
+    <Box
+      sx={{
+        mt: 'auto',
+        px: { xs: 1.5, md: 2.8 },
+        py: 1,
+        borderTop: 1,
+        borderColor: 'divider',
+        position: 'sticky',
+        bottom: 0,
+        bgcolor: (theme) => alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.72 : 0.92),
+        display: 'flex',
+        justifyContent: 'flex-end',
+        gap: 0.5
+      }}
+    >
+      <Tooltip title="Add To Basket">
+        <span>
+          <IconButton size="small" color="inherit" disabled={disabled} onClick={() => onAction('basket')}>
+            <ShoppingBasketOutlinedIcon fontSize="small" />
+          </IconButton>
+        </span>
+      </Tooltip>
+      <Tooltip title="Dry Run">
+        <span>
+          <IconButton size="small" color="inherit" disabled={disabled} onClick={() => onAction('dryRun')}>
+            <FactCheckOutlinedIcon fontSize="small" />
+          </IconButton>
+        </span>
+      </Tooltip>
+      <Tooltip title="Commit">
+        <span>
+          <IconButton size="small" color="inherit" disabled={disabled} onClick={() => onAction('commit')}>
+            <PlayArrowOutlinedIcon fontSize="small" />
+          </IconButton>
+        </span>
+      </Tooltip>
+    </Box>
+  );
+}
+
+interface EditorPaneProps {
+  collapsed: boolean;
+  surfaceBorder: string;
+  yamlError: string | null;
+  onToggleCollapsed: () => void;
+  onAction: (action: 'commit' | 'dryRun' | 'basket') => void;
+  metadataSection: ReactNode;
+  specSection: ReactNode;
+}
+
+function EditorPane({
+  collapsed,
+  surfaceBorder,
+  yamlError,
+  onToggleCollapsed,
+  onAction,
+  metadataSection,
+  specSection
+}: Readonly<EditorPaneProps>) {
+  return (
+    <Box sx={{ flex: 1, minWidth: 0, overflowY: 'auto', position: 'relative' }}>
+      <IconButton
+        size="small"
+        onClick={onToggleCollapsed}
+        sx={{
+          position: 'absolute',
+          left: -10,
+          top: '50%',
+          transform: 'translateY(-50%)',
+          zIndex: 5,
+          bgcolor: (theme) => alpha(theme.palette.primary.main, 0.3),
+          border: 1,
+          borderColor: surfaceBorder
+        }}
+      >
+        {collapsed ? <ChevronRightIcon sx={{ fontSize: 16 }} /> : <ChevronLeftIcon sx={{ fontSize: 16 }} />}
+      </IconButton>
+      <Box sx={{ p: { xs: 0.75, md: 1.5 }, minHeight: '100%' }}>
+        <Box
+          sx={{
+            bgcolor: (theme) => alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.28 : 0.76),
+            minHeight: '100%',
+            display: 'flex',
+            flexDirection: 'column'
+          }}
+        >
+          {yamlError && (
+            <Alert
+              severity="warning"
+              icon={<WarningAmberIcon fontSize="inherit" />}
+              sx={{ borderRadius: 0, borderBottom: 1, borderColor: surfaceBorder }}
+            >
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                YAML is currently invalid.
+              </Typography>
+              <Typography variant="body2">
+                {yamlError}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Form values are frozen until YAML becomes valid again.
+              </Typography>
+            </Alert>
+          )}
+          <Box
+            sx={{
+              ...(yamlError ? { opacity: 0.7, pointerEvents: 'none' } : undefined),
+              display: 'flex',
+              flexDirection: 'column',
+              minHeight: '100%'
+            }}
+          >
+            {metadataSection}
+            {specSection}
+            <ActionBar disabled={Boolean(yamlError)} onAction={onAction} />
+          </Box>
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
+interface PanelLayoutProps {
+  collapsed: boolean;
+  outlineFilter: string;
+  onOutlineFilterChange: (value: string) => void;
+  onSelectEntry: (id: string) => void;
+  metadataOutline: OutlineEntry[];
+  specOutline: OutlineEntry[];
+  hoverHighlight: string;
+  surfaceBorder: string;
+  kind: string;
+  yamlError: string | null;
+  onToggleCollapsed: () => void;
+  onAction: (action: 'commit' | 'dryRun' | 'basket') => void;
+  metadataSection: ReactNode;
+  specSection: ReactNode;
+}
+
+function PanelLayout({
+  collapsed,
+  outlineFilter,
+  onOutlineFilterChange,
+  onSelectEntry,
+  metadataOutline,
+  specOutline,
+  hoverHighlight,
+  surfaceBorder,
+  kind,
+  yamlError,
+  onToggleCollapsed,
+  onAction,
+  metadataSection,
+  specSection
+}: Readonly<PanelLayoutProps>) {
+  return (
+    <Box sx={{ height: '100vh', bgcolor: 'background.default' }}>
+      <Stack direction="row" sx={{ height: '100%', minWidth: 0 }}>
+        <OutlinePane
+          collapsed={collapsed}
+          outlineFilter={outlineFilter}
+          onOutlineFilterChange={onOutlineFilterChange}
+          onSelectEntry={onSelectEntry}
+          metadataEntries={metadataOutline}
+          specEntries={specOutline}
+          hoverHighlight={hoverHighlight}
+          surfaceBorder={surfaceBorder}
+          kind={kind}
+        />
+        <EditorPane
+          collapsed={collapsed}
+          surfaceBorder={surfaceBorder}
+          yamlError={yamlError}
+          onToggleCollapsed={onToggleCollapsed}
+          onAction={onAction}
+          metadataSection={metadataSection}
+          specSection={specSection}
+        />
+      </Stack>
+    </Box>
+  );
+}
+
 function ResourceCreatePanelView() {
   const theme = useTheme();
   const postMessage = usePostMessage<ResourceCreateWebviewMessage>();
   const [crd, setCrd] = useState<EdaCrd | null>(null);
   const [schema, setSchema] = useState<JsonSchemaNode | null>(null);
-  const [resource, setResource] = useState<Record<string, unknown> | null>(null);
+  const [resource, setResource] = useState<ResourceModel | null>(null);
   const [suggestions, setSuggestions] = useState<ResourceValueSuggestions>({ namespaces: [], fields: {} });
   const [yamlError, setYamlError] = useState<string | null>(null);
   const [outlineFilter, setOutlineFilter] = useState('');
@@ -1026,39 +716,38 @@ function ResourceCreatePanelView() {
 
   useReadySignal();
 
-  const setResourceFromHost = useCallback((nextResource: Record<string, unknown>) => {
+  const setResourceFromHost = useCallback((nextResource: ResourceModel) => {
     suppressPostRef.current = true;
     setResource(nextResource);
   }, []);
 
+  const onHostInit = useCallback((message: Extract<ResourceCreatePanelToWebviewMessage, { command: 'init' }>) => {
+    setCrd(message.crd);
+    setSchema(message.schema);
+    setSuggestions(message.suggestions);
+    setYamlError(null);
+    setResourceFromHost(message.resource);
+    const initMetadata = isRecord(message.resource.metadata) ? message.resource.metadata : {};
+    lastRequestedNamespaceRef.current = typeof initMetadata.namespace === 'string' ? initMetadata.namespace.trim() : '';
+    initializedRef.current = true;
+  }, [setResourceFromHost]);
+
   useMessageListener<ResourceCreatePanelToWebviewMessage>(useCallback((message) => {
-    if (message.command === 'init') {
-      setCrd(message.crd);
-      setSchema(message.schema);
-      setSuggestions(message.suggestions);
-      setYamlError(null);
-      setResourceFromHost(message.resource);
-      const initMetadata = isRecord(message.resource.metadata) ? message.resource.metadata : {};
-      lastRequestedNamespaceRef.current = typeof initMetadata.namespace === 'string' ? initMetadata.namespace.trim() : '';
-      initializedRef.current = true;
-      return;
-    }
-    if (message.command === 'suggestions') {
-      setSuggestions(message.suggestions);
-      return;
-    }
-    if (message.command === 'yamlModel') {
-      setYamlError(null);
-      setResourceFromHost(message.resource);
-      return;
-    }
-    if (message.command === 'yamlError') {
-      setYamlError(message.error);
-    }
-  }, [setResourceFromHost]));
+    dispatchHostMessage(message, {
+      onInit: onHostInit,
+      onSuggestions: next => setSuggestions(next.suggestions),
+      onYamlModel: next => {
+        setYamlError(null);
+        setResourceFromHost(next.resource);
+      },
+      onYamlError: next => setYamlError(next.error)
+    });
+  }, [onHostInit, setResourceFromHost]));
 
   useEffect(() => {
-    if (!initializedRef.current || !resource || yamlError) return;
+    if (!initializedRef.current || !resource || yamlError) {
+      return;
+    }
     if (suppressPostRef.current) {
       suppressPostRef.current = false;
       return;
@@ -1067,110 +756,20 @@ function ResourceCreatePanelView() {
   }, [postMessage, resource, yamlError]);
 
   useEffect(() => {
-    if (!initializedRef.current || !resource || yamlError) return;
-    const metadataValue = isRecord(resource.metadata) ? resource.metadata : {};
-    const selectedNamespace = typeof metadataValue.namespace === 'string' ? metadataValue.namespace.trim() : '';
-    if (lastRequestedNamespaceRef.current === selectedNamespace) return;
+    if (!initializedRef.current || !resource || yamlError) {
+      return;
+    }
+    const metadata = isRecord(resource.metadata) ? resource.metadata : {};
+    const selectedNamespace = typeof metadata.namespace === 'string' ? metadata.namespace.trim() : '';
+    if (lastRequestedNamespaceRef.current === selectedNamespace) {
+      return;
+    }
     const timeoutHandle = window.setTimeout(() => {
       lastRequestedNamespaceRef.current = selectedNamespace;
       postMessage({ command: 'refreshSuggestions', resource });
     }, 220);
     return () => window.clearTimeout(timeoutHandle);
   }, [postMessage, resource, yamlError]);
-
-  const metadata = useMemo(() => {
-    if (!resource) {
-      return {};
-    }
-    const currentMetadata = resource.metadata;
-    return isRecord(currentMetadata) ? currentMetadata : {};
-  }, [resource]);
-
-  const nameValue = typeof metadata.name === 'string' ? metadata.name : '';
-  const namespaceValue = typeof metadata.namespace === 'string' ? metadata.namespace : '';
-  const fieldSuggestions = suggestions.fields;
-  const metadataNameOptions = useMemo(() => {
-    const options = fieldSuggestions['metadata.name'] ?? [];
-    const current = nameValue.trim();
-    if (current.length === 0 || options.includes(current)) {
-      return options;
-    }
-    return [...options, current].sort((left, right) => left.localeCompare(right));
-  }, [fieldSuggestions, nameValue]);
-  const namespaceOptions = useMemo(() => {
-    const options = new Set<string>([
-      ...(fieldSuggestions['metadata.namespace'] ?? []),
-      ...suggestions.namespaces
-    ]);
-    const current = namespaceValue.trim();
-    if (current.length > 0) {
-      options.add(current);
-    }
-    return Array.from(options).sort((left, right) => left.localeCompare(right));
-  }, [fieldSuggestions, namespaceValue, suggestions.namespaces]);
-  const labelsEnabled = hasValueAtPath(resource, ['metadata', 'labels']);
-  const annotationsEnabled = hasValueAtPath(resource, ['metadata', 'annotations']);
-  const isNamespaced = crd?.namespaced ?? false;
-
-  const specSchema = schema?.properties?.spec;
-  const {
-    specProperties,
-    specKeys,
-    requiredSpecKeys,
-    optionalSpecKeys
-  } = useMemo(() => {
-    const nextSpecProperties = specSchema?.properties ?? {};
-    const nextSpecRequiredSet = new Set(specSchema?.required ?? []);
-    const nextSpecKeys = Object.keys(nextSpecProperties).sort((left, right) => {
-      const leftPriority = nextSpecRequiredSet.has(left) ? 0 : 1;
-      const rightPriority = nextSpecRequiredSet.has(right) ? 0 : 1;
-      if (leftPriority !== rightPriority) {
-        return leftPriority - rightPriority;
-      }
-      return left.localeCompare(right);
-    });
-    return {
-      specProperties: nextSpecProperties,
-      specKeys: nextSpecKeys,
-      requiredSpecKeys: nextSpecKeys.filter(key => nextSpecRequiredSet.has(key)),
-      optionalSpecKeys: nextSpecKeys.filter(key => !nextSpecRequiredSet.has(key))
-    };
-  }, [specSchema]);
-
-  const outlineEntries = useMemo(() => {
-    const metadataEntries: OutlineEntry[] = [
-      { id: 'metadata-name', section: 'Metadata', label: 'Name' },
-      ...(isNamespaced ? [{ id: 'metadata-namespace', section: 'Metadata' as const, label: 'Namespace' }] : []),
-      { id: 'metadata-labels', section: 'Metadata', label: 'Labels' },
-      { id: 'metadata-annotations', section: 'Metadata', label: 'Annotations' }
-    ];
-    const specEntries: OutlineEntry[] = specKeys.map(key => ({
-      id: `spec-${key}`,
-      section: 'Specification',
-      label: formatFieldLabel(key)
-    }));
-    return [...metadataEntries, ...specEntries];
-  }, [isNamespaced, specKeys]);
-
-  const filteredOutlineEntries = useMemo(() => {
-    const filter = outlineFilter.trim().toLowerCase();
-    if (filter.length === 0) {
-      return outlineEntries;
-    }
-    return outlineEntries.filter(entry => entry.label.toLowerCase().includes(filter));
-  }, [outlineEntries, outlineFilter]);
-
-  const scrollToEntry = useCallback((id: string) => {
-    const node = document.getElementById(id);
-    node?.scrollIntoView({ block: 'start', behavior: 'smooth' });
-  }, []);
-
-  const executeAction = useCallback((action: 'commit' | 'dryRun' | 'basket') => {
-    postMessage({
-      command: 'executeAction',
-      action
-    });
-  }, [postMessage]);
 
   if (!resource || !crd) {
     return (
@@ -1182,397 +781,69 @@ function ResourceCreatePanelView() {
     );
   }
 
+  const metadata = isRecord(resource.metadata) ? resource.metadata : {};
+  const nameValue = typeof metadata.name === 'string' ? metadata.name : '';
+  const namespaceValue = typeof metadata.namespace === 'string' ? metadata.namespace : '';
+  const fieldSuggestions = suggestions.fields;
+  const metadataNameOptions = withCurrentOption(fieldSuggestions['metadata.name'] ?? [], nameValue);
+  const namespaceOptions = buildNamespaceOptions(fieldSuggestions, suggestions.namespaces, namespaceValue);
+  const labelsEnabled = hasValueAtPath(resource, ['metadata', 'labels']);
+  const annotationsEnabled = hasValueAtPath(resource, ['metadata', 'annotations']);
+  const isNamespaced = crd.namespaced;
+  const specFieldState = deriveSpecFieldState(schema?.properties?.spec);
+  const outlineEntries = buildOutlineEntries(isNamespaced, specFieldState.specKeys);
+  const filteredOutlineEntries = filterOutlineEntries(outlineEntries, outlineFilter);
   const metadataOutline = filteredOutlineEntries.filter(entry => entry.section === 'Metadata');
   const specOutline = filteredOutlineEntries.filter(entry => entry.section === 'Specification');
   const surfaceBorder = alpha(theme.palette.text.primary, theme.palette.mode === 'dark' ? 0.24 : 0.18);
   const hoverHighlight = alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.18 : 0.1);
-  const outlineWidth = isOutlineCollapsed ? 40 : 212;
-  const actionsDisabled = Boolean(yamlError);
+
+  const scrollToEntry = (id: string) => {
+    const node = document.getElementById(id);
+    node?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  };
+
+  const executeAction = (action: 'commit' | 'dryRun' | 'basket') => {
+    postMessage({ command: 'executeAction', action });
+  };
 
   return (
-    <Box sx={{ height: '100vh', bgcolor: 'background.default' }}>
-      <Stack direction="row" sx={{ height: '100%', minWidth: 0 }}>
-        <Box
-          sx={{
-            width: outlineWidth,
-            flexShrink: 0,
-            borderRight: 1,
-            borderColor: surfaceBorder,
-            bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.38 : 0.62),
-            display: 'flex',
-            flexDirection: 'column',
-            minHeight: '100%',
-            transition: 'width 180ms ease'
-          }}
-        >
-          {!isOutlineCollapsed && (
-            <>
-              <Box sx={{ px: 2.5, py: 1.4, borderBottom: 1, borderColor: surfaceBorder }}>
-                <Typography variant="h6" sx={{ fontWeight: 500, letterSpacing: 0.1 }}>
-                  {formatKindTitle(crd.kind)}
-                </Typography>
-              </Box>
-              <Box sx={{ px: 2, py: 1.2, borderBottom: 1, borderColor: surfaceBorder }}>
-                <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: 1 }}>
-                  <AccountTreeOutlinedIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
-                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                    Outline
-                  </Typography>
-                </Stack>
-                <TextField
-                  size="small"
-                  fullWidth
-                  placeholder="Search"
-                  value={outlineFilter}
-                  onChange={(event) => setOutlineFilter(event.target.value)}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      height: 32
-                    }
-                  }}
-                  slotProps={{
-                    input: {
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <SearchIcon fontSize="small" />
-                        </InputAdornment>
-                      )
-                    }
-                  }}
-                />
-              </Box>
-              <Box sx={{ px: 1.25, py: 1, overflowY: 'auto', flex: 1 }}>
-                <Stack spacing={1.5}>
-                  <Box>
-                    <Stack direction="row" alignItems="center" spacing={0.5} sx={{ px: 0.75 }}>
-                      <ExpandMoreIcon fontSize="small" sx={{ color: 'text.secondary' }} />
-                      <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                        Metadata
-                      </Typography>
-                    </Stack>
-                    <Stack spacing={0.2} sx={{ mt: 0.4 }}>
-                      {metadataOutline.map(entry => (
-                        <Button
-                          key={entry.id}
-                          size="small"
-                          color="inherit"
-                          onClick={() => scrollToEntry(entry.id)}
-                          sx={{
-                            justifyContent: 'flex-start',
-                            px: 3,
-                            py: 0.35,
-                            minHeight: 28,
-                            textTransform: 'none',
-                            color: 'text.primary',
-                            borderRadius: 0.75,
-                            fontWeight: 500,
-                            '&:hover': {
-                              bgcolor: hoverHighlight
-                            }
-                          }}
-                        >
-                          {entry.label}
-                        </Button>
-                      ))}
-                    </Stack>
-                  </Box>
-                  <Box>
-                    <Stack direction="row" alignItems="center" spacing={0.5} sx={{ px: 0.75 }}>
-                      <ExpandMoreIcon fontSize="small" sx={{ color: 'text.secondary' }} />
-                      <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                        Specification
-                      </Typography>
-                    </Stack>
-                    <Stack spacing={0.2} sx={{ mt: 0.4 }}>
-                      {specOutline.map(entry => (
-                        <Button
-                          key={entry.id}
-                          size="small"
-                          color="inherit"
-                          onClick={() => scrollToEntry(entry.id)}
-                          sx={{
-                            justifyContent: 'flex-start',
-                            px: 3,
-                            py: 0.35,
-                            minHeight: 28,
-                            textTransform: 'none',
-                            color: 'text.primary',
-                            borderRadius: 0.75,
-                            fontWeight: 500,
-                            '&:hover': {
-                              bgcolor: hoverHighlight
-                            }
-                          }}
-                        >
-                          {entry.label}
-                        </Button>
-                      ))}
-                      {specOutline.length === 0 && (
-                        <Typography variant="body2" color="text.secondary" sx={{ px: 3, py: 0.6 }}>
-                          No fields
-                        </Typography>
-                      )}
-                    </Stack>
-                  </Box>
-                </Stack>
-              </Box>
-            </>
-          )}
-        </Box>
-
-        <Box sx={{ flex: 1, minWidth: 0, overflowY: 'auto', position: 'relative' }}>
-          <IconButton
-            size="small"
-            onClick={() => setIsOutlineCollapsed(current => !current)}
-            sx={{
-              position: 'absolute',
-              left: -10,
-              top: '50%',
-              transform: 'translateY(-50%)',
-              zIndex: 5,
-              bgcolor: alpha(theme.palette.primary.main, 0.3),
-              border: 1,
-              borderColor: surfaceBorder
-            }}
-          >
-            {isOutlineCollapsed ? <ChevronRightIcon sx={{ fontSize: 16 }} /> : <ChevronLeftIcon sx={{ fontSize: 16 }} />}
-          </IconButton>
-            <Box sx={{ p: { xs: 0.75, md: 1.5 }, minHeight: '100%' }}>
-              <Box
-                sx={{
-                  bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.28 : 0.76),
-                  minHeight: '100%',
-                  display: 'flex',
-                  flexDirection: 'column'
-                }}
-            >
-              {yamlError && (
-                <Alert
-                  severity="warning"
-                  icon={<WarningAmberIcon fontSize="inherit" />}
-                  sx={{ borderRadius: 0, borderBottom: 1, borderColor: surfaceBorder }}
-                >
-                  <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                    YAML is currently invalid.
-                  </Typography>
-                  <Typography variant="body2">
-                    {yamlError}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Form values are frozen until YAML becomes valid again.
-                  </Typography>
-                </Alert>
-              )}
-
-                <Box sx={{
-                  ...(yamlError ? { opacity: 0.7, pointerEvents: 'none' } : undefined),
-                  display: 'flex',
-                  flexDirection: 'column',
-                  minHeight: '100%'
-                }}
-                >
-                <Box
-                  id="section-metadata"
-                  sx={{ px: { xs: 1.5, md: 2.8 }, py: { xs: 1.4, md: 2 }, borderBottom: 1, borderColor: surfaceBorder }}
-                >
-                  <Typography variant="h5" sx={{ fontWeight: 700, mb: 1.75 }}>
-                    Metadata
-                  </Typography>
-                  <Stack spacing={1.5}>
-                    <Box id="metadata-name">
-                      <FieldTitle label="Name" required requiredMissing={nameValue.trim().length === 0} />
-                      <SuggestiveTextField
-                        placeholder={`Enter ${crd.kind.toLowerCase()} name`}
-                        value={nameValue}
-                        onChange={(nextValue) => setResource(setValueAtPath(resource, ['metadata', 'name'], nextValue))}
-                        options={metadataNameOptions}
-                        error={nameValue.trim().length === 0}
-                        helperText={nameValue.trim().length === 0 ? 'Name is required' : undefined}
-                      />
-                    </Box>
-                    {isNamespaced && (
-                      <Box id="metadata-namespace">
-                        <FieldTitle label="Namespace" required requiredMissing={namespaceValue.trim().length === 0} />
-                        <SuggestiveTextField
-                          placeholder="eda"
-                          value={namespaceValue}
-                          onChange={(nextValue) => setResource(setValueAtPath(resource, ['metadata', 'namespace'], nextValue))}
-                          options={namespaceOptions}
-                          error={namespaceValue.trim().length === 0}
-                          helperText={namespaceValue.trim().length === 0 ? 'Namespace is required for this resource kind' : undefined}
-                        />
-                      </Box>
-                    )}
-                    <Box id="metadata-labels">
-                      <OptionalFieldToggle
-                        label="Labels"
-                        description="Optional labels to classify the resource."
-                        enabled={labelsEnabled}
-                        onToggle={(enabled) => {
-                          setResource(setValueAtPath(
-                            resource,
-                            ['metadata', 'labels'],
-                            enabled ? {} : undefined
-                          ));
-                        }}
-                      >
-                        <KeyValueEditor
-                          label="Labels"
-                          description="Provide one or more key/value labels."
-                          resource={resource}
-                          path={['metadata', 'labels']}
-                          onResourceChange={setResource}
-                        />
-                      </OptionalFieldToggle>
-                    </Box>
-                    <Box id="metadata-annotations">
-                      <OptionalFieldToggle
-                        label="Annotations"
-                        description="Optional annotations for non-identifying metadata."
-                        enabled={annotationsEnabled}
-                        onToggle={(enabled) => {
-                          setResource(setValueAtPath(
-                            resource,
-                            ['metadata', 'annotations'],
-                            enabled ? {} : undefined
-                          ));
-                        }}
-                      >
-                        <KeyValueEditor
-                          label="Annotations"
-                          description="Provide one or more key/value annotations."
-                          resource={resource}
-                          path={['metadata', 'annotations']}
-                          onResourceChange={setResource}
-                        />
-                      </OptionalFieldToggle>
-                    </Box>
-                  </Stack>
-                </Box>
-
-                <Box id="section-spec" sx={{ px: { xs: 1.5, md: 2.8 }, py: { xs: 1.5, md: 2 } }}>
-                  <Typography variant="h5" sx={{ fontWeight: 700, mb: 1.2 }}>
-                    Specification
-                  </Typography>
-                  {specSchema?.description && (
-                    <Typography variant="body1" color="text.secondary" sx={{ mb: 1.8, maxWidth: 900 }}>
-                      {specSchema.description}
-                    </Typography>
-                  )}
-                  {specSchema ? (
-                    <Stack spacing={1.5}>
-                      {requiredSpecKeys.map(key => (
-                        <Box key={`spec-required-${key}`} id={`spec-${key}`}>
-                          <SchemaFieldRenderer
-                            resource={resource}
-                            schema={specProperties[key]}
-                            path={['spec', key]}
-                            label={formatFieldLabel(key)}
-                            required
-                            depth={1}
-                            suggestions={fieldSuggestions}
-                            onResourceChange={setResource}
-                          />
-                        </Box>
-                      ))}
-                      {optionalSpecKeys.map(key => {
-                        const fieldPath: PathSegment[] = ['spec', key];
-                        const fieldSchema = specProperties[key];
-                        return (
-                          <Box key={`spec-optional-${key}`} id={`spec-${key}`}>
-                            <OptionalFieldToggle
-                              label={formatFieldLabel(key)}
-                              description={fieldSchema?.description}
-                              enabled={hasValueAtPath(resource, fieldPath)}
-                              onToggle={(enabled) => {
-                                const nextValue = enabled ? defaultFromSchema(fieldSchema) : undefined;
-                                setResource(setValueAtPath(resource, fieldPath, nextValue));
-                              }}
-                            >
-                              <SchemaFieldRenderer
-                                resource={resource}
-                                schema={fieldSchema}
-                                path={fieldPath}
-                                label={formatFieldLabel(key)}
-                                required={false}
-                                depth={1}
-                                suggestions={fieldSuggestions}
-                                onResourceChange={setResource}
-                              />
-                            </OptionalFieldToggle>
-                          </Box>
-                        );
-                      })}
-                      {specKeys.length === 0 && (
-                        <Typography variant="body2" color="text.secondary">
-                          No schema fields are available for spec.
-                        </Typography>
-                      )}
-                    </Stack>
-                  ) : (
-                    <Alert severity="info" icon={<InfoOutlinedIcon fontSize="inherit" />}>
-                      No schema is available for spec fields. Continue editing on the YAML side.
-                    </Alert>
-                  )}
-                </Box>
-                  <Box
-                    sx={{
-                      mt: 'auto',
-                      px: { xs: 1.5, md: 2.8 },
-                      py: 1,
-                      borderTop: 1,
-                      borderColor: surfaceBorder,
-                      position: 'sticky',
-                      bottom: 0,
-                      bgcolor: alpha(theme.palette.background.paper, theme.palette.mode === 'dark' ? 0.72 : 0.92),
-                      display: 'flex',
-                      justifyContent: 'flex-end',
-                      gap: 0.5
-                    }}
-                  >
-                  <Tooltip title="Add To Basket">
-                    <span>
-                      <IconButton
-                        size="small"
-                        color="inherit"
-                        disabled={actionsDisabled}
-                        onClick={() => executeAction('basket')}
-                      >
-                        <ShoppingBasketOutlinedIcon fontSize="small" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                  <Tooltip title="Dry Run">
-                    <span>
-                      <IconButton
-                        size="small"
-                        color="inherit"
-                        disabled={actionsDisabled}
-                        onClick={() => executeAction('dryRun')}
-                      >
-                        <FactCheckOutlinedIcon fontSize="small" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                  <Tooltip title="Commit">
-                    <span>
-                      <IconButton
-                        size="small"
-                        color="inherit"
-                        disabled={actionsDisabled}
-                        onClick={() => executeAction('commit')}
-                      >
-                        <PlayArrowOutlinedIcon fontSize="small" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                </Box>
-              </Box>
-            </Box>
-          </Box>
-        </Box>
-      </Stack>
-    </Box>
+    <PanelLayout
+      collapsed={isOutlineCollapsed}
+      outlineFilter={outlineFilter}
+      onOutlineFilterChange={setOutlineFilter}
+      onSelectEntry={scrollToEntry}
+      metadataOutline={metadataOutline}
+      specOutline={specOutline}
+      hoverHighlight={hoverHighlight}
+      surfaceBorder={surfaceBorder}
+      kind={crd.kind}
+      yamlError={yamlError}
+      onToggleCollapsed={() => setIsOutlineCollapsed(current => !current)}
+      onAction={executeAction}
+      metadataSection={(
+        <MetadataSection
+          resource={resource}
+          setResource={setResource}
+          kind={crd.kind}
+          isNamespaced={isNamespaced}
+          nameValue={nameValue}
+          namespaceValue={namespaceValue}
+          metadataNameOptions={metadataNameOptions}
+          namespaceOptions={namespaceOptions}
+          labelsEnabled={labelsEnabled}
+          annotationsEnabled={annotationsEnabled}
+        />
+      )}
+      specSection={(
+        <SpecSection
+          resource={resource}
+          setResource={setResource}
+          fieldSuggestions={fieldSuggestions}
+          specFieldState={specFieldState}
+        />
+      )}
+    />
   );
 }
 

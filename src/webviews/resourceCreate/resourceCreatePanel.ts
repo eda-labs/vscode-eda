@@ -353,13 +353,132 @@ export class ResourceCreatePanel extends BasePanel {
     }
   }
 
-  private async getSuggestions(resource: Record<string, unknown>): Promise<ResourceValueSuggestions> {
+  private getSuggestionScope(resource: Record<string, unknown>): {
+    metadata: Record<string, unknown>;
+    selectedNamespace: string;
+    scopedNamespace: string | undefined;
+    cacheKey: string;
+  } {
     const metadata = isRecord(resource.metadata) ? resource.metadata : {};
     const selectedNamespace = typeof metadata.namespace === 'string'
       ? metadata.namespace.trim()
       : '';
     const scopedNamespace = selectedNamespace.length > 0 ? selectedNamespace : undefined;
-    const cacheKey = selectedNamespace.length > 0 ? selectedNamespace : '__all__';
+    const cacheKey = scopedNamespace ?? '__all__';
+    return { metadata, selectedNamespace, scopedNamespace, cacheKey };
+  }
+
+  private collectCachedNamespaces(namespaces: Set<string>): void {
+    try {
+      if (!serviceManager.getServiceNames().includes('kubernetes-resources')) {
+        return;
+      }
+      const resourceService = serviceManager.getService<ResourceService>('kubernetes-resources');
+      for (const namespace of resourceService.getAllNamespaces()) {
+        if (typeof namespace === 'string' && namespace.length > 0) {
+          namespaces.add(namespace);
+        }
+      }
+    } catch (error) {
+      log(`Unable to read cached namespaces: ${error}`, LogLevel.DEBUG);
+    }
+  }
+
+  private getEdaClientSafe(): EdaClient | undefined {
+    try {
+      if (!serviceManager.getClientNames().includes('eda')) {
+        return undefined;
+      }
+      return serviceManager.getClient<EdaClient>('eda');
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async addDiscoveredNamespaces(
+    edaClient: EdaClient,
+    namespaces: Set<string>
+  ): Promise<void> {
+    if (namespaces.size > 1) {
+      return;
+    }
+    const discoveredNamespaces = await edaClient.listNamespaces();
+    for (const namespace of discoveredNamespaces) {
+      if (namespace) {
+        namespaces.add(namespace);
+      }
+    }
+  }
+
+  private async collectSuggestionsFromKnownResources(
+    edaClient: EdaClient,
+    fieldSuggestions: Map<string, Set<string>>,
+    namespaces: Set<string>,
+    scopedNamespace: string | undefined
+  ): Promise<void> {
+    const knownResources = await edaClient.listResources(
+      this.crd.group,
+      this.crd.version,
+      this.crd.kind,
+      this.crd.namespaced ? scopedNamespace : undefined
+    );
+    for (const item of knownResources.slice(0, MAX_SUGGESTION_SAMPLE_RESOURCES)) {
+      collectSuggestionValues(item, [], fieldSuggestions);
+      const namespace = item.metadata?.namespace;
+      if (typeof namespace === 'string' && namespace.length > 0) {
+        namespaces.add(namespace);
+      }
+    }
+  }
+
+  private async collectEdaSuggestions(
+    edaClient: EdaClient,
+    fieldSuggestions: Map<string, Set<string>>,
+    namespaces: Set<string>,
+    scopedNamespace: string | undefined
+  ): Promise<void> {
+    const coreNamespace = edaClient.getCoreNamespace();
+    if (coreNamespace) {
+      namespaces.add(coreNamespace);
+    }
+
+    await this.addDiscoveredNamespaces(edaClient, namespaces);
+    await this.collectSuggestionsFromKnownResources(
+      edaClient,
+      fieldSuggestions,
+      namespaces,
+      scopedNamespace
+    );
+  }
+
+  private async augmentSuggestionsWithLogging(
+    fieldSuggestions: Map<string, Set<string>>,
+    scopedNamespace: string | undefined
+  ): Promise<void> {
+    try {
+      await this.augmentSuggestionsFromAutoCompleteHints(fieldSuggestions, scopedNamespace);
+    } catch (error) {
+      log(`Unable to augment schema-driven suggestions for ${this.crd.kind}: ${error}`, LogLevel.DEBUG);
+    }
+  }
+
+  private buildComputedSuggestions(
+    fieldSuggestions: Map<string, Set<string>>,
+    namespaces: Set<string>
+  ): ResourceValueSuggestions {
+    return {
+      namespaces: Array.from(namespaces).sort((left, right) => left.localeCompare(right)),
+      fields: toSuggestionRecord(fieldSuggestions)
+    };
+  }
+
+  private async getSuggestions(resource: Record<string, unknown>): Promise<ResourceValueSuggestions> {
+    const {
+      metadata,
+      selectedNamespace,
+      scopedNamespace,
+      cacheKey
+    } = this.getSuggestionScope(resource);
     const cachedSuggestions = this.suggestionsCache.get(cacheKey);
     if (cachedSuggestions) {
       return cachedSuggestions;
@@ -369,70 +488,27 @@ export class ResourceCreatePanel extends BasePanel {
     collectSuggestionValues(resource, [], fieldSuggestions);
 
     const namespaces = new Set<string>();
+    if (selectedNamespace.length > 0) {
+      namespaces.add(selectedNamespace);
+    }
     if (typeof metadata.namespace === 'string' && metadata.namespace.length > 0) {
       namespaces.add(metadata.namespace);
     }
 
-    let edaClient: EdaClient | undefined;
+    this.collectCachedNamespaces(namespaces);
 
-    try {
-      if (serviceManager.getServiceNames().includes('kubernetes-resources')) {
-        const resourceService = serviceManager.getService<ResourceService>('kubernetes-resources');
-        for (const namespace of resourceService.getAllNamespaces()) {
-          if (typeof namespace === 'string' && namespace.length > 0) {
-            namespaces.add(namespace);
-          }
-        }
+    const edaClient = this.getEdaClientSafe();
+    if (edaClient) {
+      try {
+        await this.collectEdaSuggestions(edaClient, fieldSuggestions, namespaces, scopedNamespace);
+      } catch (error) {
+        log(`Unable to gather resource suggestions for ${this.crd.kind}: ${error}`, LogLevel.DEBUG);
       }
-    } catch (error) {
-      log(`Unable to read cached namespaces: ${error}`, LogLevel.DEBUG);
     }
 
-    try {
-      if (serviceManager.getClientNames().includes('eda')) {
-        edaClient = serviceManager.getClient<EdaClient>('eda');
-        const coreNamespace = edaClient.getCoreNamespace();
-        if (coreNamespace) {
-          namespaces.add(coreNamespace);
-        }
+    await this.augmentSuggestionsWithLogging(fieldSuggestions, scopedNamespace);
 
-        if (namespaces.size <= 1) {
-          const discoveredNamespaces = await edaClient.listNamespaces();
-          for (const namespace of discoveredNamespaces) {
-            if (namespace) {
-              namespaces.add(namespace);
-            }
-          }
-        }
-
-        const knownResources = await edaClient.listResources(
-          this.crd.group,
-          this.crd.version,
-          this.crd.kind,
-          this.crd.namespaced ? scopedNamespace : undefined
-        );
-        for (const item of knownResources.slice(0, MAX_SUGGESTION_SAMPLE_RESOURCES)) {
-          collectSuggestionValues(item, [], fieldSuggestions);
-          const ns = item.metadata?.namespace;
-          if (typeof ns === 'string' && ns.length > 0) {
-            namespaces.add(ns);
-          }
-        }
-      }
-    } catch (error) {
-      log(`Unable to gather resource suggestions for ${this.crd.kind}: ${error}`, LogLevel.DEBUG);
-    }
-
-    try {
-      await this.augmentSuggestionsFromAutoCompleteHints(fieldSuggestions, scopedNamespace);
-    } catch (error) {
-      log(`Unable to augment schema-driven suggestions for ${this.crd.kind}: ${error}`, LogLevel.DEBUG);
-    }
-
-    const computedSuggestions = {
-      namespaces: Array.from(namespaces).sort((left, right) => left.localeCompare(right)),
-      fields: toSuggestionRecord(fieldSuggestions)
-    };
+    const computedSuggestions = this.buildComputedSuggestions(fieldSuggestions, namespaces);
     this.suggestionsCache.set(cacheKey, computedSuggestions);
 
     return computedSuggestions;
