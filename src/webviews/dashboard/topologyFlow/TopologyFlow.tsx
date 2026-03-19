@@ -260,7 +260,7 @@ function TopologyFlowInner({
     return edges.find(e => e.id === selectedEdgeId) ?? null;
   }, [edges, selectedEdgeId]);
 
-  // Apply label visibility and selection state to edges
+  // Apply label visibility and info-card highlight state to edges.
   const processedEdges = useMemo(() => {
     return edges.map((edge) => {
       const isDirectlySelected = edge.id === selectedEdgeId;
@@ -276,9 +276,9 @@ function TopologyFlowInner({
 
       return {
         ...edge,
-        selected: isHighlighted || undefined,
         data: {
           ...edge.data,
+          highlighted: isHighlighted || undefined,
           sourceInterface: showLabels ? edge.data?.sourceInterface : undefined,
           targetInterface: showLabels ? edge.data?.targetInterface : undefined,
         },
@@ -286,7 +286,7 @@ function TopologyFlowInner({
     });
   }, [edges, selectedEdgeId, selectedNodeId, labelMode]);
 
-  // Apply selection state to nodes
+  // Apply info-card highlight state to nodes without overriding React Flow selection.
   const processedNodes = useMemo(() => {
     return nodes.map((node) => {
       const isDirectlySelected = node.id === selectedNodeId;
@@ -297,7 +297,10 @@ function TopologyFlowInner({
 
       return {
         ...node,
-        selected: isHighlighted || undefined,
+        data: {
+          ...node.data,
+          highlighted: isHighlighted || undefined,
+        },
       };
     });
   }, [nodes, selectedNodeId, selectedEdge]);
@@ -324,6 +327,8 @@ function TopologyFlowInner({
         nodesConnectable={false}
         edgesReconnectable={false}
         elementsSelectable={true}
+        selectionKeyCode="Shift"
+        multiSelectionKeyCode="Shift"
         panOnDrag
         zoomOnScroll
         minZoom={0.1}

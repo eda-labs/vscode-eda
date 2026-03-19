@@ -6,6 +6,7 @@ export interface BaseNodeData extends Record<string, unknown> {
   tier?: number;
   role?: string;
   raw?: unknown;
+  highlighted?: boolean;
 }
 
 export type BaseNode = Node<BaseNodeData>;
@@ -28,8 +29,10 @@ const handlePositions = [
 ];
 
 function BaseNodeComponent({ data, selected, children }: BaseNodeComponentProps) {
+  const isHighlighted = selected || Boolean(data.highlighted);
+
   return (
-    <div className={`topology-node ${selected ? 'selected' : ''}`}>
+    <div className={`topology-node ${isHighlighted ? 'selected' : ''}`}>
       <div className="topology-node-content">
         {children}
       </div>
