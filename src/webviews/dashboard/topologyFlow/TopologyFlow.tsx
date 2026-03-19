@@ -51,6 +51,7 @@ interface TopologyFlowProps {
   readonly onBackgroundClick?: () => void;
   readonly colorMode?: ColorMode;
   readonly labelMode?: 'hide' | 'show' | 'select';
+  readonly nodeLabelMode?: NodeLabelRenderMode;
   readonly selectedNodeId?: string | null;
   readonly selectedEdgeId?: string | null;
   readonly onDevicePositionsChange?: (positions: NodePositionMap) => void;
@@ -79,11 +80,38 @@ export interface ExportOptions {
   interfaceLabelOverrides?: Record<string, string>;
   preferFullInterfaceLabels?: boolean;
   nodeProximateLabels?: boolean;
+  nodeLabelMode?: NodeLabelRenderMode;
 }
 
 const DEFAULT_PADDING = 50;
 const DEFAULT_NODE_SIZE = 80;
 const DEFAULT_INTERFACE_SCALE = 1;
+
+export type NodeLabelRenderMode =
+  | 'all-name'
+  | 'all-role'
+  | 'all-name-role'
+  | 'all-id'
+  | 'tier1-name'
+  | 'tier2-name'
+  | 'tier3-name'
+  | 'none';
+
+function normalizeNodeLabelRenderMode(value: NodeLabelRenderMode | undefined): NodeLabelRenderMode {
+  switch (value) {
+    case 'all-name':
+    case 'all-role':
+    case 'all-name-role':
+    case 'all-id':
+    case 'tier1-name':
+    case 'tier2-name':
+    case 'tier3-name':
+    case 'none':
+      return value;
+    default:
+      return 'all-name';
+  }
+}
 
 function escapeXml(str: string): string {
   return str
@@ -200,6 +228,43 @@ function resolveLabelText(
   }
 
   return undefined;
+}
+
+function resolveDeviceNodeLabel(
+  nodeId: string,
+  data: TopologyNodeData,
+  mode: NodeLabelRenderMode
+): string | null {
+  if (mode === 'none') {
+    return null;
+  }
+
+  const tier = data.tier ?? 1;
+  if (mode === 'tier1-name' && tier !== 1) {
+    return null;
+  }
+  if (mode === 'tier2-name' && tier !== 2) {
+    return null;
+  }
+  if (mode === 'tier3-name' && tier !== 3) {
+    return null;
+  }
+
+  const name = data.label;
+  const role = data.role?.trim();
+  switch (mode) {
+    case 'all-role':
+      return role != null && role.length > 0 ? role : name;
+    case 'all-name-role':
+      return role != null && role.length > 0 ? `${name} (${role})` : name;
+    case 'all-id':
+      return nodeId;
+    case 'all-name':
+    case 'tier1-name':
+    case 'tier2-name':
+    case 'tier3-name':
+      return name;
+  }
 }
 
 interface EdgeLabelMetrics {
@@ -643,7 +708,14 @@ function generateEdgeSvg(
   return svg;
 }
 
-function generateNodeSvg(node: FlowNode, offsetX: number, offsetY: number, colors: SvgColors, nodeSize: number): string {
+function generateNodeSvg(
+  node: FlowNode,
+  offsetX: number,
+  offsetY: number,
+  colors: SvgColors,
+  nodeSize: number,
+  nodeLabelMode: NodeLabelRenderMode
+): string {
   const x = node.position.x + offsetX;
   const y = node.position.y + offsetY;
 
@@ -653,6 +725,7 @@ function generateNodeSvg(node: FlowNode, offsetX: number, offsetY: number, color
 
   if (node.type === 'deviceNode') {
     const data = node.data as TopologyNodeData;
+    const renderedLabel = resolveDeviceNodeLabel(node.id, data, nodeLabelMode);
     const iconBackgroundSize = clamp(nodeSize * 0.4, 14, 72);
     const iconBackgroundRadius = clamp(iconBackgroundSize * 0.18, 3, 10);
     const iconBackgroundX = x + (nodeSize - iconBackgroundSize) / 2;
@@ -666,12 +739,15 @@ function generateNodeSvg(node: FlowNode, offsetX: number, offsetY: number, color
       .join('');
     const labelY = iconBackgroundY + iconBackgroundSize + clamp(nodeSize * 0.175, 7, 16);
 
-    return `<g class="export-node topology-node" data-id="${escapeXml(node.id)}">`
+    let svg = `<g class="export-node topology-node" data-id="${escapeXml(node.id)}">`
       + `<rect x="${x}" y="${y}" width="${nodeSize}" height="${nodeSize}" rx="8" fill="${colors.nodeFill}" stroke="${colors.nodeStroke}" stroke-width="1"/>`
       + `<rect x="${iconBackgroundX}" y="${iconBackgroundY}" width="${iconBackgroundSize}" height="${iconBackgroundSize}" rx="${iconBackgroundRadius}" fill="${colors.iconBg}"/>`
-      + `<g transform="translate(${iconGlyphX} ${iconGlyphY}) scale(${iconGlyphScale})" fill="${colors.iconFg}">${iconPaths}</g>`
-      + `<text x="${x + nodeSize / 2}" y="${labelY}" text-anchor="middle" font-size="${NODE_LABEL.fontSize}" font-weight="${NODE_LABEL.fontWeight}" font-family="${NODE_LABEL.fontFamily}" fill="${colors.text}" stroke="${NODE_LABEL.textStrokeColor}" stroke-width="${NODE_LABEL.textStrokeWidth}" paint-order="stroke" stroke-linejoin="round">${escapeXml(data.label)}</text>`
-      + `</g>`;
+      + `<g transform="translate(${iconGlyphX} ${iconGlyphY}) scale(${iconGlyphScale})" fill="${colors.iconFg}">${iconPaths}</g>`;
+    if (renderedLabel != null && renderedLabel.length > 0) {
+      svg += `<text x="${x + nodeSize / 2}" y="${labelY}" text-anchor="middle" font-size="${NODE_LABEL.fontSize}" font-weight="${NODE_LABEL.fontWeight}" font-family="${NODE_LABEL.fontFamily}" fill="${colors.text}" stroke="${NODE_LABEL.textStrokeColor}" stroke-width="${NODE_LABEL.textStrokeWidth}" paint-order="stroke" stroke-linejoin="round">${escapeXml(renderedLabel)}</text>`;
+    }
+    svg += `</g>`;
+    return svg;
   }
 
   return '';
@@ -706,6 +782,7 @@ function buildSvgExportResult(theme: Theme, nodes: FlowNode[], edges: LinkEdge[]
   const padding = getNumericOption(options.paddingPx, DEFAULT_PADDING, 0, 1000);
   const zoomFactor = getNumericOption((options.zoomPercent ?? 100) / 100, 1, 0.1, 3);
   const interfaceScale = getNumericOption(options.interfaceScale, DEFAULT_INTERFACE_SCALE, 0.4, 4);
+  const nodeLabelMode = normalizeNodeLabelRenderMode(options.nodeLabelMode);
 
   const bounds = getNodesBounds(nodes);
   const baseWidth = bounds.width + padding * 2 + nodeSize;
@@ -743,7 +820,7 @@ function buildSvgExportResult(theme: Theme, nodes: FlowNode[], edges: LinkEdge[]
     .join('');
 
   const nodesSvg = nodes
-    .map(node => generateNodeSvg(node, offsetX, offsetY, colors, nodeSize))
+    .map(node => generateNodeSvg(node, offsetX, offsetY, colors, nodeSize, nodeLabelMode))
     .join('');
 
   const graphTransform = zoomFactor === 1 ? '' : ` transform="scale(${zoomFactor})"`;
@@ -772,6 +849,7 @@ function TopologyFlowInner({
   onBackgroundClick,
   colorMode = 'system',
   labelMode = 'select',
+  nodeLabelMode = 'all-name',
   selectedNodeId,
   selectedEdgeId,
   onDevicePositionsChange,
@@ -837,6 +915,10 @@ function TopologyFlowInner({
     if (!selectedEdgeId) return null;
     return edges.find(e => e.id === selectedEdgeId) ?? null;
   }, [edges, selectedEdgeId]);
+  const normalizedNodeLabelMode = useMemo(
+    () => normalizeNodeLabelRenderMode(nodeLabelMode),
+    [nodeLabelMode]
+  );
 
   // Apply label visibility and info-card highlight state to edges.
   const processedEdges = useMemo(() => {
@@ -877,11 +959,20 @@ function TopologyFlowInner({
         ...node,
         data: {
           ...node.data,
+          ...(node.type === 'deviceNode'
+            ? {
+              displayLabel: resolveDeviceNodeLabel(
+                node.id,
+                node.data as TopologyNodeData,
+                normalizedNodeLabelMode
+              ) ?? ''
+            }
+            : {}),
           highlighted: isHighlighted || undefined,
         },
       };
     });
-  }, [nodes, selectedNodeId, selectedEdge]);
+  }, [nodes, selectedNodeId, selectedEdge, normalizedNodeLabelMode]);
 
   return (
     <div id="topology-flow-container" style={{ width: '100%', height: '100%' }}>

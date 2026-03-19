@@ -6,7 +6,12 @@ import { ALL_NAMESPACES } from '../../constants';
 import { mountWebview } from '../../shared/utils';
 import { usePostMessage, useMessageListener } from '../../shared/hooks';
 
-import TopologyFlow, { type TopologyNode, type TopologyEdge, type FlowNode, type TopologyFlowRef } from './TopologyFlow';
+import TopologyFlow, {
+  type TopologyNode,
+  type TopologyEdge,
+  type FlowNode,
+  type TopologyFlowRef
+} from './TopologyFlow';
 import {
   DEFAULT_GRAFANA_TRAFFIC_THRESHOLDS,
   collectGrafanaEdgeCellMappings,
@@ -283,6 +288,7 @@ const INTERFACE_SELECT_FULL = '__full__';
 const INTERFACE_SELECT_TOKEN_PREFIX = '__token__:';
 const GLOBAL_INTERFACE_PART_INDEX_PREFIX = '__part-index__:';
 const EXPORT_REQUEST_TIMEOUT_MS = 30_000;
+const NODE_LABEL_FILTER_ALL = '__all__';
 
 type TrafficThresholdUnit = 'kbit' | 'mbit' | 'gbit';
 type GrafanaSettingsTab = 'general' | 'interface-names';
@@ -293,6 +299,11 @@ interface EdgeInterfaceRow {
   target: string;
   sourceEndpoint: string;
   targetEndpoint: string;
+}
+
+interface NodeLabelFilterOption {
+  value: string;
+  label: string;
 }
 
 interface GrafanaBundlePayload {
@@ -511,10 +522,89 @@ function extractEdgeInterfaceRows(edges: TopologyEdge[]): EdgeInterfaceRow[] {
   return rows;
 }
 
+function getNamespaceFromNodeId(nodeId: string): string {
+  const slashIndex = nodeId.indexOf('/');
+  if (slashIndex <= 0) {
+    return 'default';
+  }
+  return nodeId.slice(0, slashIndex);
+}
+
+function getNamespaceLabelNodeNamespace(nodeId: string): string | null {
+  const prefix = 'ns-label-';
+  if (!nodeId.startsWith(prefix)) {
+    return null;
+  }
+  return nodeId.slice(prefix.length);
+}
+
+function extractRawNodeLabels(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== 'object') return {};
+  const metadata = (raw as Record<string, unknown>).metadata;
+  if (!metadata || typeof metadata !== 'object') return {};
+  const labels = (metadata as Record<string, unknown>).labels;
+  if (!labels || typeof labels !== 'object' || Array.isArray(labels)) return {};
+
+  const normalized: Record<string, string> = {};
+  for (const [key, value] of Object.entries(labels)) {
+    const normalizedKey = key.trim();
+    if (!normalizedKey) continue;
+    if (value == null) continue;
+    normalized[normalizedKey] = String(value);
+  }
+  return normalized;
+}
+
+function parseNodeLabelFilterValue(value: string): { key: string; expected: string } | null {
+  if (value === NODE_LABEL_FILTER_ALL) {
+    return null;
+  }
+
+  const separatorIndex = value.indexOf('=');
+  if (separatorIndex <= 0) {
+    return null;
+  }
+  return {
+    key: value.slice(0, separatorIndex),
+    expected: value.slice(separatorIndex + 1)
+  };
+}
+
+function buildNodeLabelFilterOptions(nodes: FlowNode[]): NodeLabelFilterOption[] {
+  const seen = new Set<string>();
+  for (const node of nodes) {
+    if (node.type !== 'deviceNode') {
+      continue;
+    }
+    const labels = extractRawNodeLabels(node.data.raw);
+    for (const [key, value] of Object.entries(labels)) {
+      seen.add(`${key}=${value}`);
+    }
+  }
+
+  const sortedLabelPairs = Array.from(seen.values()).sort((left, right) => left.localeCompare(right));
+  return [
+    { value: NODE_LABEL_FILTER_ALL, label: 'Labels: All Nodes' },
+    ...sortedLabelPairs.map((entry) => ({ value: entry, label: entry }))
+  ];
+}
+
+function nodeMatchesSelectedLabel(node: FlowNode, selectedLabel: { key: string; expected: string } | null): boolean {
+  if (node.type !== 'deviceNode') {
+    return false;
+  }
+  if (selectedLabel === null) {
+    return true;
+  }
+
+  const labels = extractRawNodeLabels(node.data.raw);
+  return labels[selectedLabel.key] === selectedLabel.expected;
+}
+
 function groupNodesByNamespace(backendNodes: BackendNode[]): Record<string, BackendNode[]> {
   const groups: Record<string, BackendNode[]> = {};
   for (const n of backendNodes) {
-    const ns = n.id.includes('/') ? n.id.split('/')[0] : 'default';
+    const ns = getNamespaceFromNodeId(n.id);
     if (!groups[ns]) groups[ns] = [];
     groups[ns].push(n);
   }
@@ -548,8 +638,9 @@ function TopologyFlowDashboard() {
   const theme = useTheme();
   const [selectedNamespace, setSelectedNamespace] = useState(ALL_NAMESPACES);
   const [labelMode, setLabelMode] = useState<'hide' | 'show' | 'select'>('select');
-  const [nodes, setNodes] = useState<FlowNode[]>([]);
-  const [edges, setEdges] = useState<TopologyEdge[]>([]);
+  const [selectedNodeLabelFilter, setSelectedNodeLabelFilter] = useState<string>(NODE_LABEL_FILTER_ALL);
+  const [allNodes, setAllNodes] = useState<FlowNode[]>([]);
+  const [allEdges, setAllEdges] = useState<TopologyEdge[]>([]);
   const [savedPositions, setSavedPositions] = useState<NodePositionMap>({});
   const [currentPositions, setCurrentPositions] = useState<NodePositionMap>({});
   const [isSavingLayout, setIsSavingLayout] = useState(false);
@@ -731,7 +822,63 @@ function TopologyFlowDashboard() {
     [currentPositions, savedPositions]
   );
   const saveDisabled = isAllNamespaces || isSavingLayout || !hasUnsavedChanges;
-  const interfaceRows = useMemo(() => extractEdgeInterfaceRows(edges), [edges]);
+  const nodeLabelFilterOptions = useMemo(
+    () => buildNodeLabelFilterOptions(allNodes),
+    [allNodes]
+  );
+  const selectedLabelMatcher = useMemo(
+    () => parseNodeLabelFilterValue(selectedNodeLabelFilter),
+    [selectedNodeLabelFilter]
+  );
+  const visibleNodeIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const node of allNodes) {
+      if (nodeMatchesSelectedLabel(node, selectedLabelMatcher)) {
+        ids.add(node.id);
+      }
+    }
+    return ids;
+  }, [allNodes, selectedLabelMatcher]);
+  const visibleNodes = useMemo(() => {
+    const visibleNamespaces = new Set<string>();
+    for (const nodeId of visibleNodeIds) {
+      visibleNamespaces.add(getNamespaceFromNodeId(nodeId));
+    }
+
+    const nodes: FlowNode[] = [];
+    for (const node of allNodes) {
+      if (node.type === 'deviceNode') {
+        if (!visibleNodeIds.has(node.id)) {
+          continue;
+        }
+        const nodeName = topologyNodeIdToName(node.id);
+        const position = currentPositions[nodeName];
+        if (position) {
+          nodes.push({
+            ...node,
+            position: { x: position.x, y: position.y }
+          });
+        } else {
+          nodes.push(node);
+        }
+        continue;
+      }
+
+      if (node.type === 'namespaceLabel') {
+        const namespace = getNamespaceLabelNodeNamespace(node.id);
+        if (namespace && visibleNamespaces.has(namespace)) {
+          nodes.push(node);
+        }
+      }
+    }
+
+    return nodes;
+  }, [allNodes, currentPositions, visibleNodeIds]);
+  const visibleEdges = useMemo(
+    () => allEdges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)),
+    [allEdges, visibleNodeIds]
+  );
+  const interfaceRows = useMemo(() => extractEdgeInterfaceRows(visibleEdges), [visibleEdges]);
   const filteredInterfaceRows = useMemo(() => {
     const filterValue = interfaceLinkFilter.trim().toLowerCase();
     if (!filterValue) return interfaceRows;
@@ -786,6 +933,7 @@ function TopologyFlowDashboard() {
   useMessageListener<TopologyMessage>(useCallback((msg) => {
     if (msg.command === 'init' || msg.command === 'namespace') {
       setSelectedNamespace(msg.selected ?? ALL_NAMESPACES);
+      setSelectedNodeLabelFilter(NODE_LABEL_FILTER_ALL);
       setSaveStatus(null);
       setIsSavingLayout(false);
       setCurrentPositions({});
@@ -797,8 +945,8 @@ function TopologyFlowDashboard() {
       const baselinePositions = Object.keys(normalizedSavedPositions).length > 0
         ? normalizedSavedPositions
         : extractDeviceNodePositions(layoutedNodes);
-      setNodes(layoutedNodes);
-      setEdges(processedEdges);
+      setAllNodes(layoutedNodes);
+      setAllEdges(processedEdges);
       setSavedPositions(baselinePositions);
       setCurrentPositions(baselinePositions);
     } else if (msg.command === 'saveTopologyPositionsResult') {
@@ -813,6 +961,30 @@ function TopologyFlowDashboard() {
       }
     }
   }, [currentPositions, layoutByTier, processEdges]));
+
+  useEffect(() => {
+    if (selectedNodeLabelFilter === NODE_LABEL_FILTER_ALL) {
+      return;
+    }
+    const optionExists = nodeLabelFilterOptions.some((option) => option.value === selectedNodeLabelFilter);
+    if (!optionExists) {
+      setSelectedNodeLabelFilter(NODE_LABEL_FILTER_ALL);
+    }
+  }, [nodeLabelFilterOptions, selectedNodeLabelFilter]);
+
+  useEffect(() => {
+    if (selectedNodeId && !visibleNodeIds.has(selectedNodeId)) {
+      setSelectedNodeId(null);
+      setInfoCard({ type: 'empty' });
+    }
+  }, [selectedNodeId, visibleNodeIds]);
+
+  useEffect(() => {
+    if (selectedEdgeId && !visibleEdges.some((edge) => edge.id === selectedEdgeId)) {
+      setSelectedEdgeId(null);
+      setInfoCard({ type: 'empty' });
+    }
+  }, [selectedEdgeId, visibleEdges]);
 
   // Handle node selection
   const handleNodeSelect = useCallback((node: TopologyNode) => {
@@ -872,7 +1044,11 @@ function TopologyFlowDashboard() {
   }, [postMessage]);
 
   const handleDevicePositionsChange = useCallback((positions: NodePositionMap) => {
-    setCurrentPositions(normalizeNodePositionMap(positions));
+    const normalizedIncoming = normalizeNodePositionMap(positions);
+    setCurrentPositions((previous) => {
+      const merged = normalizeNodePositionMap({ ...previous, ...normalizedIncoming });
+      return nodePositionMapsEqual(previous, merged) ? previous : merged;
+    });
   }, []);
 
   // Show export popup with theme-appropriate defaults
@@ -1021,9 +1197,8 @@ function TopologyFlowDashboard() {
       return;
     }
 
-    const positions = normalizeNodePositionMap(
-      topologyRef.current?.getDeviceNodePositions() ?? currentPositions
-    );
+    const liveVisiblePositions = normalizeNodePositionMap(topologyRef.current?.getDeviceNodePositions());
+    const positions = normalizeNodePositionMap({ ...currentPositions, ...liveVisiblePositions });
 
     setCurrentPositions(positions);
     setIsSavingLayout(true);
@@ -1062,18 +1237,31 @@ function TopologyFlowDashboard() {
           className="label-select"
           value={labelMode}
           onChange={e => setLabelMode(e.target.value as 'hide' | 'show' | 'select')}
+          title="Edge interface labels"
         >
           <option value="hide">Hide Labels</option>
           <option value="show">Show Labels</option>
           <option value="select">Show on Select</option>
+        </select>
+        <select
+          className="label-select"
+          value={selectedNodeLabelFilter}
+          onChange={e => setSelectedNodeLabelFilter(e.target.value)}
+          title="Filter rendered nodes by metadata label (key=value)"
+        >
+          {nodeLabelFilterOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
         </select>
       </div>
       <div className="body">
         <div className="topology-container">
           <TopologyFlow
             ref={topologyRef}
-            nodes={nodes}
-            edges={edges}
+            nodes={visibleNodes}
+            edges={visibleEdges}
             onNodeSelect={handleNodeSelect}
             onEdgeSelect={handleEdgeSelect}
             onNodeDoubleClick={handleNodeDoubleClick}

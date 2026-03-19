@@ -3,6 +3,7 @@ import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 
 export interface BaseNodeData extends Record<string, unknown> {
   label: string;
+  displayLabel?: string;
   tier?: number;
   role?: string;
   raw?: unknown;
@@ -48,14 +49,18 @@ const handlePositions = [
 function BaseNodeComponent({ data, selected, children }: BaseNodeComponentProps) {
   const isHighlighted = selected || Boolean(data.highlighted);
   const fullLabel = data.label;
-  const displayLabel = truncateMiddle(fullLabel, NODE_LABEL_MAX_CHARS);
+  const rawDisplayLabel = data.displayLabel ?? fullLabel;
+  const showLabel = rawDisplayLabel.trim().length > 0;
+  const displayLabel = truncateMiddle(rawDisplayLabel, NODE_LABEL_MAX_CHARS);
 
   return (
     <div className={`topology-node ${isHighlighted ? 'selected' : ''}`}>
       <div className="topology-node-content">
         {children}
       </div>
-      <div className="topology-node-label" title={fullLabel}>{displayLabel}</div>
+      {showLabel && (
+        <div className="topology-node-label" title={fullLabel}>{displayLabel}</div>
+      )}
       {handlePositions.map(({ id, type, position }) => (
         <Handle
           key={id}
