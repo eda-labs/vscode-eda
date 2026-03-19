@@ -8,6 +8,20 @@ import { usePostMessage, useMessageListener } from '../../shared/hooks';
 
 import TopologyFlow, { type TopologyNode, type TopologyEdge, type FlowNode, type TopologyFlowRef } from './TopologyFlow';
 import {
+  DEFAULT_GRAFANA_TRAFFIC_THRESHOLDS,
+  collectGrafanaEdgeCellMappings,
+  collectLinkedNodeIds,
+  sanitizeSvgForGrafana,
+  removeUnlinkedNodesFromSvg,
+  trimGrafanaSvgToTopologyContent,
+  addGrafanaTrafficLegend,
+  makeGrafanaSvgResponsive,
+  applyGrafanaCellIdsToSvg,
+  buildGrafanaPanelYaml,
+  buildGrafanaDashboardJson,
+  type GrafanaTrafficThresholds
+} from './svg-export';
+import {
   type NodePositionMap,
   nodePositionMapsEqual,
   normalizeNodePositionMap,
@@ -27,6 +41,8 @@ interface BackendEdge {
   target: string;
   sourceInterface?: string;
   targetInterface?: string;
+  sourceEndpoint?: string;
+  targetEndpoint?: string;
   sourceState?: string;
   targetState?: string;
   state?: string;
@@ -53,7 +69,19 @@ interface TopologySaveResultMessage {
   positions?: NodePositionMap;
 }
 
-type TopologyMessage = TopologyInitMessage | TopologyDataMessage | TopologySaveResultMessage;
+interface TopologySvgExportResultMessage {
+  command: 'svgExportResult';
+  requestId: string;
+  success: boolean;
+  error?: string;
+  files?: string[];
+}
+
+type TopologyMessage =
+  | TopologyInitMessage
+  | TopologyDataMessage
+  | TopologySaveResultMessage
+  | TopologySvgExportResultMessage;
 
 interface NodeInfo {
   name: string;
@@ -248,6 +276,240 @@ const SPACING_X = 180;
 const SPACING_Y = 200;
 const NAMESPACE_GAP = 150;
 const LABEL_OFFSET_Y = -60;
+const DEFAULT_GRAFANA_NODE_SIZE_PX = 80;
+const DEFAULT_GRAFANA_INTERFACE_SIZE_PERCENT = 100;
+const INTERFACE_SELECT_AUTO = '__auto__';
+const INTERFACE_SELECT_FULL = '__full__';
+const INTERFACE_SELECT_TOKEN_PREFIX = '__token__:';
+const GLOBAL_INTERFACE_PART_INDEX_PREFIX = '__part-index__:';
+const EXPORT_REQUEST_TIMEOUT_MS = 30_000;
+
+type TrafficThresholdUnit = 'kbit' | 'mbit' | 'gbit';
+type GrafanaSettingsTab = 'general' | 'interface-names';
+
+interface EdgeInterfaceRow {
+  edgeId: string;
+  source: string;
+  target: string;
+  sourceEndpoint: string;
+  targetEndpoint: string;
+}
+
+interface GrafanaBundlePayload {
+  requestId: string;
+  baseName: string;
+  svgContent: string;
+  dashboardJson: string;
+  panelYaml: string;
+}
+
+function createRequestId(): string {
+  const bytes = new Uint8Array(8);
+  globalThis.crypto.getRandomValues(bytes);
+  const random = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `svg-export-${Date.now()}-${random}`;
+}
+
+function sanitizeExportBaseName(baseName: string | undefined): string {
+  const trimmed = baseName?.trim();
+  if (!trimmed) return 'topology';
+  const withoutSvg = trimmed.replace(/\\.svg$/i, '');
+  const invalidChars = new Set(['<', '>', ':', '"', '/', '\\\\', '|', '?', '*']);
+  const sanitized = withoutSvg
+    .split('')
+    .map((char) => (char.charCodeAt(0) < 32 || invalidChars.has(char) ? '-' : char))
+    .join('')
+    .trim();
+  return sanitized || 'topology';
+}
+
+function isSvgExportResultMessage(message: unknown): message is TopologySvgExportResultMessage {
+  if (!message || typeof message !== 'object') return false;
+  const value = message as Record<string, unknown>;
+  return value.command === 'svgExportResult' && typeof value.requestId === 'string' && typeof value.success === 'boolean';
+}
+
+function requestGrafanaBundleExport(
+  postMessage: (message: unknown) => void,
+  payload: GrafanaBundlePayload
+): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      window.removeEventListener('message', listener as EventListener);
+      reject(new Error('Timed out waiting for export confirmation'));
+    }, EXPORT_REQUEST_TIMEOUT_MS);
+
+    const listener = (event: MessageEvent<unknown>) => {
+      const message = event.data;
+      if (!isSvgExportResultMessage(message)) return;
+      if (message.requestId !== payload.requestId) return;
+
+      window.clearTimeout(timeoutId);
+      window.removeEventListener('message', listener as EventListener);
+
+      if (!message.success) {
+        reject(new Error(message.error ?? 'Grafana bundle export failed'));
+        return;
+      }
+
+      const files = Array.isArray(message.files)
+        ? message.files.filter((file): file is string => typeof file === 'string')
+        : [];
+      resolve(files);
+    };
+
+    window.addEventListener('message', listener as EventListener);
+
+    postMessage({
+      command: 'exportSvgGrafanaBundle',
+      requestId: payload.requestId,
+      baseName: payload.baseName,
+      svgContent: payload.svgContent,
+      dashboardJson: payload.dashboardJson,
+      panelYaml: payload.panelYaml
+    });
+  });
+}
+
+function parseTrafficThresholdUnit(value: string): TrafficThresholdUnit {
+  if (value === 'kbit' || value === 'gbit') return value;
+  return 'mbit';
+}
+
+function getThresholdUnitMultiplier(unit: TrafficThresholdUnit): number {
+  switch (unit) {
+    case 'kbit':
+      return 1_000;
+    case 'gbit':
+      return 1_000_000_000;
+    default:
+      return 1_000_000;
+  }
+}
+
+function formatThresholdForUnit(valueBps: number, unit: TrafficThresholdUnit): string {
+  const multiplier = getThresholdUnitMultiplier(unit);
+  if (!Number.isFinite(valueBps) || multiplier <= 0) return '0';
+  const scaled = valueBps / multiplier;
+  return Number(scaled.toFixed(4)).toString();
+}
+
+function parseThreshold(value: string, unit: TrafficThresholdUnit): number {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) return 0;
+  const multiplier = getThresholdUnitMultiplier(unit);
+  return Math.max(0, Math.round(parsed * multiplier));
+}
+
+function getThresholdUnitStep(unit: TrafficThresholdUnit): number {
+  switch (unit) {
+    case 'kbit':
+      return 1;
+    case 'gbit':
+      return 0.01;
+    default:
+      return 0.1;
+  }
+}
+
+function parseBoundedNumber(value: string, min: number, max: number, fallback: number): number {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function hasStrictlyAscendingThresholds(thresholds: GrafanaTrafficThresholds): boolean {
+  return (
+    thresholds.green < thresholds.yellow
+    && thresholds.yellow < thresholds.orange
+    && thresholds.orange < thresholds.red
+  );
+}
+
+function splitInterfaceParts(endpoint: string): string[] {
+  const baseParts = endpoint
+    .split(/[^A-Za-z0-9]+/g)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+
+  const uniqueParts: string[] = [];
+  const seen = new Set<string>();
+  const addUnique = (part: string): void => {
+    if (seen.has(part)) return;
+    seen.add(part);
+    uniqueParts.push(part);
+  };
+
+  for (const part of baseParts) {
+    addUnique(part);
+    const numericSegments = part.match(/\d+/g);
+    if (!numericSegments) continue;
+    for (const numeric of numericSegments) {
+      addUnique(numeric);
+    }
+  }
+
+  return uniqueParts;
+}
+
+function parseGlobalInterfacePartIndex(selectedValue: string): number | null {
+  if (!selectedValue.startsWith(GLOBAL_INTERFACE_PART_INDEX_PREFIX)) return null;
+  const raw = selectedValue.slice(GLOBAL_INTERFACE_PART_INDEX_PREFIX.length);
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return null;
+  return parsed;
+}
+
+function resolveGlobalInterfaceOverrideValue(endpoint: string, selectedValue: string): string | null {
+  if (selectedValue === INTERFACE_SELECT_AUTO) return null;
+  if (selectedValue === INTERFACE_SELECT_FULL) return endpoint;
+
+  const partIndex = parseGlobalInterfacePartIndex(selectedValue);
+  if (partIndex === null) return null;
+
+  const parts = splitInterfaceParts(endpoint);
+  return parts[partIndex - 1] ?? null;
+}
+
+function resolveInterfaceOverrideValue(endpoint: string, selectedValue: string): string | null {
+  if (selectedValue === INTERFACE_SELECT_AUTO) return null;
+  if (selectedValue === INTERFACE_SELECT_FULL) return endpoint;
+  if (!selectedValue.startsWith(INTERFACE_SELECT_TOKEN_PREFIX)) return null;
+  const value = selectedValue.slice(INTERFACE_SELECT_TOKEN_PREFIX.length).trim();
+  return value.length > 0 ? value : null;
+}
+
+function getInterfaceSelectionValue(
+  endpoint: string,
+  interfaceLabelOverrides: Record<string, string>
+): string {
+  const override = interfaceLabelOverrides[endpoint];
+  if (!override) return INTERFACE_SELECT_AUTO;
+  if (override === endpoint) return INTERFACE_SELECT_FULL;
+  return `${INTERFACE_SELECT_TOKEN_PREFIX}${override}`;
+}
+
+function parseGrafanaSettingsTab(value: unknown): GrafanaSettingsTab {
+  return value === 'interface-names' ? 'interface-names' : 'general';
+}
+
+function extractEdgeInterfaceRows(edges: TopologyEdge[]): EdgeInterfaceRow[] {
+  const rows: EdgeInterfaceRow[] = [];
+  for (const edge of edges) {
+    const sourceEndpoint = edge.data?.sourceEndpoint;
+    const targetEndpoint = edge.data?.targetEndpoint;
+    if (!sourceEndpoint || !targetEndpoint) continue;
+
+    rows.push({
+      edgeId: edge.id,
+      source: edge.source,
+      target: edge.target,
+      sourceEndpoint,
+      targetEndpoint
+    });
+  }
+  return rows;
+}
 
 function groupNodesByNamespace(backendNodes: BackendNode[]): Record<string, BackendNode[]> {
   const groups: Record<string, BackendNode[]> = {};
@@ -302,6 +564,27 @@ function TopologyFlowDashboard() {
   const [showExportPopup, setShowExportPopup] = useState(false);
   const [exportBgColor, setExportBgColor] = useState(() => theme.vscode.topology.editorBackground);
   const [exportBgTransparent, setExportBgTransparent] = useState(false);
+  const [borderZoom, setBorderZoom] = useState(100);
+  const [borderPadding, setBorderPadding] = useState(0);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportStatus, setExportStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [includeEdgeLabels, setIncludeEdgeLabels] = useState(true);
+  const [exportGrafanaBundle, setExportGrafanaBundle] = useState(false);
+  const [isGrafanaSettingsOpen, setIsGrafanaSettingsOpen] = useState(false);
+  const [grafanaSettingsTab, setGrafanaSettingsTab] = useState<GrafanaSettingsTab>('general');
+  const [excludeNodesWithoutLinks, setExcludeNodesWithoutLinks] = useState(true);
+  const [includeGrafanaLegend, setIncludeGrafanaLegend] = useState(false);
+  const [trafficRatesOnHoverOnly, setTrafficRatesOnHoverOnly] = useState(false);
+  const [includeHideRatesLegendToggle, setIncludeHideRatesLegendToggle] = useState(true);
+  const [trafficThresholds, setTrafficThresholds] = useState<GrafanaTrafficThresholds>({
+    ...DEFAULT_GRAFANA_TRAFFIC_THRESHOLDS
+  });
+  const [trafficThresholdUnit, setTrafficThresholdUnit] = useState<TrafficThresholdUnit>('mbit');
+  const [grafanaNodeSizePx, setGrafanaNodeSizePx] = useState(DEFAULT_GRAFANA_NODE_SIZE_PX);
+  const [grafanaInterfaceSizePercent, setGrafanaInterfaceSizePercent] = useState(DEFAULT_GRAFANA_INTERFACE_SIZE_PERCENT);
+  const [globalInterfaceOverrideSelection, setGlobalInterfaceOverrideSelection] = useState(INTERFACE_SELECT_AUTO);
+  const [interfaceLinkFilter, setInterfaceLinkFilter] = useState('');
+  const [interfaceLabelOverrides, setInterfaceLabelOverrides] = useState<Record<string, string>>({});
   const topologyCssVars = useMemo(() => {
     const { topology, fonts } = theme.vscode;
 
@@ -428,6 +711,8 @@ function TopologyFlowDashboard() {
         data: {
           sourceInterface: e.sourceInterface,
           targetInterface: e.targetInterface,
+          sourceEndpoint: e.sourceEndpoint,
+          targetEndpoint: e.targetEndpoint,
           state: e.state,
           sourceState: e.sourceState,
           targetState: e.targetState,
@@ -446,6 +731,56 @@ function TopologyFlowDashboard() {
     [currentPositions, savedPositions]
   );
   const saveDisabled = isAllNamespaces || isSavingLayout || !hasUnsavedChanges;
+  const interfaceRows = useMemo(() => extractEdgeInterfaceRows(edges), [edges]);
+  const filteredInterfaceRows = useMemo(() => {
+    const filterValue = interfaceLinkFilter.trim().toLowerCase();
+    if (!filterValue) return interfaceRows;
+
+    return interfaceRows.filter((row) =>
+      [row.edgeId, row.source, row.target, row.sourceEndpoint, row.targetEndpoint]
+        .join(' ')
+        .toLowerCase()
+        .includes(filterValue)
+    );
+  }, [interfaceRows, interfaceLinkFilter]);
+  const interfaceEndpoints = useMemo(() => {
+    const unique = new Set<string>();
+    for (const row of interfaceRows) {
+      unique.add(row.sourceEndpoint);
+      unique.add(row.targetEndpoint);
+    }
+    return Array.from(unique.values());
+  }, [interfaceRows]);
+  const maxInterfacePartCount = useMemo(() => {
+    let maxCount = 1;
+    for (const endpoint of interfaceEndpoints) {
+      maxCount = Math.max(maxCount, splitInterfaceParts(endpoint).length);
+    }
+    return maxCount;
+  }, [interfaceEndpoints]);
+  const effectiveInterfaceLabelOverrides = useMemo(() => {
+    const merged: Record<string, string> = {};
+
+    for (const endpoint of interfaceEndpoints) {
+      const globalOverride = resolveGlobalInterfaceOverrideValue(
+        endpoint,
+        globalInterfaceOverrideSelection
+      );
+      if (globalOverride !== null) {
+        merged[endpoint] = globalOverride;
+      }
+    }
+
+    for (const [endpoint, override] of Object.entries(interfaceLabelOverrides)) {
+      if (typeof override !== 'string' || override.trim().length === 0) {
+        delete merged[endpoint];
+      } else {
+        merged[endpoint] = override.trim();
+      }
+    }
+
+    return merged;
+  }, [interfaceEndpoints, globalInterfaceOverrideSelection, interfaceLabelOverrides]);
 
   // Handle messages from extension
   useMessageListener<TopologyMessage>(useCallback((msg) => {
@@ -543,21 +878,143 @@ function TopologyFlowDashboard() {
   // Show export popup with theme-appropriate defaults
   const showExportPopupWithDefaults = useCallback(() => {
     setExportBgColor(theme.vscode.topology.editorBackground);
+    setExportStatus(null);
     setShowExportPopup(true);
   }, [theme.vscode.topology.editorBackground]);
 
   // Handle export
   const handleExport = useCallback(() => {
     const doExport = async () => {
-      await topologyRef.current?.exportImage({
+      if (!topologyRef.current) return;
+
+      if (!hasStrictlyAscendingThresholds(trafficThresholds)) {
+        setExportStatus({
+          type: 'error',
+          message: 'Traffic thresholds must be strictly ascending (green < yellow < orange < red)'
+        });
+        return;
+      }
+
+      setIsExporting(true);
+      setExportStatus(null);
+
+      const exportOptions = {
         backgroundColor: exportBgColor,
         transparentBg: exportBgTransparent,
-        includeLabels: true
-      });
-      setShowExportPopup(false);
+        includeLabels: includeEdgeLabels,
+        zoomPercent: borderZoom,
+        paddingPx: borderPadding,
+        nodeSizePx: exportGrafanaBundle ? grafanaNodeSizePx : undefined,
+        interfaceScale: exportGrafanaBundle ? grafanaInterfaceSizePercent / 100 : undefined,
+        interfaceLabelOverrides: exportGrafanaBundle ? effectiveInterfaceLabelOverrides : undefined,
+        nodeProximateLabels: exportGrafanaBundle
+      } as const;
+
+      try {
+        if (!exportGrafanaBundle) {
+          await topologyRef.current.exportImage(exportOptions);
+          setExportStatus({ type: 'success', message: 'SVG exported successfully' });
+          setShowExportPopup(false);
+          return;
+        }
+
+        const prepared = await topologyRef.current.buildSvgExport(exportOptions);
+        if (!prepared) {
+          setExportStatus({ type: 'error', message: 'SVG export is not yet available' });
+          return;
+        }
+
+        const mappings = collectGrafanaEdgeCellMappings(prepared.edges, prepared.nodes, new Set<string>());
+        let grafanaSvg = sanitizeSvgForGrafana(prepared.svgContent);
+        if (excludeNodesWithoutLinks) {
+          const linkedNodeIds = collectLinkedNodeIds(prepared.edges, prepared.nodes, new Set<string>());
+          grafanaSvg = removeUnlinkedNodesFromSvg(grafanaSvg, linkedNodeIds);
+          grafanaSvg = trimGrafanaSvgToTopologyContent(grafanaSvg, Math.max(6, borderPadding));
+        }
+        grafanaSvg = applyGrafanaCellIdsToSvg(grafanaSvg, mappings, { trafficRatesOnHoverOnly });
+        if (includeGrafanaLegend) {
+          grafanaSvg = addGrafanaTrafficLegend(grafanaSvg, trafficThresholds, trafficThresholdUnit);
+        }
+        grafanaSvg = makeGrafanaSvgResponsive(grafanaSvg);
+
+        const panelYaml = buildGrafanaPanelYaml(mappings, {
+          trafficThresholds,
+          includeHideRatesLegendToggle
+        });
+        const baseName = sanitizeExportBaseName(
+          selectedNamespace === ALL_NAMESPACES ? 'topology' : selectedNamespace
+        );
+        const dashboardJson = buildGrafanaDashboardJson(panelYaml, grafanaSvg, baseName);
+        const requestId = createRequestId();
+        const files = await requestGrafanaBundleExport(postMessage, {
+          requestId,
+          baseName,
+          svgContent: grafanaSvg,
+          dashboardJson,
+          panelYaml
+        });
+
+        const suffix =
+          files.length > 0 ? ` (${files.map((file) => file.split('/').pop()).join(', ')})` : '';
+        setExportStatus({
+          type: 'success',
+          message: `Grafana bundle exported successfully${suffix}`
+        });
+        setShowExportPopup(false);
+      } catch (error: unknown) {
+        setExportStatus({
+          type: 'error',
+          message: error instanceof Error ? error.message : String(error)
+        });
+      } finally {
+        setIsExporting(false);
+      }
     };
-    doExport().catch(() => { /* ignore */ });
-  }, [exportBgColor, exportBgTransparent]);
+    void doExport();
+  }, [
+    borderPadding,
+    borderZoom,
+    effectiveInterfaceLabelOverrides,
+    excludeNodesWithoutLinks,
+    exportBgColor,
+    exportBgTransparent,
+    exportGrafanaBundle,
+    grafanaInterfaceSizePercent,
+    grafanaNodeSizePx,
+    includeEdgeLabels,
+    includeGrafanaLegend,
+    includeHideRatesLegendToggle,
+    postMessage,
+    selectedNamespace,
+    trafficRatesOnHoverOnly,
+    trafficThresholdUnit,
+    trafficThresholds
+  ]);
+
+  const updateTrafficThreshold = useCallback(
+    (threshold: keyof GrafanaTrafficThresholds, rawValue: string) => {
+      const nextValue = parseThreshold(rawValue, trafficThresholdUnit);
+      setTrafficThresholds((prev) => ({
+        ...prev,
+        [threshold]: nextValue
+      }));
+    },
+    [trafficThresholdUnit]
+  );
+
+  const updateInterfaceOverride = useCallback((endpoint: string, selectedValue: string) => {
+    const override = resolveInterfaceOverrideValue(endpoint, selectedValue);
+    setInterfaceLabelOverrides((prev) => {
+      if (override === null) {
+        if (!(endpoint in prev)) return prev;
+        const next = { ...prev };
+        delete next[endpoint];
+        return next;
+      }
+      if (prev[endpoint] === override) return prev;
+      return { ...prev, [endpoint]: override };
+    });
+  }, []);
 
   const handleSaveLayout = useCallback(() => {
     if (saveDisabled) {
@@ -578,6 +1035,13 @@ function TopologyFlowDashboard() {
       positions
     });
   }, [currentPositions, postMessage, saveDisabled, selectedNamespace]);
+
+  let exportButtonLabel = 'Export SVG';
+  if (isExporting) {
+    exportButtonLabel = 'Exporting...';
+  } else if (exportGrafanaBundle) {
+    exportButtonLabel = 'Export Grafana Bundle';
+  }
 
   return (
     <div className="dashboard" style={topologyCssVars}>
@@ -642,28 +1106,341 @@ function TopologyFlowDashboard() {
       </div>
       {showExportPopup && (
         <div className="export-popup">
-          <div className="export-popup-content">
+          <div className="export-popup-content export-popup-large">
             <h3>Export SVG</h3>
-            <label>
-              Background Color
-              <input
-                type="color"
-                value={exportBgColor}
-                onChange={e => setExportBgColor(e.target.value)}
-                disabled={exportBgTransparent}
-              />
-            </label>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={exportBgTransparent}
-                onChange={e => setExportBgTransparent(e.target.checked)}
-              />
-              Transparent Background
-            </label>
+
+            <div className="export-section">
+              <h4>Quality & Size</h4>
+              <div className="export-grid-two">
+                <label>
+                  Zoom (%)
+                  <input
+                    type="number"
+                    min={10}
+                    max={300}
+                    step={1}
+                    value={borderZoom}
+                    onChange={e => setBorderZoom(Math.max(10, Math.min(300, parseFloat(e.target.value) || 0)))}
+                  />
+                </label>
+                <label>
+                  Padding (px)
+                  <input
+                    type="number"
+                    min={0}
+                    max={500}
+                    step={1}
+                    value={borderPadding}
+                    onChange={e => setBorderPadding(Math.max(0, parseFloat(e.target.value) || 0))}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="export-section">
+              <h4>Background</h4>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={exportBgTransparent}
+                  onChange={e => setExportBgTransparent(e.target.checked)}
+                />
+                Transparent Background
+              </label>
+              <label>
+                Background Color
+                <input
+                  type="color"
+                  value={exportBgColor}
+                  onChange={e => setExportBgColor(e.target.value)}
+                  disabled={exportBgTransparent}
+                />
+              </label>
+            </div>
+
+            <div className="export-section">
+              <h4>Include</h4>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={includeEdgeLabels}
+                  onChange={e => setIncludeEdgeLabels(e.target.checked)}
+                />
+                Edge labels
+              </label>
+              <div className="export-inline-controls">
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={exportGrafanaBundle}
+                    onChange={e => setExportGrafanaBundle(e.target.checked)}
+                  />
+                  Grafana bundle
+                </label>
+                <button
+                  className="export-btn"
+                  disabled={!exportGrafanaBundle}
+                  onClick={() => setIsGrafanaSettingsOpen(true)}
+                >
+                  Advanced Grafana Settings
+                </button>
+              </div>
+            </div>
+
+            {exportStatus && (
+              <div className={`export-status ${exportStatus.type}`}>
+                {exportStatus.message}
+              </div>
+            )}
+
+              <div className="export-popup-buttons">
+                <button className="export-btn" onClick={handleExport} disabled={isExporting}>
+                  {exportButtonLabel}
+                </button>
+              <button className="export-btn cancel" onClick={() => setShowExportPopup(false)} disabled={isExporting}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {isGrafanaSettingsOpen && (
+        <div className="export-popup">
+          <div className="export-popup-content export-popup-large">
+            <h3>Advanced Grafana Settings</h3>
+            <div className="export-tab-row">
+              <button
+                className={`export-tab ${grafanaSettingsTab === 'general' ? 'active' : ''}`}
+                onClick={() => setGrafanaSettingsTab(parseGrafanaSettingsTab('general'))}
+              >
+                General
+              </button>
+              <button
+                className={`export-tab ${grafanaSettingsTab === 'interface-names' ? 'active' : ''}`}
+                onClick={() => setGrafanaSettingsTab(parseGrafanaSettingsTab('interface-names'))}
+              >
+                Interface Names
+              </button>
+            </div>
+
+            {grafanaSettingsTab === 'general' && (
+              <div className="export-section">
+                <p className="export-help-text">
+                  Configure thresholds and topology sizing used in the exported Grafana panel.
+                </p>
+                <div className="export-grid-two">
+                  <label>
+                    Node size (px)
+                    <input
+                      type="number"
+                      min={12}
+                      max={240}
+                      step={1}
+                      value={grafanaNodeSizePx}
+                      onChange={e => setGrafanaNodeSizePx(
+                        parseBoundedNumber(e.target.value, 12, 240, DEFAULT_GRAFANA_NODE_SIZE_PX)
+                      )}
+                    />
+                  </label>
+                  <label>
+                    Interface size (%)
+                    <input
+                      type="number"
+                      min={40}
+                      max={400}
+                      step={5}
+                      value={grafanaInterfaceSizePercent}
+                      onChange={e => setGrafanaInterfaceSizePercent(
+                        parseBoundedNumber(e.target.value, 40, 400, DEFAULT_GRAFANA_INTERFACE_SIZE_PERCENT)
+                      )}
+                    />
+                  </label>
+                </div>
+                <label>
+                  Traffic threshold unit
+                  <select
+                    value={trafficThresholdUnit}
+                    onChange={e => setTrafficThresholdUnit(parseTrafficThresholdUnit(e.target.value))}
+                  >
+                    <option value="kbit">kbit/s</option>
+                    <option value="mbit">Mbit/s</option>
+                    <option value="gbit">Gbit/s</option>
+                  </select>
+                </label>
+                <div className="export-grid-two">
+                  <label>
+                    Green threshold
+                    <input
+                      type="number"
+                      min={0}
+                      step={getThresholdUnitStep(trafficThresholdUnit)}
+                      value={formatThresholdForUnit(trafficThresholds.green, trafficThresholdUnit)}
+                      onChange={e => updateTrafficThreshold('green', e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Yellow threshold
+                    <input
+                      type="number"
+                      min={0}
+                      step={getThresholdUnitStep(trafficThresholdUnit)}
+                      value={formatThresholdForUnit(trafficThresholds.yellow, trafficThresholdUnit)}
+                      onChange={e => updateTrafficThreshold('yellow', e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Orange threshold
+                    <input
+                      type="number"
+                      min={0}
+                      step={getThresholdUnitStep(trafficThresholdUnit)}
+                      value={formatThresholdForUnit(trafficThresholds.orange, trafficThresholdUnit)}
+                      onChange={e => updateTrafficThreshold('orange', e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Red threshold
+                    <input
+                      type="number"
+                      min={0}
+                      step={getThresholdUnitStep(trafficThresholdUnit)}
+                      value={formatThresholdForUnit(trafficThresholds.red, trafficThresholdUnit)}
+                      onChange={e => updateTrafficThreshold('red', e.target.value)}
+                    />
+                  </label>
+                </div>
+                <p className="export-help-text">
+                  Values must be strictly ascending: green {'<'} yellow {'<'} orange {'<'} red.
+                </p>
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={excludeNodesWithoutLinks}
+                    onChange={e => setExcludeNodesWithoutLinks(e.target.checked)}
+                  />
+                  Exclude nodes without any links
+                </label>
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={includeGrafanaLegend}
+                    onChange={e => setIncludeGrafanaLegend(e.target.checked)}
+                  />
+                  Add traffic legend (top-left)
+                </label>
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={trafficRatesOnHoverOnly}
+                    onChange={e => setTrafficRatesOnHoverOnly(e.target.checked)}
+                  />
+                  Show traffic rates on hover only
+                </label>
+                <label className="checkbox-label">
+                  <input
+                    type="checkbox"
+                    checked={includeHideRatesLegendToggle}
+                    onChange={e => setIncludeHideRatesLegendToggle(e.target.checked)}
+                  />
+                  Add hide-rates legend toggle for rate labels
+                </label>
+              </div>
+            )}
+
+            {grafanaSettingsTab === 'interface-names' && (
+              <div className="export-section">
+                <p className="export-help-text">
+                  Filter links and choose which interface segment should be shown in endpoint labels.
+                </p>
+                <label>
+                  Global override (all interfaces)
+                  <select
+                    value={globalInterfaceOverrideSelection}
+                    onChange={e => setGlobalInterfaceOverrideSelection(e.target.value)}
+                  >
+                    <option value={INTERFACE_SELECT_AUTO}>Auto</option>
+                    <option value={INTERFACE_SELECT_FULL}>Full interface name</option>
+                    {Array.from({ length: maxInterfacePartCount }, (_, index) => index + 1).map(
+                      (partIndex) => (
+                        <option
+                          key={`global-interface-part-${partIndex}`}
+                          value={`${GLOBAL_INTERFACE_PART_INDEX_PREFIX}${partIndex}`}
+                        >
+                          Part {partIndex}
+                        </option>
+                      )
+                    )}
+                  </select>
+                </label>
+                <label>
+                  Filter links
+                  <input
+                    type="text"
+                    placeholder="Search node or interface name"
+                    value={interfaceLinkFilter}
+                    onChange={e => setInterfaceLinkFilter(e.target.value)}
+                  />
+                </label>
+                <p className="export-help-text">
+                  {filteredInterfaceRows.length} of {interfaceRows.length} links shown
+                </p>
+                <div className="interface-link-list">
+                  {filteredInterfaceRows.length === 0 && (
+                    <div className="export-help-text">No links match the current filter.</div>
+                  )}
+                  {filteredInterfaceRows.map((row) => {
+                    const sourceParts = splitInterfaceParts(row.sourceEndpoint);
+                    const targetParts = splitInterfaceParts(row.targetEndpoint);
+                    return (
+                      <div key={row.edgeId} className="interface-link-card">
+                        <div className="interface-link-title">{row.source} &lt;-&gt; {row.target}</div>
+                        <div className="export-grid-two">
+                          <label>
+                            {row.sourceEndpoint}
+                            <select
+                              value={getInterfaceSelectionValue(row.sourceEndpoint, interfaceLabelOverrides)}
+                              onChange={e => updateInterfaceOverride(row.sourceEndpoint, e.target.value)}
+                            >
+                              <option value={INTERFACE_SELECT_AUTO}>Auto (use global)</option>
+                              <option value={INTERFACE_SELECT_FULL}>Full: {row.sourceEndpoint}</option>
+                              {sourceParts.map((part, idx) => (
+                                <option
+                                  key={`${row.edgeId}-source-${idx}-${part}`}
+                                  value={`${INTERFACE_SELECT_TOKEN_PREFIX}${part}`}
+                                >
+                                  Part {idx + 1}: {part}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            {row.targetEndpoint}
+                            <select
+                              value={getInterfaceSelectionValue(row.targetEndpoint, interfaceLabelOverrides)}
+                              onChange={e => updateInterfaceOverride(row.targetEndpoint, e.target.value)}
+                            >
+                              <option value={INTERFACE_SELECT_AUTO}>Auto (use global)</option>
+                              <option value={INTERFACE_SELECT_FULL}>Full: {row.targetEndpoint}</option>
+                              {targetParts.map((part, idx) => (
+                                <option
+                                  key={`${row.edgeId}-target-${idx}-${part}`}
+                                  value={`${INTERFACE_SELECT_TOKEN_PREFIX}${part}`}
+                                >
+                                  Part {idx + 1}: {part}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="export-popup-buttons">
-              <button className="export-btn" onClick={handleExport}>Export</button>
-              <button className="export-btn cancel" onClick={() => setShowExportPopup(false)}>Cancel</button>
+              <button className="export-btn" onClick={() => setIsGrafanaSettingsOpen(false)}>Done</button>
             </div>
           </div>
         </div>

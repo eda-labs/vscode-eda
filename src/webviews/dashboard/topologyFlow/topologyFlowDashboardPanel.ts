@@ -111,6 +111,8 @@ interface EdgeData {
   target: string;
   sourceInterface?: string;
   targetInterface?: string;
+  sourceEndpoint?: string;
+  targetEndpoint?: string;
   sourceState?: string;
   targetState?: string;
   state?: string;
@@ -152,11 +154,29 @@ interface WebviewSaveTopologyPositionsMessage {
   positions: NodePositionMap;
 }
 
+interface WebviewExportSvgGrafanaBundleMessage {
+  command: 'exportSvgGrafanaBundle';
+  requestId: string;
+  baseName: string;
+  svgContent: string;
+  dashboardJson: string;
+  panelYaml: string;
+}
+
+interface GrafanaBundleExportPayload {
+  requestId: string;
+  baseName: string;
+  svgContent: string;
+  dashboardJson: string;
+  panelYaml: string;
+}
+
 type WebviewMessage =
   | WebviewReadyMessage
   | WebviewSshTopoNodeMessage
   | WebviewOpenResourceMessage
-  | WebviewSaveTopologyPositionsMessage;
+  | WebviewSaveTopologyPositionsMessage
+  | WebviewExportSvgGrafanaBundleMessage;
 
 // --- Stream Message Types ---
 
@@ -228,6 +248,8 @@ export class TopologyFlowDashboardPanel extends BasePanel {
         });
       } else if (msg.command === 'saveTopologyPositions') {
         await this.handleSaveTopologyPositions(msg.namespace, msg.positions);
+      } else if (msg.command === 'exportSvgGrafanaBundle') {
+        await this.handleGrafanaBundleExport(msg);
       }
     });
 
@@ -281,6 +303,122 @@ export class TopologyFlowDashboardPanel extends BasePanel {
   ${scriptTags}
 </body>
 </html>`;
+  }
+
+  private sanitizeExportBaseName(baseName: string): string {
+    const trimmed = baseName.trim();
+    if (!trimmed) return 'topology';
+
+    const withoutSvg = trimmed.replace(/\\.svg$/i, '');
+    const invalidChars = new Set(['<', '>', ':', '"', '/', '\\\\', '|', '?', '*']);
+    const sanitized = withoutSvg
+      .split('')
+      .map((char) => (char.charCodeAt(0) < 32 || invalidChars.has(char) ? '-' : char))
+      .join('')
+      .trim();
+
+    return sanitized || 'topology';
+  }
+
+  private parseGrafanaBundlePayload(
+    message: WebviewExportSvgGrafanaBundleMessage
+  ): GrafanaBundleExportPayload | null {
+    const requestId = typeof message.requestId === 'string' ? message.requestId.trim() : '';
+    const svgContent = typeof message.svgContent === 'string' ? message.svgContent : '';
+    const dashboardJson = typeof message.dashboardJson === 'string' ? message.dashboardJson : '';
+    const panelYaml = typeof message.panelYaml === 'string' ? message.panelYaml : '';
+    if (!requestId || !svgContent || !dashboardJson || !panelYaml) {
+      return null;
+    }
+
+    return {
+      requestId,
+      baseName: this.sanitizeExportBaseName(typeof message.baseName === 'string' ? message.baseName : ''),
+      svgContent,
+      dashboardJson,
+      panelYaml
+    };
+  }
+
+  private postSvgExportResult(payload: {
+    requestId: string;
+    success: boolean;
+    error?: string;
+    files?: string[];
+  }): void {
+    void this.panel.webview.postMessage({
+      command: 'svgExportResult',
+      requestId: payload.requestId,
+      success: payload.success,
+      ...(payload.error != null && payload.error.length > 0 ? { error: payload.error } : {}),
+      ...(Array.isArray(payload.files) && payload.files.length > 0 ? { files: payload.files } : {})
+    });
+  }
+
+  private async writeTextFile(filePath: string, content: string): Promise<void> {
+    await vscode.workspace.fs.writeFile(vscode.Uri.file(filePath), Buffer.from(content, 'utf8'));
+  }
+
+  private async handleGrafanaBundleExport(message: WebviewExportSvgGrafanaBundleMessage): Promise<void> {
+    const payload = this.parseGrafanaBundlePayload(message);
+    const requestId = payload?.requestId ?? (typeof message.requestId === 'string' ? message.requestId : '');
+
+    if (!payload) {
+      this.postSvgExportResult({
+        requestId,
+        success: false,
+        error: 'Invalid SVG Grafana export payload'
+      });
+      return;
+    }
+
+    const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+    const defaultUri = workspaceUri != null
+      ? vscode.Uri.joinPath(workspaceUri, `${payload.baseName}.svg`)
+      : undefined;
+
+    try {
+      const selectedUri = await vscode.window.showSaveDialog({
+        title: 'Export Grafana SVG Bundle',
+        saveLabel: 'Export',
+        defaultUri,
+        filters: { SVG: ['svg'] }
+      });
+
+      if (!selectedUri) {
+        this.postSvgExportResult({
+          requestId: payload.requestId,
+          success: false,
+          error: 'Export cancelled'
+        });
+        return;
+      }
+
+      const selectedPath = selectedUri.fsPath;
+      const basePath = selectedPath.toLowerCase().endsWith('.svg')
+        ? selectedPath.slice(0, -4)
+        : selectedPath;
+
+      const svgPath = `${basePath}.svg`;
+      const dashboardPath = `${basePath}.grafana.json`;
+      const panelPath = `${basePath}.flow_panel.yaml`;
+
+      await this.writeTextFile(svgPath, payload.svgContent);
+      await this.writeTextFile(dashboardPath, payload.dashboardJson);
+      await this.writeTextFile(panelPath, payload.panelYaml);
+
+      this.postSvgExportResult({
+        requestId: payload.requestId,
+        success: true,
+        files: [svgPath, dashboardPath, panelPath]
+      });
+    } catch (error: unknown) {
+      this.postSvgExportResult({
+        requestId: payload.requestId,
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
 
   private postNamespaceSelection(): void {
@@ -615,6 +753,7 @@ export class TopologyFlowDashboardPanel extends BasePanel {
     members: TopoLinkStatusMember[]
   ): void {
     if (linkSpec.local?.interface) {
+      edgeData.sourceEndpoint = linkSpec.local.interface;
       edgeData.sourceInterface = this.shortenInterfaceName(linkSpec.local.interface);
       const ms = members.find(
         (m: TopoLinkStatusMember) =>
@@ -623,6 +762,7 @@ export class TopologyFlowDashboardPanel extends BasePanel {
       if (ms) edgeData.sourceState = ms.operationalState;
     }
     if (linkSpec.remote?.interface) {
+      edgeData.targetEndpoint = linkSpec.remote.interface;
       edgeData.targetInterface = this.shortenInterfaceName(linkSpec.remote.interface);
       const ms = members.find(
         (m: TopoLinkStatusMember) =>

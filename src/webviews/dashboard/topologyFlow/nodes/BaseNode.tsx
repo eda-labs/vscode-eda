@@ -17,6 +17,23 @@ interface BaseNodeComponentProps {
   readonly children?: React.ReactNode;
 }
 
+const NODE_LABEL_MAX_CHARS = 11;
+
+function truncateMiddle(value: string, maxChars: number): string {
+  if (maxChars <= 0 || value.length <= maxChars) {
+    return value;
+  }
+  if (maxChars === 1) {
+    return '…';
+  }
+
+  const ellipsis = '…';
+  const available = maxChars - ellipsis.length;
+  const headLength = Math.ceil(available / 2);
+  const tailLength = Math.floor(available / 2);
+  return `${value.slice(0, headLength)}${ellipsis}${value.slice(value.length - tailLength)}`;
+}
+
 const handlePositions = [
   { id: 'top', type: 'source' as const, position: Position.Top },
   { id: 'top-target', type: 'target' as const, position: Position.Top },
@@ -30,13 +47,15 @@ const handlePositions = [
 
 function BaseNodeComponent({ data, selected, children }: BaseNodeComponentProps) {
   const isHighlighted = selected || Boolean(data.highlighted);
+  const fullLabel = data.label;
+  const displayLabel = truncateMiddle(fullLabel, NODE_LABEL_MAX_CHARS);
 
   return (
     <div className={`topology-node ${isHighlighted ? 'selected' : ''}`}>
       <div className="topology-node-content">
         {children}
       </div>
-      <div className="topology-node-label">{data.label}</div>
+      <div className="topology-node-label" title={fullLabel}>{displayLabel}</div>
       {handlePositions.map(({ id, type, position }) => (
         <Handle
           key={id}

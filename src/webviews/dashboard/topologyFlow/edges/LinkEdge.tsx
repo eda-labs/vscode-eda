@@ -13,6 +13,8 @@ import { type Point, getNodeEdgePoint, createBezierPath } from '../geometry';
 export interface LinkEdgeData extends Record<string, unknown> {
   sourceInterface?: string;
   targetInterface?: string;
+  sourceEndpoint?: string;
+  targetEndpoint?: string;
   state?: string;
   sourceState?: string;
   targetState?: string;
