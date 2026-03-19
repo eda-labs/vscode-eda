@@ -34,6 +34,13 @@ export interface GrafanaCellIdSvgOptions {
   trafficRatesOnHoverOnly?: boolean;
 }
 
+export interface GrafanaRateLabelPosition {
+  x: number;
+  y: number;
+}
+
+export type GrafanaRateLabelPositionMap = Record<string, GrafanaRateLabelPosition>;
+
 export const DEFAULT_GRAFANA_TRAFFIC_THRESHOLDS: GrafanaTrafficThresholds = {
   green: 199999,
   yellow: 500000,
@@ -548,6 +555,34 @@ export function makeGrafanaSvgResponsive(svgContent: string): string {
   svgEl.setAttribute("preserveAspectRatio", "xMidYMid meet");
 
   return new XMLSerializer().serializeToString(svgEl);
+}
+
+export function applyGrafanaRateLabelPositions(
+  svgContent: string,
+  positions: GrafanaRateLabelPositionMap | undefined
+): string {
+  if (positions == null || Object.keys(positions).length === 0) {
+    return svgContent;
+  }
+  if (typeof DOMParser === "undefined" || typeof XMLSerializer === "undefined") {
+    return svgContent;
+  }
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(svgContent, SVG_MIME_TYPE);
+
+  for (const textEl of Array.from(doc.querySelectorAll("text[data-cell-id$=':label']"))) {
+    const cellId = textEl.getAttribute("data-cell-id");
+    if (!cellId) continue;
+    const pos = positions[cellId];
+    if (!pos) continue;
+    if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y)) continue;
+
+    textEl.setAttribute("x", fmt(pos.x));
+    textEl.setAttribute("y", fmt(pos.y));
+  }
+
+  return new XMLSerializer().serializeToString(doc.documentElement);
 }
 
 function setCellIdAttributes(element: Element, shortCellId: string): void {

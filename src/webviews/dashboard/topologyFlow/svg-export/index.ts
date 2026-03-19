@@ -2,7 +2,9 @@ export type {
   GrafanaEdgeCellMapping,
   GrafanaTrafficThresholds,
   GrafanaPanelYamlOptions,
-  GrafanaCellIdSvgOptions
+  GrafanaCellIdSvgOptions,
+  GrafanaRateLabelPosition,
+  GrafanaRateLabelPositionMap
 } from './grafanaExport';
 
 export {
@@ -15,6 +17,7 @@ export {
   addGrafanaTrafficLegend,
   makeGrafanaSvgResponsive,
   applyGrafanaCellIdsToSvg,
+  applyGrafanaRateLabelPositions,
   buildGrafanaPanelYaml,
   buildGrafanaDashboardJson
 } from './grafanaExport';

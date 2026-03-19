@@ -1,3 +1,4 @@
+/* eslint-disable max-lines */
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import type { ColorMode } from '@xyflow/react';
 import { alpha, useTheme } from '@mui/material/styles';
@@ -22,9 +23,11 @@ import {
   addGrafanaTrafficLegend,
   makeGrafanaSvgResponsive,
   applyGrafanaCellIdsToSvg,
+  applyGrafanaRateLabelPositions,
   buildGrafanaPanelYaml,
   buildGrafanaDashboardJson,
-  type GrafanaTrafficThresholds
+  type GrafanaTrafficThresholds,
+  type GrafanaRateLabelPositionMap
 } from './svg-export';
 import {
   type NodePositionMap,
@@ -437,6 +440,52 @@ function hasStrictlyAscendingThresholds(thresholds: GrafanaTrafficThresholds): b
   );
 }
 
+function extractRateLabelPositionsFromSvg(svgContent: string): GrafanaRateLabelPositionMap {
+  if (typeof DOMParser === 'undefined') {
+    return {};
+  }
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(svgContent, 'image/svg+xml');
+  const positions: GrafanaRateLabelPositionMap = {};
+  for (const textEl of Array.from(doc.querySelectorAll("text[data-cell-id$=':label'][x][y]"))) {
+    const cellId = textEl.getAttribute('data-cell-id');
+    if (!cellId) continue;
+    const x = Number.parseFloat(textEl.getAttribute('x') ?? '');
+    const y = Number.parseFloat(textEl.getAttribute('y') ?? '');
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    positions[cellId] = { x, y };
+  }
+  return positions;
+}
+
+function mergeRateLabelPositions(
+  existing: GrafanaRateLabelPositionMap,
+  discovered: GrafanaRateLabelPositionMap
+): GrafanaRateLabelPositionMap {
+  const merged: GrafanaRateLabelPositionMap = {};
+  for (const [cellId, position] of Object.entries(discovered)) {
+    merged[cellId] = existing[cellId] ?? position;
+  }
+  return merged;
+}
+
+function toSvgPoint(
+  svgEl: SVGSVGElement,
+  clientX: number,
+  clientY: number
+): { x: number; y: number } | null {
+  if (typeof svgEl.createSVGPoint !== 'function') return null;
+  const ctm = svgEl.getScreenCTM();
+  if (!ctm) return null;
+  const point = svgEl.createSVGPoint();
+  point.x = clientX;
+  point.y = clientY;
+  const transformed = point.matrixTransform(ctm.inverse());
+  if (!Number.isFinite(transformed.x) || !Number.isFinite(transformed.y)) return null;
+  return { x: transformed.x, y: transformed.y };
+}
+
 function splitInterfaceParts(endpoint: string): string[] {
   const baseParts = endpoint
     .split(/[^A-Za-z0-9]+/g)
@@ -676,6 +725,12 @@ function TopologyFlowDashboard() {
   const [globalInterfaceOverrideSelection, setGlobalInterfaceOverrideSelection] = useState(INTERFACE_SELECT_AUTO);
   const [interfaceLinkFilter, setInterfaceLinkFilter] = useState('');
   const [interfaceLabelOverrides, setInterfaceLabelOverrides] = useState<Record<string, string>>({});
+  const [rateLabelPositions, setRateLabelPositions] = useState<GrafanaRateLabelPositionMap>({});
+  const [isGrafanaPreviewOpen, setIsGrafanaPreviewOpen] = useState(false);
+  const [isBuildingGrafanaPreview, setIsBuildingGrafanaPreview] = useState(false);
+  const [grafanaPreviewSvg, setGrafanaPreviewSvg] = useState('');
+  const [grafanaPreviewStatus, setGrafanaPreviewStatus] = useState<string | null>(null);
+  const grafanaPreviewContainerRef = useRef<HTMLDivElement>(null);
   const topologyCssVars = useMemo(() => {
     const { topology, fonts } = theme.vscode;
 
@@ -934,6 +989,10 @@ function TopologyFlowDashboard() {
     if (msg.command === 'init' || msg.command === 'namespace') {
       setSelectedNamespace(msg.selected ?? ALL_NAMESPACES);
       setSelectedNodeLabelFilter(NODE_LABEL_FILTER_ALL);
+      setRateLabelPositions({});
+      setGrafanaPreviewSvg('');
+      setGrafanaPreviewStatus(null);
+      setIsGrafanaPreviewOpen(false);
       setSaveStatus(null);
       setIsSavingLayout(false);
       setCurrentPositions({});
@@ -947,6 +1006,10 @@ function TopologyFlowDashboard() {
         : extractDeviceNodePositions(layoutedNodes);
       setAllNodes(layoutedNodes);
       setAllEdges(processedEdges);
+      setRateLabelPositions({});
+      setGrafanaPreviewSvg('');
+      setGrafanaPreviewStatus(null);
+      setIsGrafanaPreviewOpen(false);
       setSavedPositions(baselinePositions);
       setCurrentPositions(baselinePositions);
     } else if (msg.command === 'saveTopologyPositionsResult') {
@@ -1058,6 +1121,195 @@ function TopologyFlowDashboard() {
     setShowExportPopup(true);
   }, [theme.vscode.topology.editorBackground]);
 
+  const buildGrafanaPreviewArtifacts = useCallback(
+    async (labelPositions: GrafanaRateLabelPositionMap) => {
+      if (!topologyRef.current) {
+        throw new Error('Topology view is not ready yet');
+      }
+
+      const exportOptions = {
+        backgroundColor: exportBgColor,
+        transparentBg: exportBgTransparent,
+        includeLabels: includeEdgeLabels,
+        zoomPercent: borderZoom,
+        paddingPx: borderPadding,
+        nodeSizePx: grafanaNodeSizePx,
+        interfaceScale: grafanaInterfaceSizePercent / 100,
+        interfaceLabelOverrides: effectiveInterfaceLabelOverrides,
+        nodeProximateLabels: true
+      } as const;
+
+      const prepared = await topologyRef.current.buildSvgExport(exportOptions);
+      if (!prepared) {
+        throw new Error('SVG export is not yet available');
+      }
+
+      const mappings = collectGrafanaEdgeCellMappings(prepared.edges, prepared.nodes, new Set<string>());
+      let grafanaSvg = sanitizeSvgForGrafana(prepared.svgContent);
+      if (excludeNodesWithoutLinks) {
+        const linkedNodeIds = collectLinkedNodeIds(prepared.edges, prepared.nodes, new Set<string>());
+        grafanaSvg = removeUnlinkedNodesFromSvg(grafanaSvg, linkedNodeIds);
+        grafanaSvg = trimGrafanaSvgToTopologyContent(grafanaSvg, Math.max(6, borderPadding));
+      }
+      grafanaSvg = applyGrafanaCellIdsToSvg(grafanaSvg, mappings, { trafficRatesOnHoverOnly });
+      if (includeGrafanaLegend) {
+        grafanaSvg = addGrafanaTrafficLegend(grafanaSvg, trafficThresholds, trafficThresholdUnit);
+      }
+      grafanaSvg = applyGrafanaRateLabelPositions(grafanaSvg, labelPositions);
+
+      return { grafanaSvg, mappings };
+    },
+    [
+      borderPadding,
+      borderZoom,
+      effectiveInterfaceLabelOverrides,
+      excludeNodesWithoutLinks,
+      exportBgColor,
+      exportBgTransparent,
+      grafanaInterfaceSizePercent,
+      grafanaNodeSizePx,
+      includeEdgeLabels,
+      includeGrafanaLegend,
+      trafficRatesOnHoverOnly,
+      trafficThresholdUnit,
+      trafficThresholds
+    ]
+  );
+
+  const openGrafanaPreview = useCallback(() => {
+    const doOpen = async () => {
+      if (!exportGrafanaBundle) {
+        return;
+      }
+
+      if (!hasStrictlyAscendingThresholds(trafficThresholds)) {
+        setExportStatus({
+          type: 'error',
+          message: 'Traffic thresholds must be strictly ascending (green < yellow < orange < red)'
+        });
+        return;
+      }
+
+      setIsBuildingGrafanaPreview(true);
+      setGrafanaPreviewStatus(null);
+      try {
+        const { grafanaSvg } = await buildGrafanaPreviewArtifacts(rateLabelPositions);
+        const discovered = extractRateLabelPositionsFromSvg(grafanaSvg);
+        setRateLabelPositions((previous) => mergeRateLabelPositions(previous, discovered));
+        setGrafanaPreviewSvg(grafanaSvg);
+        setIsGrafanaPreviewOpen(true);
+        setGrafanaPreviewStatus('Drag rate labels to adjust their position before export.');
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        setExportStatus({ type: 'error', message });
+      } finally {
+        setIsBuildingGrafanaPreview(false);
+      }
+    };
+
+    void doOpen();
+  }, [
+    buildGrafanaPreviewArtifacts,
+    exportGrafanaBundle,
+    rateLabelPositions,
+    trafficThresholds
+  ]);
+
+  const resetGrafanaPreviewLabelPositions = useCallback(() => {
+    const doReset = async () => {
+      setIsBuildingGrafanaPreview(true);
+      setGrafanaPreviewStatus(null);
+      try {
+        const { grafanaSvg } = await buildGrafanaPreviewArtifacts({});
+        const defaults = extractRateLabelPositionsFromSvg(grafanaSvg);
+        setRateLabelPositions(defaults);
+        setGrafanaPreviewSvg(grafanaSvg);
+        setGrafanaPreviewStatus('Rate label positions reset.');
+      } catch (error: unknown) {
+        setGrafanaPreviewStatus(error instanceof Error ? error.message : String(error));
+      } finally {
+        setIsBuildingGrafanaPreview(false);
+      }
+    };
+
+    void doReset();
+  }, [buildGrafanaPreviewArtifacts]);
+
+  const handleGrafanaPreviewPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+
+    const textEl = target.closest("text[data-cell-id$=':label']");
+    if (!(textEl instanceof SVGTextElement)) {
+      return;
+    }
+
+    const cellId = textEl.getAttribute('data-cell-id');
+    if (!cellId) {
+      return;
+    }
+
+    const container = grafanaPreviewContainerRef.current;
+    const svgEl = container?.querySelector('svg');
+    if (!(svgEl instanceof SVGSVGElement)) {
+      return;
+    }
+
+    const startCursor = toSvgPoint(svgEl, event.clientX, event.clientY);
+    if (!startCursor) {
+      return;
+    }
+
+    const startX = Number.parseFloat(textEl.getAttribute('x') ?? '');
+    const startY = Number.parseFloat(textEl.getAttribute('y') ?? '');
+    if (!Number.isFinite(startX) || !Number.isFinite(startY)) {
+      return;
+    }
+
+    event.preventDefault();
+    textEl.classList.add('dragging');
+    let latestX = startX;
+    let latestY = startY;
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      const nextCursor = toSvgPoint(svgEl, moveEvent.clientX, moveEvent.clientY);
+      if (!nextCursor) {
+        return;
+      }
+      latestX = startX + (nextCursor.x - startCursor.x);
+      latestY = startY + (nextCursor.y - startCursor.y);
+      textEl.setAttribute('x', Number(latestX.toFixed(3)).toString());
+      textEl.setAttribute('y', Number(latestY.toFixed(3)).toString());
+    };
+
+    const stopDragging = () => {
+      textEl.classList.remove('dragging');
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', stopDragging);
+      window.removeEventListener('pointercancel', stopDragging);
+      const nextPosition = { x: latestX, y: latestY };
+      setRateLabelPositions((previous) => ({
+        ...previous,
+        [cellId]: nextPosition
+      }));
+      const liveSvg = grafanaPreviewContainerRef.current?.innerHTML;
+      if (typeof liveSvg === 'string' && liveSvg.trim().length > 0) {
+        setGrafanaPreviewSvg(liveSvg);
+      } else {
+        setGrafanaPreviewSvg((previous) => applyGrafanaRateLabelPositions(previous, {
+          [cellId]: nextPosition
+        }));
+      }
+      setGrafanaPreviewStatus(`Updated ${cellId}`);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', stopDragging);
+    window.addEventListener('pointercancel', stopDragging);
+  }, []);
+
   // Handle export
   const handleExport = useCallback(() => {
     const doExport = async () => {
@@ -1094,24 +1346,8 @@ function TopologyFlowDashboard() {
           return;
         }
 
-        const prepared = await topologyRef.current.buildSvgExport(exportOptions);
-        if (!prepared) {
-          setExportStatus({ type: 'error', message: 'SVG export is not yet available' });
-          return;
-        }
-
-        const mappings = collectGrafanaEdgeCellMappings(prepared.edges, prepared.nodes, new Set<string>());
-        let grafanaSvg = sanitizeSvgForGrafana(prepared.svgContent);
-        if (excludeNodesWithoutLinks) {
-          const linkedNodeIds = collectLinkedNodeIds(prepared.edges, prepared.nodes, new Set<string>());
-          grafanaSvg = removeUnlinkedNodesFromSvg(grafanaSvg, linkedNodeIds);
-          grafanaSvg = trimGrafanaSvgToTopologyContent(grafanaSvg, Math.max(6, borderPadding));
-        }
-        grafanaSvg = applyGrafanaCellIdsToSvg(grafanaSvg, mappings, { trafficRatesOnHoverOnly });
-        if (includeGrafanaLegend) {
-          grafanaSvg = addGrafanaTrafficLegend(grafanaSvg, trafficThresholds, trafficThresholdUnit);
-        }
-        grafanaSvg = makeGrafanaSvgResponsive(grafanaSvg);
+        const { grafanaSvg: rawGrafanaSvg, mappings } = await buildGrafanaPreviewArtifacts(rateLabelPositions);
+        const grafanaSvg = makeGrafanaSvgResponsive(rawGrafanaSvg);
 
         const panelYaml = buildGrafanaPanelYaml(mappings, {
           trafficThresholds,
@@ -1148,22 +1384,20 @@ function TopologyFlowDashboard() {
     };
     void doExport();
   }, [
+    buildGrafanaPreviewArtifacts,
     borderPadding,
     borderZoom,
     effectiveInterfaceLabelOverrides,
-    excludeNodesWithoutLinks,
     exportBgColor,
     exportBgTransparent,
     exportGrafanaBundle,
     grafanaInterfaceSizePercent,
     grafanaNodeSizePx,
     includeEdgeLabels,
-    includeGrafanaLegend,
     includeHideRatesLegendToggle,
     postMessage,
+    rateLabelPositions,
     selectedNamespace,
-    trafficRatesOnHoverOnly,
-    trafficThresholdUnit,
     trafficThresholds
   ]);
 
@@ -1371,6 +1605,13 @@ function TopologyFlowDashboard() {
                   onClick={() => setIsGrafanaSettingsOpen(true)}
                 >
                   Advanced Grafana Settings
+                </button>
+                <button
+                  className="export-btn"
+                  disabled={!exportGrafanaBundle || isBuildingGrafanaPreview}
+                  onClick={openGrafanaPreview}
+                >
+                  {isBuildingGrafanaPreview ? 'Building Preview...' : 'Preview / Move Rate Labels'}
                 </button>
               </div>
             </div>
@@ -1629,6 +1870,42 @@ function TopologyFlowDashboard() {
 
             <div className="export-popup-buttons">
               <button className="export-btn" onClick={() => setIsGrafanaSettingsOpen(false)}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {isGrafanaPreviewOpen && (
+        <div className="export-popup">
+          <div className="export-popup-content export-popup-preview">
+            <h3>Grafana Rate Label Preview</h3>
+            <p className="export-help-text">
+              Drag any rate label to fine-tune placement. The adjusted coordinates are used for Grafana bundle export.
+            </p>
+            {grafanaPreviewStatus && (
+              <p className="export-help-text grafana-preview-status">{grafanaPreviewStatus}</p>
+            )}
+            <div className="grafana-preview-frame">
+              <div
+                ref={grafanaPreviewContainerRef}
+                className="grafana-preview-canvas"
+                onPointerDown={handleGrafanaPreviewPointerDown}
+                dangerouslySetInnerHTML={{ __html: grafanaPreviewSvg }}
+              />
+            </div>
+            <div className="export-popup-buttons">
+              <button
+                className="export-btn"
+                onClick={resetGrafanaPreviewLabelPositions}
+                disabled={isBuildingGrafanaPreview}
+              >
+                Reset Label Positions
+              </button>
+              <button
+                className="export-btn"
+                onClick={() => setIsGrafanaPreviewOpen(false)}
+              >
+                Done
+              </button>
             </div>
           </div>
         </div>
