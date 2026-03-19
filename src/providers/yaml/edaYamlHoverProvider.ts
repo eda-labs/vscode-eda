@@ -37,7 +37,7 @@ export class EdaYamlHoverProvider implements vscode.HoverProvider {
       }
       const word = document.getText(wordRange);
 
-      const schema = this.getResolvedSchema(ctx.kind);
+      const schema = this.getResolvedSchema(ctx.kind, ctx.apiVersion);
       if (!schema) {
         return undefined;
       }
@@ -77,9 +77,20 @@ export class EdaYamlHoverProvider implements vscode.HoverProvider {
     return EDA_API_PATTERN.test(text);
   }
 
-  private getResolvedSchema(kind: string): ResolvedJsonSchema | null {
+  private getResolvedSchema(kind: string, apiVersion: string | undefined): ResolvedJsonSchema | null {
     try {
       const service = serviceManager.getService<SchemaProviderService>('schema-provider');
+      const resourceAwareService = service as SchemaProviderService & {
+        getResolvedSchemaForResourceSync?: (
+          requestedKind: string,
+          requestedApiVersion: string | undefined
+        ) => ResolvedJsonSchema | null;
+      };
+
+      if (typeof resourceAwareService.getResolvedSchemaForResourceSync === 'function') {
+        return resourceAwareService.getResolvedSchemaForResourceSync(kind, apiVersion);
+      }
+
       return service.getResolvedSchemaForKindSync(kind);
     } catch {
       return null;

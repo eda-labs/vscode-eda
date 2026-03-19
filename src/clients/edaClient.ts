@@ -637,6 +637,10 @@ export class EdaClient {
     return this.specManager.getApiVersion();
   }
 
+  public async waitForInit(): Promise<void> {
+    await this.initPromise;
+  }
+
   public async getStreamNames(): Promise<string[]> {
     await this.initPromise;
     return this.specManager.getStreamNames();

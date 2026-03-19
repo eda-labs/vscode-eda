@@ -7,6 +7,7 @@ import * as vscode from 'vscode';
 import { log, LogLevel } from '../extension';
 import type { EdaCrd } from '../types';
 import type { KubernetesClient } from '../clients/kubernetesClient';
+import type { EdaClient } from '../clients/edaClient';
 import type { ResolvedJsonSchema } from '../providers/yaml/types';
 
 import { serviceManager } from './serviceManager';
@@ -18,6 +19,7 @@ const UTF8 = 'utf8' as const;
 // Regex patterns for OpenAPI spec parsing
 const PATH_PATTERN = /^\/apps\/([^/]+)\/([^/]+)(?:\/namespaces\/{namespace\})?\/([^/]+)$/;
 const REF_PATTERN = /\.([^./]+)$/;
+const VERSION_DIR_PATTERN = /^v?(\d+(?:\.\d+)*)$/;
 
 // Type definitions for JSON Schema
 interface JsonSchemaProperty {
@@ -97,6 +99,12 @@ export class SchemaProviderService extends CoreService {
 
   /** In-memory cache of fully resolved schemas (no $ref pointers) for sync access */
   private resolvedSchemaCache = new Map<string, ResolvedJsonSchema>();
+  /** In-memory cache of resolved schemas keyed by apiVersion+kind */
+  private resolvedSchemaByResourceCache = new Map<string, ResolvedJsonSchema>();
+  /** Priority map to prevent lower-quality schemas from overriding better kind-level schemas */
+  private resolvedSchemaPriority = new Map<string, number>();
+  /** Priority map for apiVersion+kind schemas */
+  private resolvedSchemaByResourcePriority = new Map<string, number>();
   /** Map of kind -> apiVersion extracted during schema loading */
   private kindApiVersionMap = new Map<string, string>();
   public readonly onDidSchemasChanged = this.schemaChangedEmitter.event;
@@ -155,13 +163,14 @@ export class SchemaProviderService extends CoreService {
     log('Initialized EDA schema provider', LogLevel.INFO, true);
   }
 
-  private async findSpecDir(): Promise<string> {
+  private async findSpecDir(preferredVersion?: string): Promise<string> {
     const baseDir = path.join(os.homedir(), '.eda', 'vscode');
     try {
       const entries = await fs.promises.readdir(baseDir, { withFileTypes: true });
-      const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
-      if (dirs.length > 0) {
-        return path.join(baseDir, dirs[dirs.length - 1]);
+      const dirs = entries.filter(e => e.isDirectory()).map(e => e.name);
+      const selectedDir = SchemaProviderService.selectSpecDirName(dirs, preferredVersion);
+      if (selectedDir) {
+        return path.join(baseDir, selectedDir);
       }
     } catch {
       // ignore
@@ -169,17 +178,104 @@ export class SchemaProviderService extends CoreService {
     throw new Error(`No EDA specifications found in ${baseDir}`);
   }
 
+  private static selectSpecDirName(dirNames: string[]): string | undefined;
+  private static selectSpecDirName(dirNames: string[], preferredVersion: string | undefined): string | undefined;
+  private static selectSpecDirName(dirNames: string[], preferredVersion?: string): string | undefined {
+    if (dirNames.length === 0) {
+      return undefined;
+    }
+
+    const candidateNames = SchemaProviderService.versionCandidates(preferredVersion);
+    if (candidateNames.length > 0) {
+      for (const candidate of candidateNames) {
+        if (dirNames.includes(candidate)) {
+          return candidate;
+        }
+      }
+    }
+
+    const versionDirs = dirNames
+      .map(name => {
+        const match = VERSION_DIR_PATTERN.exec(name);
+        if (!match) {
+          return null;
+        }
+        const parsed = match[1]
+          .split('.')
+          .map(part => Number.parseInt(part, 10))
+          .filter(part => Number.isFinite(part));
+        if (parsed.length === 0) {
+          return null;
+        }
+        return { name, parsed };
+      })
+      .filter((entry): entry is { name: string; parsed: number[] } => entry !== null);
+
+    if (versionDirs.length > 0) {
+      versionDirs.sort((left, right) => {
+        const maxLength = Math.max(left.parsed.length, right.parsed.length);
+        for (let index = 0; index < maxLength; index += 1) {
+          const leftPart = left.parsed[index] ?? 0;
+          const rightPart = right.parsed[index] ?? 0;
+          if (leftPart !== rightPart) {
+            return rightPart - leftPart;
+          }
+        }
+        return right.name.localeCompare(left.name);
+      });
+      return versionDirs[0].name;
+    }
+
+    const fallbackDirs = [...dirNames].sort();
+    if (fallbackDirs.length > 0) {
+      return fallbackDirs[fallbackDirs.length - 1];
+    }
+    return undefined;
+  }
+
+  private static versionCandidates(version: string | undefined): string[] {
+    const trimmed = typeof version === 'string' ? version.trim() : '';
+    if (!trimmed || trimmed.toLowerCase() === 'unknown') {
+      return [];
+    }
+    const normalized = trimmed.startsWith('v') ? trimmed.slice(1) : trimmed;
+    const candidates = [trimmed, `v${normalized}`, normalized];
+    return [...new Set(candidates.filter(candidate => candidate.length > 0))];
+  }
+
+  private async resolveConnectedApiVersion(): Promise<string | undefined> {
+    try {
+      const edaClient = serviceManager.getClient<EdaClient>('eda');
+      if (typeof (edaClient as unknown as { waitForInit?: () => Promise<void> }).waitForInit === 'function') {
+        await (edaClient as unknown as { waitForInit: () => Promise<void> }).waitForInit();
+      }
+      const version = typeof edaClient.getApiVersion === 'function'
+        ? edaClient.getApiVersion()
+        : undefined;
+      if (typeof version === 'string' && version.trim().length > 0 && version !== 'unknown') {
+        return version.trim();
+      }
+    } catch {
+      // ignore and use fallback selection
+    }
+    return undefined;
+  }
+
   private async loadSchemas(): Promise<void> {
     this.schemaCache.clear();
     this.clusterSchemaCache.clear();
     this.resolvedSchemaCache.clear();
+    this.resolvedSchemaByResourceCache.clear();
+    this.resolvedSchemaPriority.clear();
+    this.resolvedSchemaByResourcePriority.clear();
     this.kindApiVersionMap.clear();
     this.customResourceDefinitionsCache = undefined;
     this.customResourceDefinitionsPromise = undefined;
     if (!fs.existsSync(this.schemaCacheDir)) {
       fs.mkdirSync(this.schemaCacheDir, { recursive: true });
     }
-    const specDir = await this.findSpecDir();
+    const connectedVersion = await this.resolveConnectedApiVersion();
+    const specDir = await this.findSpecDir(connectedVersion);
     await this.scanSpecDir(specDir);
     this.schemaChangedEmitter.fire();
   }
@@ -213,6 +309,34 @@ export class SchemaProviderService extends CoreService {
     return typeof version === 'string' ? version : undefined;
   }
 
+  private static makeResourceSchemaKey(apiVersion: string, kind: string): string {
+    return `${apiVersion}::${kind}`;
+  }
+
+  private cacheResolvedSchema(
+    kind: string,
+    apiVersion: string | undefined,
+    schema: ResolvedJsonSchema,
+    priority: number
+  ): void {
+    const currentKindPriority = this.resolvedSchemaPriority.get(kind);
+    if (currentKindPriority === undefined || priority >= currentKindPriority) {
+      this.resolvedSchemaCache.set(kind, schema);
+      this.resolvedSchemaPriority.set(kind, priority);
+    }
+
+    if (!apiVersion) {
+      return;
+    }
+
+    const resourceKey = SchemaProviderService.makeResourceSchemaKey(apiVersion, kind);
+    const currentResourcePriority = this.resolvedSchemaByResourcePriority.get(resourceKey);
+    if (currentResourcePriority === undefined || priority >= currentResourcePriority) {
+      this.resolvedSchemaByResourceCache.set(resourceKey, schema);
+      this.resolvedSchemaByResourcePriority.set(resourceKey, priority);
+    }
+  }
+
   private async processSpecFile(file: string): Promise<void> {
     try {
       const content = await fs.promises.readFile(file, UTF8);
@@ -221,6 +345,8 @@ export class SchemaProviderService extends CoreService {
       for (const [name, schema] of Object.entries(schemas)) {
         const kind = SchemaProviderService.extractKind(name, schema);
         if (!kind) continue;
+        const apiVersion = SchemaProviderService.extractApiVersion(schema);
+        const schemaPriority = this.getSchemaQualityPriority(schema);
 
         await this.cacheSchema(kind, schema);
 
@@ -229,10 +355,9 @@ export class SchemaProviderService extends CoreService {
           schema as Record<string, unknown>,
           schemas as Record<string, Record<string, unknown>>
         ) as ResolvedJsonSchema;
-        this.resolvedSchemaCache.set(kind, resolved);
+        this.cacheResolvedSchema(kind, apiVersion, resolved, schemaPriority);
 
         // Track apiVersion from schema
-        const apiVersion = SchemaProviderService.extractApiVersion(schema);
         if (apiVersion) {
           this.kindApiVersionMap.set(kind, apiVersion);
         }
@@ -455,6 +580,25 @@ export class SchemaProviderService extends CoreService {
    */
   public getResolvedSchemaForKindSync(kind: string): ResolvedJsonSchema | null {
     return this.resolvedSchemaCache.get(kind) ?? null;
+  }
+
+  /**
+   * Get a fully-resolved schema for an apiVersion+kind resource.
+   * Falls back to kind-only lookup if no exact apiVersion match exists.
+   */
+  public getResolvedSchemaForResourceSync(
+    kind: string,
+    apiVersion: string | undefined
+  ): ResolvedJsonSchema | null {
+    const normalizedApiVersion = apiVersion?.trim();
+    if (normalizedApiVersion) {
+      const resourceKey = SchemaProviderService.makeResourceSchemaKey(normalizedApiVersion, kind);
+      const exact = this.resolvedSchemaByResourceCache.get(resourceKey);
+      if (exact) {
+        return exact;
+      }
+    }
+    return this.getResolvedSchemaForKindSync(kind);
   }
 
   /** Get all known resource kind names (sorted) */

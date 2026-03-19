@@ -76,7 +76,8 @@ export class EdaYamlValidationProvider implements vscode.Disposable {
         continue;
       }
 
-      const schema = this.getResolvedSchema(kind);
+      const apiVersion = this.getRootScalarValue(parsedDocument.contents, 'apiVersion');
+      const schema = this.getResolvedSchema(kind, apiVersion);
       if (!schema) {
         continue;
       }
@@ -123,9 +124,20 @@ export class EdaYamlValidationProvider implements vscode.Disposable {
     return EDA_API_PATTERN.test(text);
   }
 
-  private getResolvedSchema(kind: string): ResolvedJsonSchema | null {
+  private getResolvedSchema(kind: string, apiVersion: string | undefined): ResolvedJsonSchema | null {
     try {
       const service = serviceManager.getService<SchemaProviderService>('schema-provider');
+      const resourceAwareService = service as SchemaProviderService & {
+        getResolvedSchemaForResourceSync?: (
+          requestedKind: string,
+          requestedApiVersion: string | undefined
+        ) => ResolvedJsonSchema | null;
+      };
+
+      if (typeof resourceAwareService.getResolvedSchemaForResourceSync === 'function') {
+        return resourceAwareService.getResolvedSchemaForResourceSync(kind, apiVersion);
+      }
+
       return service.getResolvedSchemaForKindSync(kind);
     } catch {
       return null;
