@@ -46,6 +46,8 @@ export interface ExplorerResourceListPayload {
   title: string;
   namespace: string;
   viewKind?: ExplorerResourceListViewKind;
+  sourceNodeId?: string;
+  sourceNodeContext?: 'resource-category' | 'stream';
   resources: ExplorerResourceListItemPayload[];
 }
 
