@@ -343,6 +343,19 @@
   font-size: 13px;
 }
 
+.appearance-gear-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  min-width: 30px;
+}
+
+.appearance-popup-content {
+  min-width: 360px;
+  max-width: 420px;
+}
+
 .export-btn:hover {
   background-color: var(--topology-button-secondary-hover-bg);
 }

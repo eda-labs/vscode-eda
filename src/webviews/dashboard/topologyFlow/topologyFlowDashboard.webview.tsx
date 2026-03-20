@@ -2,6 +2,7 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import type { ColorMode } from '@xyflow/react';
 import { alpha, useTheme } from '@mui/material/styles';
+import SettingsIcon from '@mui/icons-material/Settings';
 
 import { ALL_NAMESPACES } from '../../constants';
 import { mountWebview } from '../../shared/utils';
@@ -295,6 +296,7 @@ const NODE_LABEL_FILTER_ALL = '__all__';
 
 type TrafficThresholdUnit = 'kbit' | 'mbit' | 'gbit';
 type GrafanaSettingsTab = 'general' | 'interface-names';
+type AppearanceMode = 'default' | 'telemetry';
 
 interface EdgeInterfaceRow {
   edgeId: string;
@@ -553,6 +555,10 @@ function parseGrafanaSettingsTab(value: unknown): GrafanaSettingsTab {
   return value === 'interface-names' ? 'interface-names' : 'general';
 }
 
+function parseAppearanceMode(value: unknown): AppearanceMode {
+  return value === 'telemetry' ? 'telemetry' : 'default';
+}
+
 function extractEdgeInterfaceRows(edges: TopologyEdge[]): EdgeInterfaceRow[] {
   const rows: EdgeInterfaceRow[] = [];
   for (const edge of edges) {
@@ -698,6 +704,10 @@ function TopologyFlowDashboard() {
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [infoCard, setInfoCard] = useState<InfoCardState>({ type: 'empty' });
   const [colorMode, setColorMode] = useState<ColorMode>('system');
+  const [appearanceMode, setAppearanceMode] = useState<AppearanceMode>('default');
+  const [showAppearancePopup, setShowAppearancePopup] = useState(false);
+  const [telemetryNodeSizePx, setTelemetryNodeSizePx] = useState(DEFAULT_GRAFANA_NODE_SIZE_PX);
+  const [telemetryInterfaceSizePercent, setTelemetryInterfaceSizePercent] = useState(DEFAULT_GRAFANA_INTERFACE_SIZE_PERCENT);
 
   // Export state
   const topologyRef = useRef<TopologyFlowRef>(null);
@@ -1461,6 +1471,14 @@ function TopologyFlowDashboard() {
         <button className="export-btn" onClick={showExportPopupWithDefaults}>
           Export SVG
         </button>
+        <button
+          className="export-btn appearance-gear-btn"
+          onClick={() => setShowAppearancePopup(true)}
+          title="Canvas appearance"
+          aria-label="Canvas appearance"
+        >
+          <SettingsIcon fontSize="small" />
+        </button>
         <span className="namespace-value">Namespace: {selectedNamespace}</span>
         {saveStatus && (
           <span className={`save-status ${saveStatus.level}`}>
@@ -1502,6 +1520,9 @@ function TopologyFlowDashboard() {
             onBackgroundClick={handleBackgroundClick}
             colorMode={colorMode}
             labelMode={labelMode}
+            appearanceMode={appearanceMode}
+            telemetryNodeSizePx={telemetryNodeSizePx}
+            telemetryInterfaceScale={telemetryInterfaceSizePercent / 100}
             selectedNodeId={selectedNodeId}
             selectedEdgeId={selectedEdgeId}
             onDevicePositionsChange={handleDevicePositionsChange}
@@ -1526,6 +1547,56 @@ function TopologyFlowDashboard() {
           )}
         </div>
       </div>
+      {showAppearancePopup && (
+        <div className="export-popup">
+          <div className="export-popup-content appearance-popup-content">
+            <h3>Canvas Appearance</h3>
+            <label>
+              Style
+              <select
+                value={appearanceMode}
+                onChange={e => setAppearanceMode(parseAppearanceMode(e.target.value))}
+              >
+                <option value="default">Default</option>
+                <option value="telemetry">Telemetry</option>
+              </select>
+            </label>
+            {appearanceMode === 'telemetry' && (
+              <div className="export-grid-two">
+                <label>
+                  Node size (px)
+                  <input
+                    type="number"
+                    min={12}
+                    max={240}
+                    step={1}
+                    value={telemetryNodeSizePx}
+                    onChange={e => setTelemetryNodeSizePx(
+                      parseBoundedNumber(e.target.value, 12, 240, DEFAULT_GRAFANA_NODE_SIZE_PX)
+                    )}
+                  />
+                </label>
+                <label>
+                  Interface size (%)
+                  <input
+                    type="number"
+                    min={40}
+                    max={400}
+                    step={5}
+                    value={telemetryInterfaceSizePercent}
+                    onChange={e => setTelemetryInterfaceSizePercent(
+                      parseBoundedNumber(e.target.value, 40, 400, DEFAULT_GRAFANA_INTERFACE_SIZE_PERCENT)
+                    )}
+                  />
+                </label>
+              </div>
+            )}
+            <div className="export-popup-buttons">
+              <button className="export-btn" onClick={() => setShowAppearancePopup(false)}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
       {showExportPopup && (
         <div className="export-popup">
           <div className="export-popup-content export-popup-large">

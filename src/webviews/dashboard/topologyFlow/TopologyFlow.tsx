@@ -21,6 +21,11 @@ import LinkEdgeComponent, { type LinkEdge, type LinkEdgeData } from './edges/Lin
 import { getNodeIconSvgPathData } from './nodes/icons';
 import { getNodeEdgePoint, createBezierPath, LABEL_OFFSET } from './geometry';
 import {
+  clampTelemetryInterfaceScale,
+  clampTelemetryNodeSizePx,
+  getAutoCompactInterfaceLabel
+} from './telemetryAppearance';
+import {
   type NodePositionMap,
   normalizeNodePositionMap,
   topologyNodeIdToName
@@ -52,6 +57,9 @@ interface TopologyFlowProps {
   readonly colorMode?: ColorMode;
   readonly labelMode?: 'hide' | 'show' | 'select';
   readonly nodeLabelMode?: NodeLabelRenderMode;
+  readonly appearanceMode?: 'default' | 'telemetry';
+  readonly telemetryNodeSizePx?: number;
+  readonly telemetryInterfaceScale?: number;
   readonly selectedNodeId?: string | null;
   readonly selectedEdgeId?: string | null;
   readonly onDevicePositionsChange?: (positions: NodePositionMap) => void;
@@ -172,26 +180,6 @@ const NODE_LABEL = {
   textStrokeColor: 'rgba(0, 0, 0, 0.95)',
   textStrokeWidth: 0.8
 } as const;
-
-function getAutoCompactInterfaceLabel(endpoint: string): string {
-  const trimmed = endpoint.trim();
-  if (!trimmed) return '';
-
-  let end = trimmed.length - 1;
-  while (end >= 0 && (trimmed[end] < '0' || trimmed[end] > '9')) {
-    end -= 1;
-  }
-  if (end >= 0) {
-    let start = end;
-    while (start >= 0 && trimmed[start] >= '0' && trimmed[start] <= '9') {
-      start -= 1;
-    }
-    return trimmed.slice(start + 1, end + 1);
-  }
-
-  const token = trimmed.split(/[:/.-]/).filter((part) => part.length > 0).pop() ?? trimmed;
-  return token.length <= 3 ? token : token.slice(-3);
-}
 
 function resolveLabelText(
   endpoint: string | undefined,
@@ -850,6 +838,9 @@ function TopologyFlowInner({
   colorMode = 'system',
   labelMode = 'select',
   nodeLabelMode = 'all-name',
+  appearanceMode = 'default',
+  telemetryNodeSizePx = 80,
+  telemetryInterfaceScale = 1,
   selectedNodeId,
   selectedEdgeId,
   onDevicePositionsChange,
@@ -930,8 +921,8 @@ function TopologyFlowInner({
       const isHighlighted = isDirectlySelected || isConnectedToSelectedNode;
 
       // Show labels based on mode
-      const showLabels =
-        labelMode === 'show'
+      const showLabels = appearanceMode === 'telemetry'
+        || labelMode === 'show'
         || (labelMode === 'select' && isHighlighted);
 
       return {
@@ -941,10 +932,18 @@ function TopologyFlowInner({
           highlighted: isHighlighted || undefined,
           sourceInterface: showLabels ? edge.data?.sourceInterface : undefined,
           targetInterface: showLabels ? edge.data?.targetInterface : undefined,
+          edgeLabelsVisible: showLabels,
+          appearanceMode,
+          telemetryNodeSizePx: appearanceMode === 'telemetry'
+            ? clampTelemetryNodeSizePx(telemetryNodeSizePx)
+            : undefined,
+          telemetryInterfaceScale: appearanceMode === 'telemetry'
+            ? clampTelemetryInterfaceScale(telemetryInterfaceScale)
+            : undefined
         },
       };
     });
-  }, [edges, selectedEdgeId, selectedNodeId, labelMode]);
+  }, [appearanceMode, edges, labelMode, selectedEdgeId, selectedNodeId, telemetryInterfaceScale, telemetryNodeSizePx]);
 
   // Apply info-card highlight state to nodes without overriding React Flow selection.
   const processedNodes = useMemo(() => {
@@ -965,14 +964,18 @@ function TopologyFlowInner({
                 node.id,
                 node.data as TopologyNodeData,
                 normalizedNodeLabelMode
-              ) ?? ''
+              ) ?? '',
+              appearanceMode,
+              telemetryNodeSizePx: appearanceMode === 'telemetry'
+                ? clampTelemetryNodeSizePx(telemetryNodeSizePx)
+                : undefined
             }
             : {}),
           highlighted: isHighlighted || undefined,
         },
       };
     });
-  }, [nodes, selectedNodeId, selectedEdge, normalizedNodeLabelMode]);
+  }, [appearanceMode, nodes, normalizedNodeLabelMode, selectedEdge, selectedNodeId, telemetryNodeSizePx]);
 
   return (
     <div id="topology-flow-container" style={{ width: '100%', height: '100%' }}>
