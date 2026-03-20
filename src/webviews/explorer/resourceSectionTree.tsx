@@ -659,6 +659,8 @@ export const ResourceSectionTree = memo(function ResourceSectionTree({
     const payload: ExplorerResourceListPayload = {
       title,
       namespace: selectedNamespace,
+      sourceNodeId: nodeId,
+      sourceNodeContext: edaLookup.streamById.has(nodeId) ? 'stream' : 'resource-category',
       resources: resources.map((resource) => ({
         id: resource.id,
         label: resource.label,

@@ -590,7 +590,7 @@ async function initializeTreeViewsAndCommands(
     transactionProvider: edaTransactionProvider
   });
   registerResourceBrowserCommand(context);
-  registerExplorerResourceListCommand(context);
+  registerExplorerResourceListCommand(context, namespaceProvider);
   registerCredentialCommands(context);
   registerApplyYamlFileCommand(context);
 }
