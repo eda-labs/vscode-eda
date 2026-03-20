@@ -48,8 +48,7 @@ import {
 } from './telemetryAppearance';
 import {
   type NodePositionMap,
-  normalizeNodePositionMap,
-  topologyNodeIdToName
+  normalizeNodePositionMap
 } from './topologyPositionUtils';
 
 export type FlowNode = TopologyNode | NamespaceLabelNode;
@@ -813,8 +812,7 @@ function collectDeviceNodePositions(nodes: FlowNode[]): NodePositionMap {
     if (node.type !== 'deviceNode') {
       continue;
     }
-    const key = topologyNodeIdToName(node.id);
-    positions[key] = { x: node.position.x, y: node.position.y };
+    positions[node.id] = { x: node.position.x, y: node.position.y };
   }
   return normalizeNodePositionMap(positions);
 }

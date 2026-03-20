@@ -466,7 +466,8 @@ function InfoCardRateLabel({
 // Layout constants
 const SPACING_X = 180;
 const SPACING_Y = 200;
-const NAMESPACE_GAP = 150;
+const NAMESPACE_GAP = 20;
+const LAYOUT_NODE_WIDTH = 80;
 const LABEL_OFFSET_Y = -60;
 const DEFAULT_NODE_ICON_EDITOR_COLOR = '#ffffff';
 const DEFAULT_GRAFANA_NODE_SIZE_PX = 80;
@@ -817,14 +818,56 @@ function groupNodesByTier(nodes: BackendNode[]): Record<number, BackendNode[]> {
   return tiers;
 }
 
+function getPersistedPositionForNodeId(nodeId: string, positions: NodePositionMap): { x: number; y: number } | undefined {
+  const byId = positions[nodeId];
+  if (byId) {
+    return byId;
+  }
+  const nodeName = topologyNodeIdToName(nodeId);
+  return positions[nodeName];
+}
+
+function canonicalizePositionMapForNodeIds(positions: NodePositionMap, nodeIds: string[]): NodePositionMap {
+  const normalized = normalizeNodePositionMap(positions);
+  if (Object.keys(normalized).length === 0 || nodeIds.length === 0) {
+    return normalized;
+  }
+
+  const knownIds = new Set(nodeIds);
+  const idsByName = new Map<string, string[]>();
+  for (const nodeId of nodeIds) {
+    const nodeName = topologyNodeIdToName(nodeId);
+    const existing = idsByName.get(nodeName);
+    if (existing) {
+      existing.push(nodeId);
+    } else {
+      idsByName.set(nodeName, [nodeId]);
+    }
+  }
+
+  const canonical: NodePositionMap = {};
+  for (const [key, position] of Object.entries(normalized)) {
+    if (knownIds.has(key)) {
+      canonical[key] = position;
+      continue;
+    }
+
+    const nameMatches = idsByName.get(key);
+    if (nameMatches && nameMatches.length === 1) {
+      canonical[nameMatches[0]] = position;
+    }
+  }
+
+  return normalizeNodePositionMap(canonical);
+}
+
 function extractDeviceNodePositions(flowNodes: FlowNode[]): NodePositionMap {
   const positions: NodePositionMap = {};
   for (const node of flowNodes) {
     if (node.type !== 'deviceNode') {
       continue;
     }
-    const nodeName = topologyNodeIdToName(node.id);
-    positions[nodeName] = { x: node.position.x, y: node.position.y };
+    positions[node.id] = { x: node.position.x, y: node.position.y };
   }
   return normalizeNodePositionMap(positions);
 }
@@ -944,38 +987,57 @@ function TopologyFlowDashboard() {
     for (const ns of sortedNamespaces) {
       const tiers = groupNodesByTier(namespaceGroups[ns]);
       const sortedTiers = Object.keys(tiers).sort((a, b) => Number(a) - Number(b));
-      const nsMaxWidth = Math.max(100, ...sortedTiers.map(t => (tiers[Number(t)].length - 1) * SPACING_X));
+      const nsDefaultWidth = Math.max(100, ...sortedTiers.map(t => (tiers[Number(t)].length - 1) * SPACING_X));
+      const namespaceNodes: Array<{ node: BackendNode; position: { x: number; y: number } }> = [];
+
+      for (let tierIndex = 0; tierIndex < sortedTiers.length; tierIndex++) {
+        const tierNodes = tiers[Number(sortedTiers[tierIndex])];
+        const tierWidth = (tierNodes.length - 1) * SPACING_X;
+        const tierXOffset = (nsDefaultWidth - tierWidth) / 2;
+
+        for (let idx = 0; idx < tierNodes.length; idx++) {
+          const node = tierNodes[idx];
+          const persisted = getPersistedPositionForNodeId(node.id, persistedPositions);
+          namespaceNodes.push({
+            node,
+            position: persisted ?? { x: tierXOffset + idx * SPACING_X, y: tierIndex * SPACING_Y }
+          });
+        }
+      }
+
+      const xCoordinates = namespaceNodes.map((entry) => entry.position.x);
+      const namespaceContentMinX = xCoordinates.length > 0 ? Math.min(...xCoordinates) : 0;
+      const namespaceContentMaxX = xCoordinates.length > 0 ? Math.max(...xCoordinates) : nsDefaultWidth;
+      const namespaceXShift = hasMultipleNamespaces
+        ? currentXOffset - namespaceContentMinX
+        : 0;
+      const namespacePlacedMinX = namespaceContentMinX + namespaceXShift;
+      const namespacePlacedMaxX = namespaceContentMaxX + namespaceXShift + LAYOUT_NODE_WIDTH;
+      const namespaceLabelX = (namespacePlacedMinX + namespacePlacedMaxX) / 2;
 
       if (hasMultipleNamespaces) {
         result.push({
           id: `ns-label-${ns}`,
           type: 'namespaceLabel',
-          position: { x: currentXOffset + nsMaxWidth / 2, y: LABEL_OFFSET_Y },
+          position: { x: namespaceLabelX, y: LABEL_OFFSET_Y },
           data: { label: ns },
           selectable: false,
           draggable: false
         });
       }
 
-      for (let tierIndex = 0; tierIndex < sortedTiers.length; tierIndex++) {
-        const tierNodes = tiers[Number(sortedTiers[tierIndex])];
-        const tierWidth = (tierNodes.length - 1) * SPACING_X;
-        const tierXOffset = (nsMaxWidth - tierWidth) / 2;
-
-        for (let idx = 0; idx < tierNodes.length; idx++) {
-          const node = tierNodes[idx];
-          const nodeName = topologyNodeIdToName(node.id);
-          const persisted = persistedPositions[node.id] ?? persistedPositions[nodeName];
-          result.push({
-            id: node.id,
-            type: 'deviceNode',
-            position: persisted ?? { x: currentXOffset + tierXOffset + idx * SPACING_X, y: tierIndex * SPACING_Y },
-            data: { label: node.label, tier: node.tier ?? 1, role: node.role, namespace: ns, raw: node.raw }
-          });
-        }
+      for (const { node, position } of namespaceNodes) {
+        result.push({
+          id: node.id,
+          type: 'deviceNode',
+          position: { x: position.x + namespaceXShift, y: position.y },
+          data: { label: node.label, tier: node.tier ?? 1, role: node.role, namespace: ns, raw: node.raw }
+        });
       }
 
-      currentXOffset += nsMaxWidth + NAMESPACE_GAP;
+      if (hasMultipleNamespaces) {
+        currentXOffset = namespacePlacedMaxX + NAMESPACE_GAP;
+      }
     }
 
     return result;
@@ -1125,6 +1187,7 @@ function TopologyFlowDashboard() {
     }
     return lookup;
   }, [allNodes]);
+  const deviceNodeIds = useMemo(() => Array.from(deviceNodesById.keys()), [deviceNodesById]);
   const selectedLabelMatcher = useMemo(
     () => parseNodeLabelFilterValue(selectedNodeLabelFilter),
     [selectedNodeLabelFilter]
@@ -1158,7 +1221,7 @@ function TopologyFlowDashboard() {
           iconColor: normalizedIconColor
         };
         const nodeName = topologyNodeIdToName(node.id);
-        const position = currentPositions[nodeName];
+        const position = currentPositions[node.id] ?? currentPositions[nodeName];
         if (position) {
           nodes.push({
             ...node,
@@ -1271,12 +1334,13 @@ function TopologyFlowDashboard() {
       setCurrentPositions({});
       setSavedPositions({});
     } else if (msg.command === 'data') {
+      const backendNodes = msg.nodes ?? [];
       const normalizedSavedPositions = normalizeNodePositionMap(msg.savedPositions);
-      const layoutedNodes = layoutByTier(msg.nodes ?? [], normalizedSavedPositions);
+      const knownNodeIds = backendNodes.map((node) => node.id);
+      const canonicalSavedPositions = canonicalizePositionMapForNodeIds(normalizedSavedPositions, knownNodeIds);
+      const layoutedNodes = layoutByTier(backendNodes, canonicalSavedPositions);
       const processedEdges = processEdges(msg.edges ?? []);
-      const baselinePositions = Object.keys(normalizedSavedPositions).length > 0
-        ? normalizedSavedPositions
-        : extractDeviceNodePositions(layoutedNodes);
+      const baselinePositions = extractDeviceNodePositions(layoutedNodes);
       setAllNodes(layoutedNodes);
       setAllEdges(processedEdges);
       setSavedPositions(baselinePositions);
@@ -1285,14 +1349,18 @@ function TopologyFlowDashboard() {
       setIsSavingLayout(false);
       if (msg.ok) {
         const normalizedSavedPositions = normalizeNodePositionMap(msg.positions ?? currentPositions);
-        setSavedPositions(normalizedSavedPositions);
-        setCurrentPositions(normalizedSavedPositions);
+        const canonicalSavedPositions = canonicalizePositionMapForNodeIds(normalizedSavedPositions, deviceNodeIds);
+        const nextSavedPositions = Object.keys(canonicalSavedPositions).length > 0
+          ? canonicalSavedPositions
+          : normalizedSavedPositions;
+        setSavedPositions(nextSavedPositions);
+        setCurrentPositions(nextSavedPositions);
         setSaveStatus({ level: 'success', text: msg.message ?? 'Layout saved.' });
       } else {
         setSaveStatus({ level: 'error', text: msg.message ?? 'Failed to save layout.' });
       }
     }
-  }, [currentPositions, layoutByTier, processEdges]));
+  }, [currentPositions, deviceNodeIds, layoutByTier, processEdges]));
 
   useEffect(() => {
     if (selectedNodeLabelFilter === NODE_LABEL_FILTER_ALL) {
@@ -1588,11 +1656,13 @@ function TopologyFlowDashboard() {
 
   const handleDevicePositionsChange = useCallback((positions: NodePositionMap) => {
     const normalizedIncoming = normalizeNodePositionMap(positions);
+    const canonicalIncoming = canonicalizePositionMapForNodeIds(normalizedIncoming, deviceNodeIds);
+    const nextIncoming = Object.keys(canonicalIncoming).length > 0 ? canonicalIncoming : normalizedIncoming;
     setCurrentPositions((previous) => {
-      const merged = normalizeNodePositionMap({ ...previous, ...normalizedIncoming });
+      const merged = normalizeNodePositionMap({ ...previous, ...nextIncoming });
       return nodePositionMapsEqual(previous, merged) ? previous : merged;
     });
-  }, []);
+  }, [deviceNodeIds]);
 
   // Show export popup with theme-appropriate defaults
   const showExportPopupWithDefaults = useCallback(() => {
@@ -2183,10 +2253,10 @@ function TopologyFlowDashboard() {
               </div>
             )}
 
-              <div className="export-popup-buttons">
-                <button className="export-btn" onClick={handleExport} disabled={isExporting}>
-                  {exportButtonLabel}
-                </button>
+            <div className="export-popup-buttons">
+              <button className="export-btn" onClick={handleExport} disabled={isExporting}>
+                {exportButtonLabel}
+              </button>
               <button className="export-btn cancel" onClick={() => setShowExportPopup(false)} disabled={isExporting}>
                 Cancel
               </button>
