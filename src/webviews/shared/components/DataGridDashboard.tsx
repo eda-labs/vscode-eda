@@ -7,6 +7,7 @@ import type { GridAutosizeOptions, GridColDef, GridSortModel } from '@mui/x-data
 import { shallowArrayEquals } from '../utils';
 import { usePostMessage, useMessageListener, useReadySignal } from '../hooks';
 
+import { parseLabelsText, toLabelText, type ParsedLabel } from './labelUtils';
 import { VSCodeButton } from './VsCodeButton';
 import { VsCodeDataGrid } from './VsCodeDataGrid';
 
@@ -77,11 +78,6 @@ export interface DataGridToolbarContext extends DataGridContext {
 interface DashboardRow {
   id: string;
   raw: unknown[];
-}
-
-interface ParsedLabel {
-  key: string;
-  value: string;
 }
 
 interface LabelsCellProps {
@@ -304,30 +300,8 @@ function formatGridCellValue(value: unknown): string {
   return String(value);
 }
 
-function parseLabelLine(line: string): ParsedLabel {
-  const separatorIndex = line.indexOf('=');
-  if (separatorIndex < 0) {
-    return {
-      key: 'label',
-      value: line
-    };
-  }
-  return {
-    key: line.slice(0, separatorIndex).trim() || 'label',
-    value: line.slice(separatorIndex + 1).trim()
-  };
-}
-
-function parseLabels(value: string): ParsedLabel[] {
-  const lines = value
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  return lines.map((line) => parseLabelLine(line));
-}
-
 function estimateLabelWidth(label: ParsedLabel): number {
-  const textLength = `${label.key}${label.value}`.length;
+  const textLength = toLabelText(label).length;
   const estimatedTextWidth = Math.min(textLength, 64) * 7;
   return Math.max(72, estimatedTextWidth + 28);
 }
@@ -336,7 +310,7 @@ function LabelChip({ label, expanded, setMeasureRef }: Readonly<LabelChipProps>)
   return (
     <Box
       ref={setMeasureRef}
-      title={`${label.key}=${label.value}`}
+      title={toLabelText(label)}
       sx={{
         display: 'inline-flex',
         alignItems: 'baseline',
@@ -353,13 +327,6 @@ function LabelChip({ label, expanded, setMeasureRef }: Readonly<LabelChipProps>)
       }}
     >
       <Typography
-        variant="caption"
-        component="span"
-        sx={{ fontFamily: 'monospace', color: 'text.secondary', lineHeight: 1.2, whiteSpace: 'nowrap' }}
-      >
-        {label.key}
-      </Typography>
-      <Typography
         variant="body2"
         component="span"
         sx={{
@@ -371,14 +338,14 @@ function LabelChip({ label, expanded, setMeasureRef }: Readonly<LabelChipProps>)
           wordBreak: expanded ? 'break-word' : 'normal'
         }}
       >
-        {label.value}
+        {toLabelText(label)}
       </Typography>
     </Box>
   );
 }
 
 function LabelsCell({ value, rowId }: Readonly<LabelsCellProps>): ReactNode {
-  const labels = useMemo(() => parseLabels(value), [value]);
+  const labels = useMemo(() => parseLabelsText(value), [value]);
   const [expanded, setExpanded] = useState(false);
   const [cellWidth, setCellWidth] = useState(0);
   const [visibleCount, setVisibleCount] = useState(labels.length);
