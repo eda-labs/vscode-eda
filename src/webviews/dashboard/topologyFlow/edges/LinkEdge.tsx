@@ -75,10 +75,19 @@ interface EndpointAssignment {
   radius: number;
 }
 
-type NodeInterfaceAnchorMap = Map<string, Map<string, InterfaceAnchor>>;
+interface InterfaceAnchorTemplate {
+  side: InterfaceSide;
+  index: number;
+  total: number;
+  radius: number;
+}
+
+type NodeInterfaceAnchorTemplateMap = Map<string, Map<string, InterfaceAnchorTemplate>>;
 
 interface InternalNodeLike {
-  internals: { positionAbsolute: Point };
+  internals?: { positionAbsolute?: Point };
+  positionAbsolute?: Point;
+  position?: Point;
 }
 
 type NodeLookupLike = Map<string, InternalNodeLike>;
@@ -88,7 +97,7 @@ interface InterfaceAnchorCache {
   nodeLookupRef: NodeLookupLike | null;
   nodeSizePx: number;
   interfaceScale: number;
-  anchors: NodeInterfaceAnchorMap | null;
+  templates: NodeInterfaceAnchorTemplateMap | null;
 }
 
 const HORIZONTAL_SLOPE_THRESHOLD = 0.25;
@@ -98,7 +107,7 @@ let interfaceAnchorCache: InterfaceAnchorCache = {
   nodeLookupRef: null,
   nodeSizePx: 80,
   interfaceScale: 1,
-  anchors: null
+  templates: null
 };
 
 function getStateColor(state: string | undefined, colors: EdgeColors): string {
@@ -149,24 +158,41 @@ function getRectCenter(rect: NodeRect): { x: number; y: number } {
   };
 }
 
-function getNodeRect(node: InternalNodeLike, nodeSizePx: number): NodeRect {
+function resolveNodePosition(node: InternalNodeLike | undefined): Point | null {
+  const position = node?.internals?.positionAbsolute ?? node?.positionAbsolute ?? node?.position;
+  if (!position) return null;
+  if (!Number.isFinite(position.x) || !Number.isFinite(position.y)) return null;
+  return position;
+}
+
+function resolveMeasuredSize(value: number | undefined, fallbackSize: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : fallbackSize;
+}
+
+function getNodeRect(node: InternalNodeLike, nodeSizePx: number): NodeRect | null {
+  const position = resolveNodePosition(node);
+  if (!position) return null;
   return {
-    x: node.internals.positionAbsolute.x,
-    y: node.internals.positionAbsolute.y,
+    x: position.x,
+    y: position.y,
     width: nodeSizePx,
     height: nodeSizePx
   };
 }
 
 function getMeasuredNodeRect(
-  node: { internals: { positionAbsolute: Point }; measured: { width?: number; height?: number } },
+  node: InternalNodeLike & { measured?: { width?: number; height?: number } },
   fallbackSize: number
-): NodeRect {
+): NodeRect | null {
+  const position = resolveNodePosition(node);
+  if (!position) return null;
   return {
-    x: node.internals.positionAbsolute.x,
-    y: node.internals.positionAbsolute.y,
-    width: node.measured.width ?? fallbackSize,
-    height: node.measured.height ?? fallbackSize
+    x: position.x,
+    y: position.y,
+    width: resolveMeasuredSize(node.measured?.width, fallbackSize),
+    height: resolveMeasuredSize(node.measured?.height, fallbackSize)
   };
 }
 
@@ -342,12 +368,12 @@ function getQuadraticPointAtRatio(
   };
 }
 
-function buildTelemetryInterfaceAnchorMap(
+function buildTelemetryInterfaceAnchorTemplateMap(
   edges: LinkEdge[],
   nodeLookup: NodeLookupLike,
   nodeSizePx: number,
   interfaceScale: number
-): NodeInterfaceAnchorMap {
+): NodeInterfaceAnchorTemplateMap {
   const endpointsByNode = new Map<string, Set<string>>();
   const vectorsByNode = new Map<string, Map<string, EndpointVector>>();
 
@@ -374,8 +400,12 @@ function buildTelemetryInterfaceAnchorMap(
     const targetNode = nodeLookup.get(edge.target);
     if (!sourceNode || !targetNode) continue;
 
-    const sourceCenter = getRectCenter(getNodeRect(sourceNode, nodeSizePx));
-    const targetCenter = getRectCenter(getNodeRect(targetNode, nodeSizePx));
+    const sourceRect = getNodeRect(sourceNode, nodeSizePx);
+    const targetRect = getNodeRect(targetNode, nodeSizePx);
+    if (!sourceRect || !targetRect) continue;
+
+    const sourceCenter = getRectCenter(sourceRect);
+    const targetCenter = getRectCenter(targetRect);
     const forwardDx = targetCenter.x - sourceCenter.x;
     const forwardDy = targetCenter.y - sourceCenter.y;
 
@@ -400,14 +430,13 @@ function buildTelemetryInterfaceAnchorMap(
     }
   }
 
-  const anchorsByNode: NodeInterfaceAnchorMap = new Map();
+  const templatesByNode: NodeInterfaceAnchorTemplateMap = new Map();
   const sides: readonly InterfaceSide[] = ['top', 'right', 'bottom', 'left'];
 
   for (const [nodeId, endpoints] of endpointsByNode) {
     const node = nodeLookup.get(nodeId);
     if (!node) continue;
 
-    const rect = getNodeRect(node, nodeSizePx);
     const nodeVectors = vectorsByNode.get(nodeId);
     const buckets: Record<InterfaceSide, EndpointAssignment[]> = {
       top: [],
@@ -424,50 +453,61 @@ function buildTelemetryInterfaceAnchorMap(
       buckets[side].push({ endpoint, sortKey, radius });
     }
 
-    const endpointAnchors = new Map<string, InterfaceAnchor>();
+    const endpointTemplates = new Map<string, InterfaceAnchorTemplate>();
     for (const side of sides) {
       sortEndpointAssignments(buckets[side]);
+      const total = buckets[side].length;
       for (let idx = 0; idx < buckets[side].length; idx++) {
         const assignment = buckets[side][idx];
-        endpointAnchors.set(
-          assignment.endpoint,
-          positionInterfaceAnchor(rect, side, idx, buckets[side].length, assignment.radius)
-        );
+        endpointTemplates.set(assignment.endpoint, {
+          side,
+          index: idx,
+          total,
+          radius: assignment.radius
+        });
       }
     }
 
-    anchorsByNode.set(nodeId, endpointAnchors);
+    templatesByNode.set(nodeId, endpointTemplates);
   }
 
-  return anchorsByNode;
+  return templatesByNode;
 }
 
-function getCachedTelemetryInterfaceAnchorMap(
+function getCachedTelemetryInterfaceAnchorTemplateMap(
   edges: LinkEdge[],
   nodeLookup: NodeLookupLike,
   nodeSizePx: number,
   interfaceScale: number
-): NodeInterfaceAnchorMap {
+): NodeInterfaceAnchorTemplateMap {
   if (
     interfaceAnchorCache.edgesRef === edges
     && interfaceAnchorCache.nodeLookupRef === nodeLookup
     && interfaceAnchorCache.nodeSizePx === nodeSizePx
     && interfaceAnchorCache.interfaceScale === interfaceScale
-    && interfaceAnchorCache.anchors
+    && interfaceAnchorCache.templates
   ) {
-    return interfaceAnchorCache.anchors;
+    return interfaceAnchorCache.templates;
   }
 
-  const anchors = buildTelemetryInterfaceAnchorMap(edges, nodeLookup, nodeSizePx, interfaceScale);
+  const templates = buildTelemetryInterfaceAnchorTemplateMap(edges, nodeLookup, nodeSizePx, interfaceScale);
   interfaceAnchorCache = {
     edgesRef: edges,
     nodeLookupRef: nodeLookup,
     nodeSizePx,
     interfaceScale,
-    anchors
+    templates
   };
 
-  return anchors;
+  return templates;
+}
+
+function resolveInterfaceAnchorFromTemplate(
+  rect: NodeRect,
+  template: InterfaceAnchorTemplate | undefined
+): InterfaceAnchor | undefined {
+  if (!template || template.total <= 0) return undefined;
+  return positionInterfaceAnchor(rect, template.side, template.index, template.total, template.radius);
 }
 
 function resolveStrokeWidth(isHighlighted: boolean, isTelemetryStyle: boolean): number {
@@ -511,9 +551,9 @@ function LinkEdgeComponent({
   const isTelemetryStyle = data?.appearanceMode === 'telemetry';
   const telemetryNodeSizePx = clampTelemetryNodeSizePx(data?.telemetryNodeSizePx ?? 80);
   const telemetryInterfaceScale = clampTelemetryInterfaceScale(data?.telemetryInterfaceScale ?? 1);
-  const telemetryInterfaceAnchors = useMemo(() => {
+  const telemetryInterfaceAnchorTemplates = useMemo(() => {
     if (!isTelemetryStyle) return undefined;
-    return getCachedTelemetryInterfaceAnchorMap(
+    return getCachedTelemetryInterfaceAnchorTemplateMap(
       allEdges,
       nodeLookup,
       telemetryNodeSizePx,
@@ -522,11 +562,11 @@ function LinkEdgeComponent({
   }, [allEdges, isTelemetryStyle, nodeLookup, telemetryInterfaceScale, telemetryNodeSizePx]);
   const sourceEndpointKey = resolveInterfaceEndpointKey(data?.sourceEndpoint, data?.sourceInterface);
   const targetEndpointKey = resolveInterfaceEndpointKey(data?.targetEndpoint, data?.targetInterface);
-  const sourceAnchor = sourceEndpointKey != null
-    ? telemetryInterfaceAnchors?.get(source)?.get(sourceEndpointKey)
+  const sourceTemplate = sourceEndpointKey != null
+    ? telemetryInterfaceAnchorTemplates?.get(source)?.get(sourceEndpointKey)
     : undefined;
-  const targetAnchor = targetEndpointKey != null
-    ? telemetryInterfaceAnchors?.get(target)?.get(targetEndpointKey)
+  const targetTemplate = targetEndpointKey != null
+    ? telemetryInterfaceAnchorTemplates?.get(target)?.get(targetEndpointKey)
     : undefined;
 
   const edgeData = useMemo(() => {
@@ -537,6 +577,11 @@ function LinkEdgeComponent({
     const fallbackSize = isTelemetryStyle ? telemetryNodeSizePx : 80;
     const sourceRect = getMeasuredNodeRect(sourceNode, fallbackSize);
     const targetRect = getMeasuredNodeRect(targetNode, fallbackSize);
+    if (!sourceRect || !targetRect) {
+      return null;
+    }
+    const sourceAnchor = resolveInterfaceAnchorFromTemplate(sourceRect, sourceTemplate);
+    const targetAnchor = resolveInterfaceAnchorFromTemplate(targetRect, targetTemplate);
     const points = resolveEdgePointsWithInterfaceAnchors(
       sourceRect,
       targetRect,
@@ -556,12 +601,14 @@ function LinkEdgeComponent({
       targetEdge,
       totalInPair,
       stroke: getStateColor(data?.state, edgeColors),
+      sourceAnchor,
+      targetAnchor
     };
   }, [
     sourceNode,
     targetNode,
-    sourceAnchor,
-    targetAnchor,
+    sourceTemplate,
+    targetTemplate,
     isTelemetryStyle,
     telemetryNodeSizePx,
     data?.pairIndex,
@@ -574,6 +621,8 @@ function LinkEdgeComponent({
 
   const isHighlighted = selected || Boolean(data?.highlighted);
   const strokeWidth = resolveStrokeWidth(isHighlighted, isTelemetryStyle);
+  const sourceAnchor = edgeData.sourceAnchor;
+  const targetAnchor = edgeData.targetAnchor;
   let edgeStroke = edgeData.stroke;
   if (isTelemetryStyle) {
     edgeStroke = edgeColors.defaultStroke;
