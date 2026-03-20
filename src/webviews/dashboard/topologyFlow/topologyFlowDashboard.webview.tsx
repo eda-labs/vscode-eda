@@ -124,10 +124,14 @@ interface EdgeInfo {
 
 interface RateLabelInfo {
   edgeId: string;
+  edgeResourceName?: string;
   key: 'source' | 'target';
+  sourceNodeId: string;
   sourceNode: string;
+  targetNodeId: string;
   targetNode: string;
   endpoint: string;
+  peerEndpoint: string;
   rateValue: string;
   rotationDeg: number;
   offsetX: number;
@@ -250,14 +254,29 @@ function buildRateLabelInfo(
   const endpoint = isSource
     ? (edge.data?.sourceEndpoint ?? edge.data?.sourceInterface ?? 'n/a')
     : (edge.data?.targetEndpoint ?? edge.data?.targetInterface ?? 'n/a');
+  const peerEndpoint = isSource
+    ? (edge.data?.targetEndpoint ?? edge.data?.targetInterface ?? 'n/a')
+    : (edge.data?.sourceEndpoint ?? edge.data?.sourceInterface ?? 'n/a');
   const rateRaw = isSource ? edge.data?.sourceOutBps : edge.data?.targetOutBps;
+  const sourceNodeId = edge.source;
+  const targetNodeId = edge.target;
+  const sourceNode = topologyNodeIdToName(sourceNodeId);
+  const targetNode = topologyNodeIdToName(targetNodeId);
+  const rawResource = edge.data?.rawResource as { metadata?: { name?: unknown } } | undefined;
+  const edgeResourceName = typeof rawResource?.metadata?.name === 'string'
+    ? rawResource.metadata.name
+    : undefined;
 
   return {
     edgeId: edge.id,
+    edgeResourceName,
     key: selection.key,
-    sourceNode: edge.source,
-    targetNode: edge.target,
+    sourceNodeId,
+    sourceNode,
+    targetNodeId,
+    targetNode,
     endpoint,
+    peerEndpoint,
     rateValue: formatTelemetryOutBpsLabel(rateRaw),
     rotationDeg: transform.rotationDeg,
     offsetX: transform.offset.x,
@@ -368,24 +387,25 @@ function InfoCardRateLabel({
   onSetRotation: (nextRotationDeg: number) => void;
   onResetRotation: () => void;
 }>) {
+  const selectedNode = info.key === 'source' ? info.sourceNode : info.targetNode;
+
   return (
     <>
       <h3>
-        Traffic Rate Label ({info.key})
+        Traffic Rate
       </h3>
+      <p className="rate-label-summary">
+        Traffic out on interface <strong>{info.endpoint}</strong>
+      </p>
       <table>
         <tbody>
-          <InfoRow label="Edge" value={info.edgeId} />
-          <InfoRow label="Source Node" value={info.sourceNode} />
-          <InfoRow label="Target Node" value={info.targetNode} />
-          <InfoRow label="Endpoint" value={info.endpoint} />
+          <InfoRow label="Node" value={selectedNode} />
           <InfoRow label="Rate" value={info.rateValue} />
-          <InfoRow label="Rotation" value={`${info.rotationDeg.toFixed(1)} deg`} />
           <InfoRow label="Offset X" value={info.offsetX.toFixed(1)} />
           <InfoRow label="Offset Y" value={info.offsetY.toFixed(1)} />
         </tbody>
       </table>
-      <div className="info-card-controls">
+      <div className="info-card-controls rate-label-controls">
         <label>
           Rotation (deg)
           <input

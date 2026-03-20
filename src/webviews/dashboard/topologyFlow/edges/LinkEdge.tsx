@@ -5,8 +5,7 @@ import {
   useCallback,
   useSyncExternalStore,
   type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent
+  type PointerEvent as ReactPointerEvent
 } from 'react';
 import {
   BaseEdge,
@@ -1013,32 +1012,6 @@ function LinkEdgeComponent({
     viewportZoom
   ]);
 
-  const rotateRateLabel = useCallback((key: RateLabelKey, event: ReactWheelEvent<HTMLDivElement>) => {
-    if (!isTelemetryStyle) return;
-
-    event.preventDefault();
-    event.stopPropagation();
-    markRateLabelInteraction();
-    selectRateLabel(key);
-
-    const dominantDelta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
-    let modeScale = 1;
-    if (event.deltaMode === 1) {
-      modeScale = 12;
-    } else if (event.deltaMode === 2) {
-      modeScale = 96;
-    }
-    const nextRotation = (key === 'source' ? sourceRateRotationDeg : targetRateRotationDeg)
-      + dominantDelta * modeScale * 0.15;
-    setCachedRateLabelRotation(id, key, nextRotation);
-  }, [
-    id,
-    isTelemetryStyle,
-    selectRateLabel,
-    sourceRateRotationDeg,
-    targetRateRotationDeg
-  ]);
-
   const swallowRateLabelClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1290,8 +1263,7 @@ function LinkEdgeComponent({
               onPointerDown={(event) => startRateLabelDrag('source', event)}
               onPointerUp={swallowRateLabelPointerUp}
               onClick={swallowRateLabelClick}
-              onWheel={(event) => rotateRateLabel('source', event)}
-              title="Drag to move, scroll to rotate"
+              title="Drag to move"
               style={{
                 position: 'absolute',
                 transform: `translate(-50%, -50%) translate(${sourceRatePosition.x}px, ${sourceRatePosition.y}px) rotate(${sourceRateRotationDeg}deg)`,
@@ -1344,8 +1316,7 @@ function LinkEdgeComponent({
               onPointerDown={(event) => startRateLabelDrag('target', event)}
               onPointerUp={swallowRateLabelPointerUp}
               onClick={swallowRateLabelClick}
-              onWheel={(event) => rotateRateLabel('target', event)}
-              title="Drag to move, scroll to rotate"
+              title="Drag to move"
               style={{
                 position: 'absolute',
                 transform: `translate(-50%, -50%) translate(${targetRatePosition.x}px, ${targetRatePosition.y}px) rotate(${targetRateRotationDeg}deg)`,

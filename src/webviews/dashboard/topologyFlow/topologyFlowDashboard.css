@@ -175,6 +175,16 @@
   flex-wrap: wrap;
 }
 
+.rate-label-summary {
+  margin: 2px 0 10px;
+}
+
+.rate-label-controls {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--topology-panel-border);
+}
+
 /* ============================================
    React Flow Container
    ============================================ */
