@@ -144,6 +144,37 @@
   text-decoration: underline;
 }
 
+.info-card-controls {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.info-card-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.info-card-controls input[type="number"] {
+  width: 100%;
+  border: 1px solid var(--topology-input-border);
+  border-radius: 4px;
+  background-color: var(--topology-input-bg);
+  color: var(--topology-input-fg);
+  padding: 6px 8px;
+  box-sizing: border-box;
+}
+
+.info-card-button-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 /* ============================================
    React Flow Container
    ============================================ */

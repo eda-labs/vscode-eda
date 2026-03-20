@@ -15,7 +15,9 @@ import TopologyFlow, {
   type TopologyNode,
   type TopologyEdge,
   type FlowNode,
-  type TopologyFlowRef
+  type TopologyFlowRef,
+  type TopologyTelemetryRateLabelSelection,
+  type TopologyTelemetryRateLabelTransform
 } from './TopologyFlow';
 import {
   DEFAULT_GRAFANA_TRAFFIC_THRESHOLDS,
@@ -120,11 +122,24 @@ interface EdgeInfo {
   type?: string;
 }
 
+interface RateLabelInfo {
+  edgeId: string;
+  key: 'source' | 'target';
+  sourceNode: string;
+  targetNode: string;
+  endpoint: string;
+  rateValue: string;
+  rotationDeg: number;
+  offsetX: number;
+  offsetY: number;
+}
+
 // Info card state types
 type InfoCardState =
   | { type: 'empty' }
   | { type: 'node'; info: NodeInfo; raw: unknown }
-  | { type: 'edge'; info: EdgeInfo; raw: unknown; rawResource: unknown };
+  | { type: 'edge'; info: EdgeInfo; raw: unknown; rawResource: unknown }
+  | { type: 'rateLabel'; info: RateLabelInfo };
 
 // Helper to get nested property with fallback keys
 function getNestedProp(obj: Record<string, unknown> | undefined, ...keys: string[]): string | undefined {
@@ -188,6 +203,65 @@ function extractEdgeInfo(raw: unknown, rawResource: unknown): EdgeInfo | null {
     targetInterface: remote.interface ?? '',
     state: getNestedProp(status, 'operationalState', 'operationalstate'),
     type: getNestedProp(spec, 'type')
+  };
+}
+
+function normalizeFiniteNumber(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value.trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function formatTelemetryOutBpsLabel(value: unknown): string {
+  const numeric = normalizeFiniteNumber(value);
+  if (numeric === null || numeric < 0) {
+    return 'n/a';
+  }
+
+  const units = ['b/s', 'Kb/s', 'Mb/s', 'Gb/s', 'Tb/s'];
+  let unitIndex = 0;
+  let scaled = numeric;
+  while (scaled >= 1000 && unitIndex < units.length - 1) {
+    scaled /= 1000;
+    unitIndex += 1;
+  }
+
+  let decimals = 2;
+  if (scaled >= 100) {
+    decimals = 0;
+  } else if (scaled >= 10) {
+    decimals = 1;
+  }
+  const formatted = Number(scaled.toFixed(decimals));
+  return `${formatted} ${units[unitIndex]}`;
+}
+
+function buildRateLabelInfo(
+  edge: TopologyEdge,
+  selection: TopologyTelemetryRateLabelSelection,
+  transform: TopologyTelemetryRateLabelTransform
+): RateLabelInfo {
+  const isSource = selection.key === 'source';
+  const endpoint = isSource
+    ? (edge.data?.sourceEndpoint ?? edge.data?.sourceInterface ?? 'n/a')
+    : (edge.data?.targetEndpoint ?? edge.data?.targetInterface ?? 'n/a');
+  const rateRaw = isSource ? edge.data?.sourceOutBps : edge.data?.targetOutBps;
+
+  return {
+    edgeId: edge.id,
+    key: selection.key,
+    sourceNode: edge.source,
+    targetNode: edge.target,
+    endpoint,
+    rateValue: formatTelemetryOutBpsLabel(rateRaw),
+    rotationDeg: transform.rotationDeg,
+    offsetX: transform.offset.x,
+    offsetY: transform.offset.y
   };
 }
 
@@ -279,6 +353,60 @@ function InfoCardEdge({
           <InfoRow label="State" value={info.targetState} />
         </tbody>
       </table>
+    </>
+  );
+}
+
+function InfoCardRateLabel({
+  info,
+  onRotateBy,
+  onSetRotation,
+  onResetRotation
+}: Readonly<{
+  info: RateLabelInfo;
+  onRotateBy: (deltaDeg: number) => void;
+  onSetRotation: (nextRotationDeg: number) => void;
+  onResetRotation: () => void;
+}>) {
+  return (
+    <>
+      <h3>
+        Traffic Rate Label ({info.key})
+      </h3>
+      <table>
+        <tbody>
+          <InfoRow label="Edge" value={info.edgeId} />
+          <InfoRow label="Source Node" value={info.sourceNode} />
+          <InfoRow label="Target Node" value={info.targetNode} />
+          <InfoRow label="Endpoint" value={info.endpoint} />
+          <InfoRow label="Rate" value={info.rateValue} />
+          <InfoRow label="Rotation" value={`${info.rotationDeg.toFixed(1)} deg`} />
+          <InfoRow label="Offset X" value={info.offsetX.toFixed(1)} />
+          <InfoRow label="Offset Y" value={info.offsetY.toFixed(1)} />
+        </tbody>
+      </table>
+      <div className="info-card-controls">
+        <label>
+          Rotation (deg)
+          <input
+            type="number"
+            step={1}
+            value={Number(info.rotationDeg.toFixed(1))}
+            onChange={(event) => onSetRotation(Number.parseFloat(event.target.value) || 0)}
+          />
+        </label>
+        <div className="info-card-button-row">
+          <button className="export-btn" onClick={() => onRotateBy(-15)}>
+            -15
+          </button>
+          <button className="export-btn" onClick={() => onRotateBy(15)}>
+            +15
+          </button>
+          <button className="export-btn cancel" onClick={onResetRotation}>
+            Reset
+          </button>
+        </div>
+      </div>
     </>
   );
 }
@@ -659,6 +787,8 @@ function TopologyFlowDashboard() {
   const [saveStatus, setSaveStatus] = useState<{ level: 'success' | 'error'; text: string } | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [selectedTelemetryRateLabel, setSelectedTelemetryRateLabel] =
+    useState<TopologyTelemetryRateLabelSelection | null>(null);
   const [infoCard, setInfoCard] = useState<InfoCardState>({ type: 'empty' });
   const [colorMode, setColorMode] = useState<ColorMode>('system');
   const [appearanceMode, setAppearanceMode] = useState<AppearanceMode>('default');
@@ -980,6 +1110,23 @@ function TopologyFlowDashboard() {
     () => allEdges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)),
     [allEdges, visibleNodeIds]
   );
+  const buildTelemetryRateLabelInfo = useCallback((
+    selection: TopologyTelemetryRateLabelSelection
+  ): RateLabelInfo | null => {
+    const edge = visibleEdges.find((candidate) => candidate.id === selection.edgeId);
+    if (!edge || !topologyRef.current) {
+      return null;
+    }
+    const transform = topologyRef.current.getTelemetryRateLabelTransform(selection.edgeId, selection.key);
+    return buildRateLabelInfo(edge, selection, transform);
+  }, [visibleEdges]);
+
+  const updateTelemetryRateLabelInfoCard = useCallback((selection: TopologyTelemetryRateLabelSelection) => {
+    const info = buildTelemetryRateLabelInfo(selection);
+    if (info) {
+      setInfoCard({ type: 'rateLabel', info });
+    }
+  }, [buildTelemetryRateLabelInfo]);
   const interfaceRows = useMemo(() => extractEdgeInterfaceRows(visibleEdges), [visibleEdges]);
   const filteredInterfaceRows = useMemo(() => {
     const filterValue = interfaceLinkFilter.trim().toLowerCase();
@@ -1038,6 +1185,10 @@ function TopologyFlowDashboard() {
       setSelectedNodeLabelFilter(NODE_LABEL_FILTER_ALL);
       setSaveStatus(null);
       setIsSavingLayout(false);
+      setSelectedNodeId(null);
+      setSelectedEdgeId(null);
+      setSelectedTelemetryRateLabel(null);
+      setInfoCard({ type: 'empty' });
       setCurrentPositions({});
       setSavedPositions({});
     } else if (msg.command === 'data') {
@@ -1088,10 +1239,34 @@ function TopologyFlowDashboard() {
     }
   }, [selectedEdgeId, visibleEdges]);
 
+  useEffect(() => {
+    if (!selectedTelemetryRateLabel) {
+      return;
+    }
+    if (appearanceMode !== 'telemetry') {
+      setSelectedTelemetryRateLabel(null);
+      setInfoCard({ type: 'empty' });
+      return;
+    }
+    const edgeExists = visibleEdges.some((edge) => edge.id === selectedTelemetryRateLabel.edgeId);
+    if (!edgeExists) {
+      setSelectedTelemetryRateLabel(null);
+      setInfoCard({ type: 'empty' });
+    }
+  }, [appearanceMode, selectedTelemetryRateLabel, visibleEdges]);
+
+  useEffect(() => {
+    if (!selectedTelemetryRateLabel) {
+      return;
+    }
+    updateTelemetryRateLabelInfoCard(selectedTelemetryRateLabel);
+  }, [selectedTelemetryRateLabel, updateTelemetryRateLabelInfoCard]);
+
   // Handle node selection
   const handleNodeSelect = useCallback((node: TopologyNode) => {
     setSelectedNodeId(node.id);
     setSelectedEdgeId(null);
+    setSelectedTelemetryRateLabel(null);
 
     const info = extractNodeInfo(node.data.raw);
     if (info) {
@@ -1103,6 +1278,7 @@ function TopologyFlowDashboard() {
   const handleEdgeSelect = useCallback((edge: TopologyEdge) => {
     setSelectedEdgeId(edge.id);
     setSelectedNodeId(null);
+    setSelectedTelemetryRateLabel(null);
 
     const info = extractEdgeInfo(edge.data?.raw, edge.data?.rawResource);
     if (info) {
@@ -1127,8 +1303,83 @@ function TopologyFlowDashboard() {
   const handleBackgroundClick = useCallback(() => {
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
+    setSelectedTelemetryRateLabel(null);
     setInfoCard({ type: 'empty' });
   }, []);
+
+  const handleTelemetryRateLabelSelect = useCallback((
+    selection: TopologyTelemetryRateLabelSelection | null
+  ) => {
+    if (!selection) {
+      setSelectedTelemetryRateLabel(null);
+      setSelectedEdgeId(null);
+      setInfoCard({ type: 'empty' });
+      return;
+    }
+
+    setSelectedTelemetryRateLabel(selection);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+    updateTelemetryRateLabelInfoCard(selection);
+  }, [updateTelemetryRateLabelInfoCard]);
+
+  const handleTelemetryRateLabelTransformChange = useCallback((
+    selection: TopologyTelemetryRateLabelSelection,
+    transform: TopologyTelemetryRateLabelTransform
+  ) => {
+    setInfoCard((previous) => {
+      if (previous.type !== 'rateLabel') {
+        return previous;
+      }
+      if (previous.info.edgeId !== selection.edgeId || previous.info.key !== selection.key) {
+        return previous;
+      }
+      if (
+        previous.info.rotationDeg === transform.rotationDeg
+        && previous.info.offsetX === transform.offset.x
+        && previous.info.offsetY === transform.offset.y
+      ) {
+        return previous;
+      }
+      return {
+        type: 'rateLabel',
+        info: {
+          ...previous.info,
+          rotationDeg: transform.rotationDeg,
+          offsetX: transform.offset.x,
+          offsetY: transform.offset.y
+        }
+      };
+    });
+  }, []);
+
+  const setSelectedTelemetryRateLabelRotation = useCallback((nextRotationDeg: number) => {
+    if (!selectedTelemetryRateLabel || !topologyRef.current) {
+      return;
+    }
+    topologyRef.current.setTelemetryRateLabelRotation(
+      selectedTelemetryRateLabel.edgeId,
+      selectedTelemetryRateLabel.key,
+      nextRotationDeg
+    );
+    updateTelemetryRateLabelInfoCard(selectedTelemetryRateLabel);
+  }, [selectedTelemetryRateLabel, updateTelemetryRateLabelInfoCard]);
+
+  const rotateSelectedTelemetryRateLabelBy = useCallback((deltaDeg: number) => {
+    if (!selectedTelemetryRateLabel || !topologyRef.current) {
+      return;
+    }
+    const currentTransform = topologyRef.current.getTelemetryRateLabelTransform(
+      selectedTelemetryRateLabel.edgeId,
+      selectedTelemetryRateLabel.key
+    );
+    topologyRef.current.setTelemetryRateLabelRotation(
+      selectedTelemetryRateLabel.edgeId,
+      selectedTelemetryRateLabel.key,
+      currentTransform.rotationDeg + deltaDeg
+    );
+    updateTelemetryRateLabelInfoCard(selectedTelemetryRateLabel);
+  }, [selectedTelemetryRateLabel, updateTelemetryRateLabelInfoCard]);
 
   // Handle SSH to node
   const handleSshToNode = useCallback((name: string, namespace: string, nodeDetails?: string) => {
@@ -1470,6 +1721,8 @@ function TopologyFlowDashboard() {
             edges={visibleEdges}
             onNodeSelect={handleNodeSelect}
             onEdgeSelect={handleEdgeSelect}
+            onTelemetryRateLabelSelect={handleTelemetryRateLabelSelect}
+            onTelemetryRateLabelTransformChange={handleTelemetryRateLabelTransformChange}
             onNodeDoubleClick={handleNodeDoubleClick}
             onBackgroundClick={handleBackgroundClick}
             colorMode={colorMode}
@@ -1479,11 +1732,12 @@ function TopologyFlowDashboard() {
             telemetryInterfaceScale={telemetryInterfaceSizePercent / 100}
             selectedNodeId={selectedNodeId}
             selectedEdgeId={selectedEdgeId}
+            selectedTelemetryRateLabel={selectedTelemetryRateLabel}
             onDevicePositionsChange={handleDevicePositionsChange}
           />
         </div>
         <div className="info-card">
-          {infoCard.type === 'empty' && <span>Select a node or link</span>}
+          {infoCard.type === 'empty' && <span>Select a node, link, or traffic-rate label</span>}
           {infoCard.type === 'node' && (
             <InfoCardNode
               info={infoCard.info}
@@ -1497,6 +1751,14 @@ function TopologyFlowDashboard() {
               info={infoCard.info}
               rawResource={infoCard.rawResource}
               onOpenResource={handleOpenResource}
+            />
+          )}
+          {infoCard.type === 'rateLabel' && (
+            <InfoCardRateLabel
+              info={infoCard.info}
+              onRotateBy={rotateSelectedTelemetryRateLabelBy}
+              onSetRotation={setSelectedTelemetryRateLabelRotation}
+              onResetRotation={() => setSelectedTelemetryRateLabelRotation(0)}
             />
           )}
         </div>

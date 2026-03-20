@@ -1,9 +1,12 @@
 import {
   memo,
+  useEffect,
   useMemo,
   useCallback,
   useSyncExternalStore,
-  type PointerEvent as ReactPointerEvent
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent
 } from 'react';
 import {
   BaseEdge,
@@ -37,6 +40,12 @@ export interface LinkEdgeData extends Record<string, unknown> {
   pairIndex?: number;
   totalInPair?: number;
   edgeLabelsVisible?: boolean;
+  selectedRateLabelKey?: RateLabelKey;
+  onRateLabelSelect?: (selection: TelemetryRateLabelSelection | null) => void;
+  onRateLabelTransformChange?: (
+    selection: TelemetryRateLabelSelection,
+    transform: EdgeRateLabelTransform
+  ) => void;
   appearanceMode?: 'default' | 'telemetry';
   telemetryNodeSizePx?: number;
   telemetryInterfaceScale?: number;
@@ -106,11 +115,27 @@ interface InterfaceAnchorCache {
   templates: NodeInterfaceAnchorTemplateMap | null;
 }
 
-type RateLabelKey = 'source' | 'target';
+export type TelemetryRateLabelKey = 'source' | 'target';
+type RateLabelKey = TelemetryRateLabelKey;
 
 export interface EdgeRateLabelOffsets {
   source: Point;
   target: Point;
+}
+
+interface EdgeRateLabelRotations {
+  source: number;
+  target: number;
+}
+
+export interface TelemetryRateLabelSelection {
+  edgeId: string;
+  key: RateLabelKey;
+}
+
+export interface EdgeRateLabelTransform {
+  offset: Point;
+  rotationDeg: number;
 }
 
 export type EdgeRateLabelOffsetSnapshot = Record<string, EdgeRateLabelOffsets>;
@@ -127,8 +152,19 @@ interface GlobalRateLabelDrag {
   zoom: number;
 }
 
+interface GlobalRateLabelRotationDrag {
+  edgeId: string;
+  key: RateLabelKey;
+  pointerId: number;
+  centerClient: Point;
+  rotationOffsetDeg: number;
+}
+
 const HORIZONTAL_SLOPE_THRESHOLD = 0.25;
 const DEFAULT_RATE_LABEL_OFFSET: Point = { x: 0, y: 0 };
+const DEFAULT_RATE_LABEL_ROTATION_DEG = 0;
+const RATE_LABEL_ROTATION_HANDLE_DISTANCE_PX = 18;
+const RATE_LABEL_SELECTION_SUPPRESS_MS = 220;
 
 let interfaceAnchorCache: InterfaceAnchorCache = {
   edgesRef: null,
@@ -139,13 +175,31 @@ let interfaceAnchorCache: InterfaceAnchorCache = {
 };
 
 let telemetryRateLabelOffsetCache = new Map<string, EdgeRateLabelOffsets>();
+let telemetryRateLabelRotationCache = new Map<string, EdgeRateLabelRotations>();
 let telemetryRateLabelOffsetSubscribers = new Set<RateLabelOffsetSubscriber>();
 let telemetryRateLabelOffsetVersion = 0;
 let activeRateLabelDrag: GlobalRateLabelDrag | null = null;
+let activeRateLabelRotationDrag: GlobalRateLabelRotationDrag | null = null;
 let globalRateLabelDragHandlersInstalled = false;
+let suppressTopologySelectionUntilMs = 0;
 
 function clonePoint(point: Point): Point {
   return { x: point.x, y: point.y };
+}
+
+function getMonotonicNowMs(): number {
+  if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+    return performance.now();
+  }
+  return Date.now();
+}
+
+function markRateLabelInteraction(): void {
+  suppressTopologySelectionUntilMs = getMonotonicNowMs() + RATE_LABEL_SELECTION_SUPPRESS_MS;
+}
+
+export function shouldSuppressTopologySelection(): boolean {
+  return getMonotonicNowMs() < suppressTopologySelectionUntilMs;
 }
 
 function notifyRateLabelOffsetSubscribers(): void {
@@ -167,7 +221,7 @@ export function subscribeRateLabelDragState(subscriber: RateLabelOffsetSubscribe
 }
 
 export function getRateLabelDragStateSnapshot(): boolean {
-  return activeRateLabelDrag != null;
+  return activeRateLabelDrag != null || activeRateLabelRotationDrag != null;
 }
 
 export function getRateLabelOffsetSnapshot(): EdgeRateLabelOffsetSnapshot {
@@ -200,6 +254,32 @@ function setCachedRateLabelOffset(edgeId: string, key: RateLabelKey, offset: Poi
   notifyRateLabelOffsetSubscribers();
 }
 
+function getCachedRateLabelRotation(edgeId: string, key: RateLabelKey): number {
+  const existing = telemetryRateLabelRotationCache.get(edgeId);
+  if (!existing) return DEFAULT_RATE_LABEL_ROTATION_DEG;
+  const rotation = existing[key];
+  return Number.isFinite(rotation) ? rotation : DEFAULT_RATE_LABEL_ROTATION_DEG;
+}
+
+function setCachedRateLabelRotation(edgeId: string, key: RateLabelKey, rotationDeg: number): void {
+  if (!Number.isFinite(rotationDeg)) return;
+
+  const existing = telemetryRateLabelRotationCache.get(edgeId);
+  telemetryRateLabelRotationCache.set(edgeId, {
+    source: key === 'source'
+      ? rotationDeg
+      : (existing?.source ?? DEFAULT_RATE_LABEL_ROTATION_DEG),
+    target: key === 'target'
+      ? rotationDeg
+      : (existing?.target ?? DEFAULT_RATE_LABEL_ROTATION_DEG)
+  });
+  notifyRateLabelOffsetSubscribers();
+}
+
+export function setRateLabelRotation(edgeId: string, key: RateLabelKey, rotationDeg: number): void {
+  setCachedRateLabelRotation(edgeId, key, rotationDeg);
+}
+
 function getEdgeRateLabelOffsets(edgeId: string, version?: number): EdgeRateLabelOffsets {
   void version;
   return {
@@ -208,8 +288,32 @@ function getEdgeRateLabelOffsets(edgeId: string, version?: number): EdgeRateLabe
   };
 }
 
+function getEdgeRateLabelRotations(edgeId: string, version?: number): EdgeRateLabelRotations {
+  void version;
+  return {
+    source: getCachedRateLabelRotation(edgeId, 'source'),
+    target: getCachedRateLabelRotation(edgeId, 'target')
+  };
+}
+
+export function getRateLabelTransform(edgeId: string, key: RateLabelKey): EdgeRateLabelTransform {
+  return {
+    offset: getCachedRateLabelOffset(edgeId, key),
+    rotationDeg: getCachedRateLabelRotation(edgeId, key)
+  };
+}
+
 function isRateLabelDragActive(edgeId: string, key: RateLabelKey): boolean {
   return activeRateLabelDrag?.edgeId === edgeId && activeRateLabelDrag?.key === key;
+}
+
+// Match the React Flow rotatable-node example: 0deg at top, increasing clockwise.
+function getPointerRotationDeg(center: Point, clientX: number, clientY: number): number {
+  const dx = clientX - center.x;
+  const dy = clientY - center.y;
+  const rad = Math.atan2(dx, dy);
+  const deg = rad * (180 / Math.PI);
+  return 180 - deg;
 }
 
 function stopGlobalRateLabelDrag(pointerId?: number): void {
@@ -220,11 +324,39 @@ function stopGlobalRateLabelDrag(pointerId?: number): void {
   notifyRateLabelOffsetSubscribers();
 }
 
+function stopGlobalRateLabelRotationDrag(pointerId?: number): void {
+  if (!activeRateLabelRotationDrag) return;
+  if (pointerId !== undefined && activeRateLabelRotationDrag.pointerId !== pointerId) return;
+
+  activeRateLabelRotationDrag = null;
+  notifyRateLabelOffsetSubscribers();
+}
+
 function ensureGlobalRateLabelDragHandlers(): void {
   if (globalRateLabelDragHandlersInstalled) return;
   if (typeof window === 'undefined') return;
 
   const onPointerMove = (event: PointerEvent) => {
+    const rotationDrag = activeRateLabelRotationDrag;
+    if (rotationDrag && event.pointerId === rotationDrag.pointerId) {
+      if (event.pointerType !== 'touch' && event.buttons === 0) {
+        stopGlobalRateLabelRotationDrag(event.pointerId);
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const pointerRotationDeg = getPointerRotationDeg(
+        rotationDrag.centerClient,
+        event.clientX,
+        event.clientY
+      );
+      const nextRotationDeg = pointerRotationDeg + rotationDrag.rotationOffsetDeg;
+      setCachedRateLabelRotation(rotationDrag.edgeId, rotationDrag.key, nextRotationDeg);
+      return;
+    }
+
     const drag = activeRateLabelDrag;
     if (!drag) return;
     if (event.pointerId !== drag.pointerId) return;
@@ -246,15 +378,20 @@ function ensureGlobalRateLabelDragHandlers(): void {
 
   const onPointerUp = (event: PointerEvent) => {
     stopGlobalRateLabelDrag(event.pointerId);
+    stopGlobalRateLabelRotationDrag(event.pointerId);
   };
 
   const onPointerCancel = (event: PointerEvent) => {
     // Keep drag active on cancel events to survive edge/label remounts during live updates.
-    if (event.pointerId !== activeRateLabelDrag?.pointerId) return;
+    if (
+      event.pointerId !== activeRateLabelDrag?.pointerId
+      && event.pointerId !== activeRateLabelRotationDrag?.pointerId
+    ) return;
   };
 
   const onWindowBlur = () => {
     stopGlobalRateLabelDrag();
+    stopGlobalRateLabelRotationDrag();
   };
 
   window.addEventListener('pointermove', onPointerMove, { passive: false, capture: true });
@@ -275,12 +412,41 @@ function startGlobalRateLabelDrag(params: {
 }): void {
   ensureGlobalRateLabelDragHandlers();
   stopGlobalRateLabelDrag();
+  stopGlobalRateLabelRotationDrag();
 
   const normalizedZoom = Number.isFinite(params.zoom) && params.zoom > 0 ? params.zoom : 1;
   activeRateLabelDrag = {
     ...params,
     startOffset: clonePoint(params.startOffset),
     zoom: normalizedZoom
+  };
+
+  notifyRateLabelOffsetSubscribers();
+}
+
+function startGlobalRateLabelRotationDrag(params: {
+  edgeId: string;
+  key: RateLabelKey;
+  pointerId: number;
+  centerClient: Point;
+  startPointerClientX: number;
+  startPointerClientY: number;
+  startRotationDeg: number;
+}): void {
+  ensureGlobalRateLabelDragHandlers();
+  stopGlobalRateLabelDrag();
+  stopGlobalRateLabelRotationDrag();
+
+  activeRateLabelRotationDrag = {
+    edgeId: params.edgeId,
+    key: params.key,
+    pointerId: params.pointerId,
+    centerClient: clonePoint(params.centerClient),
+    rotationOffsetDeg: params.startRotationDeg - getPointerRotationDeg(
+      params.centerClient,
+      params.startPointerClientX,
+      params.startPointerClientY
+    )
   };
 
   notifyRateLabelOffsetSubscribers();
@@ -752,7 +918,10 @@ function LinkEdgeComponent({
   const targetTemplate = targetEndpointKey != null
     ? telemetryInterfaceAnchorTemplates?.get(target)?.get(targetEndpointKey)
     : undefined;
-  const viewportZoom = useStore((state) => state.transform[2] as number);
+  const viewportTransform = useStore((state) => state.transform as [number, number, number]);
+  const viewportX = viewportTransform[0];
+  const viewportY = viewportTransform[1];
+  const viewportZoom = viewportTransform[2];
   const rateLabelOffsetVersion = useSyncExternalStore(
     subscribeRateLabelOffsets,
     getRateLabelOffsetVersionSnapshot,
@@ -761,14 +930,28 @@ function LinkEdgeComponent({
   const rateLabelOffsets = getEdgeRateLabelOffsets(id, rateLabelOffsetVersion);
   const sourceRateOffset = rateLabelOffsets.source;
   const targetRateOffset = rateLabelOffsets.target;
+  const rateLabelRotations = getEdgeRateLabelRotations(id, rateLabelOffsetVersion);
+  const sourceRateRotationDeg = rateLabelRotations.source;
+  const targetRateRotationDeg = rateLabelRotations.target;
   const isSourceRateDragActive = isRateLabelDragActive(id, 'source');
   const isTargetRateDragActive = isRateLabelDragActive(id, 'target');
+  const selectedRateLabelKey = data?.selectedRateLabelKey;
+  const isSourceRateSelected = selectedRateLabelKey === 'source';
+  const isTargetRateSelected = selectedRateLabelKey === 'target';
+  const onRateLabelSelect = data?.onRateLabelSelect;
+  const onRateLabelTransformChange = data?.onRateLabelTransformChange;
+
+  const selectRateLabel = useCallback((key: RateLabelKey) => {
+    onRateLabelSelect?.({ edgeId: id, key });
+  }, [id, onRateLabelSelect]);
 
   const startRateLabelDrag = useCallback((key: RateLabelKey, event: ReactPointerEvent<HTMLDivElement>) => {
     if (!isTelemetryStyle) return;
 
     event.preventDefault();
     event.stopPropagation();
+    markRateLabelInteraction();
+    selectRateLabel(key);
 
     const startOffset = key === 'source' ? sourceRateOffset : targetRateOffset;
     startGlobalRateLabelDrag({
@@ -783,9 +966,114 @@ function LinkEdgeComponent({
   }, [
     id,
     isTelemetryStyle,
+    selectRateLabel,
     sourceRateOffset,
     targetRateOffset,
     viewportZoom
+  ]);
+
+  const startRateLabelRotationDrag = useCallback((
+    key: RateLabelKey,
+    center: Point,
+    event: ReactPointerEvent<HTMLDivElement>
+  ) => {
+    if (!isTelemetryStyle) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    markRateLabelInteraction();
+    selectRateLabel(key);
+
+    const flowContainerRect = event.currentTarget.ownerDocument
+      .getElementById('topology-flow-container')
+      ?.getBoundingClientRect();
+    const flowContainerLeft = flowContainerRect?.left ?? 0;
+    const flowContainerTop = flowContainerRect?.top ?? 0;
+    const startRotationDeg = key === 'source' ? sourceRateRotationDeg : targetRateRotationDeg;
+    startGlobalRateLabelRotationDrag({
+      edgeId: id,
+      key,
+      pointerId: event.pointerId,
+      centerClient: {
+        x: flowContainerLeft + (center.x * viewportZoom) + viewportX,
+        y: flowContainerTop + (center.y * viewportZoom) + viewportY
+      },
+      startPointerClientX: event.clientX,
+      startPointerClientY: event.clientY,
+      startRotationDeg
+    });
+  }, [
+    id,
+    isTelemetryStyle,
+    selectRateLabel,
+    sourceRateRotationDeg,
+    targetRateRotationDeg,
+    viewportX,
+    viewportY,
+    viewportZoom
+  ]);
+
+  const rotateRateLabel = useCallback((key: RateLabelKey, event: ReactWheelEvent<HTMLDivElement>) => {
+    if (!isTelemetryStyle) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    markRateLabelInteraction();
+    selectRateLabel(key);
+
+    const dominantDelta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+    let modeScale = 1;
+    if (event.deltaMode === 1) {
+      modeScale = 12;
+    } else if (event.deltaMode === 2) {
+      modeScale = 96;
+    }
+    const nextRotation = (key === 'source' ? sourceRateRotationDeg : targetRateRotationDeg)
+      + dominantDelta * modeScale * 0.15;
+    setCachedRateLabelRotation(id, key, nextRotation);
+  }, [
+    id,
+    isTelemetryStyle,
+    selectRateLabel,
+    sourceRateRotationDeg,
+    targetRateRotationDeg
+  ]);
+
+  const swallowRateLabelClick = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    markRateLabelInteraction();
+  }, []);
+
+  const swallowRateLabelPointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    markRateLabelInteraction();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedRateLabelKey || !onRateLabelTransformChange) return;
+
+    if (selectedRateLabelKey === 'source') {
+      onRateLabelTransformChange(
+        { edgeId: id, key: 'source' },
+        { offset: clonePoint(sourceRateOffset), rotationDeg: sourceRateRotationDeg }
+      );
+      return;
+    }
+
+    onRateLabelTransformChange(
+      { edgeId: id, key: 'target' },
+      { offset: clonePoint(targetRateOffset), rotationDeg: targetRateRotationDeg }
+    );
+  }, [
+    id,
+    onRateLabelTransformChange,
+    selectedRateLabelKey,
+    sourceRateOffset,
+    sourceRateRotationDeg,
+    targetRateOffset,
+    targetRateRotationDeg
   ]);
 
   const edgeData = useMemo(() => {
@@ -1000,11 +1288,19 @@ function LinkEdgeComponent({
             <div
               className="nodrag nopan"
               onPointerDown={(event) => startRateLabelDrag('source', event)}
+              onPointerUp={swallowRateLabelPointerUp}
+              onClick={swallowRateLabelClick}
+              onWheel={(event) => rotateRateLabel('source', event)}
+              title="Drag to move, scroll to rotate"
               style={{
                 position: 'absolute',
-                transform: `translate(-50%, -50%) translate(${sourceRatePosition.x}px, ${sourceRatePosition.y}px)`,
+                transform: `translate(-50%, -50%) translate(${sourceRatePosition.x}px, ${sourceRatePosition.y}px) rotate(${sourceRateRotationDeg}deg)`,
+                transformOrigin: 'center center',
                 pointerEvents: 'all',
                 color: '#ffffff',
+                backgroundColor: isSourceRateSelected ? 'rgba(96, 152, 255, 0.25)' : 'transparent',
+                border: isSourceRateSelected ? '1px solid rgba(96, 152, 255, 0.95)' : '1px solid transparent',
+                borderRadius: '4px',
                 fontSize: `${telemetryRateFontSize}px`,
                 fontWeight: 500,
                 whiteSpace: 'nowrap',
@@ -1012,21 +1308,53 @@ function LinkEdgeComponent({
                 textShadow: `0 0 ${telemetryRateTextStrokeWidth}px rgba(0, 0, 0, 0.95), 0 0 ${telemetryRateTextStrokeWidth}px rgba(0, 0, 0, 0.95)`,
                 userSelect: 'none',
                 touchAction: 'none',
+                padding: '2px 4px',
                 cursor: isSourceRateDragActive ? 'grabbing' : 'grab'
               }}
             >
               {sourceOutBpsLabel}
             </div>
           )}
+          {sourceOutBpsLabel && sourceRatePosition && isSourceRateSelected && (
+            <div
+              className="nodrag nopan"
+              onPointerDown={(event) => startRateLabelRotationDrag('source', sourceRatePosition, event)}
+              onPointerUp={swallowRateLabelPointerUp}
+              onClick={swallowRateLabelClick}
+              title="Drag to rotate"
+              style={{
+                position: 'absolute',
+                transform: `translate(-50%, -50%) translate(${sourceRatePosition.x}px, ${sourceRatePosition.y}px) rotate(${sourceRateRotationDeg}deg) translateY(-${RATE_LABEL_ROTATION_HANDLE_DISTANCE_PX}px)`,
+                transformOrigin: 'center center',
+                width: '11px',
+                height: '11px',
+                borderRadius: '50%',
+                backgroundColor: '#6098ff',
+                border: '1px solid rgba(255, 255, 255, 0.95)',
+                boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.45)',
+                pointerEvents: 'all',
+                cursor: 'grab',
+                touchAction: 'none'
+              }}
+            />
+          )}
           {targetOutBpsLabel && targetRatePosition && (
             <div
               className="nodrag nopan"
               onPointerDown={(event) => startRateLabelDrag('target', event)}
+              onPointerUp={swallowRateLabelPointerUp}
+              onClick={swallowRateLabelClick}
+              onWheel={(event) => rotateRateLabel('target', event)}
+              title="Drag to move, scroll to rotate"
               style={{
                 position: 'absolute',
-                transform: `translate(-50%, -50%) translate(${targetRatePosition.x}px, ${targetRatePosition.y}px)`,
+                transform: `translate(-50%, -50%) translate(${targetRatePosition.x}px, ${targetRatePosition.y}px) rotate(${targetRateRotationDeg}deg)`,
+                transformOrigin: 'center center',
                 pointerEvents: 'all',
                 color: '#ffffff',
+                backgroundColor: isTargetRateSelected ? 'rgba(96, 152, 255, 0.25)' : 'transparent',
+                border: isTargetRateSelected ? '1px solid rgba(96, 152, 255, 0.95)' : '1px solid transparent',
+                borderRadius: '4px',
                 fontSize: `${telemetryRateFontSize}px`,
                 fontWeight: 500,
                 whiteSpace: 'nowrap',
@@ -1034,11 +1362,35 @@ function LinkEdgeComponent({
                 textShadow: `0 0 ${telemetryRateTextStrokeWidth}px rgba(0, 0, 0, 0.95), 0 0 ${telemetryRateTextStrokeWidth}px rgba(0, 0, 0, 0.95)`,
                 userSelect: 'none',
                 touchAction: 'none',
+                padding: '2px 4px',
                 cursor: isTargetRateDragActive ? 'grabbing' : 'grab'
               }}
             >
               {targetOutBpsLabel}
             </div>
+          )}
+          {targetOutBpsLabel && targetRatePosition && isTargetRateSelected && (
+            <div
+              className="nodrag nopan"
+              onPointerDown={(event) => startRateLabelRotationDrag('target', targetRatePosition, event)}
+              onPointerUp={swallowRateLabelPointerUp}
+              onClick={swallowRateLabelClick}
+              title="Drag to rotate"
+              style={{
+                position: 'absolute',
+                transform: `translate(-50%, -50%) translate(${targetRatePosition.x}px, ${targetRatePosition.y}px) rotate(${targetRateRotationDeg}deg) translateY(-${RATE_LABEL_ROTATION_HANDLE_DISTANCE_PX}px)`,
+                transformOrigin: 'center center',
+                width: '11px',
+                height: '11px',
+                borderRadius: '50%',
+                backgroundColor: '#6098ff',
+                border: '1px solid rgba(255, 255, 255, 0.95)',
+                boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.45)',
+                pointerEvents: 'all',
+                cursor: 'grab',
+                touchAction: 'none'
+              }}
+            />
           )}
         </EdgeLabelRenderer>
       )}

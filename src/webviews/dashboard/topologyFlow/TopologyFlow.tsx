@@ -27,8 +27,14 @@ import DeviceNode, { type TopologyNode, type TopologyNodeData } from './nodes/De
 import NamespaceLabelNodeComponent, { type NamespaceLabelNode } from './nodes/NamespaceLabelNode';
 import LinkEdgeComponent, {
   getRateLabelOffsetSnapshot,
+  getRateLabelTransform,
   getRateLabelDragStateSnapshot,
+  setRateLabelRotation,
+  shouldSuppressTopologySelection,
   subscribeRateLabelDragState,
+  type TelemetryRateLabelKey,
+  type TelemetryRateLabelSelection,
+  type EdgeRateLabelTransform,
   type EdgeRateLabelOffsetSnapshot,
   type LinkEdge,
   type LinkEdgeData
@@ -67,6 +73,11 @@ interface TopologyFlowProps {
   readonly edges: LinkEdge[];
   readonly onNodeSelect?: (node: TopologyNode) => void;
   readonly onEdgeSelect?: (edge: LinkEdge) => void;
+  readonly onTelemetryRateLabelSelect?: (selection: TelemetryRateLabelSelection | null) => void;
+  readonly onTelemetryRateLabelTransformChange?: (
+    selection: TelemetryRateLabelSelection,
+    transform: EdgeRateLabelTransform
+  ) => void;
   readonly onNodeDoubleClick?: (node: TopologyNode) => void;
   readonly onBackgroundClick?: () => void;
   readonly colorMode?: ColorMode;
@@ -77,6 +88,7 @@ interface TopologyFlowProps {
   readonly telemetryInterfaceScale?: number;
   readonly selectedNodeId?: string | null;
   readonly selectedEdgeId?: string | null;
+  readonly selectedTelemetryRateLabel?: TelemetryRateLabelSelection | null;
   readonly onDevicePositionsChange?: (positions: NodePositionMap) => void;
 }
 
@@ -91,6 +103,15 @@ export interface TopologyFlowRef {
   buildSvgExport: (options: ExportOptions) => Promise<TopologySvgExportResult | null>;
   getDeviceNodePositions: () => NodePositionMap;
   getTelemetryRateLabelOffsets: () => EdgeRateLabelOffsetSnapshot;
+  getTelemetryRateLabelTransform: (
+    edgeId: string,
+    key: TelemetryRateLabelKey
+  ) => EdgeRateLabelTransform;
+  setTelemetryRateLabelRotation: (
+    edgeId: string,
+    key: TelemetryRateLabelKey,
+    rotationDeg: number
+  ) => void;
 }
 
 export interface ExportOptions {
@@ -849,6 +870,8 @@ function TopologyFlowInner({
   edges: initialEdges,
   onNodeSelect,
   onEdgeSelect,
+  onTelemetryRateLabelSelect,
+  onTelemetryRateLabelTransformChange,
   onNodeDoubleClick,
   onBackgroundClick,
   colorMode = 'system',
@@ -859,6 +882,7 @@ function TopologyFlowInner({
   telemetryInterfaceScale = 1,
   selectedNodeId,
   selectedEdgeId,
+  selectedTelemetryRateLabel,
   onDevicePositionsChange,
 }: TopologyFlowProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>(initialNodes);
@@ -911,6 +935,9 @@ function TopologyFlowInner({
 
   const handleNodeClick: NodeMouseHandler<FlowNode> = useCallback(
     (_event, node) => {
+      if (shouldSuppressTopologySelection()) {
+        return;
+      }
       // Only handle device nodes, not namespace labels
       if (node.type === 'deviceNode') {
         onNodeSelect?.(node as TopologyNode);
@@ -921,6 +948,9 @@ function TopologyFlowInner({
 
   const handleEdgeClick: EdgeMouseHandler<LinkEdge> = useCallback(
     (_event, edge) => {
+      if (shouldSuppressTopologySelection()) {
+        return;
+      }
       onEdgeSelect?.(edge);
     },
     [onEdgeSelect]
@@ -928,6 +958,9 @@ function TopologyFlowInner({
 
   const handleNodeDoubleClick: NodeMouseHandler<FlowNode> = useCallback(
     (_event, node) => {
+      if (shouldSuppressTopologySelection()) {
+        return;
+      }
       // Only handle device nodes, not namespace labels
       if (node.type === 'deviceNode') {
         onNodeDoubleClick?.(node as TopologyNode);
@@ -937,6 +970,9 @@ function TopologyFlowInner({
   );
 
   const handlePaneClick = useCallback(() => {
+    if (shouldSuppressTopologySelection()) {
+      return;
+    }
     onBackgroundClick?.();
   }, [onBackgroundClick]);
 
@@ -953,7 +989,8 @@ function TopologyFlowInner({
   // Apply label visibility and info-card highlight state to edges.
   const processedEdges = useMemo(() => {
     return edges.map((edge) => {
-      const isDirectlySelected = edge.id === selectedEdgeId;
+      const isRateLabelEdge = selectedTelemetryRateLabel?.edgeId === edge.id;
+      const isDirectlySelected = edge.id === selectedEdgeId || isRateLabelEdge;
       // Edge is highlighted if: directly selected OR connected to selected node
       const isConnectedToSelectedNode = selectedNodeId != null
         && (edge.source === selectedNodeId || edge.target === selectedNodeId);
@@ -972,6 +1009,11 @@ function TopologyFlowInner({
           sourceInterface: showLabels ? edge.data?.sourceInterface : undefined,
           targetInterface: showLabels ? edge.data?.targetInterface : undefined,
           edgeLabelsVisible: showLabels,
+          selectedRateLabelKey: selectedTelemetryRateLabel?.edgeId === edge.id
+            ? selectedTelemetryRateLabel.key
+            : undefined,
+          onRateLabelSelect: onTelemetryRateLabelSelect,
+          onRateLabelTransformChange: onTelemetryRateLabelTransformChange,
           appearanceMode,
           telemetryNodeSizePx: appearanceMode === 'telemetry'
             ? clampTelemetryNodeSizePx(telemetryNodeSizePx)
@@ -982,14 +1024,26 @@ function TopologyFlowInner({
         },
       };
     });
-  }, [appearanceMode, edges, labelMode, selectedEdgeId, selectedNodeId, telemetryInterfaceScale, telemetryNodeSizePx]);
+  }, [
+    appearanceMode,
+    edges,
+    labelMode,
+    onTelemetryRateLabelSelect,
+    onTelemetryRateLabelTransformChange,
+    selectedEdgeId,
+    selectedNodeId,
+    selectedTelemetryRateLabel,
+    telemetryInterfaceScale,
+    telemetryNodeSizePx
+  ]);
 
   // Apply info-card highlight state to nodes without overriding React Flow selection.
   const processedNodes = useMemo(() => {
+    const highlightConnectedNodes = selectedTelemetryRateLabel == null;
     return nodes.map((node) => {
       const isDirectlySelected = node.id === selectedNodeId;
       // Node is highlighted if: directly selected OR connected to selected edge
-      const isConnectedToSelectedEdge = selectedEdge != null
+      const isConnectedToSelectedEdge = highlightConnectedNodes && selectedEdge != null
         && (selectedEdge.source === node.id || selectedEdge.target === node.id);
       const isHighlighted = isDirectlySelected || isConnectedToSelectedEdge;
 
@@ -1014,7 +1068,15 @@ function TopologyFlowInner({
         },
       };
     });
-  }, [appearanceMode, nodes, normalizedNodeLabelMode, selectedEdge, selectedNodeId, telemetryNodeSizePx]);
+  }, [
+    appearanceMode,
+    nodes,
+    normalizedNodeLabelMode,
+    selectedEdge,
+    selectedNodeId,
+    selectedTelemetryRateLabel,
+    telemetryNodeSizePx
+  ]);
 
   return (
     <div id="topology-flow-container" style={{ width: '100%', height: '100%' }}>
@@ -1080,15 +1142,39 @@ const TopologyFlowWithRef = forwardRef<TopologyFlowRef, TopologyFlowProps>(
       return getRateLabelOffsetSnapshot();
     }, []);
 
+    const getTelemetryRateLabelTransform = useCallback((
+      edgeId: string,
+      key: TelemetryRateLabelKey
+    ): EdgeRateLabelTransform => {
+      return getRateLabelTransform(edgeId, key);
+    }, []);
+
+    const setTelemetryRateLabelRotation = useCallback((
+      edgeId: string,
+      key: TelemetryRateLabelKey,
+      rotationDeg: number
+    ) => {
+      setRateLabelRotation(edgeId, key, rotationDeg);
+    }, []);
+
     useImperativeHandle(
       ref,
       () => ({
         exportImage,
         buildSvgExport,
         getDeviceNodePositions,
-        getTelemetryRateLabelOffsets
+        getTelemetryRateLabelOffsets,
+        getTelemetryRateLabelTransform,
+        setTelemetryRateLabelRotation
       }),
-      [exportImage, buildSvgExport, getDeviceNodePositions, getTelemetryRateLabelOffsets]
+      [
+        exportImage,
+        buildSvgExport,
+        getDeviceNodePositions,
+        getTelemetryRateLabelOffsets,
+        getTelemetryRateLabelTransform,
+        setTelemetryRateLabelRotation
+      ]
     );
 
     return <TopologyFlowInner {...props} />;
@@ -1109,4 +1195,12 @@ const TopologyFlow = forwardRef<TopologyFlowRef, TopologyFlowProps>(
 export default TopologyFlow;
 
 // Export types for use in the dashboard
-export type { TopologyNode, TopologyNodeData, LinkEdge as TopologyEdge, LinkEdgeData as TopologyEdgeData };
+export type {
+  TopologyNode,
+  TopologyNodeData,
+  LinkEdge as TopologyEdge,
+  LinkEdgeData as TopologyEdgeData,
+  TelemetryRateLabelKey as TopologyTelemetryRateLabelKey,
+  TelemetryRateLabelSelection as TopologyTelemetryRateLabelSelection,
+  EdgeRateLabelTransform as TopologyTelemetryRateLabelTransform
+};
