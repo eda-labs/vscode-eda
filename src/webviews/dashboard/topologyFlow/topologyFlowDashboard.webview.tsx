@@ -2,6 +2,9 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import type { ColorMode } from '@xyflow/react';
 import { alpha, useTheme } from '@mui/material/styles';
+import { Box, Chip, FormControl, IconButton, InputLabel, MenuItem, Select, Stack, Tooltip } from '@mui/material';
+import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined';
+import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined';
 import SettingsIcon from '@mui/icons-material/Settings';
 
 import { ALL_NAMESPACES } from '../../constants';
@@ -1361,50 +1364,104 @@ function TopologyFlowDashboard() {
 
   return (
     <div className="dashboard" style={topologyCssVars}>
-      <div className="header">
-        <button className="export-btn" onClick={handleSaveLayout} disabled={saveDisabled}>
-          {isSavingLayout ? 'Saving...' : 'Save Layout'}
-        </button>
-        <button className="export-btn" onClick={showExportPopupWithDefaults}>
-          Export SVG
-        </button>
-        <button
-          className="export-btn appearance-gear-btn"
-          onClick={() => setShowAppearancePopup(true)}
-          title="Canvas appearance"
-          aria-label="Canvas appearance"
-        >
-          <SettingsIcon fontSize="small" />
-        </button>
-        <span className="namespace-value">Namespace: {selectedNamespace}</span>
-        {saveStatus && (
-          <span className={`save-status ${saveStatus.level}`}>
-            {saveStatus.text}
-          </span>
-        )}
-        <select
-          className="label-select"
-          value={labelMode}
-          onChange={e => setLabelMode(e.target.value as 'hide' | 'show' | 'select')}
-          title="Edge interface labels"
-        >
-          <option value="hide">Hide Labels</option>
-          <option value="show">Show Labels</option>
-          <option value="select">Show on Select</option>
-        </select>
-        <select
-          className="label-select"
-          value={selectedNodeLabelFilter}
-          onChange={e => setSelectedNodeLabelFilter(e.target.value)}
-          title="Filter rendered nodes by metadata label (key=value)"
-        >
-          {nodeLabelFilterOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      <Box
+        component="header"
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 1.25,
+          mb: 2,
+          px: 1.5,
+          py: 1,
+          border: `1px solid ${alpha(theme.palette.divider, 0.85)}`,
+          borderRadius: 1.5,
+          backgroundColor: alpha(theme.palette.background.paper, 0.9),
+          boxShadow: `0 6px 18px ${alpha(theme.palette.common.black, 0.15)}`,
+          flexWrap: 'wrap'
+        }}
+      >
+        <Stack direction="row" spacing={0.5} alignItems="center" sx={{ flexWrap: 'wrap' }}>
+          <Tooltip title={isSavingLayout ? 'Saving layout...' : 'Save layout'}>
+            <span>
+              <IconButton
+                size="small"
+                color="primary"
+                onClick={handleSaveLayout}
+                disabled={saveDisabled}
+                aria-label={isSavingLayout ? 'Saving layout' : 'Save layout'}
+              >
+                <SaveOutlinedIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="Export SVG">
+            <IconButton
+              size="small"
+              color="primary"
+              onClick={showExportPopupWithDefaults}
+              aria-label="Export SVG"
+            >
+              <ImageOutlinedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Canvas appearance">
+            <IconButton
+              size="small"
+              onClick={() => setShowAppearancePopup(true)}
+              aria-label="Canvas appearance"
+            >
+              <SettingsIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Chip
+            size="small"
+            variant="outlined"
+            label={`Namespace: ${selectedNamespace}`}
+            sx={{ ml: 0.75, borderColor: alpha(theme.palette.divider, 0.9) }}
+          />
+          {saveStatus && (
+            <Chip
+              size="small"
+              color={saveStatus.level === 'success' ? 'success' : 'error'}
+              variant="outlined"
+              label={saveStatus.text}
+            />
+          )}
+        </Stack>
+
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap' }}>
+          <FormControl size="small" sx={{ minWidth: 180 }}>
+            <InputLabel id="edge-label-mode-select-label">Interface labels</InputLabel>
+            <Select
+              labelId="edge-label-mode-select-label"
+              value={labelMode}
+              label="Interface labels"
+              onChange={(e) => setLabelMode(e.target.value as 'hide' | 'show' | 'select')}
+            >
+              <MenuItem value="hide">Hide Labels</MenuItem>
+              <MenuItem value="show">Show Labels</MenuItem>
+              <MenuItem value="select">Show on Select</MenuItem>
+            </Select>
+          </FormControl>
+
+          <FormControl size="small" sx={{ minWidth: 280 }}>
+            <InputLabel id="node-filter-select-label">Node filter</InputLabel>
+            <Select
+              labelId="node-filter-select-label"
+              value={selectedNodeLabelFilter}
+              label="Node filter"
+              onChange={(e) => setSelectedNodeLabelFilter(e.target.value)}
+            >
+              {nodeLabelFilterOptions.map((option) => (
+                <MenuItem key={option.value} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Stack>
+      </Box>
       <div className="body">
         <div className="topology-container">
           <TopologyFlow
