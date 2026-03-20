@@ -1187,7 +1187,13 @@ function TopologyFlowDashboard() {
         grafanaSvg = removeUnlinkedNodesFromSvg(grafanaSvg, linkedNodeIds);
         grafanaSvg = trimGrafanaSvgToTopologyContent(grafanaSvg, Math.max(6, borderPadding));
       }
-      grafanaSvg = applyGrafanaCellIdsToSvg(grafanaSvg, mappings, { trafficRatesOnHoverOnly });
+      const rateLabelOffsetsByEdge = appearanceMode === 'telemetry'
+        ? topologyRef.current.getTelemetryRateLabelOffsets()
+        : undefined;
+      grafanaSvg = applyGrafanaCellIdsToSvg(grafanaSvg, mappings, {
+        trafficRatesOnHoverOnly,
+        rateLabelOffsetsByEdge
+      });
       if (includeGrafanaLegend) {
         grafanaSvg = addGrafanaTrafficLegend(grafanaSvg, trafficThresholds, trafficThresholdUnit);
       }
@@ -1197,6 +1203,7 @@ function TopologyFlowDashboard() {
     [
       borderPadding,
       borderZoom,
+      appearanceMode,
       effectiveInterfaceLabelOverrides,
       excludeNodesWithoutLinks,
       exportBgColor,

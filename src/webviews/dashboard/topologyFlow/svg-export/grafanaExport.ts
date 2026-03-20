@@ -32,7 +32,13 @@ export interface GrafanaPanelYamlOptions {
 
 export interface GrafanaCellIdSvgOptions {
   trafficRatesOnHoverOnly?: boolean;
+  rateLabelOffsetsByEdge?: GrafanaEdgeRateLabelOffsetMap;
 }
+export interface GrafanaRateLabelOffset { x: number; y: number; }
+export interface GrafanaEdgeRateLabelOffsets {
+  source?: GrafanaRateLabelOffset; target?: GrafanaRateLabelOffset;
+}
+export type GrafanaEdgeRateLabelOffsetMap = Record<string, GrafanaEdgeRateLabelOffsets>;
 
 export const DEFAULT_GRAFANA_TRAFFIC_THRESHOLDS: GrafanaTrafficThresholds = {
   green: 199999,
@@ -614,13 +620,24 @@ function resolveTrafficCellElement(edgeGroup: Element): Element {
   return edgeGroup;
 }
 
-interface Point {
-  x: number;
-  y: number;
+interface Point { x: number; y: number; }
+interface TrafficLabelPlacement { point: Point; }
+
+function normalizeRateLabelOffset(offset: GrafanaRateLabelOffset | undefined): Point | undefined {
+  if (!offset) return undefined;
+  if (!Number.isFinite(offset.x) || !Number.isFinite(offset.y)) return undefined;
+  return { x: offset.x, y: offset.y };
 }
 
-interface TrafficLabelPlacement {
-  point: Point;
+function resolveTrafficRateLabelOffset(
+  rateLabelOffsetsByEdge: GrafanaEdgeRateLabelOffsetMap | undefined,
+  edgeId: string,
+  interfaceSide: "start" | "end"
+): Point | undefined {
+  if (!rateLabelOffsetsByEdge) return undefined;
+  const edgeOffsets = rateLabelOffsetsByEdge[edgeId];
+  if (!edgeOffsets) return undefined;
+  return normalizeRateLabelOffset(interfaceSide === "start" ? edgeOffsets.source : edgeOffsets.target);
 }
 
 function lerp(a: Point, b: Point, t = 0.5): Point {
@@ -1165,7 +1182,8 @@ function createTrafficHalfCell(
   interfaceLabelPoints: Point[],
   interfaceSide: "start" | "end",
   graphScale: number,
-  trafficRatesOnHoverOnly: boolean
+  trafficRatesOnHoverOnly: boolean,
+  rateLabelOffset: Point | undefined
 ): Element {
   const trafficLabelPlaceholder = "rate";
 
@@ -1197,9 +1215,19 @@ function createTrafficHalfCell(
     interfaceSide,
     graphScale
   );
+  const adjustedMid = rateLabelOffset
+    ? {
+      x: mid.x + rateLabelOffset.x,
+      y: mid.y + rateLabelOffset.y
+    }
+    : mid;
+  const latestPlacement = occupiedLabelPoints[occupiedLabelPoints.length - 1];
+  if (latestPlacement) {
+    latestPlacement.point = adjustedMid;
+  }
   const text = doc.createElementNS(SVG_NS, "text");
-  text.setAttribute("x", fmt(mid.x));
-  text.setAttribute("y", fmt(mid.y));
+  text.setAttribute("x", fmt(adjustedMid.x));
+  text.setAttribute("y", fmt(adjustedMid.y));
   text.setAttribute("font-size", "10");
   text.setAttribute("font-family", "Helvetica, Arial, sans-serif");
   setCellIdAttributes(text, getTrafficLabelCellId(shortCellId));
@@ -1273,7 +1301,8 @@ function replaceTrafficPathWithHalfCells(
   occupiedTrafficLabelPoints: TrafficLabelPlacement[],
   interfaceLabelPoints: Point[],
   graphScale: number,
-  trafficRatesOnHoverOnly: boolean
+  trafficRatesOnHoverOnly: boolean,
+  rateLabelOffsetsByEdge: GrafanaEdgeRateLabelOffsetMap | undefined
 ): void {
   const parent = trafficPath.parentNode;
   if (!parent) return;
@@ -1292,7 +1321,8 @@ function replaceTrafficPathWithHalfCells(
     interfaceLabelPoints,
     "start",
     graphScale,
-    trafficRatesOnHoverOnly
+    trafficRatesOnHoverOnly,
+    resolveTrafficRateLabelOffset(rateLabelOffsetsByEdge, mapping.edgeId, "start")
   );
   const secondHalf = createTrafficHalfCell(
     doc,
@@ -1303,7 +1333,8 @@ function replaceTrafficPathWithHalfCells(
     interfaceLabelPoints,
     "end",
     graphScale,
-    trafficRatesOnHoverOnly
+    trafficRatesOnHoverOnly,
+    resolveTrafficRateLabelOffset(rateLabelOffsetsByEdge, mapping.edgeId, "end")
   );
   parent.insertBefore(firstHalf, trafficPath);
   parent.insertBefore(secondHalf, trafficPath);
@@ -1317,7 +1348,8 @@ function applyTrafficCellsToEdgeGroup(
   occupiedTrafficLabelPoints: TrafficLabelPlacement[],
   interfaceLabelPoints: Point[],
   graphScale: number,
-  trafficRatesOnHoverOnly: boolean
+  trafficRatesOnHoverOnly: boolean,
+  rateLabelOffsetsByEdge: GrafanaEdgeRateLabelOffsetMap | undefined
 ): void {
   const trafficCellEl = resolveTrafficCellElement(trafficGroup);
   if (trafficCellEl.tagName.toLowerCase() !== "path") {
@@ -1332,7 +1364,8 @@ function applyTrafficCellsToEdgeGroup(
     occupiedTrafficLabelPoints,
     interfaceLabelPoints,
     graphScale,
-    trafficRatesOnHoverOnly
+    trafficRatesOnHoverOnly,
+    rateLabelOffsetsByEdge
   );
 }
 
@@ -1362,6 +1395,7 @@ export function applyGrafanaCellIdsToSvg(
 ): string {
   if (mappings.length === 0) return svgContent;
   const trafficRatesOnHoverOnly = options.trafficRatesOnHoverOnly === true;
+  const rateLabelOffsetsByEdge = options.rateLabelOffsetsByEdge;
 
   const parser = new DOMParser();
   const doc = parser.parseFromString(svgContent, SVG_MIME_TYPE);
@@ -1381,7 +1415,8 @@ export function applyGrafanaCellIdsToSvg(
       occupiedTrafficLabelPoints,
       interfaceLabelPoints,
       graphScale,
-      trafficRatesOnHoverOnly
+      trafficRatesOnHoverOnly,
+      rateLabelOffsetsByEdge
     );
     applyOperstateCellsToEdgeGroup(doc, mapping, trafficGroup);
   }

@@ -108,10 +108,12 @@ interface InterfaceAnchorCache {
 
 type RateLabelKey = 'source' | 'target';
 
-interface EdgeRateLabelOffsets {
+export interface EdgeRateLabelOffsets {
   source: Point;
   target: Point;
 }
+
+export type EdgeRateLabelOffsetSnapshot = Record<string, EdgeRateLabelOffsets>;
 
 type RateLabelOffsetSubscriber = () => void;
 
@@ -166,6 +168,17 @@ export function subscribeRateLabelDragState(subscriber: RateLabelOffsetSubscribe
 
 export function getRateLabelDragStateSnapshot(): boolean {
   return activeRateLabelDrag != null;
+}
+
+export function getRateLabelOffsetSnapshot(): EdgeRateLabelOffsetSnapshot {
+  const snapshot: EdgeRateLabelOffsetSnapshot = {};
+  for (const [edgeId, offsets] of telemetryRateLabelOffsetCache) {
+    snapshot[edgeId] = {
+      source: clonePoint(offsets.source),
+      target: clonePoint(offsets.target)
+    };
+  }
+  return snapshot;
 }
 
 function getRateLabelOffsetVersionSnapshot(): number {

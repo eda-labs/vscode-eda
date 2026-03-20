@@ -26,8 +26,10 @@ import { useTheme, type Theme } from '@mui/material/styles';
 import DeviceNode, { type TopologyNode, type TopologyNodeData } from './nodes/DeviceNode';
 import NamespaceLabelNodeComponent, { type NamespaceLabelNode } from './nodes/NamespaceLabelNode';
 import LinkEdgeComponent, {
+  getRateLabelOffsetSnapshot,
   getRateLabelDragStateSnapshot,
   subscribeRateLabelDragState,
+  type EdgeRateLabelOffsetSnapshot,
   type LinkEdge,
   type LinkEdgeData
 } from './edges/LinkEdge';
@@ -88,6 +90,7 @@ export interface TopologyFlowRef {
   exportImage: (options: ExportOptions) => Promise<void>;
   buildSvgExport: (options: ExportOptions) => Promise<TopologySvgExportResult | null>;
   getDeviceNodePositions: () => NodePositionMap;
+  getTelemetryRateLabelOffsets: () => EdgeRateLabelOffsetSnapshot;
 }
 
 export interface ExportOptions {
@@ -1073,14 +1076,19 @@ const TopologyFlowWithRef = forwardRef<TopologyFlowRef, TopologyFlowProps>(
       return collectDeviceNodePositions(nodes);
     }, [getNodes]);
 
+    const getTelemetryRateLabelOffsets = useCallback(() => {
+      return getRateLabelOffsetSnapshot();
+    }, []);
+
     useImperativeHandle(
       ref,
       () => ({
         exportImage,
         buildSvgExport,
-        getDeviceNodePositions
+        getDeviceNodePositions,
+        getTelemetryRateLabelOffsets
       }),
-      [exportImage, buildSvgExport, getDeviceNodePositions]
+      [exportImage, buildSvgExport, getDeviceNodePositions, getTelemetryRateLabelOffsets]
     );
 
     return <TopologyFlowInner {...props} />;
