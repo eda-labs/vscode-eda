@@ -416,14 +416,6 @@
   overflow: auto;
 }
 
-.export-popup-content.export-popup-preview {
-  min-width: min(1100px, calc(100vw - 48px));
-  width: min(1100px, calc(100vw - 48px));
-  max-width: calc(100vw - 48px);
-  max-height: calc(100vh - 48px);
-  overflow: auto;
-}
-
 .export-popup-content h3 {
   margin: 0 0 16px 0;
   font-size: 16px;
@@ -568,38 +560,4 @@
   margin-bottom: 8px;
   font-size: 12px;
   color: var(--topology-description-fg);
-}
-
-.grafana-preview-frame {
-  border: 1px solid var(--topology-panel-border);
-  border-radius: 6px;
-  background-color: var(--topology-editor-bg);
-  min-height: 480px;
-  max-height: calc(100vh - 260px);
-  overflow: auto;
-}
-
-.grafana-preview-canvas {
-  min-width: 900px;
-  min-height: 480px;
-  padding: 12px;
-}
-
-.grafana-preview-canvas svg {
-  width: 100%;
-  height: auto;
-  display: block;
-}
-
-.grafana-preview-canvas text[data-cell-id$=":label"] {
-  cursor: grab;
-  user-select: none;
-}
-
-.grafana-preview-canvas text[data-cell-id$=":label"].dragging {
-  cursor: grabbing;
-}
-
-.grafana-preview-status {
-  margin-top: 0;
 }
