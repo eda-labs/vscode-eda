@@ -933,6 +933,40 @@ function TopologyFlowInner({
     onDevicePositionsChange?.(collectDeviceNodePositions(nodes));
   }, [nodes, onDevicePositionsChange]);
 
+  const releaseStuckShiftKey = useCallback(() => {
+    if (typeof window === 'undefined') return;
+
+    // Linux/WM global shortcuts can swallow Shift keyup events. We synthesize
+    // keyup to keep React Flow's internal key-press tracking in sync.
+    window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', code: 'ShiftLeft', bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', code: 'ShiftRight', bubbles: true }));
+  }, []);
+
+  useEffect(() => {
+    const handleWindowFocus = () => {
+      releaseStuckShiftKey();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        releaseStuckShiftKey();
+      }
+    };
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!event.shiftKey) {
+        releaseStuckShiftKey();
+      }
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
+    window.addEventListener('pointerdown', handlePointerDown, true);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', handleWindowFocus);
+      window.removeEventListener('pointerdown', handlePointerDown, true);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [releaseStuckShiftKey]);
+
   const handleNodeClick: NodeMouseHandler<FlowNode> = useCallback(
     (_event, node) => {
       if (shouldSuppressTopologySelection()) {
