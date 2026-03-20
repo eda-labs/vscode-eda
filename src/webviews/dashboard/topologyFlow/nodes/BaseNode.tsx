@@ -8,6 +8,8 @@ export interface BaseNodeData extends Record<string, unknown> {
   displayLabel?: string;
   tier?: number;
   role?: string;
+  iconKey?: string;
+  iconColor?: string;
   raw?: unknown;
   highlighted?: boolean;
   appearanceMode?: 'default' | 'telemetry';

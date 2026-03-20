@@ -39,7 +39,7 @@ import LinkEdgeComponent, {
   type LinkEdge,
   type LinkEdgeData
 } from './edges/LinkEdge';
-import { getNodeIconSvgPathData } from './nodes/icons';
+import { getNodeIconSvgPathDataForNode } from './nodes/icons';
 import { getNodeEdgePoint, createBezierPath, LABEL_OFFSET } from './geometry';
 import {
   clampTelemetryInterfaceScale,
@@ -169,6 +169,22 @@ function escapeXml(str: string): string {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function normalizeHexColor(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed : undefined;
+}
+
+function getContrastingIconColor(hexColor: string): string {
+  const red = Number.parseInt(hexColor.slice(1, 3), 16);
+  const green = Number.parseInt(hexColor.slice(3, 5), 16);
+  const blue = Number.parseInt(hexColor.slice(5, 7), 16);
+  const brightness = (0.299 * red + 0.587 * green + 0.114 * blue) / 255;
+  return brightness > 0.62 ? '#1f2937' : '#ffffff';
 }
 
 function getNumericOption(value: unknown, fallback: number, min: number, max: number): number {
@@ -751,6 +767,9 @@ function generateNodeSvg(
   if (node.type === 'deviceNode') {
     const data = node.data as TopologyNodeData;
     const renderedLabel = resolveDeviceNodeLabel(node.id, data, nodeLabelMode);
+    const iconBadgeColor = normalizeHexColor(data.iconColor);
+    const iconBackgroundColor = iconBadgeColor ?? colors.iconBg;
+    const iconGlyphColor = iconBadgeColor ? getContrastingIconColor(iconBadgeColor) : colors.iconFg;
     const iconBackgroundSize = clamp(nodeSize * 0.4, 14, 72);
     const iconBackgroundRadius = clamp(iconBackgroundSize * 0.18, 3, 10);
     const iconBackgroundX = x + (nodeSize - iconBackgroundSize) / 2;
@@ -759,15 +778,15 @@ function generateNodeSvg(
     const iconGlyphScale = iconGlyphSize / 24;
     const iconGlyphX = x + (nodeSize - iconGlyphSize) / 2;
     const iconGlyphY = iconBackgroundY + (iconBackgroundSize - iconGlyphSize) / 2;
-    const iconPaths = getNodeIconSvgPathData(data.role)
+    const iconPaths = getNodeIconSvgPathDataForNode(data.iconKey, data.role)
       .map((pathData) => `<path d="${escapeXml(pathData)}"/>`)
       .join('');
     const labelY = iconBackgroundY + iconBackgroundSize + clamp(nodeSize * 0.175, 7, 16);
 
     let svg = `<g class="export-node topology-node" data-id="${escapeXml(node.id)}">`
       + `<rect x="${x}" y="${y}" width="${nodeSize}" height="${nodeSize}" rx="8" fill="${colors.nodeFill}" stroke="${colors.nodeStroke}" stroke-width="1"/>`
-      + `<rect x="${iconBackgroundX}" y="${iconBackgroundY}" width="${iconBackgroundSize}" height="${iconBackgroundSize}" rx="${iconBackgroundRadius}" fill="${colors.iconBg}"/>`
-      + `<g transform="translate(${iconGlyphX} ${iconGlyphY}) scale(${iconGlyphScale})" fill="${colors.iconFg}">${iconPaths}</g>`;
+      + `<rect x="${iconBackgroundX}" y="${iconBackgroundY}" width="${iconBackgroundSize}" height="${iconBackgroundSize}" rx="${iconBackgroundRadius}" fill="${escapeXml(iconBackgroundColor)}"/>`
+      + `<g transform="translate(${iconGlyphX} ${iconGlyphY}) scale(${iconGlyphScale})" fill="${escapeXml(iconGlyphColor)}">${iconPaths}</g>`;
     if (renderedLabel != null && renderedLabel.length > 0) {
       svg += `<text x="${x + nodeSize / 2}" y="${labelY}" text-anchor="middle" font-size="${NODE_LABEL.fontSize}" font-weight="${NODE_LABEL.fontWeight}" font-family="${NODE_LABEL.fontFamily}" fill="${colors.text}" stroke="${NODE_LABEL.textStrokeColor}" stroke-width="${NODE_LABEL.textStrokeWidth}" paint-order="stroke" stroke-linejoin="round">${escapeXml(renderedLabel)}</text>`;
     }

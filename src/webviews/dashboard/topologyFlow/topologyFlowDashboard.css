@@ -144,6 +144,23 @@
   text-decoration: underline;
 }
 
+.info-card-link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--topology-link-fg);
+  cursor: pointer;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.info-card-link-button:hover {
+  text-decoration: underline;
+}
+
 .info-card-controls {
   margin-top: 12px;
   display: flex;

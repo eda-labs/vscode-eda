@@ -5,6 +5,7 @@ import { alpha, useTheme } from '@mui/material/styles';
 import { Box, Chip, FormControl, IconButton, InputLabel, MenuItem, Select, Stack, Tooltip } from '@mui/material';
 import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined';
 import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import SettingsIcon from '@mui/icons-material/Settings';
 
 import { ALL_NAMESPACES } from '../../constants';
@@ -39,6 +40,7 @@ import {
   normalizeNodePositionMap,
   topologyNodeIdToName
 } from './topologyPositionUtils';
+import { NODE_ICON_OPTIONS, getNodeIconByKey, resolveNodeIconKey, type NodeIconKey } from './nodes/icons';
 
 interface BackendNode {
   id: string;
@@ -138,10 +140,22 @@ interface RateLabelInfo {
   offsetY: number;
 }
 
+interface NodeAppearanceOverride {
+  iconKey?: string;
+  iconColor?: string;
+}
+
+interface NodeIconEditorState {
+  nodeId: string;
+  iconKey: NodeIconKey;
+  iconColor: string;
+  useThemeColor: boolean;
+}
+
 // Info card state types
 type InfoCardState =
   | { type: 'empty' }
-  | { type: 'node'; info: NodeInfo; raw: unknown }
+  | { type: 'node'; nodeId: string; info: NodeInfo; raw: unknown }
   | { type: 'edge'; info: EdgeInfo; raw: unknown; rawResource: unknown }
   | { type: 'rateLabel'; info: RateLabelInfo };
 
@@ -245,6 +259,14 @@ function formatTelemetryOutBpsLabel(value: unknown): string {
   return `${formatted} ${units[unitIndex]}`;
 }
 
+function normalizeHexColor(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed : undefined;
+}
+
 function buildRateLabelInfo(
   edge: TopologyEdge,
   selection: TopologyTelemetryRateLabelSelection,
@@ -297,11 +319,13 @@ function InfoSection({ title }: Readonly<{ title: string }>) {
 function InfoCardNode({
   info,
   raw,
+  onEditIcon,
   onSsh,
   onOpenResource
 }: Readonly<{
   info: NodeInfo;
   raw: unknown;
+  onEditIcon: () => void;
   onSsh: (name: string, ns: string, nodeDetails?: string) => void;
   onOpenResource: (raw: unknown, streamGroup: string) => void;
 }>) {
@@ -338,6 +362,14 @@ function InfoCardNode({
           View Resource
         </a>
       </p>
+      <button
+        type="button"
+        className="info-card-link-button"
+        onClick={onEditIcon}
+      >
+        <EditOutlinedIcon fontSize="inherit" />
+        Edit Icon
+      </button>
     </>
   );
 }
@@ -436,6 +468,7 @@ const SPACING_X = 180;
 const SPACING_Y = 200;
 const NAMESPACE_GAP = 150;
 const LABEL_OFFSET_Y = -60;
+const DEFAULT_NODE_ICON_EDITOR_COLOR = '#ffffff';
 const DEFAULT_GRAFANA_NODE_SIZE_PX = 80;
 const DEFAULT_GRAFANA_INTERFACE_SIZE_PERCENT = 100;
 const INTERFACE_SELECT_AUTO = '__auto__';
@@ -444,6 +477,9 @@ const INTERFACE_SELECT_TOKEN_PREFIX = '__token__:';
 const GLOBAL_INTERFACE_PART_INDEX_PREFIX = '__part-index__:';
 const EXPORT_REQUEST_TIMEOUT_MS = 30_000;
 const NODE_LABEL_FILTER_ALL = '__all__';
+const NODE_ICON_OPTION_BY_VALUE = new Map(
+  NODE_ICON_OPTIONS.map((option) => [option.value, option] as const)
+);
 
 type TrafficThresholdUnit = 'kbit' | 'mbit' | 'gbit';
 type GrafanaSettingsTab = 'general' | 'interface-names';
@@ -810,6 +846,8 @@ function TopologyFlowDashboard() {
   const [selectedTelemetryRateLabel, setSelectedTelemetryRateLabel] =
     useState<TopologyTelemetryRateLabelSelection | null>(null);
   const [infoCard, setInfoCard] = useState<InfoCardState>({ type: 'empty' });
+  const [nodeAppearanceOverrides, setNodeAppearanceOverrides] = useState<Record<string, NodeAppearanceOverride>>({});
+  const [nodeIconEditor, setNodeIconEditor] = useState<NodeIconEditorState | null>(null);
   const [colorMode, setColorMode] = useState<ColorMode>('system');
   const [appearanceMode, setAppearanceMode] = useState<AppearanceMode>('default');
   const [showAppearancePopup, setShowAppearancePopup] = useState(false);
@@ -1078,6 +1116,15 @@ function TopologyFlowDashboard() {
     () => buildNodeLabelFilterOptions(allNodes),
     [allNodes]
   );
+  const deviceNodesById = useMemo(() => {
+    const lookup = new Map<string, TopologyNode>();
+    for (const node of allNodes) {
+      if (node.type === 'deviceNode') {
+        lookup.set(node.id, node);
+      }
+    }
+    return lookup;
+  }, [allNodes]);
   const selectedLabelMatcher = useMemo(
     () => parseNodeLabelFilterValue(selectedNodeLabelFilter),
     [selectedNodeLabelFilter]
@@ -1103,15 +1150,26 @@ function TopologyFlowDashboard() {
         if (!visibleNodeIds.has(node.id)) {
           continue;
         }
+        const appearanceOverride = nodeAppearanceOverrides[node.id];
+        const normalizedIconColor = normalizeHexColor(appearanceOverride?.iconColor);
+        const mergedData = {
+          ...node.data,
+          iconKey: appearanceOverride?.iconKey,
+          iconColor: normalizedIconColor
+        };
         const nodeName = topologyNodeIdToName(node.id);
         const position = currentPositions[nodeName];
         if (position) {
           nodes.push({
             ...node,
-            position: { x: position.x, y: position.y }
+            position: { x: position.x, y: position.y },
+            data: mergedData
           });
         } else {
-          nodes.push(node);
+          nodes.push({
+            ...node,
+            data: mergedData
+          });
         }
         continue;
       }
@@ -1125,7 +1183,7 @@ function TopologyFlowDashboard() {
     }
 
     return nodes;
-  }, [allNodes, currentPositions, visibleNodeIds]);
+  }, [allNodes, currentPositions, nodeAppearanceOverrides, visibleNodeIds]);
   const visibleEdges = useMemo(
     () => allEdges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)),
     [allEdges, visibleNodeIds]
@@ -1209,6 +1267,7 @@ function TopologyFlowDashboard() {
       setSelectedEdgeId(null);
       setSelectedTelemetryRateLabel(null);
       setInfoCard({ type: 'empty' });
+      setNodeIconEditor(null);
       setCurrentPositions({});
       setSavedPositions({});
     } else if (msg.command === 'data') {
@@ -1244,6 +1303,29 @@ function TopologyFlowDashboard() {
       setSelectedNodeLabelFilter(NODE_LABEL_FILTER_ALL);
     }
   }, [nodeLabelFilterOptions, selectedNodeLabelFilter]);
+
+  useEffect(() => {
+    const validNodeIds = new Set(deviceNodesById.keys());
+    setNodeAppearanceOverrides((previous) => {
+      let changed = false;
+      const next: Record<string, NodeAppearanceOverride> = {};
+      for (const [nodeId, value] of Object.entries(previous)) {
+        if (!validNodeIds.has(nodeId)) {
+          changed = true;
+          continue;
+        }
+        next[nodeId] = value;
+      }
+      return changed ? next : previous;
+    });
+
+    setNodeIconEditor((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      return validNodeIds.has(previous.nodeId) ? previous : null;
+    });
+  }, [deviceNodesById]);
 
   useEffect(() => {
     if (selectedNodeId && !visibleNodeIds.has(selectedNodeId)) {
@@ -1287,10 +1369,11 @@ function TopologyFlowDashboard() {
     setSelectedNodeId(node.id);
     setSelectedEdgeId(null);
     setSelectedTelemetryRateLabel(null);
+    setNodeIconEditor(null);
 
     const info = extractNodeInfo(node.data.raw);
     if (info) {
-      setInfoCard({ type: 'node', info, raw: node.data.raw });
+      setInfoCard({ type: 'node', nodeId: node.id, info, raw: node.data.raw });
     }
   }, []);
 
@@ -1299,6 +1382,7 @@ function TopologyFlowDashboard() {
     setSelectedEdgeId(edge.id);
     setSelectedNodeId(null);
     setSelectedTelemetryRateLabel(null);
+    setNodeIconEditor(null);
 
     const info = extractEdgeInfo(edge.data?.raw, edge.data?.rawResource);
     if (info) {
@@ -1324,6 +1408,7 @@ function TopologyFlowDashboard() {
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
     setSelectedTelemetryRateLabel(null);
+    setNodeIconEditor(null);
     setInfoCard({ type: 'empty' });
   }, []);
 
@@ -1415,6 +1500,91 @@ function TopologyFlowDashboard() {
   const handleOpenResource = useCallback((raw: unknown, streamGroup: string) => {
     postMessage({ command: 'openResource', raw, streamGroup });
   }, [postMessage]);
+
+  const handleOpenNodeIconEditor = useCallback(() => {
+    if (infoCard.type !== 'node') {
+      return;
+    }
+
+    const node = deviceNodesById.get(infoCard.nodeId);
+    if (!node) {
+      return;
+    }
+
+    const appearanceOverride = nodeAppearanceOverrides[infoCard.nodeId];
+    const iconColorOverride = normalizeHexColor(appearanceOverride?.iconColor);
+    setNodeIconEditor({
+      nodeId: infoCard.nodeId,
+      iconKey: resolveNodeIconKey(
+        appearanceOverride?.iconKey,
+        typeof node.data.role === 'string' ? node.data.role : undefined
+      ),
+      iconColor: iconColorOverride ?? DEFAULT_NODE_ICON_EDITOR_COLOR,
+      useThemeColor: iconColorOverride == null
+    });
+  }, [deviceNodesById, infoCard, nodeAppearanceOverrides]);
+
+  const handleApplyNodeIconEditor = useCallback(() => {
+    if (!nodeIconEditor) {
+      return;
+    }
+
+    const node = deviceNodesById.get(nodeIconEditor.nodeId);
+    if (!node) {
+      setNodeIconEditor(null);
+      return;
+    }
+
+    const role = typeof node.data.role === 'string' ? node.data.role : undefined;
+    const roleDefaultIconKey = resolveNodeIconKey(undefined, role);
+    const iconColor = nodeIconEditor.useThemeColor
+      ? undefined
+      : normalizeHexColor(nodeIconEditor.iconColor);
+    const nextOverride: NodeAppearanceOverride = {};
+
+    if (nodeIconEditor.iconKey !== roleDefaultIconKey) {
+      nextOverride.iconKey = nodeIconEditor.iconKey;
+    }
+    if (iconColor) {
+      nextOverride.iconColor = iconColor;
+    }
+
+    setNodeAppearanceOverrides((previous) => {
+      const current = previous[nodeIconEditor.nodeId];
+      if (Object.keys(nextOverride).length === 0) {
+        if (!current) {
+          return previous;
+        }
+        const next = { ...previous };
+        delete next[nodeIconEditor.nodeId];
+        return next;
+      }
+
+      if (current?.iconKey === nextOverride.iconKey && current?.iconColor === nextOverride.iconColor) {
+        return previous;
+      }
+      return {
+        ...previous,
+        [nodeIconEditor.nodeId]: nextOverride
+      };
+    });
+    setNodeIconEditor(null);
+  }, [deviceNodesById, nodeIconEditor]);
+
+  const handleResetNodeIconEditor = useCallback(() => {
+    if (!nodeIconEditor) {
+      return;
+    }
+    setNodeAppearanceOverrides((previous) => {
+      if (!(nodeIconEditor.nodeId in previous)) {
+        return previous;
+      }
+      const next = { ...previous };
+      delete next[nodeIconEditor.nodeId];
+      return next;
+    });
+    setNodeIconEditor(null);
+  }, [nodeIconEditor]);
 
   const handleDevicePositionsChange = useCallback((positions: NodePositionMap) => {
     const normalizedIncoming = normalizeNodePositionMap(positions);
@@ -1632,6 +1802,14 @@ function TopologyFlowDashboard() {
   } else if (exportGrafanaBundle) {
     exportButtonLabel = 'Export Grafana Bundle';
   }
+  let nodeIconEditorNodeName = '';
+  if (nodeIconEditor != null) {
+    if (infoCard.type === 'node' && infoCard.nodeId === nodeIconEditor.nodeId) {
+      nodeIconEditorNodeName = infoCard.info.name;
+    } else {
+      nodeIconEditorNodeName = topologyNodeIdToName(nodeIconEditor.nodeId);
+    }
+  }
 
   return (
     <div className="dashboard" style={topologyCssVars}>
@@ -1762,6 +1940,7 @@ function TopologyFlowDashboard() {
             <InfoCardNode
               info={infoCard.info}
               raw={infoCard.raw}
+              onEditIcon={handleOpenNodeIconEditor}
               onSsh={handleSshToNode}
               onOpenResource={handleOpenResource}
             />
@@ -1783,6 +1962,88 @@ function TopologyFlowDashboard() {
           )}
         </div>
       </div>
+      {nodeIconEditor && (
+        <div className="export-popup">
+          <div className="export-popup-content appearance-popup-content">
+            <h3>Edit Node Icon</h3>
+            <p className="export-help-text">
+              Node: {nodeIconEditorNodeName}
+            </p>
+            <FormControl size="small" fullWidth sx={{ mb: 1.5 }}>
+              <InputLabel id="node-icon-select-label">Icon</InputLabel>
+              <Select
+                labelId="node-icon-select-label"
+                value={nodeIconEditor.iconKey}
+                label="Icon"
+                renderValue={(value) => {
+                  const selectedKey = value as NodeIconKey;
+                  const SelectedIcon = getNodeIconByKey(selectedKey);
+                  const optionLabel = NODE_ICON_OPTION_BY_VALUE.get(selectedKey)?.label ?? selectedKey;
+                  return (
+                    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.9 }}>
+                      <SelectedIcon sx={{ fontSize: 18 }} />
+                      <span>{optionLabel}</span>
+                    </Box>
+                  );
+                }}
+                onChange={(event) => setNodeIconEditor((previous) => {
+                  if (!previous) {
+                    return previous;
+                  }
+                  return { ...previous, iconKey: event.target.value as NodeIconKey };
+                })}
+              >
+                {NODE_ICON_OPTIONS.map((option) => {
+                  const OptionIcon = getNodeIconByKey(option.value);
+                  return (
+                    <MenuItem key={option.value} value={option.value}>
+                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+                        <OptionIcon sx={{ fontSize: 18 }} />
+                        <span>{option.label}</span>
+                      </Box>
+                    </MenuItem>
+                  );
+                })}
+              </Select>
+            </FormControl>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={nodeIconEditor.useThemeColor}
+                onChange={(event) => {
+                  const checked = event.target.checked;
+                  setNodeIconEditor((previous) => {
+                    if (!previous) {
+                      return previous;
+                    }
+                    return { ...previous, useThemeColor: checked };
+                  });
+                }}
+              />
+              Use theme icon color
+            </label>
+            <label>
+              Icon color
+              <input
+                type="color"
+                value={nodeIconEditor.iconColor}
+                onChange={(event) => setNodeIconEditor((previous) => {
+                  if (!previous) {
+                    return previous;
+                  }
+                  return { ...previous, iconColor: event.target.value };
+                })}
+                disabled={nodeIconEditor.useThemeColor}
+              />
+            </label>
+            <div className="export-popup-buttons">
+              <button className="export-btn" onClick={handleApplyNodeIconEditor}>Apply</button>
+              <button className="export-btn" onClick={handleResetNodeIconEditor}>Reset</button>
+              <button className="export-btn cancel" onClick={() => setNodeIconEditor(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
       {showAppearancePopup && (
         <div className="export-popup">
           <div className="export-popup-content appearance-popup-content">
