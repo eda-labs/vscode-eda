@@ -6,7 +6,15 @@ import { serviceManager } from '../../../services/serviceManager';
 import { namespaceSelectionService } from '../../../services/namespaceSelectionService';
 import type { EdaClient } from '../../../clients/edaClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
-import { getUpdates, type StreamMessageWithUpdates } from '../../../utils/streamMessageUtils';
+import {
+  getUpdates,
+  getOps,
+  getInsertOrModify,
+  getRows,
+  getDelete,
+  getDeleteIds,
+  type StreamMessageWithUpdates
+} from '../../../utils/streamMessageUtils';
 import {
   type NodePositionMap,
   normalizeNodePositionMap,
@@ -115,6 +123,8 @@ interface EdgeData {
   targetEndpoint?: string;
   sourceState?: string;
   targetState?: string;
+  sourceOutBps?: number;
+  targetOutBps?: number;
   state?: string;
   label?: string;
   raw?: TopoLinkSpecEntry;
@@ -189,18 +199,29 @@ interface StreamMessagePayload {
   msg: StreamMessageWithUpdates | null | undefined;
 }
 
+interface StreamRowLike {
+  id?: string | number;
+  data?: unknown;
+  [key: string]: unknown;
+}
+
 const TOPOLOGY_GROUP = 'topologies.eda.nokia.com';
 const TOPOLOGY_VERSION = 'v1alpha1';
 const TOPOLOGY_KIND = 'Topology';
 const TOPOLOGY_PLURAL = 'topologies';
 const TOPOLOGY_BOOTSTRAP_LABEL = 'eda.nokia.com/bootstrap';
 const TOPOLOGY_NODE_POSITIONS_ANNOTATION = 'eda.nokia.com/topology-node-positions';
+const TOPOLOGY_INTERFACE_TRAFFIC_RATE_EQL_QUERY = '.namespace.node.srl.interface.traffic-rate';
 
 export class TopologyFlowDashboardPanel extends BasePanel {
   private static currentPanel: TopologyFlowDashboardPanel | undefined;
   private edaClient: EdaClient;
   private nodeMap: Map<string, Map<string, TopoNode>> = new Map();
   private linkMap: Map<string, TopoLink[]> = new Map();
+  private interfaceOutBpsByEndpoint: Map<string, number> = new Map();
+  private interfaceRateRowKeyById: Map<string, string> = new Map();
+  private interfaceTrafficRateStreamName = '';
+  private interfaceTrafficRateNamespaceFilter: string | undefined;
   private groupings: TierSelector[] = [];
   private selectedNamespace = ALL_NAMESPACES;
   private savedPositionsByNamespace: Map<string, NodePositionMap> = new Map();
@@ -219,6 +240,8 @@ export class TopologyFlowDashboardPanel extends BasePanel {
         this.handleTopoNodeStream(payload);
       } else if (stream === 'topolinks') {
         this.handleTopoLinkStream(payload);
+      } else if (stream === this.interfaceTrafficRateStreamName) {
+        this.handleInterfaceTrafficRateStream(payload);
       }
     });
 
@@ -228,6 +251,7 @@ export class TopologyFlowDashboardPanel extends BasePanel {
       if (this.postGraphTimer) clearTimeout(this.postGraphTimer);
       this.edaClient.closeTopoNodeStream();
       this.edaClient.closeTopoLinkStream();
+      void this.edaClient.closeEqlStream(this.interfaceTrafficRateStreamName);
     });
 
     this.panel.webview.onDidReceiveMessage(async (msg: WebviewMessage) => {
@@ -466,6 +490,7 @@ export class TopologyFlowDashboardPanel extends BasePanel {
 
   private async loadInitial(ns: string): Promise<void> {
     this.selectedNamespace = ns;
+    void this.ensureInterfaceTrafficRateStream(ns);
     const target =
       ns === ALL_NAMESPACES
         ? this.edaClient
@@ -678,6 +703,357 @@ export class TopologyFlowDashboardPanel extends BasePanel {
     }
   }
 
+  private normalizeInterfaceRatePart(value: string | undefined): string | null {
+    if (typeof value !== 'string') {
+      return null;
+    }
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      return null;
+    }
+    return trimmed.toLowerCase();
+  }
+
+  private normalizeInterfaceRateEndpoint(value: string | undefined): string | null {
+    const normalized = this.normalizeInterfaceRatePart(value);
+    if (normalized === null) {
+      return null;
+    }
+    return normalized.replace(/\//g, '-');
+  }
+
+  private buildInterfaceRateKey(namespace: string | undefined, node: string | undefined, endpoint: string | undefined): string | null {
+    const normalizedNamespace = this.normalizeInterfaceRatePart(namespace);
+    const normalizedNode = this.normalizeInterfaceRatePart(node);
+    const normalizedEndpoint = this.normalizeInterfaceRateEndpoint(endpoint);
+    if (!normalizedNamespace || !normalizedNode || !normalizedEndpoint) {
+      return null;
+    }
+    return `${normalizedNamespace}/${normalizedNode}:${normalizedEndpoint}`;
+  }
+
+  private getInterfaceOutBps(namespace: string, node: string | undefined, endpoint: string | undefined): number | undefined {
+    const key = this.buildInterfaceRateKey(namespace, node, endpoint);
+    if (key === null) {
+      return undefined;
+    }
+    return this.interfaceOutBpsByEndpoint.get(key);
+  }
+
+  private asNonEmptyString(value: unknown): string | null {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : null;
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value);
+    }
+    return null;
+  }
+
+  private asFiniteNumber(value: unknown): number | null {
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? value : null;
+    }
+    if (typeof value === 'string') {
+      const parsed = Number.parseFloat(value.trim());
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  }
+
+  private flattenRecord(value: unknown, prefix = ''): Record<string, unknown> {
+    const flattened: Record<string, unknown> = {};
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return flattened;
+    }
+
+    const record = value as Record<string, unknown>;
+    for (const [key, nestedValue] of Object.entries(record)) {
+      const fullKey = prefix ? `${prefix}.${key}` : key;
+      if (nestedValue && typeof nestedValue === 'object' && !Array.isArray(nestedValue)) {
+        Object.assign(flattened, this.flattenRecord(nestedValue, fullKey));
+      } else {
+        flattened[fullKey] = nestedValue;
+      }
+    }
+    return flattened;
+  }
+
+  private findFlattenedString(
+    flattened: Record<string, unknown>,
+    exactKeys: readonly string[],
+    fallbackMatcher: RegExp
+  ): string | null {
+    const entries = Object.entries(flattened);
+
+    for (const exactKey of exactKeys) {
+      const lowerExactKey = exactKey.toLowerCase();
+      for (const [key, value] of entries) {
+        if (key.toLowerCase() !== lowerExactKey) continue;
+        const parsed = this.asNonEmptyString(value);
+        if (parsed !== null) {
+          return parsed;
+        }
+      }
+    }
+
+    for (const [key, value] of entries) {
+      if (!fallbackMatcher.test(key)) continue;
+      const parsed = this.asNonEmptyString(value);
+      if (parsed !== null) {
+        return parsed;
+      }
+    }
+
+    return null;
+  }
+
+  private findFlattenedNumber(
+    flattened: Record<string, unknown>,
+    exactKeys: readonly string[],
+    fallbackMatcher: RegExp
+  ): number | null {
+    const entries = Object.entries(flattened);
+
+    for (const exactKey of exactKeys) {
+      const lowerExactKey = exactKey.toLowerCase();
+      for (const [key, value] of entries) {
+        if (key.toLowerCase() !== lowerExactKey) continue;
+        const parsed = this.asFiniteNumber(value);
+        if (parsed !== null) {
+          return parsed;
+        }
+      }
+    }
+
+    for (const [key, value] of entries) {
+      if (!fallbackMatcher.test(key)) continue;
+      const parsed = this.asFiniteNumber(value);
+      if (parsed !== null) {
+        return parsed;
+      }
+    }
+
+    return null;
+  }
+
+  private extractInterfaceOutBpsEntry(
+    value: unknown
+  ): { endpointKey: string; outBps: number } | null {
+    const flattened = this.flattenRecord(value);
+    if (Object.keys(flattened).length === 0) {
+      return null;
+    }
+
+    const namespace = this.findFlattenedString(
+      flattened,
+      ['.namespace.name', 'namespace', 'namespace.name', 'metadata.namespace'],
+      /(^|\.)(namespace(\.name)?|ns)$/i
+    );
+    let node = this.findFlattenedString(
+      flattened,
+      ['node', 'node.name', '.namespace.node.name', 'node-name', 'node_name', 'source'],
+      /(^|\.)(node(\.name)?|node-name|node_name|source|src)$/i
+    );
+    let endpoint = this.findFlattenedString(
+      flattened,
+      [
+        'interface',
+        'interface.name',
+        '.namespace.node.srl.interface.name',
+        'interface-name',
+        'interface_name',
+        'if-name',
+        'if_name',
+        'ifname'
+      ],
+      /(^|\.)(interface(\.name)?|interface-name|interface_name|if-name|if_name|ifname)$/i
+    );
+    if (node === null) {
+      node = this.findFlattenedString(flattened, ['source'], /(^|\.)(source|src)$/i);
+    }
+    if (endpoint === null) {
+      const bareName = this.findFlattenedString(flattened, ['name'], /^name$/i);
+      if (bareName !== null && bareName !== namespace && bareName !== node) {
+        endpoint = bareName;
+      }
+    }
+    const outBps = this.findFlattenedNumber(
+      flattened,
+      [
+        'out-bps',
+        'out_bps',
+        'outbps',
+        'sum(out-bps)',
+        'sum(out_bps)',
+        'traffic-rate.out-bps',
+        'traffic-rate.out_bps'
+      ],
+      /(^|\.)(sum\()?out[^a-z0-9]*bps\)?$/i
+    );
+
+    if (namespace === null || node === null || endpoint === null || outBps === null) {
+      return null;
+    }
+
+    const endpointKey = this.buildInterfaceRateKey(namespace, node, endpoint);
+    if (endpointKey === null) {
+      return null;
+    }
+
+    return { endpointKey, outBps };
+  }
+
+  private upsertInterfaceOutBpsFromRecord(
+    record: unknown
+  ): { endpointKey: string; changed: boolean } | null {
+    const parsed = this.extractInterfaceOutBpsEntry(record);
+    if (!parsed) {
+      return null;
+    }
+
+    const previous = this.interfaceOutBpsByEndpoint.get(parsed.endpointKey);
+    const changed = previous === undefined || previous !== parsed.outBps;
+    this.interfaceOutBpsByEndpoint.set(parsed.endpointKey, parsed.outBps);
+    return { endpointKey: parsed.endpointKey, changed };
+  }
+
+  private deleteInterfaceOutBpsByRowId(rowId: unknown): boolean {
+    const key = String(rowId);
+    const endpointKey = this.interfaceRateRowKeyById.get(key);
+    if (!endpointKey) {
+      return false;
+    }
+    this.interfaceRateRowKeyById.delete(key);
+    return this.interfaceOutBpsByEndpoint.delete(endpointKey);
+  }
+
+  private applyInterfaceRateRow(row: unknown): boolean {
+    if (!row || typeof row !== 'object') {
+      return false;
+    }
+
+    const rowObject = row as StreamRowLike;
+    const rowId = rowObject.id !== undefined ? String(rowObject.id) : undefined;
+    let upserted = this.upsertInterfaceOutBpsFromRecord(rowObject.data);
+    if (!upserted) {
+      upserted = this.upsertInterfaceOutBpsFromRecord(row);
+    }
+    if (!upserted) {
+      return false;
+    }
+
+    if (rowId) {
+      this.interfaceRateRowKeyById.set(rowId, upserted.endpointKey);
+    }
+    return upserted.changed;
+  }
+
+  private applyInterfaceRateUpdate(update: unknown): boolean {
+    if (!update || typeof update !== 'object') {
+      return false;
+    }
+
+    const updateObject = update as Record<string, unknown>;
+    const updateKey = updateObject.key;
+    const rowId = updateKey !== undefined ? String(updateKey) : undefined;
+    if (updateObject.data === null) {
+      if (!rowId) {
+        return false;
+      }
+      return this.deleteInterfaceOutBpsByRowId(rowId);
+    }
+
+    let upserted = this.upsertInterfaceOutBpsFromRecord(updateObject.data);
+    if (!upserted) {
+      upserted = this.upsertInterfaceOutBpsFromRecord(updateObject);
+    }
+    if (!upserted) {
+      return false;
+    }
+
+    if (rowId) {
+      this.interfaceRateRowKeyById.set(rowId, upserted.endpointKey);
+    }
+    return upserted.changed;
+  }
+
+  private handleInterfaceTrafficRateStream(message: StreamMessagePayload): void {
+    const payload = message.msg;
+    if (!payload || typeof payload !== 'object') {
+      return;
+    }
+
+    let changed = false;
+    const ops = getOps(payload as { op?: unknown[]; Op?: unknown[] });
+    if (ops.length > 0) {
+      for (const op of ops) {
+        const deleteOperation = getDelete(op as Record<string, unknown> | undefined);
+        const deleteIds = getDeleteIds(deleteOperation as Record<string, unknown> | undefined);
+        for (const deleteId of deleteIds) {
+          if (this.deleteInterfaceOutBpsByRowId(deleteId)) {
+            changed = true;
+          }
+        }
+
+        const insertOrModify = getInsertOrModify(op as Record<string, unknown> | undefined);
+        const rows = getRows(insertOrModify as Record<string, unknown> | undefined);
+        for (const row of rows) {
+          if (this.applyInterfaceRateRow(row)) {
+            changed = true;
+          }
+        }
+      }
+    } else {
+      const updates = getUpdates(payload as StreamMessageWithUpdates);
+      for (const update of updates) {
+        if (this.applyInterfaceRateUpdate(update)) {
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) {
+      this.schedulePostGraph();
+    }
+  }
+
+  private async ensureInterfaceTrafficRateStream(namespace: string): Promise<void> {
+    const namespaceFilter = namespace === ALL_NAMESPACES ? undefined : namespace;
+    if (
+      this.interfaceTrafficRateStreamName.length > 0
+      && this.interfaceTrafficRateNamespaceFilter === namespaceFilter
+    ) {
+      return;
+    }
+
+    if (this.interfaceTrafficRateStreamName.length > 0) {
+      await this.edaClient.closeEqlStream(this.interfaceTrafficRateStreamName);
+    }
+
+    this.interfaceOutBpsByEndpoint.clear();
+    this.interfaceRateRowKeyById.clear();
+    this.interfaceTrafficRateNamespaceFilter = namespaceFilter;
+
+    const nextStreamName = `topology-traffic-rate-${namespaceFilter ?? 'all'}-${Date.now()}`;
+    this.interfaceTrafficRateStreamName = nextStreamName;
+
+    try {
+      await this.edaClient.streamEql(
+        TOPOLOGY_INTERFACE_TRAFFIC_RATE_EQL_QUERY,
+        namespaceFilter,
+        nextStreamName
+      );
+    } catch {
+      if (this.interfaceTrafficRateStreamName === nextStreamName) {
+        this.interfaceTrafficRateStreamName = '';
+      }
+    }
+
+    this.schedulePostGraph();
+  }
+
   private getTier(labels: Record<string, string>): number {
     for (const sel of this.groupings) {
       const { tier, nodeSelector } = sel;
@@ -743,11 +1119,12 @@ export class TopologyFlowDashboardPanel extends BasePanel {
       state: link.status?.operationalState ?? link.status?.operationalstate ?? ''
     };
 
-    this.populateInterfaceData(edgeData, linkSpec, members);
+    this.populateInterfaceData(ns, edgeData, linkSpec, members);
     return edgeData;
   }
 
   private populateInterfaceData(
+    ns: string,
     edgeData: EdgeData,
     linkSpec: TopoLinkSpecEntry,
     members: TopoLinkStatusMember[]
@@ -755,6 +1132,11 @@ export class TopologyFlowDashboardPanel extends BasePanel {
     if (linkSpec.local?.interface) {
       edgeData.sourceEndpoint = linkSpec.local.interface;
       edgeData.sourceInterface = this.shortenInterfaceName(linkSpec.local.interface);
+      edgeData.sourceOutBps = this.getInterfaceOutBps(
+        ns,
+        linkSpec.local?.node,
+        linkSpec.local?.interface
+      );
       const ms = members.find(
         (m: TopoLinkStatusMember) =>
           m.node === linkSpec.local?.node && m.interface === linkSpec.local?.interface
@@ -764,6 +1146,11 @@ export class TopologyFlowDashboardPanel extends BasePanel {
     if (linkSpec.remote?.interface) {
       edgeData.targetEndpoint = linkSpec.remote.interface;
       edgeData.targetInterface = this.shortenInterfaceName(linkSpec.remote.interface);
+      edgeData.targetOutBps = this.getInterfaceOutBps(
+        ns,
+        linkSpec.remote?.node,
+        linkSpec.remote?.interface
+      );
       const ms = members.find(
         (m: TopoLinkStatusMember) =>
           m.node === linkSpec.remote?.node && m.interface === linkSpec.remote?.interface

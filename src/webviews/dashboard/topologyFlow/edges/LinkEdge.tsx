@@ -25,6 +25,8 @@ export interface LinkEdgeData extends Record<string, unknown> {
   state?: string;
   sourceState?: string;
   targetState?: string;
+  sourceOutBps?: number;
+  targetOutBps?: number;
   highlighted?: boolean;
   pairIndex?: number;
   totalInPair?: number;
@@ -291,6 +293,55 @@ function getEdgeLabelPosition(
   };
 }
 
+function normalizeFiniteNumber(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === 'string') {
+    const parsed = Number.parseFloat(value.trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function formatTelemetryOutBpsLabel(value: unknown): string | undefined {
+  const numeric = normalizeFiniteNumber(value);
+  if (numeric === null || numeric < 0) {
+    return undefined;
+  }
+
+  const units = ['b/s', 'Kb/s', 'Mb/s', 'Gb/s', 'Tb/s'];
+  let unitIndex = 0;
+  let scaled = numeric;
+  while (scaled >= 1000 && unitIndex < units.length - 1) {
+    scaled /= 1000;
+    unitIndex += 1;
+  }
+
+  let decimals = 2;
+  if (scaled >= 100) {
+    decimals = 0;
+  } else if (scaled >= 10) {
+    decimals = 1;
+  }
+  const formatted = Number(scaled.toFixed(decimals));
+  return `${formatted} ${units[unitIndex]}`;
+}
+
+function getQuadraticPointAtRatio(
+  start: Point,
+  control: Point,
+  end: Point,
+  ratio: number
+): Point {
+  const t = Math.max(0, Math.min(1, ratio));
+  const oneMinusT = 1 - t;
+  return {
+    x: oneMinusT * oneMinusT * start.x + 2 * oneMinusT * t * control.x + t * t * end.x,
+    y: oneMinusT * oneMinusT * start.y + 2 * oneMinusT * t * control.y + t * t * end.y
+  };
+}
+
 function buildTelemetryInterfaceAnchorMap(
   edges: LinkEdge[],
   nodeLookup: NodeLookupLike,
@@ -552,6 +603,8 @@ function LinkEdgeComponent({
     : null;
   const sourceBubbleColor = getTelemetryInterfaceBubbleColor(data?.sourceState, edgeColors);
   const targetBubbleColor = getTelemetryInterfaceBubbleColor(data?.targetState, edgeColors);
+  const sourceOutBpsLabel = isTelemetryStyle ? formatTelemetryOutBpsLabel(data?.sourceOutBps) : undefined;
+  const targetOutBpsLabel = isTelemetryStyle ? formatTelemetryOutBpsLabel(data?.targetOutBps) : undefined;
   const controlPoint = edgeData.totalInPair > 1 ? edgeData.midPoint : undefined;
   let sourceLabelPosition = edgeData.sourceLabel;
   if (sourceMetrics) {
@@ -583,6 +636,15 @@ function LinkEdgeComponent({
       );
     }
   }
+  const sourceRatePosition = sourceOutBpsLabel
+    ? getQuadraticPointAtRatio(edgeData.sourceEdge, edgeData.midPoint, edgeData.targetEdge, 0.34)
+    : undefined;
+  const targetRatePosition = targetOutBpsLabel
+    ? getQuadraticPointAtRatio(edgeData.sourceEdge, edgeData.midPoint, edgeData.targetEdge, 0.66)
+    : undefined;
+  const telemetryRateFontSize = Math.max(9, 9 * telemetryInterfaceScale);
+  const telemetryRateTextStrokeWidth = Math.max(0.8, 0.75 * Math.max(0.6, telemetryInterfaceScale));
+  const hasOverlayLabels = sourceLabelText || targetLabelText || sourceOutBpsLabel || targetOutBpsLabel;
 
   return (
     <>
@@ -596,7 +658,7 @@ function LinkEdgeComponent({
         }}
         interactionWidth={20}
       />
-      {(sourceLabelText || targetLabelText) && (
+      {hasOverlayLabels && (
         <EdgeLabelRenderer>
           {sourceLabelText && (
             <div
@@ -662,6 +724,40 @@ function LinkEdgeComponent({
                 }}
             >
               {targetMetrics?.compact ?? targetLabelText}
+            </div>
+          )}
+          {sourceOutBpsLabel && sourceRatePosition && (
+            <div
+              style={{
+                position: 'absolute',
+                transform: `translate(-50%, -50%) translate(${sourceRatePosition.x}px, ${sourceRatePosition.y}px)`,
+                pointerEvents: 'none',
+                color: '#ffffff',
+                fontSize: `${telemetryRateFontSize}px`,
+                fontWeight: 500,
+                whiteSpace: 'nowrap',
+                lineHeight: 1,
+                textShadow: `0 0 ${telemetryRateTextStrokeWidth}px rgba(0, 0, 0, 0.95), 0 0 ${telemetryRateTextStrokeWidth}px rgba(0, 0, 0, 0.95)`
+              }}
+            >
+              {sourceOutBpsLabel}
+            </div>
+          )}
+          {targetOutBpsLabel && targetRatePosition && (
+            <div
+              style={{
+                position: 'absolute',
+                transform: `translate(-50%, -50%) translate(${targetRatePosition.x}px, ${targetRatePosition.y}px)`,
+                pointerEvents: 'none',
+                color: '#ffffff',
+                fontSize: `${telemetryRateFontSize}px`,
+                fontWeight: 500,
+                whiteSpace: 'nowrap',
+                lineHeight: 1,
+                textShadow: `0 0 ${telemetryRateTextStrokeWidth}px rgba(0, 0, 0, 0.95), 0 0 ${telemetryRateTextStrokeWidth}px rgba(0, 0, 0, 0.95)`
+              }}
+            >
+              {targetOutBpsLabel}
             </div>
           )}
         </EdgeLabelRenderer>

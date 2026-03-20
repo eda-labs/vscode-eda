@@ -54,6 +54,8 @@ interface BackendEdge {
   targetEndpoint?: string;
   sourceState?: string;
   targetState?: string;
+  sourceOutBps?: number;
+  targetOutBps?: number;
   state?: string;
   raw?: unknown;
   rawResource?: unknown;
@@ -872,6 +874,8 @@ function TopologyFlowDashboard() {
           state: e.state,
           sourceState: e.sourceState,
           targetState: e.targetState,
+          sourceOutBps: e.sourceOutBps,
+          targetOutBps: e.targetOutBps,
           pairIndex: idx,
           totalInPair: total,
           raw: e.raw,
