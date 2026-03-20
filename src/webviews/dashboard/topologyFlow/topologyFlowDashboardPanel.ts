@@ -7,6 +7,12 @@ import { namespaceSelectionService } from '../../../services/namespaceSelectionS
 import type { EdaClient } from '../../../clients/edaClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
 import { getUpdates, type StreamMessageWithUpdates } from '../../../utils/streamMessageUtils';
+import {
+  type NodePositionMap,
+  normalizeNodePositionMap,
+  parseNodePositionAnnotation,
+  serializeNodePositionAnnotation
+} from './topologyPositionUtils';
 
 // --- K8s Resource Types ---
 
@@ -15,6 +21,7 @@ interface K8sMetadata {
   name?: string;
   namespace?: string;
   labels?: Record<string, string>;
+  annotations?: Record<string, string>;
   [key: string]: unknown;
 }
 
@@ -25,6 +32,7 @@ interface K8sResource {
   metadata?: K8sMetadata;
   spec?: Record<string, unknown>;
   status?: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 /** TopoNode resource returned from EDA API */
@@ -71,7 +79,7 @@ interface TopoLink extends K8sResource {
 }
 
 /** Topology resource */
-interface Topology {
+interface Topology extends K8sResource {
   name?: string;
   metadata?: K8sMetadata;
 }
@@ -103,6 +111,8 @@ interface EdgeData {
   target: string;
   sourceInterface?: string;
   targetInterface?: string;
+  sourceEndpoint?: string;
+  targetEndpoint?: string;
   sourceState?: string;
   targetState?: string;
   state?: string;
@@ -138,10 +148,35 @@ interface WebviewOpenResourceMessage {
   streamGroup: string;
 }
 
+interface WebviewSaveTopologyPositionsMessage {
+  command: 'saveTopologyPositions';
+  namespace: string;
+  positions: NodePositionMap;
+}
+
+interface WebviewExportSvgGrafanaBundleMessage {
+  command: 'exportSvgGrafanaBundle';
+  requestId: string;
+  baseName: string;
+  svgContent: string;
+  dashboardJson: string;
+  panelYaml: string;
+}
+
+interface GrafanaBundleExportPayload {
+  requestId: string;
+  baseName: string;
+  svgContent: string;
+  dashboardJson: string;
+  panelYaml: string;
+}
+
 type WebviewMessage =
   | WebviewReadyMessage
   | WebviewSshTopoNodeMessage
-  | WebviewOpenResourceMessage;
+  | WebviewOpenResourceMessage
+  | WebviewSaveTopologyPositionsMessage
+  | WebviewExportSvgGrafanaBundleMessage;
 
 // --- Stream Message Types ---
 
@@ -154,6 +189,13 @@ interface StreamMessagePayload {
   msg: StreamMessageWithUpdates | null | undefined;
 }
 
+const TOPOLOGY_GROUP = 'topologies.eda.nokia.com';
+const TOPOLOGY_VERSION = 'v1alpha1';
+const TOPOLOGY_KIND = 'Topology';
+const TOPOLOGY_PLURAL = 'topologies';
+const TOPOLOGY_BOOTSTRAP_LABEL = 'eda.nokia.com/bootstrap';
+const TOPOLOGY_NODE_POSITIONS_ANNOTATION = 'eda.nokia.com/topology-node-positions';
+
 export class TopologyFlowDashboardPanel extends BasePanel {
   private static currentPanel: TopologyFlowDashboardPanel | undefined;
   private edaClient: EdaClient;
@@ -161,6 +203,7 @@ export class TopologyFlowDashboardPanel extends BasePanel {
   private linkMap: Map<string, TopoLink[]> = new Map();
   private groupings: TierSelector[] = [];
   private selectedNamespace = ALL_NAMESPACES;
+  private savedPositionsByNamespace: Map<string, NodePositionMap> = new Map();
   private postGraphTimer: ReturnType<typeof setTimeout> | undefined;
   private namespaceSelectionDisposable: vscode.Disposable;
 
@@ -203,6 +246,10 @@ export class TopologyFlowDashboardPanel extends BasePanel {
           raw: msg.raw,
           streamGroup: msg.streamGroup
         });
+      } else if (msg.command === 'saveTopologyPositions') {
+        await this.handleSaveTopologyPositions(msg.namespace, msg.positions);
+      } else if (msg.command === 'exportSvgGrafanaBundle') {
+        await this.handleGrafanaBundleExport(msg);
       }
     });
 
@@ -256,6 +303,122 @@ export class TopologyFlowDashboardPanel extends BasePanel {
   ${scriptTags}
 </body>
 </html>`;
+  }
+
+  private sanitizeExportBaseName(baseName: string): string {
+    const trimmed = baseName.trim();
+    if (!trimmed) return 'topology';
+
+    const withoutSvg = trimmed.replace(/\\.svg$/i, '');
+    const invalidChars = new Set(['<', '>', ':', '"', '/', '\\\\', '|', '?', '*']);
+    const sanitized = withoutSvg
+      .split('')
+      .map((char) => (char.charCodeAt(0) < 32 || invalidChars.has(char) ? '-' : char))
+      .join('')
+      .trim();
+
+    return sanitized || 'topology';
+  }
+
+  private parseGrafanaBundlePayload(
+    message: WebviewExportSvgGrafanaBundleMessage
+  ): GrafanaBundleExportPayload | null {
+    const requestId = typeof message.requestId === 'string' ? message.requestId.trim() : '';
+    const svgContent = typeof message.svgContent === 'string' ? message.svgContent : '';
+    const dashboardJson = typeof message.dashboardJson === 'string' ? message.dashboardJson : '';
+    const panelYaml = typeof message.panelYaml === 'string' ? message.panelYaml : '';
+    if (!requestId || !svgContent || !dashboardJson || !panelYaml) {
+      return null;
+    }
+
+    return {
+      requestId,
+      baseName: this.sanitizeExportBaseName(typeof message.baseName === 'string' ? message.baseName : ''),
+      svgContent,
+      dashboardJson,
+      panelYaml
+    };
+  }
+
+  private postSvgExportResult(payload: {
+    requestId: string;
+    success: boolean;
+    error?: string;
+    files?: string[];
+  }): void {
+    void this.panel.webview.postMessage({
+      command: 'svgExportResult',
+      requestId: payload.requestId,
+      success: payload.success,
+      ...(payload.error != null && payload.error.length > 0 ? { error: payload.error } : {}),
+      ...(Array.isArray(payload.files) && payload.files.length > 0 ? { files: payload.files } : {})
+    });
+  }
+
+  private async writeTextFile(filePath: string, content: string): Promise<void> {
+    await vscode.workspace.fs.writeFile(vscode.Uri.file(filePath), Buffer.from(content, 'utf8'));
+  }
+
+  private async handleGrafanaBundleExport(message: WebviewExportSvgGrafanaBundleMessage): Promise<void> {
+    const payload = this.parseGrafanaBundlePayload(message);
+    const requestId = payload?.requestId ?? (typeof message.requestId === 'string' ? message.requestId : '');
+
+    if (!payload) {
+      this.postSvgExportResult({
+        requestId,
+        success: false,
+        error: 'Invalid SVG Grafana export payload'
+      });
+      return;
+    }
+
+    const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+    const defaultUri = workspaceUri != null
+      ? vscode.Uri.joinPath(workspaceUri, `${payload.baseName}.svg`)
+      : undefined;
+
+    try {
+      const selectedUri = await vscode.window.showSaveDialog({
+        title: 'Export Grafana SVG Bundle',
+        saveLabel: 'Export',
+        defaultUri,
+        filters: { SVG: ['svg'] }
+      });
+
+      if (!selectedUri) {
+        this.postSvgExportResult({
+          requestId: payload.requestId,
+          success: false,
+          error: 'Export cancelled'
+        });
+        return;
+      }
+
+      const selectedPath = selectedUri.fsPath;
+      const basePath = selectedPath.toLowerCase().endsWith('.svg')
+        ? selectedPath.slice(0, -4)
+        : selectedPath;
+
+      const svgPath = `${basePath}.svg`;
+      const dashboardPath = `${basePath}.grafana.json`;
+      const panelPath = `${basePath}.flow_panel.yaml`;
+
+      await this.writeTextFile(svgPath, payload.svgContent);
+      await this.writeTextFile(dashboardPath, payload.dashboardJson);
+      await this.writeTextFile(panelPath, payload.panelYaml);
+
+      this.postSvgExportResult({
+        requestId: payload.requestId,
+        success: true,
+        files: [svgPath, dashboardPath, panelPath]
+      });
+    } catch (error: unknown) {
+      this.postSvgExportResult({
+        requestId: payload.requestId,
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
 
   private postNamespaceSelection(): void {
@@ -328,7 +491,191 @@ export class TopologyFlowDashboardPanel extends BasePanel {
         /* ignore */
       }
     }
+
+    if (ns === ALL_NAMESPACES) {
+      this.savedPositionsByNamespace.clear();
+      await this.loadSavedPositionsForNamespaces(target);
+    } else {
+      await this.loadSavedPositionsForNamespace(ns);
+    }
+
     this.postGraph();
+  }
+
+  private async getTopologyByName(topologyName: string): Promise<Topology | undefined> {
+    const topologies = (await this.edaClient.listResources(
+      TOPOLOGY_GROUP,
+      TOPOLOGY_VERSION,
+      TOPOLOGY_KIND
+    )) as Topology[];
+
+    return topologies.find((topology) => topology.metadata?.name === topologyName);
+  }
+
+  private parseSavedPositions(topology: Topology | undefined): NodePositionMap {
+    const annotation = topology?.metadata?.annotations?.[TOPOLOGY_NODE_POSITIONS_ANNOTATION];
+    return parseNodePositionAnnotation(annotation);
+  }
+
+  private async loadSavedPositionsForNamespace(namespace: string): Promise<void> {
+    await this.loadSavedPositionsForNamespaces([namespace]);
+  }
+
+  private async loadSavedPositionsForNamespaces(namespaces: string[]): Promise<void> {
+    const uniqueNamespaces = Array.from(new Set(namespaces.filter(Boolean)));
+    if (uniqueNamespaces.length === 0) {
+      return;
+    }
+
+    try {
+      const topologies = (await this.edaClient.listResources(
+        TOPOLOGY_GROUP,
+        TOPOLOGY_VERSION,
+        TOPOLOGY_KIND
+      )) as Topology[];
+
+      const topologyByName = new Map<string, Topology>();
+      if (Array.isArray(topologies)) {
+        for (const topology of topologies) {
+          const topologyName = topology.metadata?.name;
+          if (!topologyName) {
+            continue;
+          }
+          topologyByName.set(topologyName, topology);
+        }
+      }
+
+      for (const namespace of uniqueNamespaces) {
+        this.savedPositionsByNamespace.set(
+          namespace,
+          this.parseSavedPositions(topologyByName.get(namespace))
+        );
+      }
+    } catch {
+      for (const namespace of uniqueNamespaces) {
+        this.savedPositionsByNamespace.set(namespace, {});
+      }
+    }
+  }
+
+  private buildMergedSavedPositions(namespaces: string[]): NodePositionMap {
+    const merged: NodePositionMap = {};
+
+    for (const namespace of namespaces) {
+      const savedForNamespace = this.savedPositionsByNamespace.get(namespace);
+      if (!savedForNamespace) {
+        continue;
+      }
+
+      for (const [nodeName, position] of Object.entries(savedForNamespace)) {
+        const namespacedNodeId = nodeName.includes('/') ? nodeName : `${namespace}/${nodeName}`;
+        merged[namespacedNodeId] = position;
+      }
+    }
+
+    return normalizeNodePositionMap(merged);
+  }
+
+  private postSaveResult(ok: boolean, message: string, positions: NodePositionMap): void {
+    void this.panel.webview.postMessage({
+      command: 'saveTopologyPositionsResult',
+      ok,
+      message,
+      positions
+    });
+  }
+
+  private buildTopologyCreateBody(topologyName: string, positions: NodePositionMap): Topology {
+    return {
+      apiVersion: `${TOPOLOGY_GROUP}/${TOPOLOGY_VERSION}`,
+      kind: TOPOLOGY_KIND,
+      metadata: {
+        name: topologyName,
+        labels: {
+          [TOPOLOGY_BOOTSTRAP_LABEL]: 'true'
+        },
+        annotations: {
+          [TOPOLOGY_NODE_POSITIONS_ANNOTATION]: serializeNodePositionAnnotation(positions)
+        }
+      },
+      spec: {
+        enabled: false,
+        overlays: [{ enabled: true, key: 'status' }]
+      }
+    };
+  }
+
+  private buildTopologyUpdateBody(
+    topology: Topology,
+    topologyName: string,
+    positions: NodePositionMap
+  ): Topology {
+    const metadata = topology.metadata ?? {};
+    const annotations = metadata.annotations ?? {};
+    const { namespace: _discardNamespace, ...metadataWithoutNamespace } = metadata;
+
+    return {
+      ...topology,
+      apiVersion: topology.apiVersion ?? `${TOPOLOGY_GROUP}/${TOPOLOGY_VERSION}`,
+      kind: topology.kind ?? TOPOLOGY_KIND,
+      metadata: {
+        ...metadataWithoutNamespace,
+        name: metadata.name ?? topologyName,
+        annotations: {
+          ...annotations,
+          [TOPOLOGY_NODE_POSITIONS_ANNOTATION]: serializeNodePositionAnnotation(positions)
+        }
+      }
+    };
+  }
+
+  private async handleSaveTopologyPositions(namespace: string, positions: NodePositionMap): Promise<void> {
+    if (namespace === ALL_NAMESPACES) {
+      this.postSaveResult(false, 'Select a single namespace to save layout.', {});
+      return;
+    }
+
+    const normalizedPositions = normalizeNodePositionMap(positions);
+    const topologyName = namespace;
+
+    try {
+      const existingTopology = await this.getTopologyByName(topologyName);
+
+      if (existingTopology) {
+        const topologyResourceName = existingTopology.metadata?.name ?? topologyName;
+        const updateBody = this.buildTopologyUpdateBody(
+          existingTopology,
+          topologyResourceName,
+          normalizedPositions
+        );
+        await this.edaClient.updateCustomResource(
+          TOPOLOGY_GROUP,
+          TOPOLOGY_VERSION,
+          undefined,
+          TOPOLOGY_PLURAL,
+          topologyResourceName,
+          updateBody,
+          false
+        );
+      } else {
+        const createBody = this.buildTopologyCreateBody(topologyName, normalizedPositions);
+        await this.edaClient.createCustomResource(
+          TOPOLOGY_GROUP,
+          TOPOLOGY_VERSION,
+          undefined,
+          TOPOLOGY_PLURAL,
+          createBody,
+          false
+        );
+      }
+
+      this.savedPositionsByNamespace.set(namespace, normalizedPositions);
+      this.postSaveResult(true, `Saved layout for topology ${topologyName}.`, normalizedPositions);
+      this.postGraph();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.postSaveResult(false, `Failed to save layout: ${message}`, normalizedPositions);
+    }
   }
 
   private getTier(labels: Record<string, string>): number {
@@ -406,6 +753,7 @@ export class TopologyFlowDashboardPanel extends BasePanel {
     members: TopoLinkStatusMember[]
   ): void {
     if (linkSpec.local?.interface) {
+      edgeData.sourceEndpoint = linkSpec.local.interface;
       edgeData.sourceInterface = this.shortenInterfaceName(linkSpec.local.interface);
       const ms = members.find(
         (m: TopoLinkStatusMember) =>
@@ -414,6 +762,7 @@ export class TopologyFlowDashboardPanel extends BasePanel {
       if (ms) edgeData.sourceState = ms.operationalState;
     }
     if (linkSpec.remote?.interface) {
+      edgeData.targetEndpoint = linkSpec.remote.interface;
       edgeData.targetInterface = this.shortenInterfaceName(linkSpec.remote.interface);
       const ms = members.find(
         (m: TopoLinkStatusMember) =>
@@ -460,7 +809,12 @@ export class TopologyFlowDashboardPanel extends BasePanel {
       edges.push(...this.buildEdgesForNamespace(ns));
     }
 
-    void this.panel.webview.postMessage({ command: 'data', nodes, edges });
+    const savedPositions =
+      this.selectedNamespace === ALL_NAMESPACES
+        ? this.buildMergedSavedPositions(namespaces)
+        : this.savedPositionsByNamespace.get(this.selectedNamespace) ?? {};
+
+    void this.panel.webview.postMessage({ command: 'data', nodes, edges, savedPositions });
   }
 
   private parseUpdateIdentifiers(up: StreamUpdate): { name: string; ns: string } | null {

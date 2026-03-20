@@ -18,6 +18,7 @@ const webviewEntryPoints = {
   deviationDetailsPanel: 'src/webviews/deviationDetails/deviationDetailsPanel.webview.tsx',
   transactionDetailsPanel: 'src/webviews/transactionDetails/transactionDetailsPanel.webview.tsx',
   transactionDiffsPanel: 'src/webviews/transactionDiffs/transactionDiffsPanel.webview.tsx',
+  resourceCreatePanel: 'src/webviews/resourceCreate/resourceCreatePanel.webview.tsx',
   edaExplorerView: 'src/webviews/explorer/edaExplorerView.webview.tsx',
   explorerResourceListPanel: 'src/webviews/explorer/explorerResourceListPanel.webview.tsx'
 };

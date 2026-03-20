@@ -20,6 +20,10 @@ import { CrdDefinitionFileSystemProvider } from './providers/documents/crdDefini
 import { ResourceEditDocumentProvider } from './providers/documents/resourceEditProvider';
 import { ResourceViewDocumentProvider } from './providers/documents/resourceViewProvider';
 import { SchemaProviderService } from './services/schemaProviderService';
+import { EdaYamlCompletionProvider } from './providers/yaml/edaYamlCompletionProvider';
+import { EdaYamlHoverProvider } from './providers/yaml/edaYamlHoverProvider';
+import { EdaYamlValidationProvider } from './providers/yaml/edaYamlValidationProvider';
+import { registerEdaYamlCursorSuggest } from './providers/yaml/edaYamlSuggestTrigger';
 import { PodDescribeDocumentProvider } from './providers/documents/podDescribeProvider';
 import { registerPodCommands } from './commands/podCommands';
 import { registerDeploymentCommands } from './commands/deploymentCommands';
@@ -388,6 +392,21 @@ async function initializeServiceArchitecture(
 
   const schemaProviderService = new SchemaProviderService();
   serviceManager.registerService('schema-provider', schemaProviderService);
+
+  // Register YAML completion and hover providers for EDA resources
+  const yamlSelector: vscode.DocumentSelector = { language: 'yaml' };
+  const triggerChars = [':', ' ', '-', '\n', ...'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'];
+  const yamlCompletionProvider = new EdaYamlCompletionProvider();
+  const yamlValidationProvider = new EdaYamlValidationProvider();
+  context.subscriptions.push(
+    vscode.languages.registerCompletionItemProvider(
+      yamlSelector, yamlCompletionProvider, ...triggerChars
+    ),
+    vscode.languages.registerHoverProvider(yamlSelector, new EdaYamlHoverProvider()),
+    yamlValidationProvider
+  );
+  registerEdaYamlCursorSuggest(context, yamlCompletionProvider);
+  yamlValidationProvider.activate(context);
 
   // 7) Create tree providers and register remaining commands
   await initializeTreeViewsAndCommands(context, { activationStartMs });

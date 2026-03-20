@@ -3,22 +3,15 @@ import * as vscode from 'vscode';
 import * as yaml from 'js-yaml';
 
 import { serviceManager } from '../services/serviceManager';
+import { namespaceSelectionService } from '../services/namespaceSelectionService';
 import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
 import type { SchemaProviderService } from '../services/schemaProviderService';
 import { log, LogLevel } from '../extension';
-
-/** JSON Schema property definition */
-interface JsonSchemaProperty {
-  type?: string;
-  properties?: Record<string, JsonSchemaProperty>;
-  items?: JsonSchemaProperty;
-  default?: unknown;
-  readOnly?: boolean;
-}
+import { ALL_NAMESPACES } from '../webviews/constants';
+import type { JsonSchemaNode } from '../webviews/resourceCreate/types';
 
 /** Kubernetes resource metadata */
 interface KubernetesMetadata {
-  name: string;
   namespace?: string;
   [key: string]: unknown;
 }
@@ -32,64 +25,7 @@ interface KubernetesResource {
   [key: string]: unknown;
 }
 
-/** JSON-compatible value that can be serialized to YAML */
-type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
-type JsonObject = { [key: string]: JsonValue };
-
-/** Default values for primitive JSON schema types */
-const PRIMITIVE_DEFAULTS: JsonObject = {
-  string: '',
-  integer: 0,
-  number: 0,
-  boolean: false,
-};
-
-/**
- * Build object skeleton from properties.
- */
-function buildObjectSkeleton(properties: Record<string, JsonSchemaProperty>): JsonObject {
-  const obj: JsonObject = {};
-  for (const [key, prop] of Object.entries(properties)) {
-    if (!prop.readOnly) {
-      obj[key] = buildSkeletonFromSchema(prop);
-    }
-  }
-  return obj;
-}
-
-/**
- * Builds a skeleton structure from a JSON schema.
- * Returns appropriate default values based on schema type.
- *
- * Note: This function intentionally returns different structural types (objects, arrays,
- * primitives) based on the input schema type. This is the correct behavior for building
- * JSON skeletons from JSON Schema definitions.
- */
-// eslint-disable-next-line sonarjs/function-return-type -- intentionally polymorphic return
-function buildSkeletonFromSchema(schema: JsonSchemaProperty | null | undefined): JsonValue {
-  if (!schema) {
-    return {};
-  }
-
-  // Object type with properties
-  if (schema.properties !== undefined || schema.type === 'object') {
-    return buildObjectSkeleton(schema.properties ?? {});
-  }
-
-  // Array type
-  if (schema.type === 'array') {
-    return [buildSkeletonFromSchema(schema.items)];
-  }
-
-  // Has explicit default value
-  if (Object.prototype.hasOwnProperty.call(schema, 'default')) {
-    return schema.default as JsonValue;
-  }
-
-  // Primitive type - return appropriate default
-  const schemaType = schema.type ?? '';
-  return schemaType in PRIMITIVE_DEFAULTS ? PRIMITIVE_DEFAULTS[schemaType] : null;
-}
+const DEFAULT_CREATE_NAMESPACE = 'eda';
 
 export function registerResourceCreateCommand(
   context: vscode.ExtensionContext,
@@ -120,22 +56,22 @@ export function registerResourceCreateCommand(
         return;
       }
 
-      // No pre-filled name or namespace so the user can freely edit the manifest
+      // Start with a minimal manifest so users can fill fields from the form or YAML.
       const { group, version, namespaced } = selected.crd;
+      const selectedNamespace = namespaceSelectionService.getSelectedNamespace();
+      const defaultNamespace = selectedNamespace && selectedNamespace !== ALL_NAMESPACES
+        ? selectedNamespace
+        : DEFAULT_CREATE_NAMESPACE;
 
-      const schema = (await schemaService.getSchemaForKind(selected.crd.kind)) as JsonSchemaProperty | null;
-      const specSkeleton: JsonValue = schema?.properties?.spec
-        ? buildSkeletonFromSchema(schema.properties.spec)
-        : {};
+      const schema = await schemaService.getSchemaForKind(selected.crd.kind);
 
       const resource: KubernetesResource = {
         apiVersion: `${group}/${version}`,
         kind: selected.crd.kind,
         metadata: {
-          name: '',
-          ...(namespaced ? { namespace: '' } : {}),
+          ...(namespaced ? { namespace: defaultNamespace } : {}),
         },
-        spec: specSkeleton as Record<string, unknown>,
+        spec: {},
       };
 
       const yamlContent = yaml.dump(resource, { indent: 2 });
@@ -147,9 +83,13 @@ export function registerResourceCreateCommand(
       resourceEditProvider.setCrdInfo(uri, selected.crd);
       resourceEditProvider.markNewResource(uri);
 
-      const document = await vscode.workspace.openTextDocument(uri);
-      await vscode.languages.setTextDocumentLanguage(document, 'yaml');
-      await vscode.window.showTextDocument(document);
+      const { ResourceCreatePanel } = await import('../webviews/resourceCreate/resourceCreatePanel');
+      await ResourceCreatePanel.show(context, {
+        resourceUri: uri,
+        crd: selected.crd,
+        schema: schema as JsonSchemaNode | null,
+        mode: 'create'
+      });
 
       // Ensure schema provider service is loaded so schema will be associated
       serviceManager.getService<SchemaProviderService>('schema-provider');

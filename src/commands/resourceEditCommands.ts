@@ -8,7 +8,9 @@ import { log, LogLevel, edaOutputChannel, edaTransactionBasketProvider } from '.
 import { ResourceEditDocumentProvider } from '../providers/documents/resourceEditProvider';
 import { ResourceViewDocumentProvider } from '../providers/documents/resourceViewProvider';
 import type { ResourceService } from '../services/resourceService';
+import type { SchemaProviderService } from '../services/schemaProviderService';
 import { serviceManager } from '../services/serviceManager';
+import type { EdaCrd } from '../types';
 import { isEdaResource } from '../utils/edaGroupUtils';
 import {
   getViewIsEda,
@@ -17,6 +19,7 @@ import {
   getResourceOrigin
 } from '../utils/resourceOriginStore';
 import { sanitizeResource, sanitizeResourceForEdit } from '../utils/yamlUtils';
+import type { JsonSchemaNode } from '../webviews/resourceCreate/types';
 
 // Command identifiers
 const CMD_SWITCH_TO_EDIT = 'vscode-eda.switchToEditResource';
@@ -117,6 +120,95 @@ function getResourceKey(namespace: string, kind: string, name: string): string {
 // Define interface for our custom quick pick items
 interface ActionQuickPickItem extends vscode.QuickPickItem {
   id: string;
+}
+
+function parseApiVersionParts(apiVersion: string | undefined): { group: string; version: string } {
+  if (!apiVersion) {
+    return { group: '', version: '' };
+  }
+  if (!apiVersion.includes('/')) {
+    return { group: '', version: apiVersion };
+  }
+  const [group, version] = apiVersion.split('/');
+  return { group, version };
+}
+
+function guessPlural(kind: string): string {
+  const lower = kind.toLowerCase();
+  if (/(s|x|z|ch|sh)$/.test(lower)) {
+    return `${lower}es`;
+  }
+  if (/[^aeiou]y$/.test(lower)) {
+    return `${lower.slice(0, -1)}ies`;
+  }
+  return `${lower}s`;
+}
+
+function inferNamespaced(resourceInfo: ResourceInfo, resource: K8sResource): boolean {
+  if (typeof resource.metadata?.namespace === 'string' && resource.metadata.namespace.length > 0) {
+    return true;
+  }
+  return resourceInfo.namespace !== 'cluster';
+}
+
+async function resolveCrdForResource(
+  schemaService: SchemaProviderService,
+  resourceInfo: ResourceInfo,
+  resourceObject: K8sResource
+): Promise<EdaCrd> {
+  const apiVersion = getNonEmptyString(resourceObject.apiVersion)
+    ?? getNonEmptyString(resourceInfo.apiVersion)
+    ?? '';
+  const { group: apiGroup, version: apiVersionName } = parseApiVersionParts(apiVersion);
+  const kind = getNonEmptyString(resourceObject.kind)
+    ?? getNonEmptyString(resourceInfo.kind)
+    ?? 'Resource';
+
+  const crds = await schemaService.getCustomResourceDefinitions();
+  const exactMatch = crds.find((crd) => (
+    crd.kind === kind
+    && (apiGroup.length === 0 || crd.group === apiGroup)
+    && (apiVersionName.length === 0 || crd.version === apiVersionName)
+  ));
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  const kindMatch = crds.find((crd) => crd.kind === kind);
+  if (kindMatch) {
+    return kindMatch;
+  }
+
+  return {
+    kind,
+    group: apiGroup || 'core.eda.nokia.com',
+    version: apiVersionName || 'v1',
+    plural: guessPlural(kind),
+    namespaced: inferNamespaced(resourceInfo, resourceObject),
+    description: `Discovered ${kind} resource`
+  };
+}
+
+async function openSplitResourceEditor(
+  context: vscode.ExtensionContext,
+  resourceEditProvider: ResourceEditDocumentProvider,
+  editUri: vscode.Uri,
+  resourceInfo: ResourceInfo,
+  resourceObject: K8sResource
+): Promise<void> {
+  const schemaService = serviceManager.getService<SchemaProviderService>('schema-provider');
+  const crd = await resolveCrdForResource(schemaService, resourceInfo, resourceObject);
+  const schema = await schemaService.getSchemaForKind(crd.kind);
+
+  resourceEditProvider.setCrdInfo(editUri, crd);
+
+  const { ResourceCreatePanel } = await import('../webviews/resourceCreate/resourceCreatePanel');
+  await ResourceCreatePanel.show(context, {
+    resourceUri: editUri,
+    crd,
+    schema: schema as JsonSchemaNode | null,
+    mode: 'edit'
+  });
 }
 
 /**
@@ -539,16 +631,6 @@ function prepareEditDocumentContent(
 }
 
 /**
- * Opens and displays an edit document with proper language mode.
- */
-async function openEditDocument(editUri: vscode.Uri): Promise<vscode.TextDocument> {
-  const editDoc = await vscode.workspace.openTextDocument(editUri);
-  await vscode.languages.setTextDocumentLanguage(editDoc, 'yaml');
-  await vscode.window.showTextDocument(editDoc, { preserveFocus: false, preview: false });
-  return editDoc;
-}
-
-/**
  * Opens and displays a view document with proper language mode.
  */
 async function openViewDocument(viewUri: vscode.Uri): Promise<vscode.TextDocument> {
@@ -669,8 +751,14 @@ async function executeSwitchToEdit(
   // Refresh existing document if open
   await refreshExistingDocument(editUri, sanitizedYaml);
 
-  // Open and display the edit document
-  await openEditDocument(editUri);
+  // Open split editor (form + synced YAML document)
+  await openSplitResourceEditor(
+    context,
+    resourceEditProvider,
+    editUri,
+    resourceInfo,
+    resourceObject
+  );
 
   // Add status bar item for mode switching
   createModeStatusBarItem(context, editUri, 'view');
@@ -810,7 +898,7 @@ function getOrReconstructOriginalResource(
  * Handles apply when skipPrompt option is set.
  */
 async function handleSkipPromptApply(
-  options: { dryRun?: boolean },
+  options: { dryRun?: boolean; action?: 'apply' | 'dryRun' | 'basket' },
   edaClient: EdaClient,
   resourceEditProvider: ResourceEditDocumentProvider,
   resourceViewProvider: ResourceViewDocumentProvider,
@@ -818,6 +906,20 @@ async function handleSkipPromptApply(
   resource: K8sResource,
   resourceKey: string
 ): Promise<void> {
+  if (options.action === 'basket') {
+    await addResourceToBasket(documentUri, resourceEditProvider, resource);
+    return;
+  }
+
+  if (options.action === 'dryRun') {
+    const confirmed = await showResourceDiff(resourceEditProvider, documentUri, { confirmActionLabel: 'Dry Run' });
+    if (!confirmed) {
+      return;
+    }
+    await applyResource(documentUri, edaClient, resourceEditProvider, resource, { dryRun: true });
+    return;
+  }
+
   if (options.dryRun) {
     await validateAndPromptForApply(
       edaClient, resourceEditProvider, resourceViewProvider, documentUri, resource
@@ -974,6 +1076,7 @@ export function registerResourceEditCommands(
       dryRun?: boolean;
       skipPrompt?: boolean;
       bypassChangesCheck?: boolean;
+      action?: 'apply' | 'dryRun' | 'basket';
     } = {}) => {
       try {
         // Validate and parse the document
@@ -1366,6 +1469,9 @@ function scheduleDiffProviderCleanup(diffProvider: vscode.Disposable): void {
 function getDiffConfirmMessage(confirmLabel: string): string {
   if (confirmLabel === 'Continue') {
     return 'Continue with the operation?';
+  }
+  if (confirmLabel === 'Dry Run') {
+    return 'Run a dry run validation for this resource?';
   }
   return 'Apply changes to the resource?';
 }

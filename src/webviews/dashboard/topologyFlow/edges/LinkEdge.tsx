@@ -13,9 +13,12 @@ import { type Point, getNodeEdgePoint, createBezierPath } from '../geometry';
 export interface LinkEdgeData extends Record<string, unknown> {
   sourceInterface?: string;
   targetInterface?: string;
+  sourceEndpoint?: string;
+  targetEndpoint?: string;
   state?: string;
   sourceState?: string;
   targetState?: string;
+  highlighted?: boolean;
   pairIndex?: number;
   totalInPair?: number;
   raw?: unknown;
@@ -92,8 +95,9 @@ function LinkEdgeComponent({
 
   if (!edgeData) return null;
 
-  const strokeWidth = selected ? 3 : 1.5;
-  const edgeStroke = selected ? edgeColors.selectedStroke : edgeData.stroke;
+  const isHighlighted = selected || Boolean(data?.highlighted);
+  const strokeWidth = isHighlighted ? 3 : 1.5;
+  const edgeStroke = isHighlighted ? edgeColors.selectedStroke : edgeData.stroke;
 
   return (
     <>

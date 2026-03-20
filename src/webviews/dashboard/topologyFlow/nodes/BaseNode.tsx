@@ -3,9 +3,11 @@ import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 
 export interface BaseNodeData extends Record<string, unknown> {
   label: string;
+  displayLabel?: string;
   tier?: number;
   role?: string;
   raw?: unknown;
+  highlighted?: boolean;
 }
 
 export type BaseNode = Node<BaseNodeData>;
@@ -14,6 +16,23 @@ interface BaseNodeComponentProps {
   readonly data: BaseNodeData;
   readonly selected?: boolean;
   readonly children?: React.ReactNode;
+}
+
+const NODE_LABEL_MAX_CHARS = 11;
+
+function truncateMiddle(value: string, maxChars: number): string {
+  if (maxChars <= 0 || value.length <= maxChars) {
+    return value;
+  }
+  if (maxChars === 1) {
+    return '…';
+  }
+
+  const ellipsis = '…';
+  const available = maxChars - ellipsis.length;
+  const headLength = Math.ceil(available / 2);
+  const tailLength = Math.floor(available / 2);
+  return `${value.slice(0, headLength)}${ellipsis}${value.slice(value.length - tailLength)}`;
 }
 
 const handlePositions = [
@@ -28,12 +47,20 @@ const handlePositions = [
 ];
 
 function BaseNodeComponent({ data, selected, children }: BaseNodeComponentProps) {
+  const isHighlighted = selected || Boolean(data.highlighted);
+  const fullLabel = data.label;
+  const rawDisplayLabel = data.displayLabel ?? fullLabel;
+  const showLabel = rawDisplayLabel.trim().length > 0;
+  const displayLabel = truncateMiddle(rawDisplayLabel, NODE_LABEL_MAX_CHARS);
+
   return (
-    <div className={`topology-node ${selected ? 'selected' : ''}`}>
+    <div className={`topology-node ${isHighlighted ? 'selected' : ''}`}>
       <div className="topology-node-content">
         {children}
       </div>
-      <div className="topology-node-label">{data.label}</div>
+      {showLabel && (
+        <div className="topology-node-label" title={fullLabel}>{displayLabel}</div>
+      )}
       {handlePositions.map(({ id, type, position }) => (
         <Handle
           key={id}

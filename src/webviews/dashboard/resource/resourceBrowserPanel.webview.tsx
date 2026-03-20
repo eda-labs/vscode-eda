@@ -178,11 +178,32 @@ function ResourceBrowserPanel() {
   }, [postMessage]));
 
   const filteredResources = useMemo(() => {
-    const lowerFilter = filter.toLowerCase();
-    return resources.filter(r =>
-      r.kind.toLowerCase().includes(lowerFilter) || r.name.toLowerCase().includes(lowerFilter)
-    );
+    const lowerFilter = filter.trim().toLowerCase();
+    if (lowerFilter.length === 0) {
+      return resources;
+    }
+    return resources.filter((resource) => {
+      const kind = resource.kind.toLowerCase();
+      const name = resource.name.toLowerCase();
+      return kind.includes(lowerFilter) || name.includes(lowerFilter);
+    });
   }, [resources, filter]);
+
+  useEffect(() => {
+    if (filteredResources.length === 0) {
+      if (selectedResource.length > 0) {
+        setSelectedResource('');
+      }
+      return;
+    }
+
+    const selectedVisible = filteredResources.some((resource) => resource.name === selectedResource);
+    if (!selectedVisible) {
+      const next = filteredResources[0].name;
+      setSelectedResource(next);
+      postMessage({ command: 'showResource', name: next });
+    }
+  }, [filteredResources, postMessage, selectedResource]);
 
   const handleResourceChange = useCallback((name: string) => {
     setSelectedResource(name);
@@ -215,6 +236,7 @@ function ResourceBrowserPanel() {
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Search..."
             sx={{ width: { xs: '100%', md: 320 } }}
+            helperText={`${filteredResources.length}/${resources.length} resources`}
             slotProps={{
               input: {
                 startAdornment: (
@@ -227,19 +249,38 @@ function ResourceBrowserPanel() {
           />
 
           <FormControl size="small" sx={{ flex: 1 }}>
-            <InputLabel id="resource-select-label">Resource</InputLabel>
+            <InputLabel id="resource-select-label" shrink>
+              Resource
+            </InputLabel>
             <Select
               labelId="resource-select-label"
               value={selectedResource}
               label="Resource"
+              displayEmpty
+              renderValue={(value) => {
+                if (typeof value !== 'string' || value.length === 0) {
+                  return filteredResources.length === 0 ? 'No matching resources' : 'Select a resource';
+                }
+                const selected = filteredResources.find((resource) => resource.name === value);
+                return selected ? `${selected.kind} (${selected.name})` : value;
+              }}
               onChange={(event) => handleResourceChange(String(event.target.value))}
             >
-              {filteredResources.map(r => (
-                <MenuItem key={r.name} value={r.name}>{r.kind} ({r.name})</MenuItem>
+              {filteredResources.length === 0 && (
+                <MenuItem disabled value="">
+                  No matching resources
+                </MenuItem>
+              )}
+              {filteredResources.map((resource) => (
+                <MenuItem key={resource.name} value={resource.name}>
+                  {resource.kind} ({resource.name})
+                </MenuItem>
               ))}
             </Select>
           </FormControl>
-          <VSCodeButton onClick={handleViewYaml}>View YAML</VSCodeButton>
+          <VSCodeButton onClick={handleViewYaml} disabled={selectedResource.length === 0}>
+            View YAML
+          </VSCodeButton>
         </Stack>
 
         <Typography variant="h5" sx={{ fontWeight: 700, mb: 1.5 }}>{title}</Typography>
