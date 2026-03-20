@@ -1,4 +1,12 @@
-import { useCallback, useMemo, useEffect, forwardRef, useImperativeHandle } from 'react';
+import {
+  useCallback,
+  useMemo,
+  useEffect,
+  useRef,
+  useSyncExternalStore,
+  forwardRef,
+  useImperativeHandle
+} from 'react';
 import {
   ReactFlow,
   Controls,
@@ -17,7 +25,12 @@ import { useTheme, type Theme } from '@mui/material/styles';
 
 import DeviceNode, { type TopologyNode, type TopologyNodeData } from './nodes/DeviceNode';
 import NamespaceLabelNodeComponent, { type NamespaceLabelNode } from './nodes/NamespaceLabelNode';
-import LinkEdgeComponent, { type LinkEdge, type LinkEdgeData } from './edges/LinkEdge';
+import LinkEdgeComponent, {
+  getRateLabelDragStateSnapshot,
+  subscribeRateLabelDragState,
+  type LinkEdge,
+  type LinkEdgeData
+} from './edges/LinkEdge';
 import { getNodeIconSvgPathData } from './nodes/icons';
 import { getNodeEdgePoint, createBezierPath, LABEL_OFFSET } from './geometry';
 import {
@@ -847,6 +860,12 @@ function TopologyFlowInner({
 }: TopologyFlowProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<LinkEdge>(initialEdges);
+  const pendingEdgesRef = useRef<LinkEdge[] | null>(null);
+  const isRateLabelDragActive = useSyncExternalStore(
+    subscribeRateLabelDragState,
+    getRateLabelDragStateSnapshot,
+    getRateLabelDragStateSnapshot
+  );
 
   // Merge incoming nodes with existing positions to preserve user drag state
   useEffect(() => {
@@ -863,8 +882,25 @@ function TopologyFlowInner({
   }, [initialNodes, setNodes]);
 
   useEffect(() => {
+    if (isRateLabelDragActive) {
+      pendingEdgesRef.current = initialEdges;
+      return;
+    }
+    pendingEdgesRef.current = null;
     setEdges(initialEdges);
-  }, [initialEdges, setEdges]);
+  }, [initialEdges, isRateLabelDragActive, setEdges]);
+
+  useEffect(() => {
+    if (isRateLabelDragActive) {
+      return;
+    }
+    const pendingEdges = pendingEdgesRef.current;
+    if (!pendingEdges) {
+      return;
+    }
+    pendingEdgesRef.current = null;
+    setEdges(pendingEdges);
+  }, [isRateLabelDragActive, setEdges]);
 
   useEffect(() => {
     onDevicePositionsChange?.(collectDeviceNodePositions(nodes));

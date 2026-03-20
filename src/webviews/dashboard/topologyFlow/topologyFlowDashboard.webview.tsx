@@ -846,40 +846,124 @@ function TopologyFlowDashboard() {
 
   // Process edges with pair indices and totals
   const processEdges = useCallback((backendEdges: BackendEdge[]): TopologyEdge[] => {
-    // First pass: count edges per pair
-    const pairCount: Record<string, number> = {};
-    backendEdges.forEach(e => {
-      const pairKey = [e.source, e.target].sort().join('|');
-      pairCount[pairKey] = (pairCount[pairKey] ?? 0) + 1;
-    });
+    const normalizeIdPart = (value: string | undefined): string => {
+      const trimmed = value?.trim();
+      return trimmed != null && trimmed.length > 0 ? encodeURIComponent(trimmed) : 'na';
+    };
 
-    // Second pass: assign indices
-    const pairIndex: Record<string, number> = {};
-    return backendEdges.map(e => {
-      const pairKey = [e.source, e.target].sort().join('|');
-      const idx = pairIndex[pairKey] ?? 0;
-      pairIndex[pairKey] = idx + 1;
-      const total = pairCount[pairKey] ?? 1;
+    const getRawResourceName = (edge: BackendEdge): string | undefined => {
+      if (!edge.rawResource || typeof edge.rawResource !== 'object') {
+        return undefined;
+      }
+      const metadata = (edge.rawResource as { metadata?: { name?: unknown } }).metadata;
+      const name = metadata?.name;
+      if (typeof name !== 'string') {
+        return undefined;
+      }
+      const trimmed = name.trim();
+      return trimmed.length > 0 ? trimmed : undefined;
+    };
+
+    const buildEndpointSignature = (
+      node: string | undefined,
+      endpoint: string | undefined,
+      iface: string | undefined
+    ): string => [
+      normalizeIdPart(node),
+      normalizeIdPart(endpoint),
+      normalizeIdPart(iface)
+    ].join('::');
+
+    const buildStableEdgeKey = (edge: BackendEdge): string => {
+      const sourceSignature = buildEndpointSignature(edge.source, edge.sourceEndpoint, edge.sourceInterface);
+      const targetSignature = buildEndpointSignature(edge.target, edge.targetEndpoint, edge.targetInterface);
+      const [first, second] = sourceSignature.localeCompare(targetSignature) <= 0
+        ? [sourceSignature, targetSignature]
+        : [targetSignature, sourceSignature];
+      return [
+        normalizeIdPart(getRawResourceName(edge)),
+        first,
+        second
+      ].join('--');
+    };
+
+    const buildOrientedEdgeKey = (edge: BackendEdge): string => {
+      const sourceSignature = buildEndpointSignature(edge.source, edge.sourceEndpoint, edge.sourceInterface);
+      const targetSignature = buildEndpointSignature(edge.target, edge.targetEndpoint, edge.targetInterface);
+      return `${sourceSignature}->${targetSignature}`;
+    };
+
+    const edgeMeta = backendEdges.map((edge, originalIndex) => ({
+      edge,
+      originalIndex,
+      pairKey: [edge.source, edge.target].sort().join('|'),
+      stableKey: buildStableEdgeKey(edge),
+      orientedKey: buildOrientedEdgeKey(edge)
+    }));
+
+    const bucketsByPair = new Map<string, typeof edgeMeta>();
+    for (const meta of edgeMeta) {
+      const bucket = bucketsByPair.get(meta.pairKey) ?? [];
+      bucket.push(meta);
+      bucketsByPair.set(meta.pairKey, bucket);
+    }
+
+    const assignments = new Array<{
+      id: string;
+      pairIndex: number;
+      totalInPair: number;
+    }>(backendEdges.length);
+
+    for (const bucket of bucketsByPair.values()) {
+      bucket.sort((a, b) => {
+        const byStableKey = a.stableKey.localeCompare(b.stableKey);
+        if (byStableKey !== 0) return byStableKey;
+        const byOrientedKey = a.orientedKey.localeCompare(b.orientedKey);
+        if (byOrientedKey !== 0) return byOrientedKey;
+        return a.originalIndex - b.originalIndex;
+      });
+
+      const totalInPair = bucket.length;
+      const duplicateCounts = new Map<string, number>();
+      for (let idx = 0; idx < bucket.length; idx++) {
+        const entry = bucket[idx];
+        const duplicateIndex = duplicateCounts.get(entry.stableKey) ?? 0;
+        duplicateCounts.set(entry.stableKey, duplicateIndex + 1);
+        const duplicateSuffix = duplicateIndex > 0 ? `--dup${duplicateIndex}` : '';
+        assignments[entry.originalIndex] = {
+          id: `edge--${entry.stableKey}${duplicateSuffix}`,
+          pairIndex: idx,
+          totalInPair
+        };
+      }
+    }
+
+    return backendEdges.map((edge, originalIndex) => {
+      const assignment = assignments[originalIndex] ?? {
+        id: `edge--fallback--${originalIndex}`,
+        pairIndex: 0,
+        totalInPair: 1
+      };
 
       return {
-        id: `${e.source}--${e.target}--${idx}`,
-        source: e.source,
-        target: e.target,
+        id: assignment.id,
+        source: edge.source,
+        target: edge.target,
         type: 'linkEdge',
         data: {
-          sourceInterface: e.sourceInterface,
-          targetInterface: e.targetInterface,
-          sourceEndpoint: e.sourceEndpoint,
-          targetEndpoint: e.targetEndpoint,
-          state: e.state,
-          sourceState: e.sourceState,
-          targetState: e.targetState,
-          sourceOutBps: e.sourceOutBps,
-          targetOutBps: e.targetOutBps,
-          pairIndex: idx,
-          totalInPair: total,
-          raw: e.raw,
-          rawResource: e.rawResource
+          sourceInterface: edge.sourceInterface,
+          targetInterface: edge.targetInterface,
+          sourceEndpoint: edge.sourceEndpoint,
+          targetEndpoint: edge.targetEndpoint,
+          state: edge.state,
+          sourceState: edge.sourceState,
+          targetState: edge.targetState,
+          sourceOutBps: edge.sourceOutBps,
+          targetOutBps: edge.targetOutBps,
+          pairIndex: assignment.pairIndex,
+          totalInPair: assignment.totalInPair,
+          raw: edge.raw,
+          rawResource: edge.rawResource
         }
       };
     });

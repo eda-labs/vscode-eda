@@ -1,4 +1,10 @@
-import { memo, useMemo } from 'react';
+import {
+  memo,
+  useMemo,
+  useCallback,
+  useSyncExternalStore,
+  type PointerEvent as ReactPointerEvent
+} from 'react';
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -100,7 +106,27 @@ interface InterfaceAnchorCache {
   templates: NodeInterfaceAnchorTemplateMap | null;
 }
 
+type RateLabelKey = 'source' | 'target';
+
+interface EdgeRateLabelOffsets {
+  source: Point;
+  target: Point;
+}
+
+type RateLabelOffsetSubscriber = () => void;
+
+interface GlobalRateLabelDrag {
+  edgeId: string;
+  key: RateLabelKey;
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  startOffset: Point;
+  zoom: number;
+}
+
 const HORIZONTAL_SLOPE_THRESHOLD = 0.25;
+const DEFAULT_RATE_LABEL_OFFSET: Point = { x: 0, y: 0 };
 
 let interfaceAnchorCache: InterfaceAnchorCache = {
   edgesRef: null,
@@ -109,6 +135,143 @@ let interfaceAnchorCache: InterfaceAnchorCache = {
   interfaceScale: 1,
   templates: null
 };
+
+let telemetryRateLabelOffsetCache = new Map<string, EdgeRateLabelOffsets>();
+let telemetryRateLabelOffsetSubscribers = new Set<RateLabelOffsetSubscriber>();
+let telemetryRateLabelOffsetVersion = 0;
+let activeRateLabelDrag: GlobalRateLabelDrag | null = null;
+let globalRateLabelDragHandlersInstalled = false;
+
+function clonePoint(point: Point): Point {
+  return { x: point.x, y: point.y };
+}
+
+function notifyRateLabelOffsetSubscribers(): void {
+  telemetryRateLabelOffsetVersion += 1;
+  for (const subscriber of telemetryRateLabelOffsetSubscribers) {
+    subscriber();
+  }
+}
+
+function subscribeRateLabelOffsets(subscriber: RateLabelOffsetSubscriber): () => void {
+  telemetryRateLabelOffsetSubscribers.add(subscriber);
+  return () => {
+    telemetryRateLabelOffsetSubscribers.delete(subscriber);
+  };
+}
+
+export function subscribeRateLabelDragState(subscriber: RateLabelOffsetSubscriber): () => void {
+  return subscribeRateLabelOffsets(subscriber);
+}
+
+export function getRateLabelDragStateSnapshot(): boolean {
+  return activeRateLabelDrag != null;
+}
+
+function getRateLabelOffsetVersionSnapshot(): number {
+  return telemetryRateLabelOffsetVersion;
+}
+
+function getCachedRateLabelOffset(edgeId: string, key: RateLabelKey): Point {
+  const existing = telemetryRateLabelOffsetCache.get(edgeId);
+  if (!existing) return clonePoint(DEFAULT_RATE_LABEL_OFFSET);
+  return clonePoint(existing[key]);
+}
+
+function setCachedRateLabelOffset(edgeId: string, key: RateLabelKey, offset: Point): void {
+  const existing = telemetryRateLabelOffsetCache.get(edgeId);
+  telemetryRateLabelOffsetCache.set(edgeId, {
+    source: key === 'source' ? clonePoint(offset) : clonePoint(existing?.source ?? DEFAULT_RATE_LABEL_OFFSET),
+    target: key === 'target' ? clonePoint(offset) : clonePoint(existing?.target ?? DEFAULT_RATE_LABEL_OFFSET)
+  });
+  notifyRateLabelOffsetSubscribers();
+}
+
+function getEdgeRateLabelOffsets(edgeId: string, version?: number): EdgeRateLabelOffsets {
+  void version;
+  return {
+    source: getCachedRateLabelOffset(edgeId, 'source'),
+    target: getCachedRateLabelOffset(edgeId, 'target')
+  };
+}
+
+function isRateLabelDragActive(edgeId: string, key: RateLabelKey): boolean {
+  return activeRateLabelDrag?.edgeId === edgeId && activeRateLabelDrag?.key === key;
+}
+
+function stopGlobalRateLabelDrag(pointerId?: number): void {
+  if (!activeRateLabelDrag) return;
+  if (pointerId !== undefined && activeRateLabelDrag.pointerId !== pointerId) return;
+
+  activeRateLabelDrag = null;
+  notifyRateLabelOffsetSubscribers();
+}
+
+function ensureGlobalRateLabelDragHandlers(): void {
+  if (globalRateLabelDragHandlersInstalled) return;
+  if (typeof window === 'undefined') return;
+
+  const onPointerMove = (event: PointerEvent) => {
+    const drag = activeRateLabelDrag;
+    if (!drag) return;
+    if (event.pointerId !== drag.pointerId) return;
+    if (event.pointerType !== 'touch' && event.buttons === 0) {
+      stopGlobalRateLabelDrag(event.pointerId);
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const deltaX = (event.clientX - drag.startClientX) / drag.zoom;
+    const deltaY = (event.clientY - drag.startClientY) / drag.zoom;
+    setCachedRateLabelOffset(drag.edgeId, drag.key, {
+      x: drag.startOffset.x + deltaX,
+      y: drag.startOffset.y + deltaY
+    });
+  };
+
+  const onPointerUp = (event: PointerEvent) => {
+    stopGlobalRateLabelDrag(event.pointerId);
+  };
+
+  const onPointerCancel = (event: PointerEvent) => {
+    // Keep drag active on cancel events to survive edge/label remounts during live updates.
+    if (event.pointerId !== activeRateLabelDrag?.pointerId) return;
+  };
+
+  const onWindowBlur = () => {
+    stopGlobalRateLabelDrag();
+  };
+
+  window.addEventListener('pointermove', onPointerMove, { passive: false, capture: true });
+  window.addEventListener('pointerup', onPointerUp, { capture: true });
+  window.addEventListener('pointercancel', onPointerCancel, { capture: true });
+  window.addEventListener('blur', onWindowBlur);
+  globalRateLabelDragHandlersInstalled = true;
+}
+
+function startGlobalRateLabelDrag(params: {
+  edgeId: string;
+  key: RateLabelKey;
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  startOffset: Point;
+  zoom: number;
+}): void {
+  ensureGlobalRateLabelDragHandlers();
+  stopGlobalRateLabelDrag();
+
+  const normalizedZoom = Number.isFinite(params.zoom) && params.zoom > 0 ? params.zoom : 1;
+  activeRateLabelDrag = {
+    ...params,
+    startOffset: clonePoint(params.startOffset),
+    zoom: normalizedZoom
+  };
+
+  notifyRateLabelOffsetSubscribers();
+}
 
 function getStateColor(state: string | undefined, colors: EdgeColors): string {
   if (!state) return colors.defaultStroke;
@@ -368,6 +531,14 @@ function getQuadraticPointAtRatio(
   };
 }
 
+function withOffset(point: Point | undefined, offset: Point): Point | undefined {
+  if (!point) return undefined;
+  return {
+    x: point.x + offset.x,
+    y: point.y + offset.y
+  };
+}
+
 function buildTelemetryInterfaceAnchorTemplateMap(
   edges: LinkEdge[],
   nodeLookup: NodeLookupLike,
@@ -568,6 +739,41 @@ function LinkEdgeComponent({
   const targetTemplate = targetEndpointKey != null
     ? telemetryInterfaceAnchorTemplates?.get(target)?.get(targetEndpointKey)
     : undefined;
+  const viewportZoom = useStore((state) => state.transform[2] as number);
+  const rateLabelOffsetVersion = useSyncExternalStore(
+    subscribeRateLabelOffsets,
+    getRateLabelOffsetVersionSnapshot,
+    getRateLabelOffsetVersionSnapshot
+  );
+  const rateLabelOffsets = getEdgeRateLabelOffsets(id, rateLabelOffsetVersion);
+  const sourceRateOffset = rateLabelOffsets.source;
+  const targetRateOffset = rateLabelOffsets.target;
+  const isSourceRateDragActive = isRateLabelDragActive(id, 'source');
+  const isTargetRateDragActive = isRateLabelDragActive(id, 'target');
+
+  const startRateLabelDrag = useCallback((key: RateLabelKey, event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!isTelemetryStyle) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const startOffset = key === 'source' ? sourceRateOffset : targetRateOffset;
+    startGlobalRateLabelDrag({
+      edgeId: id,
+      key,
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startOffset,
+      zoom: viewportZoom
+    });
+  }, [
+    id,
+    isTelemetryStyle,
+    sourceRateOffset,
+    targetRateOffset,
+    viewportZoom
+  ]);
 
   const edgeData = useMemo(() => {
     if (!sourceNode || !targetNode) {
@@ -685,12 +891,14 @@ function LinkEdgeComponent({
       );
     }
   }
-  const sourceRatePosition = sourceOutBpsLabel
+  const baseSourceRatePosition = sourceOutBpsLabel
     ? getQuadraticPointAtRatio(edgeData.sourceEdge, edgeData.midPoint, edgeData.targetEdge, 0.34)
     : undefined;
-  const targetRatePosition = targetOutBpsLabel
+  const baseTargetRatePosition = targetOutBpsLabel
     ? getQuadraticPointAtRatio(edgeData.sourceEdge, edgeData.midPoint, edgeData.targetEdge, 0.66)
     : undefined;
+  const sourceRatePosition = withOffset(baseSourceRatePosition, sourceRateOffset);
+  const targetRatePosition = withOffset(baseTargetRatePosition, targetRateOffset);
   const telemetryRateFontSize = Math.max(9, 9 * telemetryInterfaceScale);
   const telemetryRateTextStrokeWidth = Math.max(0.8, 0.75 * Math.max(0.6, telemetryInterfaceScale));
   const hasOverlayLabels = sourceLabelText || targetLabelText || sourceOutBpsLabel || targetOutBpsLabel;
@@ -777,16 +985,21 @@ function LinkEdgeComponent({
           )}
           {sourceOutBpsLabel && sourceRatePosition && (
             <div
+              className="nodrag nopan"
+              onPointerDown={(event) => startRateLabelDrag('source', event)}
               style={{
                 position: 'absolute',
                 transform: `translate(-50%, -50%) translate(${sourceRatePosition.x}px, ${sourceRatePosition.y}px)`,
-                pointerEvents: 'none',
+                pointerEvents: 'all',
                 color: '#ffffff',
                 fontSize: `${telemetryRateFontSize}px`,
                 fontWeight: 500,
                 whiteSpace: 'nowrap',
                 lineHeight: 1,
-                textShadow: `0 0 ${telemetryRateTextStrokeWidth}px rgba(0, 0, 0, 0.95), 0 0 ${telemetryRateTextStrokeWidth}px rgba(0, 0, 0, 0.95)`
+                textShadow: `0 0 ${telemetryRateTextStrokeWidth}px rgba(0, 0, 0, 0.95), 0 0 ${telemetryRateTextStrokeWidth}px rgba(0, 0, 0, 0.95)`,
+                userSelect: 'none',
+                touchAction: 'none',
+                cursor: isSourceRateDragActive ? 'grabbing' : 'grab'
               }}
             >
               {sourceOutBpsLabel}
@@ -794,16 +1007,21 @@ function LinkEdgeComponent({
           )}
           {targetOutBpsLabel && targetRatePosition && (
             <div
+              className="nodrag nopan"
+              onPointerDown={(event) => startRateLabelDrag('target', event)}
               style={{
                 position: 'absolute',
                 transform: `translate(-50%, -50%) translate(${targetRatePosition.x}px, ${targetRatePosition.y}px)`,
-                pointerEvents: 'none',
+                pointerEvents: 'all',
                 color: '#ffffff',
                 fontSize: `${telemetryRateFontSize}px`,
                 fontWeight: 500,
                 whiteSpace: 'nowrap',
                 lineHeight: 1,
-                textShadow: `0 0 ${telemetryRateTextStrokeWidth}px rgba(0, 0, 0, 0.95), 0 0 ${telemetryRateTextStrokeWidth}px rgba(0, 0, 0, 0.95)`
+                textShadow: `0 0 ${telemetryRateTextStrokeWidth}px rgba(0, 0, 0, 0.95), 0 0 ${telemetryRateTextStrokeWidth}px rgba(0, 0, 0, 0.95)`,
+                userSelect: 'none',
+                touchAction: 'none',
+                cursor: isTargetRateDragActive ? 'grabbing' : 'grab'
               }}
             >
               {targetOutBpsLabel}
