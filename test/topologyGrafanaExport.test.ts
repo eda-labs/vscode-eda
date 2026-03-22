@@ -92,6 +92,30 @@ describe('topology grafana export helpers', () => {
     expect(yamlNoTags).to.not.contain('tags: ["hide-rates"]');
   });
 
+  it('normalizes dataRef names for namespaced nodes and ethernet endpoint format', () => {
+    const mappings = [
+      {
+        edgeId: 'edge-a',
+        source: 'eda-telemetry/spine1',
+        sourceEndpoint: 'ethernet-1-1',
+        target: 'eda-telemetry/leaf1',
+        targetEndpoint: 'ethernet-1-49',
+        operstateCellId: 'eda-telemetry/spine1:ethernet-1-1',
+        targetOperstateCellId: 'eda-telemetry/leaf1:ethernet-1-49',
+        trafficCellId: 'link_id:eda-telemetry/spine1:ethernet-1-1:eda-telemetry/leaf1:ethernet-1-49',
+        reverseTrafficCellId: 'link_id:eda-telemetry/leaf1:ethernet-1-49:eda-telemetry/spine1:ethernet-1-1'
+      }
+    ];
+
+    const yaml = buildGrafanaPanelYaml(mappings);
+    expect(yaml).to.contain('dataRef: "oper-state:spine1:ethernet-1/1"');
+    expect(yaml).to.contain('dataRef: "oper-state:leaf1:ethernet-1/49"');
+    expect(yaml).to.contain('dataRef: "spine1:ethernet-1/1:out"');
+    expect(yaml).to.contain('dataRef: "leaf1:ethernet-1/49:out"');
+    expect(yaml).to.contain('"eda-telemetry/spine1:ethernet-1-1":');
+    expect(yaml).to.contain('"link_id:eda-telemetry/spine1:ethernet-1-1:eda-telemetry/leaf1:ethernet-1-49":');
+  });
+
   it('builds dashboard json with embedded panel yaml and svg', () => {
     const panelConfig = 'cells:\n  {}\n';
     const svg = '<svg><g id="cell-test"></g></svg>';
@@ -99,12 +123,38 @@ describe('topology grafana export helpers', () => {
     const json = buildGrafanaDashboardJson(panelConfig, svg, 'Lab A');
     const parsed = JSON.parse(json) as {
       title: string;
-      panels: Array<{ options: { panelConfig: string; svg: string } }>;
+      panels: Array<{
+        options: { panelConfig: string; svg: string };
+        targets: Array<{ expr: string }>;
+      }>;
     };
 
     expect(parsed.title).to.equal('Lab A');
     expect(parsed.panels[0].options.panelConfig).to.equal(panelConfig);
     expect(parsed.panels[0].options.svg).to.equal(svg);
+    expect(parsed.panels[0].targets[1].expr)
+      .to.equal('last_over_time(node_srl_interface_traffic_rate_out_bps[20s])');
+    expect(parsed.panels[0].targets[2].expr)
+      .to.equal('last_over_time(node_srl_interface_traffic_rate_in_bps[20s])');
+  });
+
+  it('embeds selected namespace into dashboard traffic queries', () => {
+    const panelConfig = 'cells:\n  {}\n';
+    const svg = '<svg><g id="cell-test"></g></svg>';
+
+    const json = buildGrafanaDashboardJson(panelConfig, svg, 'Lab A', {
+      namespaceName: 'eda-telemetry'
+    });
+    const parsed = JSON.parse(json) as {
+      panels: Array<{
+        targets: Array<{ expr: string }>;
+      }>;
+    };
+
+    expect(parsed.panels[0].targets[1].expr)
+      .to.equal('last_over_time(node_srl_interface_traffic_rate_out_bps{namespace_name="eda-telemetry"}[20s])');
+    expect(parsed.panels[0].targets[2].expr)
+      .to.equal('last_over_time(node_srl_interface_traffic_rate_in_bps{namespace_name="eda-telemetry"}[20s])');
   });
 
   it('sanitizes text-shadow filter usage and removes unlinked nodes', () => {

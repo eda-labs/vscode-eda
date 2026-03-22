@@ -6,7 +6,7 @@
   "description": "Manage and monitor Nokia EDA (Event Driven Automation) resources via the EDA API",
   "author": "EDA Labs",
   "homepage": "https://docs.eda.dev/",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "engines": {
     "vscode": "^1.99.0"
   },
@@ -553,19 +553,19 @@
     "mocha": "^11.7.5",
     "mochawesome": "^7.1.4",
     "openapi-typescript": "^7.13.0",
-    "oxlint": "^1.55.0",
+    "oxlint": "^1.56.0",
     "prettier": "^3.8.1",
-    "sinon": "^21.0.2",
+    "sinon": "^21.0.3",
     "ts-loader": "^9.5.4",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
-    "undici": "^7.24.1",
-    "undici-types": "^7.24.1",
+    "undici": "^7.24.5",
+    "undici-types": "^7.24.5",
     "utf-8-validate": "^6.0.6",
-    "vite": "^8.0.0",
+    "vite": "^8.0.1",
     "webpack": "^5.105.4",
-    "webpack-cli": "^7.0.0",
-    "ws": "^8.19.0"
+    "webpack-cli": "^7.0.2",
+    "ws": "^8.20.0"
   },
   "dependencies": {
     "@eda-labs/topo-builder": "https://codeload.github.com/eda-labs/topo-builder/tar.gz/0c3809627010e70b42374a3b602412570231086f",
@@ -573,14 +573,14 @@
     "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^7.3.9",
     "@mui/material": "^7.3.9",
-    "@mui/x-charts": "^8.27.5",
-    "@mui/x-data-grid": "^8.27.5",
+    "@mui/x-charts": "^8.28.0",
+    "@mui/x-data-grid": "^8.28.0",
     "@mui/x-tree-view": "^8.27.2",
     "@xyflow/react": "^12.10.1",
     "bezier-js": "^6.1.4",
     "html-to-image": "^1.11.13",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "yaml": "^2.8.2"
+    "yaml": "^2.8.3"
   }
 }

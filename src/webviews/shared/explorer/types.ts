@@ -59,6 +59,8 @@ export interface ExplorerNamespaceStateMessage {
   command: 'namespaceState';
   namespace: string;
   namespaces?: string[];
+  edaNamespaces?: string[];
+  k8sNamespaces?: string[];
 }
 
 export interface ExplorerErrorMessage {

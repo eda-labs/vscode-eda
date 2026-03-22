@@ -72,6 +72,41 @@ describe('EdaApiClient token refresh', () => {
     expect(fetchStub.calledOnce).to.be.true;
   });
 
+  it('lists namespaces from the EDA core namespaces endpoint', async () => {
+    fetchStub.returns(
+      mockResponse(200, {
+        namespaces: [
+          { name: 'fabric-b' },
+          { name: 'fabric-a' }
+        ]
+      })
+    );
+
+    const client = new EdaApiClient(authClient);
+    const namespaces = await client.listNamespaces();
+
+    expect(namespaces).to.deep.equal(['fabric-a', 'fabric-b']);
+    expect(fetchStub.calledOnce).to.equal(true);
+    expect(fetchStub.firstCall.args[0]).to.equal('https://api/apps/core.eda.nokia.com/v1/namespaces');
+  });
+
+  it('parses namespace entries from both namespaces and items payload fields', async () => {
+    fetchStub.returns(
+      mockResponse(200, {
+        namespaces: [{ name: 'fabric-a' }],
+        items: [
+          { metadata: { name: 'fabric-c' } },
+          { metadata: { name: 'fabric-b' } }
+        ]
+      })
+    );
+
+    const client = new EdaApiClient(authClient);
+    const namespaces = await client.listNamespaces();
+
+    expect(namespaces).to.deep.equal(['fabric-a', 'fabric-b', 'fabric-c']);
+  });
+
   it('fetches transaction details using v2 endpoints', async () => {
     const specManager = {
       getPathByOperationId: sinon.stub()

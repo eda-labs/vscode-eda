@@ -44,7 +44,7 @@ export function parseLabelLine(line: string): ParsedLabel {
 
 export function parseLabelsText(value: string): ParsedLabel[] {
   const lines = value
-    .split(/\r?\n/)
+    .split(/\r?\n|,\s*/)
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
   return lines.map((line) => parseLabelLine(line));

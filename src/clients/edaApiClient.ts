@@ -26,6 +26,7 @@ const CRD_PATH_PATTERN = /^\/apps\/([^/]+)\/([^/]+)(?:\/namespaces\/\{[^}]+\})?\
 const DB_KEY_NAME_PATTERN = /\{\.name=="([^"]+)"\}/g;
 const DB_MINIMAL_RESOURCE_FIELDS = 'apiVersion,kind,metadata.name,metadata.namespace';
 const CORE_API_GROUP = 'core';
+const EDA_NAMESPACES_PATH = '/apps/core.eda.nokia.com/v1/namespaces';
 
 // Type definitions for API responses
 
@@ -58,6 +59,15 @@ export interface K8sResourceList<T = K8sResource> {
     resourceVersion?: string;
     [key: string]: unknown;
   };
+}
+
+interface NamespaceData {
+  name?: string;
+}
+
+interface EdaNamespaceResponse {
+  namespaces?: NamespaceData[];
+  items?: K8sResource[];
 }
 
 /** Transaction summary result list */
@@ -1880,15 +1890,25 @@ export class EdaApiClient {
    * List available namespaces from the API server.
    */
   public async listNamespaces(): Promise<string[]> {
-    const data = await this.fetchJSON<K8sResourceList>('/api/v1/namespaces');
-    const items = Array.isArray(data.items) ? data.items : [];
+    const data = await this.fetchJSON<EdaNamespaceResponse>(EDA_NAMESPACES_PATH);
     const namespaces = new Set<string>();
-    for (const item of items) {
-      const name = item.metadata?.name;
+
+    const namespaceEntries = Array.isArray(data.namespaces) ? data.namespaces : [];
+    for (const entry of namespaceEntries) {
+      const name = entry?.name;
       if (typeof name === 'string' && name.length > 0) {
         namespaces.add(name);
       }
     }
+
+    const items = Array.isArray(data.items) ? data.items : [];
+    for (const item of items) {
+      const name = item.metadata?.name ?? (item as { name?: string }).name;
+      if (typeof name === 'string' && name.length > 0) {
+        namespaces.add(name);
+      }
+    }
+
     return Array.from(namespaces).sort((a, b) => a.localeCompare(b));
   }
 

@@ -1,4 +1,13 @@
-import { useCallback, useMemo, useEffect, forwardRef, useImperativeHandle } from 'react';
+import {
+  useCallback,
+  useMemo,
+  useEffect,
+  useRef,
+  useSyncExternalStore,
+  forwardRef,
+  useImperativeHandle,
+  type MouseEvent as ReactMouseEvent
+} from 'react';
 import {
   ReactFlow,
   Controls,
@@ -12,18 +21,36 @@ import {
   type ColorMode,
   type NodeMouseHandler,
   type EdgeMouseHandler,
+  type OnSelectionChangeFunc,
 } from '@xyflow/react';
 import { useTheme, type Theme } from '@mui/material/styles';
 
 import DeviceNode, { type TopologyNode, type TopologyNodeData } from './nodes/DeviceNode';
 import NamespaceLabelNodeComponent, { type NamespaceLabelNode } from './nodes/NamespaceLabelNode';
-import LinkEdgeComponent, { type LinkEdge, type LinkEdgeData } from './edges/LinkEdge';
-import { getNodeIconSvgPathData } from './nodes/icons';
+import LinkEdgeComponent, {
+  getRateLabelOffsetSnapshot,
+  getRateLabelTransform,
+  getRateLabelDragStateSnapshot,
+  setRateLabelRotation,
+  shouldSuppressTopologySelection,
+  subscribeRateLabelDragState,
+  type TelemetryRateLabelKey,
+  type TelemetryRateLabelSelection,
+  type EdgeRateLabelTransform,
+  type EdgeRateLabelOffsetSnapshot,
+  type LinkEdge,
+  type LinkEdgeData
+} from './edges/LinkEdge';
+import { getNodeIconSvgPathDataForNode } from './nodes/icons';
 import { getNodeEdgePoint, createBezierPath, LABEL_OFFSET } from './geometry';
 import {
+  clampTelemetryInterfaceScale,
+  clampTelemetryNodeSizePx,
+  getAutoCompactInterfaceLabel
+} from './telemetryAppearance';
+import {
   type NodePositionMap,
-  normalizeNodePositionMap,
-  topologyNodeIdToName
+  normalizeNodePositionMap
 } from './topologyPositionUtils';
 
 export type FlowNode = TopologyNode | NamespaceLabelNode;
@@ -47,14 +74,30 @@ interface TopologyFlowProps {
   readonly edges: LinkEdge[];
   readonly onNodeSelect?: (node: TopologyNode) => void;
   readonly onEdgeSelect?: (edge: LinkEdge) => void;
+  readonly onSelectionChange?: (selection: TopologyFlowSelectionChange) => void;
+  readonly onTelemetryRateLabelSelect?: (selection: TelemetryRateLabelSelection | null) => void;
+  readonly onTelemetryRateLabelTransformChange?: (
+    selection: TelemetryRateLabelSelection,
+    transform: EdgeRateLabelTransform
+  ) => void;
   readonly onNodeDoubleClick?: (node: TopologyNode) => void;
   readonly onBackgroundClick?: () => void;
   readonly colorMode?: ColorMode;
   readonly labelMode?: 'hide' | 'show' | 'select';
   readonly nodeLabelMode?: NodeLabelRenderMode;
+  readonly appearanceMode?: 'default' | 'telemetry';
+  readonly telemetryNodeSizePx?: number;
+  readonly telemetryInterfaceScale?: number;
   readonly selectedNodeId?: string | null;
   readonly selectedEdgeId?: string | null;
+  readonly selectedNodeIds?: readonly string[];
+  readonly selectedTelemetryRateLabel?: TelemetryRateLabelSelection | null;
   readonly onDevicePositionsChange?: (positions: NodePositionMap) => void;
+}
+
+export interface TopologyFlowSelectionChange {
+  nodeIds: string[];
+  edgeIds: string[];
 }
 
 export interface TopologySvgExportResult {
@@ -67,6 +110,16 @@ export interface TopologyFlowRef {
   exportImage: (options: ExportOptions) => Promise<void>;
   buildSvgExport: (options: ExportOptions) => Promise<TopologySvgExportResult | null>;
   getDeviceNodePositions: () => NodePositionMap;
+  getTelemetryRateLabelOffsets: () => EdgeRateLabelOffsetSnapshot;
+  getTelemetryRateLabelTransform: (
+    edgeId: string,
+    key: TelemetryRateLabelKey
+  ) => EdgeRateLabelTransform;
+  setTelemetryRateLabelRotation: (
+    edgeId: string,
+    key: TelemetryRateLabelKey,
+    rotationDeg: number
+  ) => void;
 }
 
 export interface ExportOptions {
@@ -126,6 +179,22 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function normalizeHexColor(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed : undefined;
+}
+
+function getContrastingIconColor(hexColor: string): string {
+  const red = Number.parseInt(hexColor.slice(1, 3), 16);
+  const green = Number.parseInt(hexColor.slice(3, 5), 16);
+  const blue = Number.parseInt(hexColor.slice(5, 7), 16);
+  const brightness = (0.299 * red + 0.587 * green + 0.114 * blue) / 255;
+  return brightness > 0.62 ? '#1f2937' : '#ffffff';
+}
+
 function getNumericOption(value: unknown, fallback: number, min: number, max: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
   return clamp(value, min, max);
@@ -173,24 +242,23 @@ const NODE_LABEL = {
   textStrokeWidth: 0.8
 } as const;
 
-function getAutoCompactInterfaceLabel(endpoint: string): string {
-  const trimmed = endpoint.trim();
-  if (!trimmed) return '';
+function asNonEmptyTrimmed(value: string | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
 
-  let end = trimmed.length - 1;
-  while (end >= 0 && (trimmed[end] < '0' || trimmed[end] > '9')) {
-    end -= 1;
-  }
-  if (end >= 0) {
-    let start = end;
-    while (start >= 0 && trimmed[start] >= '0' && trimmed[start] <= '9') {
-      start -= 1;
-    }
-    return trimmed.slice(start + 1, end + 1);
-  }
+function getCompactEndpointLabel(endpointKey: string): string | null {
+  const compact = getAutoCompactInterfaceLabel(endpointKey);
+  return compact.length > 0 ? compact : null;
+}
 
-  const token = trimmed.split(/[:/.-]/).filter((part) => part.length > 0).pop() ?? trimmed;
-  return token.length <= 3 ? token : token.slice(-3);
+function resolveInterfaceOverrideLabel(
+  endpointKey: string | null,
+  options: ExportOptions
+): string | null {
+  if (endpointKey == null) return null;
+  return asNonEmptyTrimmed(options.interfaceLabelOverrides?.[endpointKey]);
 }
 
 function resolveLabelText(
@@ -198,36 +266,47 @@ function resolveLabelText(
   compactLabel: string | undefined,
   options: ExportOptions
 ): string | undefined {
-  const endpointKey = endpoint?.trim();
-  const override =
-    endpointKey != null && endpointKey.length > 0
-      ? options.interfaceLabelOverrides?.[endpointKey]?.trim()
-      : undefined;
-  if (override != null && override.length > 0) {
-    return override;
+  const endpointKey = asNonEmptyTrimmed(endpoint);
+  const override = resolveInterfaceOverrideLabel(endpointKey, options);
+  if (override !== null) return override;
+
+  if (options.preferFullInterfaceLabels && endpointKey !== null) return endpointKey;
+
+  if (options.nodeProximateLabels && endpointKey !== null) {
+    const compact = getCompactEndpointLabel(endpointKey);
+    if (compact !== null) return compact;
   }
 
-  if (options.preferFullInterfaceLabels && endpointKey != null && endpointKey.length > 0) {
-    return endpointKey;
-  }
+  const fallback = asNonEmptyTrimmed(compactLabel);
+  if (fallback !== null) return fallback;
+  if (endpointKey === null) return undefined;
 
-  if (options.nodeProximateLabels && endpointKey != null && endpointKey.length > 0) {
-    const compact = getAutoCompactInterfaceLabel(endpointKey);
-    if (compact.length > 0) return compact;
-  }
+  return getCompactEndpointLabel(endpointKey) ?? endpointKey;
+}
 
-  const fallback = compactLabel?.trim();
-  if (fallback != null && fallback.length > 0) {
-    return fallback;
+function matchesNodeTierMode(mode: NodeLabelRenderMode, tier: number): boolean {
+  switch (mode) {
+    case 'tier1-name':
+      return tier === 1;
+    case 'tier2-name':
+      return tier === 2;
+    case 'tier3-name':
+      return tier === 3;
+    default:
+      return true;
   }
+}
 
-  if (endpointKey != null && endpointKey.length > 0) {
-    const compact = getAutoCompactInterfaceLabel(endpointKey);
-    if (compact.length > 0) return compact;
-    return endpointKey;
-  }
-
-  return undefined;
+function resolveNodeLabelByMode(
+  mode: NodeLabelRenderMode,
+  nodeId: string,
+  name: string,
+  role: string | undefined
+): string {
+  if (mode === 'all-id') return nodeId;
+  if (mode === 'all-role' && role != null && role.length > 0) return role;
+  if (mode === 'all-name-role' && role != null && role.length > 0) return `${name} (${role})`;
+  return name;
 }
 
 function resolveDeviceNodeLabel(
@@ -235,36 +314,12 @@ function resolveDeviceNodeLabel(
   data: TopologyNodeData,
   mode: NodeLabelRenderMode
 ): string | null {
-  if (mode === 'none') {
-    return null;
-  }
+  if (mode === 'none') return null;
 
   const tier = data.tier ?? 1;
-  if (mode === 'tier1-name' && tier !== 1) {
-    return null;
-  }
-  if (mode === 'tier2-name' && tier !== 2) {
-    return null;
-  }
-  if (mode === 'tier3-name' && tier !== 3) {
-    return null;
-  }
+  if (!matchesNodeTierMode(mode, tier)) return null;
 
-  const name = data.label;
-  const role = data.role?.trim();
-  switch (mode) {
-    case 'all-role':
-      return role != null && role.length > 0 ? role : name;
-    case 'all-name-role':
-      return role != null && role.length > 0 ? `${name} (${role})` : name;
-    case 'all-id':
-      return nodeId;
-    case 'all-name':
-    case 'tier1-name':
-    case 'tier2-name':
-    case 'tier3-name':
-      return name;
-  }
+  return resolveNodeLabelByMode(mode, nodeId, data.label, asNonEmptyTrimmed(data.role) ?? undefined);
 }
 
 interface EdgeLabelMetrics {
@@ -435,6 +490,82 @@ function addEndpointVector(
   nodeVectors.set(endpoint, existing);
 }
 
+function buildInterfaceAnchorVectorMaps(
+  edges: LinkEdge[],
+  nodePositions: Map<string, { x: number; y: number }>,
+  nodeSize: number
+): {
+  endpointsByNode: Map<string, Set<string>>;
+  vectorsByNode: Map<string, Map<string, EndpointVector>>;
+} {
+  const endpointsByNode = new Map<string, Set<string>>();
+  const vectorsByNode = new Map<string, Map<string, EndpointVector>>();
+
+  for (const edge of edges) {
+    const sourceEndpoint = resolveInterfaceEndpointKey(edge.data?.sourceEndpoint, edge.data?.sourceInterface);
+    const targetEndpoint = resolveInterfaceEndpointKey(edge.data?.targetEndpoint, edge.data?.targetInterface);
+    trackNodeEndpoint(endpointsByNode, edge.source, sourceEndpoint);
+    trackNodeEndpoint(endpointsByNode, edge.target, targetEndpoint);
+    if (sourceEndpoint === null && targetEndpoint === null) continue;
+    if (edge.source === edge.target) continue;
+
+    const sourcePosition = nodePositions.get(edge.source);
+    const targetPosition = nodePositions.get(edge.target);
+    if (!sourcePosition || !targetPosition) continue;
+
+    const sourceCenter = getRectCenter(getNodeRect(sourcePosition, nodeSize));
+    const targetCenter = getRectCenter(getNodeRect(targetPosition, nodeSize));
+    const forwardDx = targetCenter.x - sourceCenter.x;
+    const forwardDy = targetCenter.y - sourceCenter.y;
+
+    if (sourceEndpoint !== null) {
+      addEndpointVector(vectorsByNode, edge.source, sourceEndpoint, forwardDx, forwardDy);
+    }
+    if (targetEndpoint !== null) {
+      addEndpointVector(vectorsByNode, edge.target, targetEndpoint, -forwardDx, -forwardDy);
+    }
+  }
+
+  return { endpointsByNode, vectorsByNode };
+}
+
+function buildEndpointAnchorMapForNode(
+  endpoints: Set<string>,
+  rect: NodeRect,
+  nodeVectors: Map<string, EndpointVector> | undefined,
+  interfaceScale: number,
+  options: ExportOptions
+): Map<string, InterfaceAnchor> {
+  const buckets: Record<InterfaceSide, EndpointAssignment[]> = {
+    top: [],
+    right: [],
+    bottom: [],
+    left: []
+  };
+
+  for (const endpoint of endpoints) {
+    const side = classifyInterfaceSide(nodeVectors?.get(endpoint));
+    const sortKey = getInterfaceSortKey(side, nodeVectors?.get(endpoint));
+    const label = resolveLabelText(endpoint, undefined, options) ?? endpoint;
+    const { radius } = getEndpointLabelMetrics(label, interfaceScale);
+    buckets[side].push({ endpoint, sortKey, radius });
+  }
+
+  const endpointAnchors = new Map<string, InterfaceAnchor>();
+  for (const side of ['top', 'right', 'bottom', 'left'] as const) {
+    sortEndpointAssignments(buckets[side]);
+    for (let idx = 0; idx < buckets[side].length; idx++) {
+      const assignment = buckets[side][idx];
+      endpointAnchors.set(
+        assignment.endpoint,
+        positionInterfaceAnchor(rect, side, idx, buckets[side].length, assignment.radius)
+      );
+    }
+  }
+
+  return endpointAnchors;
+}
+
 function classifyInterfaceSide(vector: EndpointVector | undefined): InterfaceSide {
   if (!vector || vector.samples <= 0) return 'bottom';
 
@@ -494,71 +625,21 @@ function buildInterfaceAnchorMap(
   interfaceScale: number,
   options: ExportOptions
 ): NodeInterfaceAnchorMap {
-  const endpointsByNode = new Map<string, Set<string>>();
-  const vectorsByNode = new Map<string, Map<string, EndpointVector>>();
-
-  for (const edge of edges) {
-    const sourceEndpoint = resolveInterfaceEndpointKey(edge.data?.sourceEndpoint, edge.data?.sourceInterface);
-    const targetEndpoint = resolveInterfaceEndpointKey(edge.data?.targetEndpoint, edge.data?.targetInterface);
-    trackNodeEndpoint(endpointsByNode, edge.source, sourceEndpoint);
-    trackNodeEndpoint(endpointsByNode, edge.target, targetEndpoint);
-
-    if (sourceEndpoint === null && targetEndpoint === null) continue;
-    if (edge.source === edge.target) continue;
-
-    const sourcePosition = nodePositions.get(edge.source);
-    const targetPosition = nodePositions.get(edge.target);
-    if (!sourcePosition || !targetPosition) continue;
-
-    const sourceCenter = getRectCenter(getNodeRect(sourcePosition, nodeSize));
-    const targetCenter = getRectCenter(getNodeRect(targetPosition, nodeSize));
-    const forwardDx = targetCenter.x - sourceCenter.x;
-    const forwardDy = targetCenter.y - sourceCenter.y;
-
-    if (sourceEndpoint !== null) {
-      addEndpointVector(vectorsByNode, edge.source, sourceEndpoint, forwardDx, forwardDy);
-    }
-    if (targetEndpoint !== null) {
-      addEndpointVector(vectorsByNode, edge.target, targetEndpoint, -forwardDx, -forwardDy);
-    }
-  }
+  const { endpointsByNode, vectorsByNode } = buildInterfaceAnchorVectorMaps(edges, nodePositions, nodeSize);
 
   const anchorsByNode: NodeInterfaceAnchorMap = new Map();
-  const sides: readonly InterfaceSide[] = ['top', 'right', 'bottom', 'left'];
-
   for (const [nodeId, endpoints] of endpointsByNode) {
     const nodePosition = nodePositions.get(nodeId);
     if (!nodePosition) continue;
 
     const rect = getNodeRect(nodePosition, nodeSize);
-    const nodeVectors = vectorsByNode.get(nodeId);
-    const buckets: Record<InterfaceSide, EndpointAssignment[]> = {
-      top: [],
-      right: [],
-      bottom: [],
-      left: []
-    };
-
-    for (const endpoint of endpoints) {
-      const side = classifyInterfaceSide(nodeVectors?.get(endpoint));
-      const sortKey = getInterfaceSortKey(side, nodeVectors?.get(endpoint));
-      const label = resolveLabelText(endpoint, undefined, options) ?? endpoint;
-      const { radius } = getEndpointLabelMetrics(label, interfaceScale);
-      buckets[side].push({ endpoint, sortKey, radius });
-    }
-
-    const endpointAnchors = new Map<string, InterfaceAnchor>();
-    for (const side of sides) {
-      sortEndpointAssignments(buckets[side]);
-      for (let idx = 0; idx < buckets[side].length; idx++) {
-        const assignment = buckets[side][idx];
-        endpointAnchors.set(
-          assignment.endpoint,
-          positionInterfaceAnchor(rect, side, idx, buckets[side].length, assignment.radius)
-        );
-      }
-    }
-
+    const endpointAnchors = buildEndpointAnchorMapForNode(
+      endpoints,
+      rect,
+      vectorsByNode.get(nodeId),
+      interfaceScale,
+      options
+    );
     anchorsByNode.set(nodeId, endpointAnchors);
   }
 
@@ -618,6 +699,212 @@ function getLabelOffsetForEndpoint(
   return radius + 1;
 }
 
+interface ResolvedEdgeSvgData {
+  points: { sx: number; sy: number; tx: number; ty: number };
+  bezier: ReturnType<typeof createBezierPath>;
+  nodeProximateLabels: boolean;
+  sourceAnchor: InterfaceAnchor | undefined;
+  targetAnchor: InterfaceAnchor | undefined;
+  sourceEndpointRaw: string | undefined;
+  targetEndpointRaw: string | undefined;
+  sourceInterfaceRaw: string | undefined;
+  targetInterfaceRaw: string | undefined;
+  sourceEndpointKey: string | null;
+  targetEndpointKey: string | null;
+  sourceLabel: string | undefined;
+  targetLabel: string | undefined;
+  sourceLabelMetrics: EdgeLabelMetrics | null;
+  targetLabelMetrics: EdgeLabelMetrics | null;
+}
+
+interface EdgeEndpointInfo {
+  sourceEndpointRaw: string | undefined;
+  targetEndpointRaw: string | undefined;
+  sourceInterfaceRaw: string | undefined;
+  targetInterfaceRaw: string | undefined;
+  sourceEndpointKey: string | null;
+  targetEndpointKey: string | null;
+}
+
+interface EdgeAnchorInfo {
+  nodeProximateLabels: boolean;
+  sourceAnchor: InterfaceAnchor | undefined;
+  targetAnchor: InterfaceAnchor | undefined;
+}
+
+function resolveEdgeEndpointInfo(edge: LinkEdge): EdgeEndpointInfo {
+  const sourceEndpointRaw = edge.data?.sourceEndpoint;
+  const targetEndpointRaw = edge.data?.targetEndpoint;
+  const sourceInterfaceRaw = edge.data?.sourceInterface;
+  const targetInterfaceRaw = edge.data?.targetInterface;
+
+  return {
+    sourceEndpointRaw,
+    targetEndpointRaw,
+    sourceInterfaceRaw,
+    targetInterfaceRaw,
+    sourceEndpointKey: resolveInterfaceEndpointKey(sourceEndpointRaw, sourceInterfaceRaw),
+    targetEndpointKey: resolveInterfaceEndpointKey(targetEndpointRaw, targetInterfaceRaw)
+  };
+}
+
+function resolveEdgeAnchorInfo(
+  edge: LinkEdge,
+  interfaceAnchors: NodeInterfaceAnchorMap | undefined,
+  endpointInfo: EdgeEndpointInfo,
+  options: ExportOptions
+): EdgeAnchorInfo {
+  const nodeProximateLabels = options.nodeProximateLabels === true;
+  if (!nodeProximateLabels) {
+    return {
+      nodeProximateLabels,
+      sourceAnchor: undefined,
+      targetAnchor: undefined
+    };
+  }
+
+  return {
+    nodeProximateLabels,
+    sourceAnchor: endpointInfo.sourceEndpointKey !== null
+      ? interfaceAnchors?.get(edge.source)?.get(endpointInfo.sourceEndpointKey)
+      : undefined,
+    targetAnchor: endpointInfo.targetEndpointKey !== null
+      ? interfaceAnchors?.get(edge.target)?.get(endpointInfo.targetEndpointKey)
+      : undefined
+  };
+}
+
+function resolveEdgeLabelMetrics(
+  endpointInfo: EdgeEndpointInfo,
+  options: ExportOptions,
+  interfaceScale: number
+): {
+  sourceLabel: string | undefined;
+  targetLabel: string | undefined;
+  sourceLabelMetrics: EdgeLabelMetrics | null;
+  targetLabelMetrics: EdgeLabelMetrics | null;
+} {
+  const sourceLabel = resolveLabelText(endpointInfo.sourceEndpointRaw, endpointInfo.sourceInterfaceRaw, options);
+  const targetLabel = resolveLabelText(endpointInfo.targetEndpointRaw, endpointInfo.targetInterfaceRaw, options);
+
+  return {
+    sourceLabel,
+    targetLabel,
+    sourceLabelMetrics: sourceLabel ? getEndpointLabelMetrics(sourceLabel, interfaceScale) : null,
+    targetLabelMetrics: targetLabel ? getEndpointLabelMetrics(targetLabel, interfaceScale) : null
+  };
+}
+
+function resolveEdgeSvgData(
+  edge: LinkEdge,
+  nodePositions: Map<string, { x: number; y: number }>,
+  interfaceAnchors: NodeInterfaceAnchorMap | undefined,
+  nodeSize: number,
+  options: ExportOptions,
+  interfaceScale: number
+): ResolvedEdgeSvgData | null {
+  const sourcePos = nodePositions.get(edge.source);
+  const targetPos = nodePositions.get(edge.target);
+  if (!sourcePos || !targetPos) return null;
+
+  const endpointInfo = resolveEdgeEndpointInfo(edge);
+  const anchorInfo = resolveEdgeAnchorInfo(edge, interfaceAnchors, endpointInfo, options);
+  const labelInfo = resolveEdgeLabelMetrics(endpointInfo, options, interfaceScale);
+  const pairIndex = edge.data?.pairIndex ?? 0;
+  const totalInPair = edge.data?.totalInPair ?? 1;
+  const sourceRect = getNodeRect(sourcePos, nodeSize);
+  const targetRect = getNodeRect(targetPos, nodeSize);
+  const points = resolveEdgePointsWithInterfaceAnchors(
+    sourceRect,
+    targetRect,
+    anchorInfo.sourceAnchor,
+    anchorInfo.targetAnchor
+  );
+  const sourceEdge = { x: points.sx, y: points.sy };
+  const targetEdge = { x: points.tx, y: points.ty };
+  const bezier = createBezierPath(sourceEdge, targetEdge, pairIndex, totalInPair);
+
+  return {
+    points,
+    bezier,
+    nodeProximateLabels: anchorInfo.nodeProximateLabels,
+    sourceAnchor: anchorInfo.sourceAnchor,
+    targetAnchor: anchorInfo.targetAnchor,
+    sourceEndpointRaw: endpointInfo.sourceEndpointRaw,
+    targetEndpointRaw: endpointInfo.targetEndpointRaw,
+    sourceInterfaceRaw: endpointInfo.sourceInterfaceRaw,
+    targetInterfaceRaw: endpointInfo.targetInterfaceRaw,
+    sourceEndpointKey: endpointInfo.sourceEndpointKey,
+    targetEndpointKey: endpointInfo.targetEndpointKey,
+    sourceLabel: labelInfo.sourceLabel,
+    targetLabel: labelInfo.targetLabel,
+    sourceLabelMetrics: labelInfo.sourceLabelMetrics,
+    targetLabelMetrics: labelInfo.targetLabelMetrics
+  };
+}
+
+function resolveEdgeEndpointLabelPosition(
+  edgeData: ResolvedEdgeSvgData,
+  endpoint: 'source' | 'target',
+  interfaceScale: number,
+  options: ExportOptions
+): { x: number; y: number } {
+  if (edgeData.nodeProximateLabels && edgeData.sourceAnchor && edgeData.targetAnchor) {
+    return endpoint === 'source' ? edgeData.sourceAnchor : edgeData.targetAnchor;
+  }
+
+  const controlPoint = edgeData.bezier.midPoint;
+  if (endpoint === 'source') {
+    return getEdgeLabelPosition(
+      edgeData.points.sx,
+      edgeData.points.sy,
+      edgeData.points.tx,
+      edgeData.points.ty,
+      getLabelOffsetForEndpoint(
+        edgeData.sourceEndpointKey,
+        edgeData.nodeProximateLabels,
+        interfaceScale,
+        options
+      ),
+      controlPoint
+    );
+  }
+
+  return getEdgeLabelPosition(
+    edgeData.points.tx,
+    edgeData.points.ty,
+    edgeData.points.sx,
+    edgeData.points.sy,
+    getLabelOffsetForEndpoint(
+      edgeData.targetEndpointKey,
+      edgeData.nodeProximateLabels,
+      interfaceScale,
+      options
+    ),
+    controlPoint
+  );
+}
+
+function appendEdgeLabelSvg(
+  svg: string,
+  edgeData: ResolvedEdgeSvgData,
+  endpoint: 'source' | 'target',
+  includeLabels: boolean,
+  interfaceScale: number,
+  options: ExportOptions
+): string {
+  const label = endpoint === 'source' ? edgeData.sourceLabel : edgeData.targetLabel;
+  const metrics = endpoint === 'source' ? edgeData.sourceLabelMetrics : edgeData.targetLabelMetrics;
+  if (!includeLabels || label == null || metrics == null) return svg;
+
+  const position = resolveEdgeEndpointLabelPosition(edgeData, endpoint, interfaceScale, options);
+  const rawEndpoint = endpoint === 'source'
+    ? edgeData.sourceEndpointRaw ?? edgeData.sourceInterfaceRaw
+    : edgeData.targetEndpointRaw ?? edgeData.targetInterfaceRaw;
+
+  return svg + createEdgeLabelSvg(position.x, position.y, label, rawEndpoint, metrics);
+}
+
 function generateEdgeSvg(
   edge: LinkEdge,
   nodePositions: Map<string, { x: number; y: number }>,
@@ -628,81 +915,22 @@ function generateEdgeSvg(
   options: ExportOptions,
   interfaceScale: number
 ): string {
-  const sourcePos = nodePositions.get(edge.source);
-  const targetPos = nodePositions.get(edge.target);
-  if (!sourcePos || !targetPos) return '';
+  const edgeData = resolveEdgeSvgData(
+    edge,
+    nodePositions,
+    interfaceAnchors,
+    nodeSize,
+    options,
+    interfaceScale
+  );
+  if (edgeData == null) return '';
 
-  const pairIndex = edge.data?.pairIndex ?? 0;
-  const totalInPair = edge.data?.totalInPair ?? 1;
-  const sourceEndpointRaw = edge.data?.sourceEndpoint;
-  const targetEndpointRaw = edge.data?.targetEndpoint;
-  const sourceInterfaceRaw = edge.data?.sourceInterface;
-  const targetInterfaceRaw = edge.data?.targetInterface;
-  const sourceEndpointKey = resolveInterfaceEndpointKey(sourceEndpointRaw, sourceInterfaceRaw);
-  const targetEndpointKey = resolveInterfaceEndpointKey(targetEndpointRaw, targetInterfaceRaw);
-  const sourceRect = getNodeRect(sourcePos, nodeSize);
-  const targetRect = getNodeRect(targetPos, nodeSize);
-  const nodeProximateLabels = options.nodeProximateLabels === true;
-  let sourceAnchor: InterfaceAnchor | undefined;
-  if (nodeProximateLabels && sourceEndpointKey !== null) {
-    sourceAnchor = interfaceAnchors?.get(edge.source)?.get(sourceEndpointKey);
-  }
-  let targetAnchor: InterfaceAnchor | undefined;
-  if (nodeProximateLabels && targetEndpointKey !== null) {
-    targetAnchor = interfaceAnchors?.get(edge.target)?.get(targetEndpointKey);
-  }
-  const points = resolveEdgePointsWithInterfaceAnchors(sourceRect, targetRect, sourceAnchor, targetAnchor);
-  const sourceEdge = { x: points.sx, y: points.sy };
-  const targetEdge = { x: points.tx, y: points.ty };
-  const bezier = createBezierPath(sourceEdge, targetEdge, pairIndex, totalInPair);
-  const sourceLabel = resolveLabelText(sourceEndpointRaw, sourceInterfaceRaw, options);
-  const targetLabel = resolveLabelText(targetEndpointRaw, targetInterfaceRaw, options);
-  const sourceLabelMetrics = sourceLabel ? getEndpointLabelMetrics(sourceLabel, interfaceScale) : null;
-  const targetLabelMetrics = targetLabel ? getEndpointLabelMetrics(targetLabel, interfaceScale) : null;
-  const controlPoint = totalInPair > 1 ? bezier.midPoint : undefined;
-
+  const pathStrokeWidth = edgeData.nodeProximateLabels ? 2.5 : 1.5;
+  const pathOpacity = edgeData.nodeProximateLabels ? ' opacity="0.5"' : '';
   let svg = `<g class="export-edge" data-id="${escapeXml(edge.id)}">`;
-  svg += `<path d="${bezier.path}" fill="none" stroke="${colors.edgeStroke}" stroke-width="${nodeProximateLabels ? 2.5 : 1.5}"${nodeProximateLabels ? ' opacity="0.5"' : ''}/>`;
-
-  if (includeLabels && sourceLabel != null && sourceLabelMetrics != null) {
-    const sourceLabelPos = nodeProximateLabels && sourceAnchor && targetAnchor
-      ? sourceAnchor
-      : getEdgeLabelPosition(
-        points.sx,
-        points.sy,
-        points.tx,
-        points.ty,
-        getLabelOffsetForEndpoint(sourceEndpointKey, nodeProximateLabels, interfaceScale, options),
-        controlPoint
-      );
-    svg += createEdgeLabelSvg(
-      sourceLabelPos.x,
-      sourceLabelPos.y,
-      sourceLabel,
-      sourceEndpointRaw ?? sourceInterfaceRaw,
-      sourceLabelMetrics
-    );
-  }
-
-  if (includeLabels && targetLabel != null && targetLabelMetrics != null) {
-    const targetLabelPos = nodeProximateLabels && sourceAnchor && targetAnchor
-      ? targetAnchor
-      : getEdgeLabelPosition(
-        points.tx,
-        points.ty,
-        points.sx,
-        points.sy,
-        getLabelOffsetForEndpoint(targetEndpointKey, nodeProximateLabels, interfaceScale, options),
-        controlPoint
-      );
-    svg += createEdgeLabelSvg(
-      targetLabelPos.x,
-      targetLabelPos.y,
-      targetLabel,
-      targetEndpointRaw ?? targetInterfaceRaw,
-      targetLabelMetrics
-    );
-  }
+  svg += `<path d="${edgeData.bezier.path}" fill="none" stroke="${colors.edgeStroke}" stroke-width="${pathStrokeWidth}"${pathOpacity}/>`;
+  svg = appendEdgeLabelSvg(svg, edgeData, 'source', includeLabels, interfaceScale, options);
+  svg = appendEdgeLabelSvg(svg, edgeData, 'target', includeLabels, interfaceScale, options);
 
   svg += '</g>';
   return svg;
@@ -726,6 +954,9 @@ function generateNodeSvg(
   if (node.type === 'deviceNode') {
     const data = node.data as TopologyNodeData;
     const renderedLabel = resolveDeviceNodeLabel(node.id, data, nodeLabelMode);
+    const iconBadgeColor = normalizeHexColor(data.iconColor);
+    const iconBackgroundColor = iconBadgeColor ?? colors.iconBg;
+    const iconGlyphColor = iconBadgeColor ? getContrastingIconColor(iconBadgeColor) : colors.iconFg;
     const iconBackgroundSize = clamp(nodeSize * 0.4, 14, 72);
     const iconBackgroundRadius = clamp(iconBackgroundSize * 0.18, 3, 10);
     const iconBackgroundX = x + (nodeSize - iconBackgroundSize) / 2;
@@ -734,15 +965,15 @@ function generateNodeSvg(
     const iconGlyphScale = iconGlyphSize / 24;
     const iconGlyphX = x + (nodeSize - iconGlyphSize) / 2;
     const iconGlyphY = iconBackgroundY + (iconBackgroundSize - iconGlyphSize) / 2;
-    const iconPaths = getNodeIconSvgPathData(data.role)
+    const iconPaths = getNodeIconSvgPathDataForNode(data.iconKey, data.role)
       .map((pathData) => `<path d="${escapeXml(pathData)}"/>`)
       .join('');
     const labelY = iconBackgroundY + iconBackgroundSize + clamp(nodeSize * 0.175, 7, 16);
 
     let svg = `<g class="export-node topology-node" data-id="${escapeXml(node.id)}">`
       + `<rect x="${x}" y="${y}" width="${nodeSize}" height="${nodeSize}" rx="8" fill="${colors.nodeFill}" stroke="${colors.nodeStroke}" stroke-width="1"/>`
-      + `<rect x="${iconBackgroundX}" y="${iconBackgroundY}" width="${iconBackgroundSize}" height="${iconBackgroundSize}" rx="${iconBackgroundRadius}" fill="${colors.iconBg}"/>`
-      + `<g transform="translate(${iconGlyphX} ${iconGlyphY}) scale(${iconGlyphScale})" fill="${colors.iconFg}">${iconPaths}</g>`;
+      + `<rect x="${iconBackgroundX}" y="${iconBackgroundY}" width="${iconBackgroundSize}" height="${iconBackgroundSize}" rx="${iconBackgroundRadius}" fill="${escapeXml(iconBackgroundColor)}"/>`
+      + `<g transform="translate(${iconGlyphX} ${iconGlyphY}) scale(${iconGlyphScale})" fill="${escapeXml(iconGlyphColor)}">${iconPaths}</g>`;
     if (renderedLabel != null && renderedLabel.length > 0) {
       svg += `<text x="${x + nodeSize / 2}" y="${labelY}" text-anchor="middle" font-size="${NODE_LABEL.fontSize}" font-weight="${NODE_LABEL.fontWeight}" font-family="${NODE_LABEL.fontFamily}" fill="${colors.text}" stroke="${NODE_LABEL.textStrokeColor}" stroke-width="${NODE_LABEL.textStrokeWidth}" paint-order="stroke" stroke-linejoin="round">${escapeXml(renderedLabel)}</text>`;
     }
@@ -769,8 +1000,7 @@ function collectDeviceNodePositions(nodes: FlowNode[]): NodePositionMap {
     if (node.type !== 'deviceNode') {
       continue;
     }
-    const key = topologyNodeIdToName(node.id);
-    positions[key] = { x: node.position.x, y: node.position.y };
+    positions[node.id] = { x: node.position.x, y: node.position.y };
   }
   return normalizeNodePositionMap(positions);
 }
@@ -840,47 +1070,216 @@ function buildSvgExportResult(theme: Theme, nodes: FlowNode[], edges: LinkEdge[]
   };
 }
 
+interface ProcessedEdgeContext {
+  selectedTelemetryRateLabel: TelemetryRateLabelSelection | null | undefined;
+  selectedEdgeId: string | null | undefined;
+  selectedNodeId: string | null | undefined;
+  selectedNodeIds: readonly string[] | undefined;
+  labelMode: 'hide' | 'show' | 'select';
+  appearanceMode: 'default' | 'telemetry';
+  telemetryNodeSizePx: number;
+  telemetryInterfaceScale: number;
+  onTelemetryRateLabelSelect?: (selection: TelemetryRateLabelSelection | null) => void;
+  onTelemetryRateLabelTransformChange?: (
+    selection: TelemetryRateLabelSelection,
+    transform: EdgeRateLabelTransform
+  ) => void;
+}
+
+function shouldHighlightEdge(
+  edge: LinkEdge,
+  selectedTelemetryRateLabel: TelemetryRateLabelSelection | null | undefined,
+  selectedEdgeId: string | null | undefined,
+  selectedNodeId: string | null | undefined,
+  selectedNodeIds: readonly string[] | undefined
+): boolean {
+  const isRateLabelEdge = selectedTelemetryRateLabel?.edgeId === edge.id;
+  const isDirectlySelected = edge.id === selectedEdgeId || isRateLabelEdge;
+  const hasMultiNodeSelection = Array.isArray(selectedNodeIds) && selectedNodeIds.length > 0;
+  const isConnectedToSelectedNode = hasMultiNodeSelection
+    ? selectedNodeIds.some((nodeId) => edge.source === nodeId || edge.target === nodeId)
+    : selectedNodeId != null
+      && (edge.source === selectedNodeId || edge.target === selectedNodeId);
+  return isDirectlySelected || isConnectedToSelectedNode;
+}
+
+function shouldShowEdgeLabels(
+  appearanceMode: 'default' | 'telemetry',
+  labelMode: 'hide' | 'show' | 'select',
+  isHighlighted: boolean
+): boolean {
+  if (appearanceMode === 'telemetry') return true;
+  if (labelMode === 'show') return true;
+  return labelMode === 'select' && isHighlighted;
+}
+
+function decorateEdgeForRender(edge: LinkEdge, context: ProcessedEdgeContext): LinkEdge {
+  const isHighlighted = shouldHighlightEdge(
+    edge,
+    context.selectedTelemetryRateLabel,
+    context.selectedEdgeId,
+    context.selectedNodeId,
+    context.selectedNodeIds
+  );
+  const showLabels = shouldShowEdgeLabels(context.appearanceMode, context.labelMode, isHighlighted);
+  const isTelemetryAppearance = context.appearanceMode === 'telemetry';
+
+  return {
+    ...edge,
+    data: {
+      ...edge.data,
+      highlighted: isHighlighted || undefined,
+      sourceInterface: showLabels ? edge.data?.sourceInterface : undefined,
+      targetInterface: showLabels ? edge.data?.targetInterface : undefined,
+      edgeLabelsVisible: showLabels,
+      selectedRateLabelKey: context.selectedTelemetryRateLabel?.edgeId === edge.id
+        ? context.selectedTelemetryRateLabel.key
+        : undefined,
+      onRateLabelSelect: context.onTelemetryRateLabelSelect,
+      onRateLabelTransformChange: context.onTelemetryRateLabelTransformChange,
+      appearanceMode: context.appearanceMode,
+      telemetryNodeSizePx: isTelemetryAppearance
+        ? clampTelemetryNodeSizePx(context.telemetryNodeSizePx)
+        : undefined,
+      telemetryInterfaceScale: isTelemetryAppearance
+        ? clampTelemetryInterfaceScale(context.telemetryInterfaceScale)
+        : undefined
+    },
+  };
+}
+
 function TopologyFlowInner({
   nodes: initialNodes,
   edges: initialEdges,
   onNodeSelect,
   onEdgeSelect,
+  onSelectionChange,
+  onTelemetryRateLabelSelect,
+  onTelemetryRateLabelTransformChange,
   onNodeDoubleClick,
   onBackgroundClick,
   colorMode = 'system',
   labelMode = 'select',
   nodeLabelMode = 'all-name',
+  appearanceMode = 'default',
+  telemetryNodeSizePx = 80,
+  telemetryInterfaceScale = 1,
   selectedNodeId,
+  selectedNodeIds = [],
   selectedEdgeId,
+  selectedTelemetryRateLabel,
   onDevicePositionsChange,
 }: TopologyFlowProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<LinkEdge>(initialEdges);
+  const pendingEdgesRef = useRef<LinkEdge[] | null>(null);
+  const isRateLabelDragActive = useSyncExternalStore(
+    subscribeRateLabelDragState,
+    getRateLabelDragStateSnapshot,
+    getRateLabelDragStateSnapshot
+  );
 
-  // Merge incoming nodes with existing positions to preserve user drag state
+  // Merge incoming nodes with existing positions/selection to preserve interaction state.
   useEffect(() => {
     setNodes(currentNodes => {
-      const positionMap = new Map(currentNodes.map(n => [n.id, n.position]));
+      const nodeStateMap = new Map(currentNodes.map((node) => [
+        node.id,
+        { position: node.position, selected: node.selected }
+      ]));
       return initialNodes.map(node => {
-        const existingPos = positionMap.get(node.id);
-        if (existingPos) {
-          return { ...node, position: existingPos };
+        const previousState = nodeStateMap.get(node.id);
+        if (previousState) {
+          return {
+            ...node,
+            position: previousState.position,
+            selected: node.selected ?? previousState.selected
+          };
         }
         return node;
       });
     });
   }, [initialNodes, setNodes]);
 
+  const mergeIncomingEdges = useCallback((incomingEdges: LinkEdge[]) => {
+    setEdges((currentEdges) => {
+      const selectedStateById = new Map(currentEdges.map((edge) => [edge.id, edge.selected]));
+      return incomingEdges.map((edge) => {
+        const preservedSelected = edge.selected ?? selectedStateById.get(edge.id);
+        if (preservedSelected === undefined) {
+          return edge;
+        }
+        return {
+          ...edge,
+          selected: preservedSelected
+        };
+      });
+    });
+  }, [setEdges]);
+
   useEffect(() => {
-    setEdges(initialEdges);
-  }, [initialEdges, setEdges]);
+    if (isRateLabelDragActive) {
+      pendingEdgesRef.current = initialEdges;
+      return;
+    }
+    pendingEdgesRef.current = null;
+    mergeIncomingEdges(initialEdges);
+  }, [initialEdges, isRateLabelDragActive, mergeIncomingEdges]);
+
+  useEffect(() => {
+    if (isRateLabelDragActive) {
+      return;
+    }
+    const pendingEdges = pendingEdgesRef.current;
+    if (!pendingEdges) {
+      return;
+    }
+    pendingEdgesRef.current = null;
+    mergeIncomingEdges(pendingEdges);
+  }, [isRateLabelDragActive, mergeIncomingEdges]);
 
   useEffect(() => {
     onDevicePositionsChange?.(collectDeviceNodePositions(nodes));
   }, [nodes, onDevicePositionsChange]);
 
+  const releaseStuckShiftKey = useCallback(() => {
+    if (typeof window === 'undefined') return;
+
+    // Linux/WM global shortcuts can swallow Shift keyup events. We synthesize
+    // keyup to keep React Flow's internal key-press tracking in sync.
+    window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', code: 'ShiftLeft', bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Shift', code: 'ShiftRight', bubbles: true }));
+  }, []);
+
+  useEffect(() => {
+    const handleWindowFocus = () => {
+      releaseStuckShiftKey();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        releaseStuckShiftKey();
+      }
+    };
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        releaseStuckShiftKey();
+      }
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
+    window.addEventListener('pointerdown', handlePointerDown, true);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('focus', handleWindowFocus);
+      window.removeEventListener('pointerdown', handlePointerDown, true);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [releaseStuckShiftKey]);
+
   const handleNodeClick: NodeMouseHandler<FlowNode> = useCallback(
     (_event, node) => {
+      if (shouldSuppressTopologySelection()) {
+        return;
+      }
       // Only handle device nodes, not namespace labels
       if (node.type === 'deviceNode') {
         onNodeSelect?.(node as TopologyNode);
@@ -891,6 +1290,9 @@ function TopologyFlowInner({
 
   const handleEdgeClick: EdgeMouseHandler<LinkEdge> = useCallback(
     (_event, edge) => {
+      if (shouldSuppressTopologySelection()) {
+        return;
+      }
       onEdgeSelect?.(edge);
     },
     [onEdgeSelect]
@@ -898,6 +1300,9 @@ function TopologyFlowInner({
 
   const handleNodeDoubleClick: NodeMouseHandler<FlowNode> = useCallback(
     (_event, node) => {
+      if (shouldSuppressTopologySelection()) {
+        return;
+      }
       // Only handle device nodes, not namespace labels
       if (node.type === 'deviceNode') {
         onNodeDoubleClick?.(node as TopologyNode);
@@ -906,7 +1311,24 @@ function TopologyFlowInner({
     [onNodeDoubleClick]
   );
 
-  const handlePaneClick = useCallback(() => {
+  const handleSelectionChange: OnSelectionChangeFunc<FlowNode, LinkEdge> = useCallback(({
+    nodes: selectedNodes,
+    edges: selectedEdges
+  }) => {
+    const nodeIds = selectedNodes
+      .filter((node) => node.type === 'deviceNode')
+      .map((node) => node.id);
+    const edgeIds = selectedEdges.map((edge) => edge.id);
+    onSelectionChange?.({ nodeIds, edgeIds });
+  }, [onSelectionChange]);
+
+  const handlePaneClick = useCallback((event: ReactMouseEvent) => {
+    if (shouldSuppressTopologySelection()) {
+      return;
+    }
+    if (event.shiftKey || event.ctrlKey || event.metaKey) {
+      return;
+    }
     onBackgroundClick?.();
   }, [onBackgroundClick]);
 
@@ -919,39 +1341,43 @@ function TopologyFlowInner({
     () => normalizeNodeLabelRenderMode(nodeLabelMode),
     [nodeLabelMode]
   );
+  const processedEdgeContext = useMemo<ProcessedEdgeContext>(() => ({
+    selectedTelemetryRateLabel,
+    selectedEdgeId,
+    selectedNodeId,
+    selectedNodeIds,
+    labelMode,
+    appearanceMode,
+    telemetryNodeSizePx,
+    telemetryInterfaceScale,
+    onTelemetryRateLabelSelect,
+    onTelemetryRateLabelTransformChange
+  }), [
+    selectedTelemetryRateLabel,
+    selectedEdgeId,
+    selectedNodeId,
+    selectedNodeIds,
+    labelMode,
+    appearanceMode,
+    telemetryNodeSizePx,
+    telemetryInterfaceScale,
+    onTelemetryRateLabelSelect,
+    onTelemetryRateLabelTransformChange
+  ]);
 
   // Apply label visibility and info-card highlight state to edges.
-  const processedEdges = useMemo(() => {
-    return edges.map((edge) => {
-      const isDirectlySelected = edge.id === selectedEdgeId;
-      // Edge is highlighted if: directly selected OR connected to selected node
-      const isConnectedToSelectedNode = selectedNodeId != null
-        && (edge.source === selectedNodeId || edge.target === selectedNodeId);
-      const isHighlighted = isDirectlySelected || isConnectedToSelectedNode;
-
-      // Show labels based on mode
-      const showLabels =
-        labelMode === 'show'
-        || (labelMode === 'select' && isHighlighted);
-
-      return {
-        ...edge,
-        data: {
-          ...edge.data,
-          highlighted: isHighlighted || undefined,
-          sourceInterface: showLabels ? edge.data?.sourceInterface : undefined,
-          targetInterface: showLabels ? edge.data?.targetInterface : undefined,
-        },
-      };
-    });
-  }, [edges, selectedEdgeId, selectedNodeId, labelMode]);
+  const processedEdges = useMemo(
+    () => edges.map((edge) => decorateEdgeForRender(edge, processedEdgeContext)),
+    [edges, processedEdgeContext]
+  );
 
   // Apply info-card highlight state to nodes without overriding React Flow selection.
   const processedNodes = useMemo(() => {
+    const highlightConnectedNodes = selectedTelemetryRateLabel == null;
     return nodes.map((node) => {
       const isDirectlySelected = node.id === selectedNodeId;
       // Node is highlighted if: directly selected OR connected to selected edge
-      const isConnectedToSelectedEdge = selectedEdge != null
+      const isConnectedToSelectedEdge = highlightConnectedNodes && selectedEdge != null
         && (selectedEdge.source === node.id || selectedEdge.target === node.id);
       const isHighlighted = isDirectlySelected || isConnectedToSelectedEdge;
 
@@ -965,14 +1391,26 @@ function TopologyFlowInner({
                 node.id,
                 node.data as TopologyNodeData,
                 normalizedNodeLabelMode
-              ) ?? ''
+              ) ?? '',
+              appearanceMode,
+              telemetryNodeSizePx: appearanceMode === 'telemetry'
+                ? clampTelemetryNodeSizePx(telemetryNodeSizePx)
+                : undefined
             }
             : {}),
           highlighted: isHighlighted || undefined,
         },
       };
     });
-  }, [nodes, selectedNodeId, selectedEdge, normalizedNodeLabelMode]);
+  }, [
+    appearanceMode,
+    nodes,
+    normalizedNodeLabelMode,
+    selectedEdge,
+    selectedNodeId,
+    selectedTelemetryRateLabel,
+    telemetryNodeSizePx
+  ]);
 
   return (
     <div id="topology-flow-container" style={{ width: '100%', height: '100%' }}>
@@ -987,6 +1425,7 @@ function TopologyFlowInner({
         onEdgeClick={handleEdgeClick}
         onNodeDoubleClick={handleNodeDoubleClick}
         onPaneClick={handlePaneClick}
+        onSelectionChange={handleSelectionChange}
         fitView
         snapToGrid
         snapGrid={[15, 15]}
@@ -997,7 +1436,7 @@ function TopologyFlowInner({
         edgesReconnectable={false}
         elementsSelectable={true}
         selectionKeyCode="Shift"
-        multiSelectionKeyCode="Shift"
+        multiSelectionKeyCode={['Control', 'Meta']}
         panOnDrag
         zoomOnScroll
         minZoom={0.1}
@@ -1034,14 +1473,43 @@ const TopologyFlowWithRef = forwardRef<TopologyFlowRef, TopologyFlowProps>(
       return collectDeviceNodePositions(nodes);
     }, [getNodes]);
 
+    const getTelemetryRateLabelOffsets = useCallback(() => {
+      return getRateLabelOffsetSnapshot();
+    }, []);
+
+    const getTelemetryRateLabelTransform = useCallback((
+      edgeId: string,
+      key: TelemetryRateLabelKey
+    ): EdgeRateLabelTransform => {
+      return getRateLabelTransform(edgeId, key);
+    }, []);
+
+    const setTelemetryRateLabelRotation = useCallback((
+      edgeId: string,
+      key: TelemetryRateLabelKey,
+      rotationDeg: number
+    ) => {
+      setRateLabelRotation(edgeId, key, rotationDeg);
+    }, []);
+
     useImperativeHandle(
       ref,
       () => ({
         exportImage,
         buildSvgExport,
-        getDeviceNodePositions
+        getDeviceNodePositions,
+        getTelemetryRateLabelOffsets,
+        getTelemetryRateLabelTransform,
+        setTelemetryRateLabelRotation
       }),
-      [exportImage, buildSvgExport, getDeviceNodePositions]
+      [
+        exportImage,
+        buildSvgExport,
+        getDeviceNodePositions,
+        getTelemetryRateLabelOffsets,
+        getTelemetryRateLabelTransform,
+        setTelemetryRateLabelRotation
+      ]
     );
 
     return <TopologyFlowInner {...props} />;
@@ -1062,4 +1530,12 @@ const TopologyFlow = forwardRef<TopologyFlowRef, TopologyFlowProps>(
 export default TopologyFlow;
 
 // Export types for use in the dashboard
-export type { TopologyNode, TopologyNodeData, LinkEdge as TopologyEdge, LinkEdgeData as TopologyEdgeData };
+export type {
+  TopologyNode,
+  TopologyNodeData,
+  LinkEdge as TopologyEdge,
+  LinkEdgeData as TopologyEdgeData,
+  TelemetryRateLabelKey as TopologyTelemetryRateLabelKey,
+  TelemetryRateLabelSelection as TopologyTelemetryRateLabelSelection,
+  EdgeRateLabelTransform as TopologyTelemetryRateLabelTransform
+};

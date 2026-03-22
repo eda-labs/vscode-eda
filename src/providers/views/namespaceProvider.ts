@@ -103,6 +103,42 @@ interface StreamMessageEnvelope {
   };
 }
 
+export interface NamespaceSelectionGroups {
+  edaNamespaces: string[];
+  k8sNamespaces: string[];
+}
+
+interface BuildNamespaceSelectionGroupsInput {
+  edaNamespaces: Iterable<string>;
+  k8sNamespaces?: Iterable<string>;
+  coreNamespace?: string;
+}
+
+function toUniqueSortedNamespaces(values: Iterable<string>): string[] {
+  const namespaces = new Set<string>();
+  for (const value of values) {
+    if (typeof value === 'string' && value.length > 0) {
+      namespaces.add(value);
+    }
+  }
+  return Array.from(namespaces).sort((a, b) => a.localeCompare(b));
+}
+
+export function buildNamespaceSelectionGroups(input: BuildNamespaceSelectionGroupsInput): NamespaceSelectionGroups {
+  const coreNamespace = typeof input.coreNamespace === 'string' && input.coreNamespace.length > 0
+    ? input.coreNamespace
+    : undefined;
+  const edaNamespaces = toUniqueSortedNamespaces(input.edaNamespaces)
+    .filter(namespace => namespace !== coreNamespace);
+  const edaSet = new Set<string>(edaNamespaces);
+  const k8sNamespaces = toUniqueSortedNamespaces(input.k8sNamespaces ?? [])
+    .filter(namespace => namespace !== coreNamespace && !edaSet.has(namespace));
+  return {
+    edaNamespaces,
+    k8sNamespaces
+  };
+}
+
 /**
  * TreeDataProvider for the EDA Namespaces view
  */
@@ -143,6 +179,9 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
   private indexerInstallCheckInFlight = false;
   private indexerInstallPromptShown = false;
   private selectedNamespace = ALL_NAMESPACES;
+  private selectionEdaNamespaces: string[] = [];
+  private namespaceSelectionRefreshInFlight = false;
+  private pendingNamespaceSelectionRefresh = false;
 
 constructor() {
     super();
@@ -249,6 +288,7 @@ constructor() {
     if (!this.cachedNamespaces.includes(coreNs)) {
       this.cachedNamespaces.push(coreNs);
     }
+    this.selectionEdaNamespaces = this.getBootstrapNamespaces();
   }
 
   /** Set up stream message handler */
@@ -268,6 +308,7 @@ constructor() {
    */
   public async initialize(): Promise<void> {
     await this.loadStreams();
+    this.scheduleNamespaceSelectionRefresh();
     void this.maybePromptIndexerInstall();
     const loadedStreams = await this.loadFastResourceBootstrap();
     void this.subscribeToKnownEdaStreams().catch((err) => {
@@ -277,6 +318,47 @@ constructor() {
     this.scheduleKubernetesInitialization();
     this.edaClient.streamEdaNamespaces().catch(() => {
       // startup path is best-effort; stream errors are surfaced via stream logs/events
+    });
+  }
+
+  private areSameNamespaces(current: string[], next: string[]): boolean {
+    if (current.length !== next.length) {
+      return false;
+    }
+    for (let index = 0; index < current.length; index += 1) {
+      if (current[index] !== next[index]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private async refreshNamespaceSelectionFromApi(): Promise<void> {
+    try {
+      const namespaces = toUniqueSortedNamespaces(await this.edaClient.listNamespaces());
+      if (this.areSameNamespaces(this.selectionEdaNamespaces, namespaces)) {
+        return;
+      }
+      this.selectionEdaNamespaces = namespaces;
+      this.refresh();
+    } catch (err) {
+      log(`Failed to refresh EDA namespace selection namespaces: ${err}`, LogLevel.DEBUG);
+    }
+  }
+
+  private scheduleNamespaceSelectionRefresh(): void {
+    if (this.namespaceSelectionRefreshInFlight) {
+      this.pendingNamespaceSelectionRefresh = true;
+      return;
+    }
+    this.namespaceSelectionRefreshInFlight = true;
+    void this.refreshNamespaceSelectionFromApi().finally(() => {
+      this.namespaceSelectionRefreshInFlight = false;
+      if (!this.pendingNamespaceSelectionRefresh) {
+        return;
+      }
+      this.pendingNamespaceSelectionRefresh = false;
+      this.scheduleNamespaceSelectionRefresh();
     });
   }
 
@@ -652,19 +734,19 @@ constructor() {
   }
 
   public getNamespaceSelectionOptions(): string[] {
-    const namespaces = new Set<string>(this.getBootstrapNamespaces());
-    if (this.k8sClient) {
-      for (const namespace of this.k8sClient.getCachedNamespaces()) {
-        if (namespace) {
-          namespaces.add(namespace);
-        }
-      }
-    }
-    const coreNamespace = this.edaClient.getCoreNamespace();
-    if (coreNamespace) {
-      namespaces.delete(coreNamespace);
-    }
-    return Array.from(namespaces).sort((a, b) => a.localeCompare(b));
+    const groups = this.getNamespaceSelectionGroups();
+    return [...groups.edaNamespaces, ...groups.k8sNamespaces];
+  }
+
+  public getNamespaceSelectionGroups(): NamespaceSelectionGroups {
+    const edaNamespaces = this.selectionEdaNamespaces.length > 0
+      ? this.selectionEdaNamespaces
+      : this.getBootstrapNamespaces();
+    return buildNamespaceSelectionGroups({
+      edaNamespaces,
+      k8sNamespaces: this.k8sClient ? this.k8sClient.getCachedNamespaces() : [],
+      coreNamespace: this.edaClient.getCoreNamespace()
+    });
   }
 
   private snapshotResourceCount(snapshot: BootstrapSnapshot): number {
@@ -1408,6 +1490,7 @@ constructor() {
     }
     if (changed) {
       this.syncNamespacesWithK8s();
+      this.scheduleNamespaceSelectionRefresh();
       this.scheduleStreamRefresh();
     }
   }

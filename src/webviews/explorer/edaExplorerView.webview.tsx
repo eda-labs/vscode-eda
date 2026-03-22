@@ -22,6 +22,7 @@ import {
   InputLabel,
   InputAdornment,
   ListItemIcon,
+  ListSubheader,
   Menu,
   MenuItem,
   Paper,
@@ -110,6 +111,56 @@ const TREE_ITEM_SX = {
   containIntrinsicSize: '26px'
 } as const;
 const EMPTY_EXPLORER_NODE_LIST: ExplorerNode[] = [];
+
+interface NamespaceOptionGroups {
+  edaNamespaces: string[];
+  k8sNamespaces: string[];
+}
+
+function toUniqueNamespaces(namespaces: string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const namespace of namespaces) {
+    if (namespace.length === 0 || seen.has(namespace)) {
+      continue;
+    }
+    seen.add(namespace);
+    unique.push(namespace);
+  }
+  return unique;
+}
+
+function buildNamespaceOptionGroups(
+  groupedOptions: NamespaceOptionGroups | null,
+  fallbackOptions: string[],
+  selectedNamespace: string
+): NamespaceOptionGroups {
+  let edaNamespaces: string[] = [];
+  let k8sNamespaces: string[] = [];
+
+  if (groupedOptions) {
+    edaNamespaces = toUniqueNamespaces(groupedOptions.edaNamespaces);
+    const edaNamespaceSet = new Set<string>(edaNamespaces);
+    k8sNamespaces = toUniqueNamespaces(groupedOptions.k8sNamespaces)
+      .filter(namespace => !edaNamespaceSet.has(namespace));
+  } else {
+    edaNamespaces = toUniqueNamespaces(fallbackOptions);
+  }
+
+  if (
+    selectedNamespace !== ALL_RESOURCE_NAMESPACES_VALUE
+    && selectedNamespace.length > 0
+    && !edaNamespaces.includes(selectedNamespace)
+    && !k8sNamespaces.includes(selectedNamespace)
+  ) {
+    edaNamespaces = [selectedNamespace, ...edaNamespaces];
+  }
+
+  return {
+    edaNamespaces,
+    k8sNamespaces
+  };
+}
 
 function statusColor(indicator: string | undefined): string {
   if (!indicator) {
@@ -910,6 +961,7 @@ function EdaExplorerView() {
   const [filterText, setFilterText] = useState('');
   const [selectedResourceNamespace, setSelectedResourceNamespace] = useState(ALL_RESOURCE_NAMESPACES_VALUE);
   const [namespaceOptions, setNamespaceOptions] = useState<string[]>([]);
+  const [groupedNamespaceOptions, setGroupedNamespaceOptions] = useState<NamespaceOptionGroups | null>(null);
   const [expandedByTab, setExpandedByTab] = useState<Partial<Record<ExplorerTabId, string[]>>>({
     resources: []
   });
@@ -1019,6 +1071,14 @@ function EdaExplorerView() {
       if (Array.isArray(message.namespaces)) {
         setNamespaceOptions(message.namespaces);
       }
+      if (Array.isArray(message.edaNamespaces) || Array.isArray(message.k8sNamespaces)) {
+        setGroupedNamespaceOptions({
+          edaNamespaces: Array.isArray(message.edaNamespaces) ? message.edaNamespaces : [],
+          k8sNamespaces: Array.isArray(message.k8sNamespaces) ? message.k8sNamespaces : []
+        });
+      } else {
+        setGroupedNamespaceOptions(null);
+      }
     },
     []
   );
@@ -1113,16 +1173,14 @@ function EdaExplorerView() {
     return collectResourceNamespaces(resourceSection.nodes);
   }, [sectionsById]);
 
-  const namespaceSelectOptions = useMemo(() => {
+  const namespaceOptionGroups = useMemo(() => {
     const baseOptions = namespaceOptions.length > 0 ? namespaceOptions : resourceNamespaceOptions;
-    if (
-      selectedResourceNamespace === ALL_RESOURCE_NAMESPACES_VALUE
-      || baseOptions.includes(selectedResourceNamespace)
-    ) {
-      return baseOptions;
-    }
-    return [selectedResourceNamespace, ...baseOptions];
-  }, [namespaceOptions, resourceNamespaceOptions, selectedResourceNamespace]);
+    return buildNamespaceOptionGroups(
+      groupedNamespaceOptions,
+      baseOptions,
+      selectedResourceNamespace
+    );
+  }, [groupedNamespaceOptions, namespaceOptions, resourceNamespaceOptions, selectedResourceNamespace]);
 
   const orderedSections = useMemo(() => {
     const visible: ExplorerSectionSnapshot[] = [];
@@ -1353,7 +1411,11 @@ function EdaExplorerView() {
         </Alert>
       )}
 
-      <FormControl size="small" fullWidth disabled={resourceNamespaceOptions.length === 0}>
+      <FormControl
+        size="small"
+        fullWidth
+        disabled={namespaceOptionGroups.edaNamespaces.length + namespaceOptionGroups.k8sNamespaces.length === 0}
+      >
         <InputLabel id="explorer-namespace-select-label">Namespace</InputLabel>
         <Select
           labelId="explorer-namespace-select-label"
@@ -1369,8 +1431,17 @@ function EdaExplorerView() {
           }}
         >
           <MenuItem value={ALL_RESOURCE_NAMESPACES_VALUE}>All Namespaces</MenuItem>
-          {namespaceSelectOptions.map((namespace) => (
-            <MenuItem key={namespace} value={namespace}>{namespace}</MenuItem>
+          {namespaceOptionGroups.edaNamespaces.length > 0 && (
+            <ListSubheader disableSticky>EDA</ListSubheader>
+          )}
+          {namespaceOptionGroups.edaNamespaces.map((namespace) => (
+            <MenuItem key={`eda-${namespace}`} value={namespace}>{namespace}</MenuItem>
+          ))}
+          {namespaceOptionGroups.k8sNamespaces.length > 0 && (
+            <ListSubheader disableSticky>Kubernetes</ListSubheader>
+          )}
+          {namespaceOptionGroups.k8sNamespaces.map((namespace) => (
+            <MenuItem key={`k8s-${namespace}`} value={namespace}>{namespace}</MenuItem>
           ))}
         </Select>
       </FormControl>

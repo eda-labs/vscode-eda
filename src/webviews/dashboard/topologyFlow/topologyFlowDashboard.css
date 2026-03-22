@@ -144,6 +144,64 @@
   text-decoration: underline;
 }
 
+.info-card-link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--topology-link-fg);
+  cursor: pointer;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.info-card-link-button:hover {
+  text-decoration: underline;
+}
+
+.info-card-controls {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.info-card-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.info-card-controls input[type="number"] {
+  width: 100%;
+  border: 1px solid var(--topology-input-border);
+  border-radius: 4px;
+  background-color: var(--topology-input-bg);
+  color: var(--topology-input-fg);
+  padding: 6px 8px;
+  box-sizing: border-box;
+}
+
+.info-card-button-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rate-label-summary {
+  margin: 2px 0 10px;
+}
+
+.rate-label-controls {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--topology-panel-border);
+}
+
 /* ============================================
    React Flow Container
    ============================================ */
@@ -343,6 +401,19 @@
   font-size: 13px;
 }
 
+.appearance-gear-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  min-width: 30px;
+}
+
+.appearance-popup-content {
+  min-width: 360px;
+  max-width: 420px;
+}
+
 .export-btn:hover {
   background-color: var(--topology-button-secondary-hover-bg);
 }
@@ -399,14 +470,6 @@
 .export-popup-content.export-popup-large {
   min-width: 520px;
   max-width: 760px;
-  max-height: calc(100vh - 48px);
-  overflow: auto;
-}
-
-.export-popup-content.export-popup-preview {
-  min-width: min(1100px, calc(100vw - 48px));
-  width: min(1100px, calc(100vw - 48px));
-  max-width: calc(100vw - 48px);
   max-height: calc(100vh - 48px);
   overflow: auto;
 }
@@ -555,38 +618,4 @@
   margin-bottom: 8px;
   font-size: 12px;
   color: var(--topology-description-fg);
-}
-
-.grafana-preview-frame {
-  border: 1px solid var(--topology-panel-border);
-  border-radius: 6px;
-  background-color: var(--topology-editor-bg);
-  min-height: 480px;
-  max-height: calc(100vh - 260px);
-  overflow: auto;
-}
-
-.grafana-preview-canvas {
-  min-width: 900px;
-  min-height: 480px;
-  padding: 12px;
-}
-
-.grafana-preview-canvas svg {
-  width: 100%;
-  height: auto;
-  display: block;
-}
-
-.grafana-preview-canvas text[data-cell-id$=":label"] {
-  cursor: grab;
-  user-select: none;
-}
-
-.grafana-preview-canvas text[data-cell-id$=":label"].dragging {
-  cursor: grabbing;
-}
-
-.grafana-preview-status {
-  margin-top: 0;
 }
