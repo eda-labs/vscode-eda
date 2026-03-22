@@ -35,7 +35,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { GridColDef, GridRenderCellParams, GridSortModel } from '@mui/x-data-grid';
 
 import type { ExplorerAction } from '../shared/explorer/types';
-import { VSCodeButton, VsCodeDataGrid } from '../shared/components';
+import { LABELS_CELL_MIN_WIDTH_PX, LabelsCell, VSCodeButton, VsCodeDataGrid } from '../shared/components';
 import { useMessageListener, usePostMessage, useReadySignal } from '../shared/hooks';
 import { mountWebview } from '../shared/utils';
 
@@ -656,11 +656,7 @@ function ExplorerResourceListPanelWebview() {
   }, []);
 
   const renderLabelsCell = useCallback((params: GridRenderCellParams<ResourceGridRow>) => {
-    return (
-      <Box sx={{ py: 0.25, whiteSpace: 'pre-wrap', lineHeight: 1.35 }}>
-        {String(params.value ?? '-')}
-      </Box>
-    );
+    return <LabelsCell value={String(params.value ?? '-')} rowId={params.row.id} />;
   }, []);
 
   const columns = useMemo<GridColDef<ResourceGridRow>[]>(() => {
@@ -756,7 +752,7 @@ function ExplorerResourceListPanelWebview() {
       {
         field: 'labels',
         headerName: 'Labels',
-        minWidth: 220,
+        minWidth: LABELS_CELL_MIN_WIDTH_PX,
         width: 320,
         renderCell: renderLabelsCell
       },
@@ -770,6 +766,13 @@ function ExplorerResourceListPanelWebview() {
       }
     ];
   }, [renderActionsCell, renderDryRunCell, renderLabelsCell, renderSeverityCell, renderStateCell, viewKind]);
+
+  const autoSizeColumnFields = useMemo(
+    () => columns
+      .map((column) => column.field)
+      .filter((field) => field !== 'labels'),
+    [columns]
+  );
 
   const filterPlaceholder = useMemo(() => {
     if (viewKind === 'alarms') {
@@ -888,6 +891,11 @@ function ExplorerResourceListPanelWebview() {
         rows={rows}
         columns={columns}
         autoSizeColumns
+        autoSizeOptions={{
+          columns: autoSizeColumnFields,
+          includeHeaders: true,
+          includeOutliers: true
+        }}
         noRowsMessage={noRowsMessage}
         footer={(
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>

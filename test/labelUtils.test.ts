@@ -40,4 +40,12 @@ describe('labelUtils', () => {
       { key: 'eda.nokia.com/site', value: 'west', separator: ':' }
     ]);
   });
+
+  it('parses comma-separated label text', () => {
+    const labels = parseLabelsText('eda.nokia.com/source=derived, eda.nokia.com/role=leaf');
+    expect(labels).to.deep.equal([
+      { key: 'eda.nokia.com/source', value: 'derived', separator: '=' },
+      { key: 'eda.nokia.com/role', value: 'leaf', separator: '=' }
+    ]);
+  });
 });

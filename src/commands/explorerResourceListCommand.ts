@@ -213,12 +213,11 @@ function formatLabels(item: TreeItemBase): string | undefined {
     return undefined;
   }
   const entries = Object.entries(labels)
-    .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
-    .sort((left, right) => left[0].localeCompare(right[0]));
+    .filter((entry): entry is [string, string] => typeof entry[1] === 'string');
   if (entries.length === 0) {
     return undefined;
   }
-  return entries.map(([key, value]) => `${key}=${value}`).join(', ');
+  return entries.map(([key, value]) => `${key}=${value}`).join('\n');
 }
 
 function resolveNamespace(item: TreeItemBase): string {

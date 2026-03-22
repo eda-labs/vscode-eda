@@ -1,6 +1,7 @@
 export { DataTable } from './DataTable';
 export type { Column, DataTableProps } from './DataTable';
 export { DataGridDashboard } from './DataGridDashboard';
+export { LabelsCell, LABELS_CELL_MIN_WIDTH_PX } from './LabelsCell';
 export type {
   DataGridDashboardProps,
   DataGridMessage,
