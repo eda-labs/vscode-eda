@@ -5,7 +5,8 @@ import {
   useRef,
   useSyncExternalStore,
   forwardRef,
-  useImperativeHandle
+  useImperativeHandle,
+  type MouseEvent as ReactMouseEvent
 } from 'react';
 import {
   ReactFlow,
@@ -20,6 +21,7 @@ import {
   type ColorMode,
   type NodeMouseHandler,
   type EdgeMouseHandler,
+  type OnSelectionChangeFunc,
 } from '@xyflow/react';
 import { useTheme, type Theme } from '@mui/material/styles';
 
@@ -72,6 +74,7 @@ interface TopologyFlowProps {
   readonly edges: LinkEdge[];
   readonly onNodeSelect?: (node: TopologyNode) => void;
   readonly onEdgeSelect?: (edge: LinkEdge) => void;
+  readonly onSelectionChange?: (selection: TopologyFlowSelectionChange) => void;
   readonly onTelemetryRateLabelSelect?: (selection: TelemetryRateLabelSelection | null) => void;
   readonly onTelemetryRateLabelTransformChange?: (
     selection: TelemetryRateLabelSelection,
@@ -87,8 +90,14 @@ interface TopologyFlowProps {
   readonly telemetryInterfaceScale?: number;
   readonly selectedNodeId?: string | null;
   readonly selectedEdgeId?: string | null;
+  readonly selectedNodeIds?: readonly string[];
   readonly selectedTelemetryRateLabel?: TelemetryRateLabelSelection | null;
   readonly onDevicePositionsChange?: (positions: NodePositionMap) => void;
+}
+
+export interface TopologyFlowSelectionChange {
+  nodeIds: string[];
+  edgeIds: string[];
 }
 
 export interface TopologySvgExportResult {
@@ -1065,6 +1074,7 @@ interface ProcessedEdgeContext {
   selectedTelemetryRateLabel: TelemetryRateLabelSelection | null | undefined;
   selectedEdgeId: string | null | undefined;
   selectedNodeId: string | null | undefined;
+  selectedNodeIds: readonly string[] | undefined;
   labelMode: 'hide' | 'show' | 'select';
   appearanceMode: 'default' | 'telemetry';
   telemetryNodeSizePx: number;
@@ -1080,12 +1090,16 @@ function shouldHighlightEdge(
   edge: LinkEdge,
   selectedTelemetryRateLabel: TelemetryRateLabelSelection | null | undefined,
   selectedEdgeId: string | null | undefined,
-  selectedNodeId: string | null | undefined
+  selectedNodeId: string | null | undefined,
+  selectedNodeIds: readonly string[] | undefined
 ): boolean {
   const isRateLabelEdge = selectedTelemetryRateLabel?.edgeId === edge.id;
   const isDirectlySelected = edge.id === selectedEdgeId || isRateLabelEdge;
-  const isConnectedToSelectedNode = selectedNodeId != null
-    && (edge.source === selectedNodeId || edge.target === selectedNodeId);
+  const hasMultiNodeSelection = Array.isArray(selectedNodeIds) && selectedNodeIds.length > 0;
+  const isConnectedToSelectedNode = hasMultiNodeSelection
+    ? selectedNodeIds.some((nodeId) => edge.source === nodeId || edge.target === nodeId)
+    : selectedNodeId != null
+      && (edge.source === selectedNodeId || edge.target === selectedNodeId);
   return isDirectlySelected || isConnectedToSelectedNode;
 }
 
@@ -1104,7 +1118,8 @@ function decorateEdgeForRender(edge: LinkEdge, context: ProcessedEdgeContext): L
     edge,
     context.selectedTelemetryRateLabel,
     context.selectedEdgeId,
-    context.selectedNodeId
+    context.selectedNodeId,
+    context.selectedNodeIds
   );
   const showLabels = shouldShowEdgeLabels(context.appearanceMode, context.labelMode, isHighlighted);
   const isTelemetryAppearance = context.appearanceMode === 'telemetry';
@@ -1138,6 +1153,7 @@ function TopologyFlowInner({
   edges: initialEdges,
   onNodeSelect,
   onEdgeSelect,
+  onSelectionChange,
   onTelemetryRateLabelSelect,
   onTelemetryRateLabelTransformChange,
   onNodeDoubleClick,
@@ -1149,6 +1165,7 @@ function TopologyFlowInner({
   telemetryNodeSizePx = 80,
   telemetryInterfaceScale = 1,
   selectedNodeId,
+  selectedNodeIds = [],
   selectedEdgeId,
   selectedTelemetryRateLabel,
   onDevicePositionsChange,
@@ -1162,19 +1179,42 @@ function TopologyFlowInner({
     getRateLabelDragStateSnapshot
   );
 
-  // Merge incoming nodes with existing positions to preserve user drag state
+  // Merge incoming nodes with existing positions/selection to preserve interaction state.
   useEffect(() => {
     setNodes(currentNodes => {
-      const positionMap = new Map(currentNodes.map(n => [n.id, n.position]));
+      const nodeStateMap = new Map(currentNodes.map((node) => [
+        node.id,
+        { position: node.position, selected: node.selected }
+      ]));
       return initialNodes.map(node => {
-        const existingPos = positionMap.get(node.id);
-        if (existingPos) {
-          return { ...node, position: existingPos };
+        const previousState = nodeStateMap.get(node.id);
+        if (previousState) {
+          return {
+            ...node,
+            position: previousState.position,
+            selected: node.selected ?? previousState.selected
+          };
         }
         return node;
       });
     });
   }, [initialNodes, setNodes]);
+
+  const mergeIncomingEdges = useCallback((incomingEdges: LinkEdge[]) => {
+    setEdges((currentEdges) => {
+      const selectedStateById = new Map(currentEdges.map((edge) => [edge.id, edge.selected]));
+      return incomingEdges.map((edge) => {
+        const preservedSelected = edge.selected ?? selectedStateById.get(edge.id);
+        if (preservedSelected === undefined) {
+          return edge;
+        }
+        return {
+          ...edge,
+          selected: preservedSelected
+        };
+      });
+    });
+  }, [setEdges]);
 
   useEffect(() => {
     if (isRateLabelDragActive) {
@@ -1182,8 +1222,8 @@ function TopologyFlowInner({
       return;
     }
     pendingEdgesRef.current = null;
-    setEdges(initialEdges);
-  }, [initialEdges, isRateLabelDragActive, setEdges]);
+    mergeIncomingEdges(initialEdges);
+  }, [initialEdges, isRateLabelDragActive, mergeIncomingEdges]);
 
   useEffect(() => {
     if (isRateLabelDragActive) {
@@ -1194,8 +1234,8 @@ function TopologyFlowInner({
       return;
     }
     pendingEdgesRef.current = null;
-    setEdges(pendingEdges);
-  }, [isRateLabelDragActive, setEdges]);
+    mergeIncomingEdges(pendingEdges);
+  }, [isRateLabelDragActive, mergeIncomingEdges]);
 
   useEffect(() => {
     onDevicePositionsChange?.(collectDeviceNodePositions(nodes));
@@ -1220,7 +1260,7 @@ function TopologyFlowInner({
       }
     };
     const handlePointerDown = (event: PointerEvent) => {
-      if (!event.shiftKey) {
+      if (!event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
         releaseStuckShiftKey();
       }
     };
@@ -1271,8 +1311,22 @@ function TopologyFlowInner({
     [onNodeDoubleClick]
   );
 
-  const handlePaneClick = useCallback(() => {
+  const handleSelectionChange: OnSelectionChangeFunc<FlowNode, LinkEdge> = useCallback(({
+    nodes: selectedNodes,
+    edges: selectedEdges
+  }) => {
+    const nodeIds = selectedNodes
+      .filter((node) => node.type === 'deviceNode')
+      .map((node) => node.id);
+    const edgeIds = selectedEdges.map((edge) => edge.id);
+    onSelectionChange?.({ nodeIds, edgeIds });
+  }, [onSelectionChange]);
+
+  const handlePaneClick = useCallback((event: ReactMouseEvent) => {
     if (shouldSuppressTopologySelection()) {
+      return;
+    }
+    if (event.shiftKey || event.ctrlKey || event.metaKey) {
       return;
     }
     onBackgroundClick?.();
@@ -1291,6 +1345,7 @@ function TopologyFlowInner({
     selectedTelemetryRateLabel,
     selectedEdgeId,
     selectedNodeId,
+    selectedNodeIds,
     labelMode,
     appearanceMode,
     telemetryNodeSizePx,
@@ -1301,6 +1356,7 @@ function TopologyFlowInner({
     selectedTelemetryRateLabel,
     selectedEdgeId,
     selectedNodeId,
+    selectedNodeIds,
     labelMode,
     appearanceMode,
     telemetryNodeSizePx,
@@ -1369,6 +1425,7 @@ function TopologyFlowInner({
         onEdgeClick={handleEdgeClick}
         onNodeDoubleClick={handleNodeDoubleClick}
         onPaneClick={handlePaneClick}
+        onSelectionChange={handleSelectionChange}
         fitView
         snapToGrid
         snapGrid={[15, 15]}
@@ -1379,7 +1436,7 @@ function TopologyFlowInner({
         edgesReconnectable={false}
         elementsSelectable={true}
         selectionKeyCode="Shift"
-        multiSelectionKeyCode="Shift"
+        multiSelectionKeyCode={['Control', 'Meta']}
         panOnDrag
         zoomOnScroll
         minZoom={0.1}

@@ -17,6 +17,7 @@ import TopologyFlow, {
   type TopologyEdge,
   type FlowNode,
   type TopologyFlowRef,
+  type TopologyFlowSelectionChange,
   type TopologyTelemetryRateLabelSelection,
   type TopologyTelemetryRateLabelTransform
 } from './TopologyFlow';
@@ -881,6 +882,18 @@ function canonicalizePositionMapForNodeIds(positions: NodePositionMap, nodeIds: 
   return normalizeNodePositionMap(canonical);
 }
 
+function areStringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let idx = 0; idx < left.length; idx++) {
+    if (left[idx] !== right[idx]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function extractDeviceNodePositions(flowNodes: FlowNode[]): NodePositionMap {
   const positions: NodePositionMap = {};
   for (const node of flowNodes) {
@@ -1131,6 +1144,7 @@ function TopologyFlowDashboard() {
   const [isSavingLayout, setIsSavingLayout] = useState(false);
   const [saveStatus, setSaveStatus] = useState<{ level: 'success' | 'error'; text: string } | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [selectedTelemetryRateLabel, setSelectedTelemetryRateLabel] =
     useState<TopologyTelemetryRateLabelSelection | null>(null);
@@ -1462,6 +1476,13 @@ function TopologyFlowDashboard() {
   }, [selectedNodeId, visibleNodeIds]);
 
   useEffect(() => {
+    setSelectedNodeIds((previous) => {
+      const next = previous.filter((nodeId) => visibleNodeIds.has(nodeId));
+      return areStringArraysEqual(previous, next) ? previous : next;
+    });
+  }, [visibleNodeIds]);
+
+  useEffect(() => {
     if (selectedEdgeId && !visibleEdges.some((edge) => edge.id === selectedEdgeId)) {
       setSelectedEdgeId(null);
       setInfoCard({ type: 'empty' });
@@ -1508,6 +1529,7 @@ function TopologyFlowDashboard() {
   const handleEdgeSelect = useCallback((edge: TopologyEdge) => {
     setSelectedEdgeId(edge.id);
     setSelectedNodeId(null);
+    setSelectedNodeIds([]);
     setSelectedTelemetryRateLabel(null);
     setNodeIconEditor(null);
 
@@ -1533,16 +1555,24 @@ function TopologyFlowDashboard() {
   // Handle background click
   const handleBackgroundClick = useCallback(() => {
     setSelectedNodeId(null);
+    setSelectedNodeIds([]);
     setSelectedEdgeId(null);
     setSelectedTelemetryRateLabel(null);
     setNodeIconEditor(null);
     setInfoCard({ type: 'empty' });
   }, []);
 
+  const handleFlowSelectionChange = useCallback((selection: TopologyFlowSelectionChange) => {
+    setSelectedNodeIds((previous) => (
+      areStringArraysEqual(previous, selection.nodeIds) ? previous : selection.nodeIds
+    ));
+  }, []);
+
   const handleTelemetryRateLabelSelect = useCallback((
     selection: TopologyTelemetryRateLabelSelection | null
   ) => {
     if (!selection) {
+      setSelectedNodeIds([]);
       setSelectedTelemetryRateLabel(null);
       setSelectedEdgeId(null);
       setInfoCard({ type: 'empty' });
@@ -1551,6 +1581,7 @@ function TopologyFlowDashboard() {
 
     setSelectedTelemetryRateLabel(selection);
     setSelectedNodeId(null);
+    setSelectedNodeIds([]);
     setSelectedEdgeId(null);
     updateTelemetryRateLabelInfoCard(selection);
   }, [updateTelemetryRateLabelInfoCard]);
@@ -2599,6 +2630,7 @@ function TopologyFlowDashboard() {
             edges={visibleEdges}
             onNodeSelect={handleNodeSelect}
             onEdgeSelect={handleEdgeSelect}
+            onSelectionChange={handleFlowSelectionChange}
             onTelemetryRateLabelSelect={handleTelemetryRateLabelSelect}
             onTelemetryRateLabelTransformChange={handleTelemetryRateLabelTransformChange}
             onNodeDoubleClick={handleNodeDoubleClick}
@@ -2609,6 +2641,7 @@ function TopologyFlowDashboard() {
             telemetryNodeSizePx={telemetryNodeSizePx}
             telemetryInterfaceScale={telemetryInterfaceSizePercent / 100}
             selectedNodeId={selectedNodeId}
+            selectedNodeIds={selectedNodeIds}
             selectedEdgeId={selectedEdgeId}
             selectedTelemetryRateLabel={selectedTelemetryRateLabel}
             onDevicePositionsChange={handleDevicePositionsChange}
