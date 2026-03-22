@@ -1,6 +1,5 @@
 /* eslint-disable max-lines */
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import type { ColorMode } from '@xyflow/react';
 import { alpha, useTheme } from '@mui/material/styles';
 import { Box, Chip, FormControl, IconButton, InputLabel, MenuItem, Select, Stack, Tooltip } from '@mui/material';
 import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined';
@@ -42,6 +41,8 @@ import {
   topologyNodeIdToName
 } from './topologyPositionUtils';
 import { NODE_ICON_OPTIONS, getNodeIconByKey, resolveNodeIconKey, type NodeIconKey } from './nodes/icons';
+
+type TopologyColorMode = NonNullable<React.ComponentProps<typeof TopologyFlow>['colorMode']>;
 
 interface BackendNode {
   id: string;
@@ -1136,7 +1137,7 @@ function TopologyFlowDashboard() {
   const [infoCard, setInfoCard] = useState<InfoCardState>({ type: 'empty' });
   const [nodeAppearanceOverrides, setNodeAppearanceOverrides] = useState<Record<string, NodeAppearanceOverride>>({});
   const [nodeIconEditor, setNodeIconEditor] = useState<NodeIconEditorState | null>(null);
-  const [colorMode, setColorMode] = useState<ColorMode>('system');
+  const [colorMode, setColorMode] = useState<TopologyColorMode>('system');
   const [appearanceMode, setAppearanceMode] = useState<AppearanceMode>('default');
   const [showAppearancePopup, setShowAppearancePopup] = useState(false);
   const [telemetryNodeSizePx, setTelemetryNodeSizePx] = useState(DEFAULT_GRAFANA_NODE_SIZE_PX);
