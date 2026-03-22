@@ -30,6 +30,10 @@ export interface GrafanaPanelYamlOptions {
   includeHideRatesLegendToggle?: boolean;
 }
 
+export interface GrafanaDashboardJsonOptions {
+  namespaceName?: string;
+}
+
 export interface GrafanaCellIdSvgOptions {
   trafficRatesOnHoverOnly?: boolean;
   rateLabelOffsetsByEdge?: GrafanaEdgeRateLabelOffsetMap;
@@ -60,35 +64,18 @@ function getTrafficLabelCellId(trafficCellId: string): string {
   return `${trafficCellId}:label`;
 }
 
-const DEFAULT_GRAFANA_TARGETS: GrafanaDashboardTargetConfig[] = [
-  {
-    datasource: "prometheus",
-    expr: "interface_oper_state",
-    legendFormat: "oper-state:{{source}}:{{interface_name}}",
-    instant: false,
-    range: true,
-    hide: false
-  },
-  {
-    datasource: "prometheus",
-    expr: "interface_traffic_rate_out_bps",
-    legendFormat: "{{source}}:{{interface_name}}:out",
-    instant: false,
-    range: true,
-    hide: false
-  },
-  {
-    datasource: "prometheus",
-    expr: "interface_traffic_rate_in_bps",
-    legendFormat: "{{source}}:{{interface_name}}:in",
-    instant: false,
-    range: true,
-    hide: false
-  }
-];
-
 function asString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function escapePromQlStringLiteral(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function buildNamespaceMatcher(namespaceName?: string): string {
+  const normalizedNamespaceName = asString(namespaceName);
+  if (normalizedNamespaceName === null) return "";
+  return `{namespace_name="${escapePromQlStringLiteral(normalizedNamespaceName)}"}`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -1480,6 +1467,24 @@ function quoteYaml(value: string): string {
   return JSON.stringify(value);
 }
 
+function normalizeMetricNodeName(nodeId: string): string {
+  const parts = nodeId.split("/").filter((part) => part.length > 0);
+  if (parts.length === 0) return nodeId;
+  return parts[parts.length - 1];
+}
+
+function normalizeMetricInterfaceName(interfaceName: string): string {
+  if (interfaceName.includes("/")) return interfaceName;
+
+  const parts = interfaceName.split("-");
+  const lowerHead = parts[0]?.toLowerCase() ?? "";
+  if (lowerHead !== "ethernet" || parts.length < 3) {
+    return interfaceName;
+  }
+
+  return `${parts[0]}-${parts[1]}/${parts.slice(2).join("/")}`;
+}
+
 function asValidYamlNumber(value: number, fallback: number): number {
   if (!Number.isFinite(value)) return fallback;
   return Math.max(0, value);
@@ -1549,10 +1554,15 @@ export function buildGrafanaPanelYaml(
   }
 
   for (const mapping of mappings) {
-    const operstateDataRef = `oper-state:${mapping.source}:${mapping.sourceEndpoint}`;
-    const targetOperstateDataRef = `oper-state:${mapping.target}:${mapping.targetEndpoint}`;
-    const trafficDataRef = `${mapping.source}:${mapping.sourceEndpoint}:out`;
-    const reverseTrafficDataRef = `${mapping.target}:${mapping.targetEndpoint}:out`;
+    const sourceMetricNode = normalizeMetricNodeName(mapping.source);
+    const targetMetricNode = normalizeMetricNodeName(mapping.target);
+    const sourceMetricInterface = normalizeMetricInterfaceName(mapping.sourceEndpoint);
+    const targetMetricInterface = normalizeMetricInterfaceName(mapping.targetEndpoint);
+
+    const operstateDataRef = `oper-state:${sourceMetricNode}:${sourceMetricInterface}`;
+    const targetOperstateDataRef = `oper-state:${targetMetricNode}:${targetMetricInterface}`;
+    const trafficDataRef = `${sourceMetricNode}:${sourceMetricInterface}:out`;
+    const reverseTrafficDataRef = `${targetMetricNode}:${targetMetricInterface}:out`;
     lines.push(`  ${quoteYaml(mapping.operstateCellId)}:`);
     lines.push(`    dataRef: ${quoteYaml(operstateDataRef)}`);
     lines.push("    fillColor:");
@@ -1596,8 +1606,36 @@ export function buildGrafanaPanelYaml(
   return `${lines.join("\n")}\n`;
 }
 
-function buildDashboardTargets() {
-  return DEFAULT_GRAFANA_TARGETS.map((target, index) => ({
+function buildDashboardTargets(namespaceName?: string) {
+  const namespaceMatcher = buildNamespaceMatcher(namespaceName);
+  const targetConfigs: GrafanaDashboardTargetConfig[] = [
+    {
+      datasource: "prometheus",
+      expr: "node_srl_interface_oper_state",
+      legendFormat: "oper-state:{{node_name}}:{{interface_name}}",
+      instant: false,
+      range: true,
+      hide: false
+    },
+    {
+      datasource: "prometheus",
+      expr: `last_over_time(node_srl_interface_traffic_rate_out_bps${namespaceMatcher}[20s])`,
+      legendFormat: "{{node_name}}:{{interface_name}}:out",
+      instant: false,
+      range: true,
+      hide: false
+    },
+    {
+      datasource: "prometheus",
+      expr: `last_over_time(node_srl_interface_traffic_rate_in_bps${namespaceMatcher}[20s])`,
+      legendFormat: "{{node_name}}:{{interface_name}}:in",
+      instant: false,
+      range: true,
+      hide: false
+    }
+  ];
+
+  return targetConfigs.map((target, index) => ({
     datasource: { type: target.datasource },
     editorMode: "code",
     expr: target.expr,
@@ -1612,7 +1650,8 @@ function buildDashboardTargets() {
 export function buildGrafanaDashboardJson(
   panelConfigYaml: string,
   svgContent: string,
-  dashboardTitle: string
+  dashboardTitle: string,
+  options: GrafanaDashboardJsonOptions = {}
 ): string {
   const title = dashboardTitle.trim() || "Network Telemetry";
   const dashboard = {
@@ -1658,7 +1697,7 @@ export function buildGrafanaDashboardJson(
           testDataEnabled: false,
           timeSliderEnabled: true
         },
-        targets: buildDashboardTargets(),
+        targets: buildDashboardTargets(options.namespaceName),
         title,
         type: "andrewbmchugh-flow-panel"
       }

@@ -92,6 +92,30 @@ describe('topology grafana export helpers', () => {
     expect(yamlNoTags).to.not.contain('tags: ["hide-rates"]');
   });
 
+  it('normalizes dataRef names for namespaced nodes and ethernet endpoint format', () => {
+    const mappings = [
+      {
+        edgeId: 'edge-a',
+        source: 'eda-telemetry/spine1',
+        sourceEndpoint: 'ethernet-1-1',
+        target: 'eda-telemetry/leaf1',
+        targetEndpoint: 'ethernet-1-49',
+        operstateCellId: 'eda-telemetry/spine1:ethernet-1-1',
+        targetOperstateCellId: 'eda-telemetry/leaf1:ethernet-1-49',
+        trafficCellId: 'link_id:eda-telemetry/spine1:ethernet-1-1:eda-telemetry/leaf1:ethernet-1-49',
+        reverseTrafficCellId: 'link_id:eda-telemetry/leaf1:ethernet-1-49:eda-telemetry/spine1:ethernet-1-1'
+      }
+    ];
+
+    const yaml = buildGrafanaPanelYaml(mappings);
+    expect(yaml).to.contain('dataRef: "oper-state:spine1:ethernet-1/1"');
+    expect(yaml).to.contain('dataRef: "oper-state:leaf1:ethernet-1/49"');
+    expect(yaml).to.contain('dataRef: "spine1:ethernet-1/1:out"');
+    expect(yaml).to.contain('dataRef: "leaf1:ethernet-1/49:out"');
+    expect(yaml).to.contain('"eda-telemetry/spine1:ethernet-1-1":');
+    expect(yaml).to.contain('"link_id:eda-telemetry/spine1:ethernet-1-1:eda-telemetry/leaf1:ethernet-1-49":');
+  });
+
   it('builds dashboard json with embedded panel yaml and svg', () => {
     const panelConfig = 'cells:\n  {}\n';
     const svg = '<svg><g id="cell-test"></g></svg>';

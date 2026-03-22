@@ -2,6 +2,7 @@ export type {
   GrafanaEdgeCellMapping,
   GrafanaTrafficThresholds,
   GrafanaPanelYamlOptions,
+  GrafanaDashboardJsonOptions,
   GrafanaCellIdSvgOptions
 } from './grafanaExport';
 

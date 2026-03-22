@@ -1778,7 +1778,10 @@ function TopologyFlowDashboard() {
         const baseName = sanitizeExportBaseName(
           selectedNamespace === ALL_NAMESPACES ? 'topology' : selectedNamespace
         );
-        const dashboardJson = buildGrafanaDashboardJson(panelYaml, grafanaSvg, baseName);
+        const grafanaQueryNamespace = selectedNamespace === ALL_NAMESPACES ? undefined : selectedNamespace;
+        const dashboardJson = buildGrafanaDashboardJson(panelYaml, grafanaSvg, baseName, {
+          namespaceName: grafanaQueryNamespace
+        });
         const requestId = createRequestId();
         const files = await requestGrafanaBundleExport(postMessage, {
           requestId,
