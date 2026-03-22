@@ -149,6 +149,7 @@ export class EdaExplorerViewProvider implements vscode.WebviewViewProvider, vsco
   private registerDataListeners(): void {
     for (const provider of this.filterableProviders) {
       const disposable = provider.onDidChangeTreeData(() => {
+        this.postNamespaceState();
         this.scheduleSnapshot();
       });
       this.disposables.push(disposable);
@@ -438,10 +439,13 @@ export class EdaExplorerViewProvider implements vscode.WebviewViewProvider, vsco
 
     const namespace = namespaceSelectionService.getSelectedNamespace();
     const namespaces = this.providers.namespaceProvider.getNamespaceSelectionOptions();
+    const groups = this.providers.namespaceProvider.getNamespaceSelectionGroups();
     void this.webviewView.webview.postMessage({
       command: 'namespaceState',
       namespace: toExplorerNamespace(namespace),
-      namespaces
+      namespaces,
+      edaNamespaces: groups.edaNamespaces,
+      k8sNamespaces: groups.k8sNamespaces
     });
   }
 
