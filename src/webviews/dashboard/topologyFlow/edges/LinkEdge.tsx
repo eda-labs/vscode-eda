@@ -9,7 +9,6 @@ import {
 } from 'react';
 import {
   BaseEdge,
-  EdgeLabelRenderer,
   type EdgeProps,
   type Edge,
   useStore,
@@ -24,6 +23,11 @@ import {
   getAutoCompactInterfaceLabel,
   getTelemetryLabelMetrics
 } from '../telemetryAppearance';
+import {
+  EdgeOverlayLabels,
+  type LinkEdgeOverlayState,
+  type RateLabelInteractionHandlers
+} from './LinkEdgeOverlay';
 
 export interface LinkEdgeData extends Record<string, unknown> {
   sourceInterface?: string;
@@ -162,7 +166,6 @@ interface GlobalRateLabelRotationDrag {
 const HORIZONTAL_SLOPE_THRESHOLD = 0.25;
 const DEFAULT_RATE_LABEL_OFFSET: Point = { x: 0, y: 0 };
 const DEFAULT_RATE_LABEL_ROTATION_DEG = 0;
-const RATE_LABEL_ROTATION_HANDLE_DISTANCE_PX = 18;
 const RATE_LABEL_SELECTION_SUPPRESS_MS = 220;
 
 let interfaceAnchorCache: InterfaceAnchorCache = {
@@ -717,31 +720,68 @@ function withOffset(point: Point | undefined, offset: Point): Point | undefined 
   };
 }
 
-function buildTelemetryInterfaceAnchorTemplateMap(
+function getOrCreateEndpointSet(
+  endpointsByNode: Map<string, Set<string>>,
+  nodeId: string
+): Set<string> {
+  const existing = endpointsByNode.get(nodeId);
+  if (existing) return existing;
+  const created = new Set<string>();
+  endpointsByNode.set(nodeId, created);
+  return created;
+}
+
+function getOrCreateNodeVectors(
+  vectorsByNode: Map<string, Map<string, EndpointVector>>,
+  nodeId: string
+): Map<string, EndpointVector> {
+  const existing = vectorsByNode.get(nodeId);
+  if (existing) return existing;
+  const created = new Map<string, EndpointVector>();
+  vectorsByNode.set(nodeId, created);
+  return created;
+}
+
+function trackTelemetryNodeEndpoint(
+  endpointsByNode: Map<string, Set<string>>,
+  nodeId: string,
+  endpoint: string | null
+): void {
+  if (endpoint === null) return;
+  getOrCreateEndpointSet(endpointsByNode, nodeId).add(endpoint);
+}
+
+function addTelemetryEndpointVector(
+  vectorsByNode: Map<string, Map<string, EndpointVector>>,
+  nodeId: string,
+  endpoint: string,
+  dx: number,
+  dy: number
+): void {
+  const nodeVectors = getOrCreateNodeVectors(vectorsByNode, nodeId);
+  const existing = nodeVectors.get(endpoint) ?? { dx: 0, dy: 0, samples: 0 };
+  existing.dx += dx;
+  existing.dy += dy;
+  existing.samples += 1;
+  nodeVectors.set(endpoint, existing);
+}
+
+function collectTelemetryInterfaceAnchorInputs(
   edges: LinkEdge[],
   nodeLookup: NodeLookupLike,
-  nodeSizePx: number,
-  interfaceScale: number
-): NodeInterfaceAnchorTemplateMap {
+  nodeSizePx: number
+): {
+  endpointsByNode: Map<string, Set<string>>;
+  vectorsByNode: Map<string, Map<string, EndpointVector>>;
+} {
   const endpointsByNode = new Map<string, Set<string>>();
   const vectorsByNode = new Map<string, Map<string, EndpointVector>>();
 
   for (const edge of edges) {
     const sourceEndpoint = resolveInterfaceEndpointKey(edge.data?.sourceEndpoint, edge.data?.sourceInterface);
     const targetEndpoint = resolveInterfaceEndpointKey(edge.data?.targetEndpoint, edge.data?.targetInterface);
-
-    if (sourceEndpoint !== null) {
-      const sourceSet = endpointsByNode.get(edge.source) ?? new Set<string>();
-      sourceSet.add(sourceEndpoint);
-      endpointsByNode.set(edge.source, sourceSet);
-    }
-
-    if (targetEndpoint !== null) {
-      const targetSet = endpointsByNode.get(edge.target) ?? new Set<string>();
-      targetSet.add(targetEndpoint);
-      endpointsByNode.set(edge.target, targetSet);
-    }
-
+    trackTelemetryNodeEndpoint(endpointsByNode, edge.source, sourceEndpoint);
+    trackTelemetryNodeEndpoint(endpointsByNode, edge.target, targetEndpoint);
     if (sourceEndpoint === null && targetEndpoint === null) continue;
     if (edge.source === edge.target) continue;
 
@@ -759,64 +799,76 @@ function buildTelemetryInterfaceAnchorTemplateMap(
     const forwardDy = targetCenter.y - sourceCenter.y;
 
     if (sourceEndpoint !== null) {
-      const nodeVectors = vectorsByNode.get(edge.source) ?? new Map<string, EndpointVector>();
-      const existing = nodeVectors.get(sourceEndpoint) ?? { dx: 0, dy: 0, samples: 0 };
-      existing.dx += forwardDx;
-      existing.dy += forwardDy;
-      existing.samples += 1;
-      nodeVectors.set(sourceEndpoint, existing);
-      vectorsByNode.set(edge.source, nodeVectors);
+      addTelemetryEndpointVector(vectorsByNode, edge.source, sourceEndpoint, forwardDx, forwardDy);
     }
-
     if (targetEndpoint !== null) {
-      const nodeVectors = vectorsByNode.get(edge.target) ?? new Map<string, EndpointVector>();
-      const existing = nodeVectors.get(targetEndpoint) ?? { dx: 0, dy: 0, samples: 0 };
-      existing.dx -= forwardDx;
-      existing.dy -= forwardDy;
-      existing.samples += 1;
-      nodeVectors.set(targetEndpoint, existing);
-      vectorsByNode.set(edge.target, nodeVectors);
+      addTelemetryEndpointVector(vectorsByNode, edge.target, targetEndpoint, -forwardDx, -forwardDy);
     }
   }
 
-  const templatesByNode: NodeInterfaceAnchorTemplateMap = new Map();
-  const sides: readonly InterfaceSide[] = ['top', 'right', 'bottom', 'left'];
+  return { endpointsByNode, vectorsByNode };
+}
 
+function buildNodeTelemetryInterfaceAnchorTemplates(
+  endpoints: Set<string>,
+  nodeVectors: Map<string, EndpointVector> | undefined,
+  interfaceScale: number
+): Map<string, InterfaceAnchorTemplate> {
+  const buckets: Record<InterfaceSide, EndpointAssignment[]> = {
+    top: [],
+    right: [],
+    bottom: [],
+    left: []
+  };
+
+  for (const endpoint of endpoints) {
+    const side = classifyInterfaceSide(nodeVectors?.get(endpoint));
+    const sortKey = getInterfaceSortKey(side, nodeVectors?.get(endpoint));
+    const label = getTelemetryLabelText(endpoint, endpoint) ?? endpoint;
+    const { radius } = getTelemetryLabelMetrics(label, interfaceScale);
+    buckets[side].push({ endpoint, sortKey, radius });
+  }
+
+  const endpointTemplates = new Map<string, InterfaceAnchorTemplate>();
+  for (const side of ['top', 'right', 'bottom', 'left'] as const) {
+    sortEndpointAssignments(buckets[side]);
+    const total = buckets[side].length;
+    for (let idx = 0; idx < buckets[side].length; idx++) {
+      const assignment = buckets[side][idx];
+      endpointTemplates.set(assignment.endpoint, {
+        side,
+        index: idx,
+        total,
+        radius: assignment.radius
+      });
+    }
+  }
+
+  return endpointTemplates;
+}
+
+function buildTelemetryInterfaceAnchorTemplateMap(
+  edges: LinkEdge[],
+  nodeLookup: NodeLookupLike,
+  nodeSizePx: number,
+  interfaceScale: number
+): NodeInterfaceAnchorTemplateMap {
+  const { endpointsByNode, vectorsByNode } = collectTelemetryInterfaceAnchorInputs(
+    edges,
+    nodeLookup,
+    nodeSizePx
+  );
+
+  const templatesByNode: NodeInterfaceAnchorTemplateMap = new Map();
   for (const [nodeId, endpoints] of endpointsByNode) {
     const node = nodeLookup.get(nodeId);
     if (!node) continue;
 
-    const nodeVectors = vectorsByNode.get(nodeId);
-    const buckets: Record<InterfaceSide, EndpointAssignment[]> = {
-      top: [],
-      right: [],
-      bottom: [],
-      left: []
-    };
-
-    for (const endpoint of endpoints) {
-      const side = classifyInterfaceSide(nodeVectors?.get(endpoint));
-      const sortKey = getInterfaceSortKey(side, nodeVectors?.get(endpoint));
-      const label = getTelemetryLabelText(endpoint, endpoint) ?? endpoint;
-      const { radius } = getTelemetryLabelMetrics(label, interfaceScale);
-      buckets[side].push({ endpoint, sortKey, radius });
-    }
-
-    const endpointTemplates = new Map<string, InterfaceAnchorTemplate>();
-    for (const side of sides) {
-      sortEndpointAssignments(buckets[side]);
-      const total = buckets[side].length;
-      for (let idx = 0; idx < buckets[side].length; idx++) {
-        const assignment = buckets[side][idx];
-        endpointTemplates.set(assignment.endpoint, {
-          side,
-          index: idx,
-          total,
-          radius: assignment.radius
-        });
-      }
-    }
-
+    const endpointTemplates = buildNodeTelemetryInterfaceAnchorTemplates(
+      endpoints,
+      vectorsByNode.get(nodeId),
+      interfaceScale
+    );
     templatesByNode.set(nodeId, endpointTemplates);
   }
 
@@ -859,6 +911,15 @@ function resolveInterfaceAnchorFromTemplate(
   return positionInterfaceAnchor(rect, template.side, template.index, template.total, template.radius);
 }
 
+function resolveInterfaceTemplate(
+  templatesByNode: NodeInterfaceAnchorTemplateMap | undefined,
+  nodeId: string,
+  endpointKey: string | null
+): InterfaceAnchorTemplate | undefined {
+  if (endpointKey == null) return undefined;
+  return templatesByNode?.get(nodeId)?.get(endpointKey);
+}
+
 function resolveStrokeWidth(isHighlighted: boolean, isTelemetryStyle: boolean): number {
   if (isTelemetryStyle) {
     return isHighlighted ? 4 : 2.5;
@@ -879,67 +940,38 @@ function resolveRenderedLabel(
   return normalizeLabelValue(fallback);
 }
 
-function LinkEdgeComponent({
-  id,
-  source,
-  target,
-  data,
-  selected,
-}: EdgeProps<LinkEdge>) {
-  const theme = useTheme();
-  const edgeColors = useMemo<EdgeColors>(() => ({
-    defaultStroke: theme.vscode.topology.linkStroke,
-    selectedStroke: theme.vscode.topology.linkStrokeSelected,
-    upStroke: theme.vscode.topology.linkUp,
-    downStroke: theme.vscode.topology.linkDown,
-  }), [theme]);
-  const allEdges = useStore((state) => state.edges as LinkEdge[]);
-  const nodeLookup = useStore((state) => state.nodeLookup as NodeLookupLike);
-  const sourceNode = useInternalNode(source);
-  const targetNode = useInternalNode(target);
-  const isTelemetryStyle = data?.appearanceMode === 'telemetry';
-  const telemetryNodeSizePx = clampTelemetryNodeSizePx(data?.telemetryNodeSizePx ?? 80);
-  const telemetryInterfaceScale = clampTelemetryInterfaceScale(data?.telemetryInterfaceScale ?? 1);
-  const telemetryInterfaceAnchorTemplates = useMemo(() => {
-    if (!isTelemetryStyle) return undefined;
-    return getCachedTelemetryInterfaceAnchorTemplateMap(
-      allEdges,
-      nodeLookup,
-      telemetryNodeSizePx,
-      telemetryInterfaceScale
-    );
-  }, [allEdges, isTelemetryStyle, nodeLookup, telemetryInterfaceScale, telemetryNodeSizePx]);
-  const sourceEndpointKey = resolveInterfaceEndpointKey(data?.sourceEndpoint, data?.sourceInterface);
-  const targetEndpointKey = resolveInterfaceEndpointKey(data?.targetEndpoint, data?.targetInterface);
-  const sourceTemplate = sourceEndpointKey != null
-    ? telemetryInterfaceAnchorTemplates?.get(source)?.get(sourceEndpointKey)
-    : undefined;
-  const targetTemplate = targetEndpointKey != null
-    ? telemetryInterfaceAnchorTemplates?.get(target)?.get(targetEndpointKey)
-    : undefined;
-  const viewportTransform = useStore((state) => state.transform as [number, number, number]);
-  const viewportX = viewportTransform[0];
-  const viewportY = viewportTransform[1];
-  const viewportZoom = viewportTransform[2];
-  const rateLabelOffsetVersion = useSyncExternalStore(
-    subscribeRateLabelOffsets,
-    getRateLabelOffsetVersionSnapshot,
-    getRateLabelOffsetVersionSnapshot
-  );
-  const rateLabelOffsets = getEdgeRateLabelOffsets(id, rateLabelOffsetVersion);
-  const sourceRateOffset = rateLabelOffsets.source;
-  const targetRateOffset = rateLabelOffsets.target;
-  const rateLabelRotations = getEdgeRateLabelRotations(id, rateLabelOffsetVersion);
-  const sourceRateRotationDeg = rateLabelRotations.source;
-  const targetRateRotationDeg = rateLabelRotations.target;
-  const isSourceRateDragActive = isRateLabelDragActive(id, 'source');
-  const isTargetRateDragActive = isRateLabelDragActive(id, 'target');
-  const selectedRateLabelKey = data?.selectedRateLabelKey;
-  const isSourceRateSelected = selectedRateLabelKey === 'source';
-  const isTargetRateSelected = selectedRateLabelKey === 'target';
-  const onRateLabelSelect = data?.onRateLabelSelect;
-  const onRateLabelTransformChange = data?.onRateLabelTransformChange;
+interface RateLabelInteractionParams {
+  id: string;
+  isTelemetryStyle: boolean;
+  sourceRateOffset: Point;
+  targetRateOffset: Point;
+  sourceRateRotationDeg: number;
+  targetRateRotationDeg: number;
+  viewportX: number;
+  viewportY: number;
+  viewportZoom: number;
+  selectedRateLabelKey: RateLabelKey | undefined;
+  onRateLabelSelect?: (selection: TelemetryRateLabelSelection | null) => void;
+  onRateLabelTransformChange?: (
+    selection: TelemetryRateLabelSelection,
+    transform: EdgeRateLabelTransform
+  ) => void;
+}
 
+function useRateLabelInteractions({
+  id,
+  isTelemetryStyle,
+  sourceRateOffset,
+  targetRateOffset,
+  sourceRateRotationDeg,
+  targetRateRotationDeg,
+  viewportX,
+  viewportY,
+  viewportZoom,
+  selectedRateLabelKey,
+  onRateLabelSelect,
+  onRateLabelTransformChange
+}: RateLabelInteractionParams): RateLabelInteractionHandlers {
   const selectRateLabel = useCallback((key: RateLabelKey) => {
     onRateLabelSelect?.({ edgeId: id, key });
   }, [id, onRateLabelSelect]);
@@ -962,14 +994,7 @@ function LinkEdgeComponent({
       startOffset,
       zoom: viewportZoom
     });
-  }, [
-    id,
-    isTelemetryStyle,
-    selectRateLabel,
-    sourceRateOffset,
-    targetRateOffset,
-    viewportZoom
-  ]);
+  }, [id, isTelemetryStyle, selectRateLabel, sourceRateOffset, targetRateOffset, viewportZoom]);
 
   const startRateLabelRotationDrag = useCallback((
     key: RateLabelKey,
@@ -1027,18 +1052,12 @@ function LinkEdgeComponent({
   useEffect(() => {
     if (!selectedRateLabelKey || !onRateLabelTransformChange) return;
 
-    if (selectedRateLabelKey === 'source') {
-      onRateLabelTransformChange(
-        { edgeId: id, key: 'source' },
-        { offset: clonePoint(sourceRateOffset), rotationDeg: sourceRateRotationDeg }
-      );
-      return;
-    }
+    const selection: TelemetryRateLabelSelection = { edgeId: id, key: selectedRateLabelKey };
+    const transform = selectedRateLabelKey === 'source'
+      ? { offset: clonePoint(sourceRateOffset), rotationDeg: sourceRateRotationDeg }
+      : { offset: clonePoint(targetRateOffset), rotationDeg: targetRateRotationDeg };
 
-    onRateLabelTransformChange(
-      { edgeId: id, key: 'target' },
-      { offset: clonePoint(targetRateOffset), rotationDeg: targetRateRotationDeg }
-    );
+    onRateLabelTransformChange(selection, transform);
   }, [
     id,
     onRateLabelTransformChange,
@@ -1049,133 +1068,487 @@ function LinkEdgeComponent({
     targetRateRotationDeg
   ]);
 
-  const edgeData = useMemo(() => {
-    if (!sourceNode || !targetNode) {
-      return null;
-    }
+  return {
+    startRateLabelDrag,
+    startRateLabelRotationDrag,
+    swallowRateLabelClick,
+    swallowRateLabelPointerUp
+  };
+}
 
-    const fallbackSize = isTelemetryStyle ? telemetryNodeSizePx : 80;
-    const sourceRect = getMeasuredNodeRect(sourceNode, fallbackSize);
-    const targetRect = getMeasuredNodeRect(targetNode, fallbackSize);
-    if (!sourceRect || !targetRect) {
-      return null;
-    }
-    const sourceAnchor = resolveInterfaceAnchorFromTemplate(sourceRect, sourceTemplate);
-    const targetAnchor = resolveInterfaceAnchorFromTemplate(targetRect, targetTemplate);
-    const points = resolveEdgePointsWithInterfaceAnchors(
-      sourceRect,
-      targetRect,
-      sourceAnchor,
-      targetAnchor
-    );
-    const sourceEdge = { x: points.sx, y: points.sy };
-    const targetEdge = { x: points.tx, y: points.ty };
-
-    const pairIndex = data?.pairIndex ?? 0;
-    const totalInPair = data?.totalInPair ?? 1;
-    const bezier = createBezierPath(sourceEdge, targetEdge, pairIndex, totalInPair);
-
-    return {
-      ...bezier,
-      sourceEdge,
-      targetEdge,
-      totalInPair,
-      stroke: getStateColor(data?.state, edgeColors),
-      sourceAnchor,
-      targetAnchor
-    };
-  }, [
-    sourceNode,
-    targetNode,
-    sourceTemplate,
-    targetTemplate,
-    isTelemetryStyle,
-    telemetryNodeSizePx,
-    data?.pairIndex,
-    data?.totalInPair,
-    data?.state,
-    edgeColors
-  ]);
-
-  if (!edgeData) return null;
-
-  const isHighlighted = selected || Boolean(data?.highlighted);
-  const strokeWidth = resolveStrokeWidth(isHighlighted, isTelemetryStyle);
-  const sourceAnchor = edgeData.sourceAnchor;
-  const targetAnchor = edgeData.targetAnchor;
-  let edgeStroke = edgeData.stroke;
-  if (isTelemetryStyle) {
-    edgeStroke = edgeColors.defaultStroke;
+function resolveLabelPosition(
+  edgeData: {
+    sourceEdge: Point;
+    targetEdge: Point;
+    sourceLabel: Point;
+    targetLabel: Point;
+    totalInPair: number;
+    midPoint: Point;
+  },
+  endpoint: 'source' | 'target',
+  metrics: ReturnType<typeof getTelemetryLabelMetrics> | null,
+  sourceAnchor: InterfaceAnchor | undefined,
+  targetAnchor: InterfaceAnchor | undefined
+): Point {
+  const defaultPosition = endpoint === 'source' ? edgeData.sourceLabel : edgeData.targetLabel;
+  if (metrics === null) return defaultPosition;
+  if (sourceAnchor && targetAnchor) {
+    return endpoint === 'source' ? sourceAnchor : targetAnchor;
   }
-  if (isHighlighted) {
-    edgeStroke = edgeColors.selectedStroke;
-  }
-  const edgeOpacity = !isHighlighted && isTelemetryStyle ? 0.5 : 1;
-  const labelsVisible = data?.edgeLabelsVisible !== false;
-  const sourceLabelText = resolveRenderedLabel(
-    isTelemetryStyle,
-    labelsVisible,
-    data?.sourceEndpoint,
-    data?.sourceInterface
-  );
-  const targetLabelText = resolveRenderedLabel(
-    isTelemetryStyle,
-    labelsVisible,
-    data?.targetEndpoint,
-    data?.targetInterface
-  );
-  const sourceMetrics = isTelemetryStyle && sourceLabelText != null
-    ? getTelemetryLabelMetrics(sourceLabelText, telemetryInterfaceScale)
-    : null;
-  const targetMetrics = isTelemetryStyle && targetLabelText != null
-    ? getTelemetryLabelMetrics(targetLabelText, telemetryInterfaceScale)
-    : null;
-  const sourceBubbleColor = getTelemetryInterfaceBubbleColor(data?.sourceState, edgeColors);
-  const targetBubbleColor = getTelemetryInterfaceBubbleColor(data?.targetState, edgeColors);
-  const sourceOutBpsLabel = isTelemetryStyle ? formatTelemetryOutBpsLabel(data?.sourceOutBps) : undefined;
-  const targetOutBpsLabel = isTelemetryStyle ? formatTelemetryOutBpsLabel(data?.targetOutBps) : undefined;
+
   const controlPoint = edgeData.totalInPair > 1 ? edgeData.midPoint : undefined;
-  let sourceLabelPosition = edgeData.sourceLabel;
-  if (sourceMetrics) {
-    if (sourceAnchor && targetAnchor) {
-      sourceLabelPosition = sourceAnchor;
-    } else {
-      sourceLabelPosition = getEdgeLabelPosition(
-        edgeData.sourceEdge.x,
-        edgeData.sourceEdge.y,
-        edgeData.targetEdge.x,
-        edgeData.targetEdge.y,
-        sourceMetrics.radius + 1,
-        controlPoint
-      );
-    }
+  if (endpoint === 'source') {
+    return getEdgeLabelPosition(
+      edgeData.sourceEdge.x,
+      edgeData.sourceEdge.y,
+      edgeData.targetEdge.x,
+      edgeData.targetEdge.y,
+      metrics.radius + 1,
+      controlPoint
+    );
   }
-  let targetLabelPosition = edgeData.targetLabel;
-  if (targetMetrics) {
-    if (sourceAnchor && targetAnchor) {
-      targetLabelPosition = targetAnchor;
-    } else {
-      targetLabelPosition = getEdgeLabelPosition(
-        edgeData.targetEdge.x,
-        edgeData.targetEdge.y,
-        edgeData.sourceEdge.x,
-        edgeData.sourceEdge.y,
-        targetMetrics.radius + 1,
-        controlPoint
-      );
-    }
+
+  return getEdgeLabelPosition(
+    edgeData.targetEdge.x,
+    edgeData.targetEdge.y,
+    edgeData.sourceEdge.x,
+    edgeData.sourceEdge.y,
+    metrics.radius + 1,
+    controlPoint
+  );
+}
+
+function resolveEdgeStrokeColor(
+  isTelemetryStyle: boolean,
+  isHighlighted: boolean,
+  edgeStroke: string,
+  edgeColors: EdgeColors
+): string {
+  if (isHighlighted) return edgeColors.selectedStroke;
+  if (isTelemetryStyle) return edgeColors.defaultStroke;
+  return edgeStroke;
+}
+
+function resolveOverlayLabelTexts(
+  data: LinkEdgeData | undefined,
+  isTelemetryStyle: boolean
+): { sourceLabelText: string | undefined; targetLabelText: string | undefined } {
+  const labelsVisible = data?.edgeLabelsVisible !== false;
+  return {
+    sourceLabelText: resolveRenderedLabel(
+      isTelemetryStyle,
+      labelsVisible,
+      data?.sourceEndpoint,
+      data?.sourceInterface
+    ),
+    targetLabelText: resolveRenderedLabel(
+      isTelemetryStyle,
+      labelsVisible,
+      data?.targetEndpoint,
+      data?.targetInterface
+    )
+  };
+}
+
+function resolveOverlayMetrics(
+  sourceLabelText: string | undefined,
+  targetLabelText: string | undefined,
+  isTelemetryStyle: boolean,
+  telemetryInterfaceScale: number
+): {
+  sourceMetrics: ReturnType<typeof getTelemetryLabelMetrics> | null;
+  targetMetrics: ReturnType<typeof getTelemetryLabelMetrics> | null;
+} {
+  return {
+    sourceMetrics: isTelemetryStyle && sourceLabelText != null
+      ? getTelemetryLabelMetrics(sourceLabelText, telemetryInterfaceScale)
+      : null,
+    targetMetrics: isTelemetryStyle && targetLabelText != null
+      ? getTelemetryLabelMetrics(targetLabelText, telemetryInterfaceScale)
+      : null
+  };
+}
+
+function resolveOverlayRateLabels(
+  data: LinkEdgeData | undefined,
+  isTelemetryStyle: boolean
+): { sourceOutBpsLabel: string | undefined; targetOutBpsLabel: string | undefined } {
+  if (!isTelemetryStyle) {
+    return { sourceOutBpsLabel: undefined, targetOutBpsLabel: undefined };
   }
+  return {
+    sourceOutBpsLabel: formatTelemetryOutBpsLabel(data?.sourceOutBps),
+    targetOutBpsLabel: formatTelemetryOutBpsLabel(data?.targetOutBps)
+  };
+}
+
+function resolveOverlayRatePositions(
+  edgeData: { sourceEdge: Point; targetEdge: Point; midPoint: Point },
+  sourceRateOffset: Point,
+  targetRateOffset: Point,
+  sourceOutBpsLabel: string | undefined,
+  targetOutBpsLabel: string | undefined
+): { sourceRatePosition: Point | undefined; targetRatePosition: Point | undefined } {
   const baseSourceRatePosition = sourceOutBpsLabel
     ? getQuadraticPointAtRatio(edgeData.sourceEdge, edgeData.midPoint, edgeData.targetEdge, 0.34)
     : undefined;
   const baseTargetRatePosition = targetOutBpsLabel
     ? getQuadraticPointAtRatio(edgeData.sourceEdge, edgeData.midPoint, edgeData.targetEdge, 0.66)
     : undefined;
-  const sourceRatePosition = withOffset(baseSourceRatePosition, sourceRateOffset);
-  const targetRatePosition = withOffset(baseTargetRatePosition, targetRateOffset);
-  const telemetryRateFontSize = Math.max(9, 9 * telemetryInterfaceScale);
-  const telemetryRateTextStrokeWidth = Math.max(0.8, 0.75 * Math.max(0.6, telemetryInterfaceScale));
-  const hasOverlayLabels = sourceLabelText || targetLabelText || sourceOutBpsLabel || targetOutBpsLabel;
+
+  return {
+    sourceRatePosition: withOffset(baseSourceRatePosition, sourceRateOffset),
+    targetRatePosition: withOffset(baseTargetRatePosition, targetRateOffset)
+  };
+}
+
+function buildLinkEdgeOverlayState(params: {
+  edgeData: {
+    sourceEdge: Point;
+    targetEdge: Point;
+    sourceLabel: Point;
+    targetLabel: Point;
+    totalInPair: number;
+    midPoint: Point;
+    stroke: string;
+  };
+  data: LinkEdgeData | undefined;
+  edgeColors: EdgeColors;
+  isTelemetryStyle: boolean;
+  isHighlighted: boolean;
+  telemetryInterfaceScale: number;
+  sourceAnchor: InterfaceAnchor | undefined;
+  targetAnchor: InterfaceAnchor | undefined;
+  sourceRateOffset: Point;
+  targetRateOffset: Point;
+}): LinkEdgeOverlayState {
+  const { sourceLabelText, targetLabelText } = resolveOverlayLabelTexts(
+    params.data,
+    params.isTelemetryStyle
+  );
+  const { sourceMetrics, targetMetrics } = resolveOverlayMetrics(
+    sourceLabelText,
+    targetLabelText,
+    params.isTelemetryStyle,
+    params.telemetryInterfaceScale
+  );
+  const sourceLabelPosition = resolveLabelPosition(
+    params.edgeData,
+    'source',
+    sourceMetrics,
+    params.sourceAnchor,
+    params.targetAnchor
+  );
+  const targetLabelPosition = resolveLabelPosition(
+    params.edgeData,
+    'target',
+    targetMetrics,
+    params.sourceAnchor,
+    params.targetAnchor
+  );
+  const { sourceOutBpsLabel, targetOutBpsLabel } = resolveOverlayRateLabels(
+    params.data,
+    params.isTelemetryStyle
+  );
+  const { sourceRatePosition, targetRatePosition } = resolveOverlayRatePositions(
+    params.edgeData,
+    params.sourceRateOffset,
+    params.targetRateOffset,
+    sourceOutBpsLabel,
+    targetOutBpsLabel
+  );
+
+  return {
+    strokeWidth: resolveStrokeWidth(params.isHighlighted, params.isTelemetryStyle),
+    edgeStroke: resolveEdgeStrokeColor(
+      params.isTelemetryStyle,
+      params.isHighlighted,
+      params.edgeData.stroke,
+      params.edgeColors
+    ),
+    edgeOpacity: !params.isHighlighted && params.isTelemetryStyle ? 0.5 : 1,
+    sourceLabelText,
+    targetLabelText,
+    sourceMetrics,
+    targetMetrics,
+    sourceBubbleColor: getTelemetryInterfaceBubbleColor(params.data?.sourceState, params.edgeColors),
+    targetBubbleColor: getTelemetryInterfaceBubbleColor(params.data?.targetState, params.edgeColors),
+    sourceLabelPosition,
+    targetLabelPosition,
+    sourceOutBpsLabel,
+    targetOutBpsLabel,
+    sourceRatePosition,
+    targetRatePosition,
+    telemetryRateFontSize: Math.max(9, 9 * params.telemetryInterfaceScale),
+    telemetryRateTextStrokeWidth: Math.max(0.8, 0.75 * Math.max(0.6, params.telemetryInterfaceScale)),
+    hasOverlayLabels: Boolean(sourceLabelText || targetLabelText || sourceOutBpsLabel || targetOutBpsLabel)
+  };
+}
+
+interface LinkEdgeGeometryData {
+  path: string;
+  sourceLabel: Point;
+  targetLabel: Point;
+  midPoint: Point;
+  sourceEdge: Point;
+  targetEdge: Point;
+  totalInPair: number;
+  stroke: string;
+  sourceAnchor: InterfaceAnchor | undefined;
+  targetAnchor: InterfaceAnchor | undefined;
+}
+
+interface LinkEdgeDataSnapshot {
+  isTelemetryStyle: boolean;
+  telemetryNodeSizePx: number;
+  telemetryInterfaceScale: number;
+  sourceEndpointKey: string | null;
+  targetEndpointKey: string | null;
+  pairIndex: number;
+  totalInPair: number;
+  edgeState: string | undefined;
+  selectedRateLabelKey: RateLabelKey | undefined;
+  onRateLabelSelect: LinkEdgeData['onRateLabelSelect'];
+  onRateLabelTransformChange: LinkEdgeData['onRateLabelTransformChange'];
+  highlighted: boolean;
+}
+
+function snapshotTelemetryAppearance(data: LinkEdgeData | undefined): {
+  isTelemetryStyle: boolean;
+  telemetryNodeSizePx: number;
+  telemetryInterfaceScale: number;
+} {
+  return {
+    isTelemetryStyle: data?.appearanceMode === 'telemetry',
+    telemetryNodeSizePx: clampTelemetryNodeSizePx(data?.telemetryNodeSizePx ?? 80),
+    telemetryInterfaceScale: clampTelemetryInterfaceScale(data?.telemetryInterfaceScale ?? 1)
+  };
+}
+
+function snapshotEndpointKeys(data: LinkEdgeData | undefined): {
+  sourceEndpointKey: string | null;
+  targetEndpointKey: string | null;
+} {
+  return {
+    sourceEndpointKey: resolveInterfaceEndpointKey(data?.sourceEndpoint, data?.sourceInterface),
+    targetEndpointKey: resolveInterfaceEndpointKey(data?.targetEndpoint, data?.targetInterface)
+  };
+}
+
+function snapshotPairMetadata(data: LinkEdgeData | undefined): {
+  pairIndex: number;
+  totalInPair: number;
+  edgeState: string | undefined;
+} {
+  return {
+    pairIndex: data?.pairIndex ?? 0,
+    totalInPair: data?.totalInPair ?? 1,
+    edgeState: data?.state
+  };
+}
+
+function snapshotRateLabelHandlers(data: LinkEdgeData | undefined): {
+  selectedRateLabelKey: RateLabelKey | undefined;
+  onRateLabelSelect: LinkEdgeData['onRateLabelSelect'];
+  onRateLabelTransformChange: LinkEdgeData['onRateLabelTransformChange'];
+  highlighted: boolean;
+} {
+  return {
+    selectedRateLabelKey: data?.selectedRateLabelKey,
+    onRateLabelSelect: data?.onRateLabelSelect,
+    onRateLabelTransformChange: data?.onRateLabelTransformChange,
+    highlighted: Boolean(data?.highlighted)
+  };
+}
+
+function snapshotLinkEdgeData(data: LinkEdgeData | undefined): LinkEdgeDataSnapshot {
+  const telemetry = snapshotTelemetryAppearance(data);
+  const endpointKeys = snapshotEndpointKeys(data);
+  const pairMetadata = snapshotPairMetadata(data);
+  const rateLabelState = snapshotRateLabelHandlers(data);
+
+  return {
+    ...telemetry,
+    ...endpointKeys,
+    ...pairMetadata,
+    ...rateLabelState
+  };
+}
+
+function isRateLabelSelected(
+  selectedRateLabelKey: RateLabelKey | undefined,
+  key: RateLabelKey
+): boolean {
+  return selectedRateLabelKey === key;
+}
+
+function resolveEdgeHighlight(selected: boolean | undefined, highlighted: boolean): boolean {
+  return Boolean(selected) || highlighted;
+}
+
+function buildLinkEdgeGeometryData(params: {
+  sourceNode: InternalNodeLike | undefined;
+  targetNode: InternalNodeLike | undefined;
+  isTelemetryStyle: boolean;
+  telemetryNodeSizePx: number;
+  sourceTemplate: InterfaceAnchorTemplate | undefined;
+  targetTemplate: InterfaceAnchorTemplate | undefined;
+  pairIndex: number;
+  totalInPair: number;
+  edgeState: string | undefined;
+  edgeColors: EdgeColors;
+}): LinkEdgeGeometryData | null {
+  if (!params.sourceNode || !params.targetNode) return null;
+
+  const fallbackSize = params.isTelemetryStyle ? params.telemetryNodeSizePx : 80;
+  const sourceRect = getMeasuredNodeRect(params.sourceNode, fallbackSize);
+  const targetRect = getMeasuredNodeRect(params.targetNode, fallbackSize);
+  if (!sourceRect || !targetRect) return null;
+
+  const sourceAnchor = resolveInterfaceAnchorFromTemplate(sourceRect, params.sourceTemplate);
+  const targetAnchor = resolveInterfaceAnchorFromTemplate(targetRect, params.targetTemplate);
+  const points = resolveEdgePointsWithInterfaceAnchors(
+    sourceRect,
+    targetRect,
+    sourceAnchor,
+    targetAnchor
+  );
+  const sourceEdge = { x: points.sx, y: points.sy };
+  const targetEdge = { x: points.tx, y: points.ty };
+  const bezier = createBezierPath(sourceEdge, targetEdge, params.pairIndex, params.totalInPair);
+
+  return {
+    ...bezier,
+    sourceEdge,
+    targetEdge,
+    totalInPair: params.totalInPair,
+    stroke: getStateColor(params.edgeState, params.edgeColors),
+    sourceAnchor,
+    targetAnchor
+  };
+}
+
+function LinkEdgeComponent({
+  id,
+  source,
+  target,
+  data,
+  selected,
+}: EdgeProps<LinkEdge>) {
+  const theme = useTheme();
+  const edgeDataSnapshot = snapshotLinkEdgeData(data);
+  const edgeColors = useMemo<EdgeColors>(() => ({
+    defaultStroke: theme.vscode.topology.linkStroke,
+    selectedStroke: theme.vscode.topology.linkStrokeSelected,
+    upStroke: theme.vscode.topology.linkUp,
+    downStroke: theme.vscode.topology.linkDown,
+  }), [theme]);
+  const allEdges = useStore((state) => state.edges as LinkEdge[]);
+  const nodeLookup = useStore((state) => state.nodeLookup as NodeLookupLike);
+  const sourceNode = useInternalNode(source);
+  const targetNode = useInternalNode(target);
+  const telemetryInterfaceAnchorTemplates = useMemo(
+    () => edgeDataSnapshot.isTelemetryStyle
+      ? getCachedTelemetryInterfaceAnchorTemplateMap(
+        allEdges,
+        nodeLookup,
+        edgeDataSnapshot.telemetryNodeSizePx,
+        edgeDataSnapshot.telemetryInterfaceScale
+      )
+      : undefined,
+    [
+      allEdges,
+      edgeDataSnapshot.isTelemetryStyle,
+      nodeLookup,
+      edgeDataSnapshot.telemetryInterfaceScale,
+      edgeDataSnapshot.telemetryNodeSizePx
+    ]
+  );
+  const sourceTemplate = resolveInterfaceTemplate(
+    telemetryInterfaceAnchorTemplates,
+    source,
+    edgeDataSnapshot.sourceEndpointKey
+  );
+  const targetTemplate = resolveInterfaceTemplate(
+    telemetryInterfaceAnchorTemplates,
+    target,
+    edgeDataSnapshot.targetEndpointKey
+  );
+  const viewportTransform = useStore((state) => state.transform as [number, number, number]);
+  const viewportX = viewportTransform[0];
+  const viewportY = viewportTransform[1];
+  const viewportZoom = viewportTransform[2];
+  const rateLabelOffsetVersion = useSyncExternalStore(
+    subscribeRateLabelOffsets,
+    getRateLabelOffsetVersionSnapshot,
+    getRateLabelOffsetVersionSnapshot
+  );
+  const rateLabelOffsets = getEdgeRateLabelOffsets(id, rateLabelOffsetVersion);
+  const sourceRateOffset = rateLabelOffsets.source;
+  const targetRateOffset = rateLabelOffsets.target;
+  const rateLabelRotations = getEdgeRateLabelRotations(id, rateLabelOffsetVersion);
+  const sourceRateRotationDeg = rateLabelRotations.source;
+  const targetRateRotationDeg = rateLabelRotations.target;
+  const isSourceRateDragActive = isRateLabelDragActive(id, 'source');
+  const isTargetRateDragActive = isRateLabelDragActive(id, 'target');
+  const selectedRateLabelKey = edgeDataSnapshot.selectedRateLabelKey;
+  const isSourceRateSelected = isRateLabelSelected(selectedRateLabelKey, 'source');
+  const isTargetRateSelected = isRateLabelSelected(selectedRateLabelKey, 'target');
+  const interactions = useRateLabelInteractions({
+    id,
+    isTelemetryStyle: edgeDataSnapshot.isTelemetryStyle,
+    sourceRateOffset,
+    targetRateOffset,
+    sourceRateRotationDeg,
+    targetRateRotationDeg,
+    viewportX,
+    viewportY,
+    viewportZoom,
+    selectedRateLabelKey,
+    onRateLabelSelect: edgeDataSnapshot.onRateLabelSelect,
+    onRateLabelTransformChange: edgeDataSnapshot.onRateLabelTransformChange
+  });
+
+  const edgeData = useMemo(() => buildLinkEdgeGeometryData({
+    sourceNode,
+    targetNode,
+    isTelemetryStyle: edgeDataSnapshot.isTelemetryStyle,
+    telemetryNodeSizePx: edgeDataSnapshot.telemetryNodeSizePx,
+    sourceTemplate,
+    targetTemplate,
+    pairIndex: edgeDataSnapshot.pairIndex,
+    totalInPair: edgeDataSnapshot.totalInPair,
+    edgeState: edgeDataSnapshot.edgeState,
+    edgeColors
+  }), [
+    sourceNode,
+    targetNode,
+    sourceTemplate,
+    targetTemplate,
+    edgeDataSnapshot.isTelemetryStyle,
+    edgeDataSnapshot.telemetryNodeSizePx,
+    edgeDataSnapshot.pairIndex,
+    edgeDataSnapshot.totalInPair,
+    edgeDataSnapshot.edgeState,
+    edgeColors
+  ]);
+
+  const isHighlighted = resolveEdgeHighlight(selected, edgeDataSnapshot.highlighted);
+  const overlay = edgeData
+    ? buildLinkEdgeOverlayState({
+      edgeData,
+      data,
+      edgeColors,
+      isTelemetryStyle: edgeDataSnapshot.isTelemetryStyle,
+      isHighlighted,
+      telemetryInterfaceScale: edgeDataSnapshot.telemetryInterfaceScale,
+      sourceAnchor: edgeData.sourceAnchor,
+      targetAnchor: edgeData.targetAnchor,
+      sourceRateOffset,
+      targetRateOffset
+    })
+    : null;
+  if (!edgeData || !overlay) return null;
 
   return (
     <>
@@ -1183,188 +1556,22 @@ function LinkEdgeComponent({
         id={id}
         path={edgeData.path}
         style={{
-          stroke: edgeStroke,
-          strokeWidth,
-          strokeOpacity: edgeOpacity
+          stroke: overlay.edgeStroke,
+          strokeWidth: overlay.strokeWidth,
+          strokeOpacity: overlay.edgeOpacity
         }}
         interactionWidth={20}
       />
-      {hasOverlayLabels && (
-        <EdgeLabelRenderer>
-          {sourceLabelText && (
-            <div
-              className="topology-edge-label"
-              style={sourceMetrics
-                ? {
-                  position: 'absolute',
-                  transform: `translate(-50%, -50%) translate(${sourceLabelPosition.x}px, ${sourceLabelPosition.y}px)`,
-                  pointerEvents: 'none',
-                  width: `${sourceMetrics.radius * 2}px`,
-                  minWidth: `${sourceMetrics.radius * 2}px`,
-                  height: `${sourceMetrics.radius * 2}px`,
-                  borderRadius: '50%',
-                  backgroundColor: sourceBubbleColor,
-                  border: `${sourceMetrics.bubbleStrokeWidth}px solid rgba(0, 0, 0, 0.25)`,
-                  color: '#ffffff',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: `${sourceMetrics.fontSize}px`,
-                  fontWeight: 500,
-                  whiteSpace: 'nowrap',
-                  padding: 0,
-                  textShadow: `0 0 ${sourceMetrics.textStrokeWidth}px rgba(0, 0, 0, 0.95), 0 0 ${sourceMetrics.textStrokeWidth}px rgba(0, 0, 0, 0.95)`
-                }
-                : {
-                  position: 'absolute',
-                  transform: `translate(-50%, -50%) translate(${sourceLabelPosition.x}px, ${sourceLabelPosition.y}px)`,
-                  pointerEvents: 'none',
-                }}
-            >
-              {sourceMetrics?.compact ?? sourceLabelText}
-            </div>
-          )}
-          {targetLabelText && (
-            <div
-              className="topology-edge-label"
-              style={targetMetrics
-                ? {
-                  position: 'absolute',
-                  transform: `translate(-50%, -50%) translate(${targetLabelPosition.x}px, ${targetLabelPosition.y}px)`,
-                  pointerEvents: 'none',
-                  width: `${targetMetrics.radius * 2}px`,
-                  minWidth: `${targetMetrics.radius * 2}px`,
-                  height: `${targetMetrics.radius * 2}px`,
-                  borderRadius: '50%',
-                  backgroundColor: targetBubbleColor,
-                  border: `${targetMetrics.bubbleStrokeWidth}px solid rgba(0, 0, 0, 0.25)`,
-                  color: '#ffffff',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: `${targetMetrics.fontSize}px`,
-                  fontWeight: 500,
-                  whiteSpace: 'nowrap',
-                  padding: 0,
-                  textShadow: `0 0 ${targetMetrics.textStrokeWidth}px rgba(0, 0, 0, 0.95), 0 0 ${targetMetrics.textStrokeWidth}px rgba(0, 0, 0, 0.95)`
-                }
-                : {
-                  position: 'absolute',
-                  transform: `translate(-50%, -50%) translate(${targetLabelPosition.x}px, ${targetLabelPosition.y}px)`,
-                  pointerEvents: 'none',
-                }}
-            >
-              {targetMetrics?.compact ?? targetLabelText}
-            </div>
-          )}
-          {sourceOutBpsLabel && sourceRatePosition && (
-            <div
-              className="nodrag nopan"
-              onPointerDown={(event) => startRateLabelDrag('source', event)}
-              onPointerUp={swallowRateLabelPointerUp}
-              onClick={swallowRateLabelClick}
-              title="Drag to move"
-              style={{
-                position: 'absolute',
-                transform: `translate(-50%, -50%) translate(${sourceRatePosition.x}px, ${sourceRatePosition.y}px) rotate(${sourceRateRotationDeg}deg)`,
-                transformOrigin: 'center center',
-                pointerEvents: 'all',
-                color: '#ffffff',
-                backgroundColor: isSourceRateSelected ? 'rgba(96, 152, 255, 0.25)' : 'transparent',
-                border: isSourceRateSelected ? '1px solid rgba(96, 152, 255, 0.95)' : '1px solid transparent',
-                borderRadius: '4px',
-                fontSize: `${telemetryRateFontSize}px`,
-                fontWeight: 500,
-                whiteSpace: 'nowrap',
-                lineHeight: 1,
-                textShadow: `0 0 ${telemetryRateTextStrokeWidth}px rgba(0, 0, 0, 0.95), 0 0 ${telemetryRateTextStrokeWidth}px rgba(0, 0, 0, 0.95)`,
-                userSelect: 'none',
-                touchAction: 'none',
-                padding: '2px 4px',
-                cursor: isSourceRateDragActive ? 'grabbing' : 'grab'
-              }}
-            >
-              {sourceOutBpsLabel}
-            </div>
-          )}
-          {sourceOutBpsLabel && sourceRatePosition && isSourceRateSelected && (
-            <div
-              className="nodrag nopan"
-              onPointerDown={(event) => startRateLabelRotationDrag('source', sourceRatePosition, event)}
-              onPointerUp={swallowRateLabelPointerUp}
-              onClick={swallowRateLabelClick}
-              title="Drag to rotate"
-              style={{
-                position: 'absolute',
-                transform: `translate(-50%, -50%) translate(${sourceRatePosition.x}px, ${sourceRatePosition.y}px) rotate(${sourceRateRotationDeg}deg) translateY(-${RATE_LABEL_ROTATION_HANDLE_DISTANCE_PX}px)`,
-                transformOrigin: 'center center',
-                width: '11px',
-                height: '11px',
-                borderRadius: '50%',
-                backgroundColor: '#6098ff',
-                border: '1px solid rgba(255, 255, 255, 0.95)',
-                boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.45)',
-                pointerEvents: 'all',
-                cursor: 'grab',
-                touchAction: 'none'
-              }}
-            />
-          )}
-          {targetOutBpsLabel && targetRatePosition && (
-            <div
-              className="nodrag nopan"
-              onPointerDown={(event) => startRateLabelDrag('target', event)}
-              onPointerUp={swallowRateLabelPointerUp}
-              onClick={swallowRateLabelClick}
-              title="Drag to move"
-              style={{
-                position: 'absolute',
-                transform: `translate(-50%, -50%) translate(${targetRatePosition.x}px, ${targetRatePosition.y}px) rotate(${targetRateRotationDeg}deg)`,
-                transformOrigin: 'center center',
-                pointerEvents: 'all',
-                color: '#ffffff',
-                backgroundColor: isTargetRateSelected ? 'rgba(96, 152, 255, 0.25)' : 'transparent',
-                border: isTargetRateSelected ? '1px solid rgba(96, 152, 255, 0.95)' : '1px solid transparent',
-                borderRadius: '4px',
-                fontSize: `${telemetryRateFontSize}px`,
-                fontWeight: 500,
-                whiteSpace: 'nowrap',
-                lineHeight: 1,
-                textShadow: `0 0 ${telemetryRateTextStrokeWidth}px rgba(0, 0, 0, 0.95), 0 0 ${telemetryRateTextStrokeWidth}px rgba(0, 0, 0, 0.95)`,
-                userSelect: 'none',
-                touchAction: 'none',
-                padding: '2px 4px',
-                cursor: isTargetRateDragActive ? 'grabbing' : 'grab'
-              }}
-            >
-              {targetOutBpsLabel}
-            </div>
-          )}
-          {targetOutBpsLabel && targetRatePosition && isTargetRateSelected && (
-            <div
-              className="nodrag nopan"
-              onPointerDown={(event) => startRateLabelRotationDrag('target', targetRatePosition, event)}
-              onPointerUp={swallowRateLabelPointerUp}
-              onClick={swallowRateLabelClick}
-              title="Drag to rotate"
-              style={{
-                position: 'absolute',
-                transform: `translate(-50%, -50%) translate(${targetRatePosition.x}px, ${targetRatePosition.y}px) rotate(${targetRateRotationDeg}deg) translateY(-${RATE_LABEL_ROTATION_HANDLE_DISTANCE_PX}px)`,
-                transformOrigin: 'center center',
-                width: '11px',
-                height: '11px',
-                borderRadius: '50%',
-                backgroundColor: '#6098ff',
-                border: '1px solid rgba(255, 255, 255, 0.95)',
-                boxShadow: '0 0 0 1px rgba(0, 0, 0, 0.45)',
-                pointerEvents: 'all',
-                cursor: 'grab',
-                touchAction: 'none'
-              }}
-            />
-          )}
-        </EdgeLabelRenderer>
-      )}
+      <EdgeOverlayLabels
+        overlay={overlay}
+        sourceRateRotationDeg={sourceRateRotationDeg}
+        targetRateRotationDeg={targetRateRotationDeg}
+        isSourceRateSelected={isSourceRateSelected}
+        isTargetRateSelected={isTargetRateSelected}
+        isSourceRateDragActive={isSourceRateDragActive}
+        isTargetRateDragActive={isTargetRateDragActive}
+        interactions={interactions}
+      />
     </>
   );
 }

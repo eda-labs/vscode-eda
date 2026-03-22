@@ -123,12 +123,38 @@ describe('topology grafana export helpers', () => {
     const json = buildGrafanaDashboardJson(panelConfig, svg, 'Lab A');
     const parsed = JSON.parse(json) as {
       title: string;
-      panels: Array<{ options: { panelConfig: string; svg: string } }>;
+      panels: Array<{
+        options: { panelConfig: string; svg: string };
+        targets: Array<{ expr: string }>;
+      }>;
     };
 
     expect(parsed.title).to.equal('Lab A');
     expect(parsed.panels[0].options.panelConfig).to.equal(panelConfig);
     expect(parsed.panels[0].options.svg).to.equal(svg);
+    expect(parsed.panels[0].targets[1].expr)
+      .to.equal('last_over_time(node_srl_interface_traffic_rate_out_bps[20s])');
+    expect(parsed.panels[0].targets[2].expr)
+      .to.equal('last_over_time(node_srl_interface_traffic_rate_in_bps[20s])');
+  });
+
+  it('embeds selected namespace into dashboard traffic queries', () => {
+    const panelConfig = 'cells:\n  {}\n';
+    const svg = '<svg><g id="cell-test"></g></svg>';
+
+    const json = buildGrafanaDashboardJson(panelConfig, svg, 'Lab A', {
+      namespaceName: 'eda-telemetry'
+    });
+    const parsed = JSON.parse(json) as {
+      panels: Array<{
+        targets: Array<{ expr: string }>;
+      }>;
+    };
+
+    expect(parsed.panels[0].targets[1].expr)
+      .to.equal('last_over_time(node_srl_interface_traffic_rate_out_bps{namespace_name="eda-telemetry"}[20s])');
+    expect(parsed.panels[0].targets[2].expr)
+      .to.equal('last_over_time(node_srl_interface_traffic_rate_in_bps{namespace_name="eda-telemetry"}[20s])');
   });
 
   it('sanitizes text-shadow filter usage and removes unlinked nodes', () => {

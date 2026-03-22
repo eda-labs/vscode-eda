@@ -267,27 +267,45 @@ function normalizeHexColor(value: string | undefined): string | undefined {
   return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed : undefined;
 }
 
+function resolveRateLabelEndpoint(edge: TopologyEdge, key: TopologyTelemetryRateLabelSelection['key']): string {
+  if (key === 'source') {
+    return edge.data?.sourceEndpoint ?? edge.data?.sourceInterface ?? 'n/a';
+  }
+  return edge.data?.targetEndpoint ?? edge.data?.targetInterface ?? 'n/a';
+}
+
+function resolveRateLabelPeerEndpoint(edge: TopologyEdge, key: TopologyTelemetryRateLabelSelection['key']): string {
+  if (key === 'source') {
+    return edge.data?.targetEndpoint ?? edge.data?.targetInterface ?? 'n/a';
+  }
+  return edge.data?.sourceEndpoint ?? edge.data?.sourceInterface ?? 'n/a';
+}
+
+function resolveRateLabelRawValue(
+  edge: TopologyEdge,
+  key: TopologyTelemetryRateLabelSelection['key']
+): unknown {
+  return key === 'source' ? edge.data?.sourceOutBps : edge.data?.targetOutBps;
+}
+
+function resolveEdgeResourceName(edge: TopologyEdge): string | undefined {
+  const rawResource = edge.data?.rawResource as { metadata?: { name?: unknown } } | undefined;
+  return typeof rawResource?.metadata?.name === 'string' ? rawResource.metadata.name : undefined;
+}
+
 function buildRateLabelInfo(
   edge: TopologyEdge,
   selection: TopologyTelemetryRateLabelSelection,
   transform: TopologyTelemetryRateLabelTransform
 ): RateLabelInfo {
-  const isSource = selection.key === 'source';
-  const endpoint = isSource
-    ? (edge.data?.sourceEndpoint ?? edge.data?.sourceInterface ?? 'n/a')
-    : (edge.data?.targetEndpoint ?? edge.data?.targetInterface ?? 'n/a');
-  const peerEndpoint = isSource
-    ? (edge.data?.targetEndpoint ?? edge.data?.targetInterface ?? 'n/a')
-    : (edge.data?.sourceEndpoint ?? edge.data?.sourceInterface ?? 'n/a');
-  const rateRaw = isSource ? edge.data?.sourceOutBps : edge.data?.targetOutBps;
+  const endpoint = resolveRateLabelEndpoint(edge, selection.key);
+  const peerEndpoint = resolveRateLabelPeerEndpoint(edge, selection.key);
+  const rateRaw = resolveRateLabelRawValue(edge, selection.key);
   const sourceNodeId = edge.source;
   const targetNodeId = edge.target;
   const sourceNode = topologyNodeIdToName(sourceNodeId);
   const targetNode = topologyNodeIdToName(targetNodeId);
-  const rawResource = edge.data?.rawResource as { metadata?: { name?: unknown } } | undefined;
-  const edgeResourceName = typeof rawResource?.metadata?.name === 'string'
-    ? rawResource.metadata.name
-    : undefined;
+  const edgeResourceName = resolveEdgeResourceName(edge);
 
   return {
     edgeId: edge.id,
@@ -872,6 +890,199 @@ function extractDeviceNodePositions(flowNodes: FlowNode[]): NodePositionMap {
   return normalizeNodePositionMap(positions);
 }
 
+function layoutNodesByTier(
+  backendNodes: BackendNode[],
+  persistedPositions: NodePositionMap = {}
+): FlowNode[] {
+  const namespaceGroups = groupNodesByNamespace(backendNodes);
+  const sortedNamespaces = Object.keys(namespaceGroups).sort();
+  const hasMultipleNamespaces = sortedNamespaces.length > 1;
+  const result: FlowNode[] = [];
+  let currentXOffset = 0;
+
+  for (const ns of sortedNamespaces) {
+    const tiers = groupNodesByTier(namespaceGroups[ns]);
+    const sortedTiers = Object.keys(tiers).sort((a, b) => Number(a) - Number(b));
+    const nsDefaultWidth = Math.max(100, ...sortedTiers.map(t => (tiers[Number(t)].length - 1) * SPACING_X));
+    const namespaceNodes: Array<{ node: BackendNode; position: { x: number; y: number } }> = [];
+
+    for (let tierIndex = 0; tierIndex < sortedTiers.length; tierIndex++) {
+      const tierNodes = tiers[Number(sortedTiers[tierIndex])];
+      const tierWidth = (tierNodes.length - 1) * SPACING_X;
+      const tierXOffset = (nsDefaultWidth - tierWidth) / 2;
+
+      for (let idx = 0; idx < tierNodes.length; idx++) {
+        const node = tierNodes[idx];
+        const persisted = getPersistedPositionForNodeId(node.id, persistedPositions);
+        namespaceNodes.push({
+          node,
+          position: persisted ?? { x: tierXOffset + idx * SPACING_X, y: tierIndex * SPACING_Y }
+        });
+      }
+    }
+
+    const xCoordinates = namespaceNodes.map((entry) => entry.position.x);
+    const namespaceContentMinX = xCoordinates.length > 0 ? Math.min(...xCoordinates) : 0;
+    const namespaceContentMaxX = xCoordinates.length > 0 ? Math.max(...xCoordinates) : nsDefaultWidth;
+    const namespaceXShift = hasMultipleNamespaces
+      ? currentXOffset - namespaceContentMinX
+      : 0;
+    const namespacePlacedMinX = namespaceContentMinX + namespaceXShift;
+    const namespacePlacedMaxX = namespaceContentMaxX + namespaceXShift + LAYOUT_NODE_WIDTH;
+    const namespaceLabelX = (namespacePlacedMinX + namespacePlacedMaxX) / 2;
+
+    if (hasMultipleNamespaces) {
+      result.push({
+        id: `ns-label-${ns}`,
+        type: 'namespaceLabel',
+        position: { x: namespaceLabelX, y: LABEL_OFFSET_Y },
+        data: { label: ns },
+        selectable: false,
+        draggable: false
+      });
+    }
+
+    for (const { node, position } of namespaceNodes) {
+      result.push({
+        id: node.id,
+        type: 'deviceNode',
+        position: { x: position.x + namespaceXShift, y: position.y },
+        data: { label: node.label, tier: node.tier ?? 1, role: node.role, namespace: ns, raw: node.raw }
+      });
+    }
+
+    if (hasMultipleNamespaces) {
+      currentXOffset = namespacePlacedMaxX + NAMESPACE_GAP;
+    }
+  }
+
+  return result;
+}
+
+function processTopologyEdges(backendEdges: BackendEdge[]): TopologyEdge[] {
+  const normalizeIdPart = (value: string | undefined): string => {
+    const trimmed = value?.trim();
+    return trimmed != null && trimmed.length > 0 ? encodeURIComponent(trimmed) : 'na';
+  };
+
+  const getRawResourceName = (edge: BackendEdge): string | undefined => {
+    if (!edge.rawResource || typeof edge.rawResource !== 'object') {
+      return undefined;
+    }
+    const metadata = (edge.rawResource as { metadata?: { name?: unknown } }).metadata;
+    const name = metadata?.name;
+    if (typeof name !== 'string') {
+      return undefined;
+    }
+    const trimmed = name.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  };
+
+  const buildEndpointSignature = (
+    node: string | undefined,
+    endpoint: string | undefined,
+    iface: string | undefined
+  ): string => [
+    normalizeIdPart(node),
+    normalizeIdPart(endpoint),
+    normalizeIdPart(iface)
+  ].join('::');
+
+  const buildStableEdgeKey = (edge: BackendEdge): string => {
+    const sourceSignature = buildEndpointSignature(edge.source, edge.sourceEndpoint, edge.sourceInterface);
+    const targetSignature = buildEndpointSignature(edge.target, edge.targetEndpoint, edge.targetInterface);
+    const [first, second] = sourceSignature.localeCompare(targetSignature) <= 0
+      ? [sourceSignature, targetSignature]
+      : [targetSignature, sourceSignature];
+    return [
+      normalizeIdPart(getRawResourceName(edge)),
+      first,
+      second
+    ].join('--');
+  };
+
+  const buildOrientedEdgeKey = (edge: BackendEdge): string => {
+    const sourceSignature = buildEndpointSignature(edge.source, edge.sourceEndpoint, edge.sourceInterface);
+    const targetSignature = buildEndpointSignature(edge.target, edge.targetEndpoint, edge.targetInterface);
+    return `${sourceSignature}->${targetSignature}`;
+  };
+
+  const edgeMeta = backendEdges.map((edge, originalIndex) => ({
+    edge,
+    originalIndex,
+    pairKey: [edge.source, edge.target].sort().join('|'),
+    stableKey: buildStableEdgeKey(edge),
+    orientedKey: buildOrientedEdgeKey(edge)
+  }));
+
+  const bucketsByPair = new Map<string, typeof edgeMeta>();
+  for (const meta of edgeMeta) {
+    const bucket = bucketsByPair.get(meta.pairKey) ?? [];
+    bucket.push(meta);
+    bucketsByPair.set(meta.pairKey, bucket);
+  }
+
+  const assignments = new Array<{
+    id: string;
+    pairIndex: number;
+    totalInPair: number;
+  }>(backendEdges.length);
+
+  for (const bucket of bucketsByPair.values()) {
+    bucket.sort((a, b) => {
+      const byStableKey = a.stableKey.localeCompare(b.stableKey);
+      if (byStableKey !== 0) return byStableKey;
+      const byOrientedKey = a.orientedKey.localeCompare(b.orientedKey);
+      if (byOrientedKey !== 0) return byOrientedKey;
+      return a.originalIndex - b.originalIndex;
+    });
+
+    const totalInPair = bucket.length;
+    const duplicateCounts = new Map<string, number>();
+    for (let idx = 0; idx < bucket.length; idx++) {
+      const entry = bucket[idx];
+      const duplicateIndex = duplicateCounts.get(entry.stableKey) ?? 0;
+      duplicateCounts.set(entry.stableKey, duplicateIndex + 1);
+      const duplicateSuffix = duplicateIndex > 0 ? `--dup${duplicateIndex}` : '';
+      assignments[entry.originalIndex] = {
+        id: `edge--${entry.stableKey}${duplicateSuffix}`,
+        pairIndex: idx,
+        totalInPair
+      };
+    }
+  }
+
+  return backendEdges.map((edge, originalIndex) => {
+    const assignment = assignments[originalIndex] ?? {
+      id: `edge--fallback--${originalIndex}`,
+      pairIndex: 0,
+      totalInPair: 1
+    };
+
+    return {
+      id: assignment.id,
+      source: edge.source,
+      target: edge.target,
+      type: 'linkEdge',
+      data: {
+        sourceInterface: edge.sourceInterface,
+        targetInterface: edge.targetInterface,
+        sourceEndpoint: edge.sourceEndpoint,
+        targetEndpoint: edge.targetEndpoint,
+        state: edge.state,
+        sourceState: edge.sourceState,
+        targetState: edge.targetState,
+        sourceOutBps: edge.sourceOutBps,
+        targetOutBps: edge.targetOutBps,
+        pairIndex: assignment.pairIndex,
+        totalInPair: assignment.totalInPair,
+        raw: edge.raw,
+        rawResource: edge.rawResource
+      }
+    };
+  });
+}
+
 function TopologyFlowDashboard() {
   const postMessage = usePostMessage();
   const theme = useTheme();
@@ -975,198 +1186,6 @@ function TopologyFlowDashboard() {
   useEffect(() => {
     postMessage({ command: 'ready' });
   }, [postMessage]);
-
-  // Layout nodes by namespace and tier
-  const layoutByTier = useCallback((backendNodes: BackendNode[], persistedPositions: NodePositionMap = {}): FlowNode[] => {
-    const namespaceGroups = groupNodesByNamespace(backendNodes);
-    const sortedNamespaces = Object.keys(namespaceGroups).sort();
-    const hasMultipleNamespaces = sortedNamespaces.length > 1;
-    const result: FlowNode[] = [];
-    let currentXOffset = 0;
-
-    for (const ns of sortedNamespaces) {
-      const tiers = groupNodesByTier(namespaceGroups[ns]);
-      const sortedTiers = Object.keys(tiers).sort((a, b) => Number(a) - Number(b));
-      const nsDefaultWidth = Math.max(100, ...sortedTiers.map(t => (tiers[Number(t)].length - 1) * SPACING_X));
-      const namespaceNodes: Array<{ node: BackendNode; position: { x: number; y: number } }> = [];
-
-      for (let tierIndex = 0; tierIndex < sortedTiers.length; tierIndex++) {
-        const tierNodes = tiers[Number(sortedTiers[tierIndex])];
-        const tierWidth = (tierNodes.length - 1) * SPACING_X;
-        const tierXOffset = (nsDefaultWidth - tierWidth) / 2;
-
-        for (let idx = 0; idx < tierNodes.length; idx++) {
-          const node = tierNodes[idx];
-          const persisted = getPersistedPositionForNodeId(node.id, persistedPositions);
-          namespaceNodes.push({
-            node,
-            position: persisted ?? { x: tierXOffset + idx * SPACING_X, y: tierIndex * SPACING_Y }
-          });
-        }
-      }
-
-      const xCoordinates = namespaceNodes.map((entry) => entry.position.x);
-      const namespaceContentMinX = xCoordinates.length > 0 ? Math.min(...xCoordinates) : 0;
-      const namespaceContentMaxX = xCoordinates.length > 0 ? Math.max(...xCoordinates) : nsDefaultWidth;
-      const namespaceXShift = hasMultipleNamespaces
-        ? currentXOffset - namespaceContentMinX
-        : 0;
-      const namespacePlacedMinX = namespaceContentMinX + namespaceXShift;
-      const namespacePlacedMaxX = namespaceContentMaxX + namespaceXShift + LAYOUT_NODE_WIDTH;
-      const namespaceLabelX = (namespacePlacedMinX + namespacePlacedMaxX) / 2;
-
-      if (hasMultipleNamespaces) {
-        result.push({
-          id: `ns-label-${ns}`,
-          type: 'namespaceLabel',
-          position: { x: namespaceLabelX, y: LABEL_OFFSET_Y },
-          data: { label: ns },
-          selectable: false,
-          draggable: false
-        });
-      }
-
-      for (const { node, position } of namespaceNodes) {
-        result.push({
-          id: node.id,
-          type: 'deviceNode',
-          position: { x: position.x + namespaceXShift, y: position.y },
-          data: { label: node.label, tier: node.tier ?? 1, role: node.role, namespace: ns, raw: node.raw }
-        });
-      }
-
-      if (hasMultipleNamespaces) {
-        currentXOffset = namespacePlacedMaxX + NAMESPACE_GAP;
-      }
-    }
-
-    return result;
-  }, []);
-
-  // Process edges with pair indices and totals
-  const processEdges = useCallback((backendEdges: BackendEdge[]): TopologyEdge[] => {
-    const normalizeIdPart = (value: string | undefined): string => {
-      const trimmed = value?.trim();
-      return trimmed != null && trimmed.length > 0 ? encodeURIComponent(trimmed) : 'na';
-    };
-
-    const getRawResourceName = (edge: BackendEdge): string | undefined => {
-      if (!edge.rawResource || typeof edge.rawResource !== 'object') {
-        return undefined;
-      }
-      const metadata = (edge.rawResource as { metadata?: { name?: unknown } }).metadata;
-      const name = metadata?.name;
-      if (typeof name !== 'string') {
-        return undefined;
-      }
-      const trimmed = name.trim();
-      return trimmed.length > 0 ? trimmed : undefined;
-    };
-
-    const buildEndpointSignature = (
-      node: string | undefined,
-      endpoint: string | undefined,
-      iface: string | undefined
-    ): string => [
-      normalizeIdPart(node),
-      normalizeIdPart(endpoint),
-      normalizeIdPart(iface)
-    ].join('::');
-
-    const buildStableEdgeKey = (edge: BackendEdge): string => {
-      const sourceSignature = buildEndpointSignature(edge.source, edge.sourceEndpoint, edge.sourceInterface);
-      const targetSignature = buildEndpointSignature(edge.target, edge.targetEndpoint, edge.targetInterface);
-      const [first, second] = sourceSignature.localeCompare(targetSignature) <= 0
-        ? [sourceSignature, targetSignature]
-        : [targetSignature, sourceSignature];
-      return [
-        normalizeIdPart(getRawResourceName(edge)),
-        first,
-        second
-      ].join('--');
-    };
-
-    const buildOrientedEdgeKey = (edge: BackendEdge): string => {
-      const sourceSignature = buildEndpointSignature(edge.source, edge.sourceEndpoint, edge.sourceInterface);
-      const targetSignature = buildEndpointSignature(edge.target, edge.targetEndpoint, edge.targetInterface);
-      return `${sourceSignature}->${targetSignature}`;
-    };
-
-    const edgeMeta = backendEdges.map((edge, originalIndex) => ({
-      edge,
-      originalIndex,
-      pairKey: [edge.source, edge.target].sort().join('|'),
-      stableKey: buildStableEdgeKey(edge),
-      orientedKey: buildOrientedEdgeKey(edge)
-    }));
-
-    const bucketsByPair = new Map<string, typeof edgeMeta>();
-    for (const meta of edgeMeta) {
-      const bucket = bucketsByPair.get(meta.pairKey) ?? [];
-      bucket.push(meta);
-      bucketsByPair.set(meta.pairKey, bucket);
-    }
-
-    const assignments = new Array<{
-      id: string;
-      pairIndex: number;
-      totalInPair: number;
-    }>(backendEdges.length);
-
-    for (const bucket of bucketsByPair.values()) {
-      bucket.sort((a, b) => {
-        const byStableKey = a.stableKey.localeCompare(b.stableKey);
-        if (byStableKey !== 0) return byStableKey;
-        const byOrientedKey = a.orientedKey.localeCompare(b.orientedKey);
-        if (byOrientedKey !== 0) return byOrientedKey;
-        return a.originalIndex - b.originalIndex;
-      });
-
-      const totalInPair = bucket.length;
-      const duplicateCounts = new Map<string, number>();
-      for (let idx = 0; idx < bucket.length; idx++) {
-        const entry = bucket[idx];
-        const duplicateIndex = duplicateCounts.get(entry.stableKey) ?? 0;
-        duplicateCounts.set(entry.stableKey, duplicateIndex + 1);
-        const duplicateSuffix = duplicateIndex > 0 ? `--dup${duplicateIndex}` : '';
-        assignments[entry.originalIndex] = {
-          id: `edge--${entry.stableKey}${duplicateSuffix}`,
-          pairIndex: idx,
-          totalInPair
-        };
-      }
-    }
-
-    return backendEdges.map((edge, originalIndex) => {
-      const assignment = assignments[originalIndex] ?? {
-        id: `edge--fallback--${originalIndex}`,
-        pairIndex: 0,
-        totalInPair: 1
-      };
-
-      return {
-        id: assignment.id,
-        source: edge.source,
-        target: edge.target,
-        type: 'linkEdge',
-        data: {
-          sourceInterface: edge.sourceInterface,
-          targetInterface: edge.targetInterface,
-          sourceEndpoint: edge.sourceEndpoint,
-          targetEndpoint: edge.targetEndpoint,
-          state: edge.state,
-          sourceState: edge.sourceState,
-          targetState: edge.targetState,
-          sourceOutBps: edge.sourceOutBps,
-          targetOutBps: edge.targetOutBps,
-          pairIndex: assignment.pairIndex,
-          totalInPair: assignment.totalInPair,
-          raw: edge.raw,
-          rawResource: edge.rawResource
-        }
-      };
-    });
-  }, []);
 
   const isAllNamespaces = selectedNamespace === ALL_NAMESPACES;
   const hasUnsavedChanges = useMemo(
@@ -1338,8 +1357,8 @@ function TopologyFlowDashboard() {
       const normalizedSavedPositions = normalizeNodePositionMap(msg.savedPositions);
       const knownNodeIds = backendNodes.map((node) => node.id);
       const canonicalSavedPositions = canonicalizePositionMapForNodeIds(normalizedSavedPositions, knownNodeIds);
-      const layoutedNodes = layoutByTier(backendNodes, canonicalSavedPositions);
-      const processedEdges = processEdges(msg.edges ?? []);
+      const layoutedNodes = layoutNodesByTier(backendNodes, canonicalSavedPositions);
+      const processedEdges = processTopologyEdges(msg.edges ?? []);
       const baselinePositions = extractDeviceNodePositions(layoutedNodes);
       setAllNodes(layoutedNodes);
       setAllEdges(processedEdges);
@@ -1360,7 +1379,7 @@ function TopologyFlowDashboard() {
         setSaveStatus({ level: 'error', text: msg.message ?? 'Failed to save layout.' });
       }
     }
-  }, [currentPositions, deviceNodeIds, layoutByTier, processEdges]));
+  }, [currentPositions, deviceNodeIds]));
 
   useEffect(() => {
     if (selectedNodeLabelFilter === NODE_LABEL_FILTER_ALL) {
@@ -1884,7 +1903,542 @@ function TopologyFlowDashboard() {
     }
   }
 
-  return (
+  const renderInfoCardContent = () => {
+    switch (infoCard.type) {
+      case 'empty':
+        return <span>Select a node, link, or traffic-rate label</span>;
+      case 'node':
+        return (
+          <InfoCardNode
+            info={infoCard.info}
+            raw={infoCard.raw}
+            onEditIcon={handleOpenNodeIconEditor}
+            onSsh={handleSshToNode}
+            onOpenResource={handleOpenResource}
+          />
+        );
+      case 'edge':
+        return (
+          <InfoCardEdge
+            info={infoCard.info}
+            rawResource={infoCard.rawResource}
+            onOpenResource={handleOpenResource}
+          />
+        );
+      case 'rateLabel':
+        return (
+          <InfoCardRateLabel
+            info={infoCard.info}
+            onRotateBy={rotateSelectedTelemetryRateLabelBy}
+            onSetRotation={setSelectedTelemetryRateLabelRotation}
+            onResetRotation={() => setSelectedTelemetryRateLabelRotation(0)}
+          />
+        );
+    }
+  };
+
+  const renderNodeIconEditorModal = () => {
+    if (!nodeIconEditor) {
+      return null;
+    }
+
+    return (
+      <div className="export-popup">
+        <div className="export-popup-content appearance-popup-content">
+          <h3>Edit Node Icon</h3>
+          <p className="export-help-text">
+            Node: {nodeIconEditorNodeName}
+          </p>
+          <FormControl size="small" fullWidth sx={{ mb: 1.5 }}>
+            <InputLabel id="node-icon-select-label">Icon</InputLabel>
+            <Select
+              labelId="node-icon-select-label"
+              value={nodeIconEditor.iconKey}
+              label="Icon"
+              renderValue={(value) => {
+                const selectedKey = value as NodeIconKey;
+                const SelectedIcon = getNodeIconByKey(selectedKey);
+                const optionLabel = NODE_ICON_OPTION_BY_VALUE.get(selectedKey)?.label ?? selectedKey;
+                return (
+                  <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.9 }}>
+                    <SelectedIcon sx={{ fontSize: 18 }} />
+                    <span>{optionLabel}</span>
+                  </Box>
+                );
+              }}
+              onChange={(event) => setNodeIconEditor((previous) => {
+                if (!previous) {
+                  return previous;
+                }
+                return { ...previous, iconKey: event.target.value as NodeIconKey };
+              })}
+            >
+              {NODE_ICON_OPTIONS.map((option) => {
+                const OptionIcon = getNodeIconByKey(option.value);
+                return (
+                  <MenuItem key={option.value} value={option.value}>
+                    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+                      <OptionIcon sx={{ fontSize: 18 }} />
+                      <span>{option.label}</span>
+                    </Box>
+                  </MenuItem>
+                );
+              })}
+            </Select>
+          </FormControl>
+          <label className="checkbox-label">
+            <input
+              type="checkbox"
+              checked={nodeIconEditor.useThemeColor}
+              onChange={(event) => {
+                const checked = event.target.checked;
+                setNodeIconEditor((previous) => {
+                  if (!previous) {
+                    return previous;
+                  }
+                  return { ...previous, useThemeColor: checked };
+                });
+              }}
+            />
+            Use theme icon color
+          </label>
+          <label>
+            Icon color
+            <input
+              type="color"
+              value={nodeIconEditor.iconColor}
+              onChange={(event) => setNodeIconEditor((previous) => {
+                if (!previous) {
+                  return previous;
+                }
+                return { ...previous, iconColor: event.target.value };
+              })}
+              disabled={nodeIconEditor.useThemeColor}
+            />
+          </label>
+          <div className="export-popup-buttons">
+            <button className="export-btn" onClick={handleApplyNodeIconEditor}>Apply</button>
+            <button className="export-btn" onClick={handleResetNodeIconEditor}>Reset</button>
+            <button className="export-btn cancel" onClick={() => setNodeIconEditor(null)}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderAppearancePopup = () => {
+    if (!showAppearancePopup) {
+      return null;
+    }
+
+    return (
+      <div className="export-popup">
+        <div className="export-popup-content appearance-popup-content">
+          <h3>Canvas Appearance</h3>
+          <label>
+            Style
+            <select
+              value={appearanceMode}
+              onChange={e => setAppearanceMode(parseAppearanceMode(e.target.value))}
+            >
+              <option value="default">Default</option>
+              <option value="telemetry">Telemetry</option>
+            </select>
+          </label>
+          {appearanceMode === 'telemetry' && (
+            <div className="export-grid-two">
+              <label>
+                Node size (px)
+                <input
+                  type="number"
+                  min={12}
+                  max={240}
+                  step={1}
+                  value={telemetryNodeSizePx}
+                  onChange={e => setTelemetryNodeSizePx(
+                    parseBoundedNumber(e.target.value, 12, 240, DEFAULT_GRAFANA_NODE_SIZE_PX)
+                  )}
+                />
+              </label>
+              <label>
+                Interface size (%)
+                <input
+                  type="number"
+                  min={40}
+                  max={400}
+                  step={5}
+                  value={telemetryInterfaceSizePercent}
+                  onChange={e => setTelemetryInterfaceSizePercent(
+                    parseBoundedNumber(e.target.value, 40, 400, DEFAULT_GRAFANA_INTERFACE_SIZE_PERCENT)
+                  )}
+                />
+              </label>
+            </div>
+          )}
+          <div className="export-popup-buttons">
+            <button className="export-btn" onClick={() => setShowAppearancePopup(false)}>Done</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderExportPopup = () => {
+    if (!showExportPopup) {
+      return null;
+    }
+
+    return (
+      <div className="export-popup">
+        <div className="export-popup-content export-popup-large">
+          <h3>Export SVG</h3>
+
+          <div className="export-section">
+            <h4>Quality & Size</h4>
+            <div className="export-grid-two">
+              <label>
+                Zoom (%)
+                <input
+                  type="number"
+                  min={10}
+                  max={300}
+                  step={1}
+                  value={borderZoom}
+                  onChange={e => setBorderZoom(Math.max(10, Math.min(300, parseFloat(e.target.value) || 0)))}
+                />
+              </label>
+              <label>
+                Padding (px)
+                <input
+                  type="number"
+                  min={0}
+                  max={500}
+                  step={1}
+                  value={borderPadding}
+                  onChange={e => setBorderPadding(Math.max(0, parseFloat(e.target.value) || 0))}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="export-section">
+            <h4>Background</h4>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={exportBgTransparent}
+                onChange={e => setExportBgTransparent(e.target.checked)}
+              />
+              Transparent Background
+            </label>
+            <label>
+              Background Color
+              <input
+                type="color"
+                value={exportBgColor}
+                onChange={e => setExportBgColor(e.target.value)}
+                disabled={exportBgTransparent}
+              />
+            </label>
+          </div>
+
+          <div className="export-section">
+            <h4>Include</h4>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={includeEdgeLabels}
+                onChange={e => setIncludeEdgeLabels(e.target.checked)}
+              />
+              Edge labels
+            </label>
+            <div className="export-inline-controls">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={exportGrafanaBundle}
+                  onChange={e => setExportGrafanaBundle(e.target.checked)}
+                />
+                Grafana bundle
+              </label>
+              <button
+                className="export-btn"
+                disabled={!exportGrafanaBundle}
+                onClick={() => setIsGrafanaSettingsOpen(true)}
+              >
+                Advanced Grafana Settings
+              </button>
+            </div>
+          </div>
+
+          {exportStatus && (
+            <div className={`export-status ${exportStatus.type}`}>
+              {exportStatus.message}
+            </div>
+          )}
+
+          <div className="export-popup-buttons">
+            <button className="export-btn" onClick={handleExport} disabled={isExporting}>
+              {exportButtonLabel}
+            </button>
+            <button className="export-btn cancel" onClick={() => setShowExportPopup(false)} disabled={isExporting}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderGrafanaSettingsPopup = () => {
+    if (!isGrafanaSettingsOpen) {
+      return null;
+    }
+
+    return (
+      <div className="export-popup">
+        <div className="export-popup-content export-popup-large">
+          <h3>Advanced Grafana Settings</h3>
+          <div className="export-tab-row">
+            <button
+              className={`export-tab ${grafanaSettingsTab === 'general' ? 'active' : ''}`}
+              onClick={() => setGrafanaSettingsTab(parseGrafanaSettingsTab('general'))}
+            >
+              General
+            </button>
+            <button
+              className={`export-tab ${grafanaSettingsTab === 'interface-names' ? 'active' : ''}`}
+              onClick={() => setGrafanaSettingsTab(parseGrafanaSettingsTab('interface-names'))}
+            >
+              Interface Names
+            </button>
+          </div>
+
+          {grafanaSettingsTab === 'general' && (
+            <div className="export-section">
+              <p className="export-help-text">
+                Configure thresholds and topology sizing used in the exported Grafana panel.
+              </p>
+              <div className="export-grid-two">
+                <label>
+                  Node size (px)
+                  <input
+                    type="number"
+                    min={12}
+                    max={240}
+                    step={1}
+                    value={grafanaNodeSizePx}
+                    onChange={e => setGrafanaNodeSizePx(
+                      parseBoundedNumber(e.target.value, 12, 240, DEFAULT_GRAFANA_NODE_SIZE_PX)
+                    )}
+                  />
+                </label>
+                <label>
+                  Interface size (%)
+                  <input
+                    type="number"
+                    min={40}
+                    max={400}
+                    step={5}
+                    value={grafanaInterfaceSizePercent}
+                    onChange={e => setGrafanaInterfaceSizePercent(
+                      parseBoundedNumber(e.target.value, 40, 400, DEFAULT_GRAFANA_INTERFACE_SIZE_PERCENT)
+                    )}
+                  />
+                </label>
+              </div>
+              <label>
+                Traffic threshold unit
+                <select
+                  value={trafficThresholdUnit}
+                  onChange={e => setTrafficThresholdUnit(parseTrafficThresholdUnit(e.target.value))}
+                >
+                  <option value="kbit">kbit/s</option>
+                  <option value="mbit">Mbit/s</option>
+                  <option value="gbit">Gbit/s</option>
+                </select>
+              </label>
+              <div className="export-grid-two">
+                <label>
+                  Green threshold
+                  <input
+                    type="number"
+                    min={0}
+                    step={getThresholdUnitStep(trafficThresholdUnit)}
+                    value={formatThresholdForUnit(trafficThresholds.green, trafficThresholdUnit)}
+                    onChange={e => updateTrafficThreshold('green', e.target.value)}
+                  />
+                </label>
+                <label>
+                  Yellow threshold
+                  <input
+                    type="number"
+                    min={0}
+                    step={getThresholdUnitStep(trafficThresholdUnit)}
+                    value={formatThresholdForUnit(trafficThresholds.yellow, trafficThresholdUnit)}
+                    onChange={e => updateTrafficThreshold('yellow', e.target.value)}
+                  />
+                </label>
+                <label>
+                  Orange threshold
+                  <input
+                    type="number"
+                    min={0}
+                    step={getThresholdUnitStep(trafficThresholdUnit)}
+                    value={formatThresholdForUnit(trafficThresholds.orange, trafficThresholdUnit)}
+                    onChange={e => updateTrafficThreshold('orange', e.target.value)}
+                  />
+                </label>
+                <label>
+                  Red threshold
+                  <input
+                    type="number"
+                    min={0}
+                    step={getThresholdUnitStep(trafficThresholdUnit)}
+                    value={formatThresholdForUnit(trafficThresholds.red, trafficThresholdUnit)}
+                    onChange={e => updateTrafficThreshold('red', e.target.value)}
+                  />
+                </label>
+              </div>
+              <p className="export-help-text">
+                Values must be strictly ascending: green {'<'} yellow {'<'} orange {'<'} red.
+              </p>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={excludeNodesWithoutLinks}
+                  onChange={e => setExcludeNodesWithoutLinks(e.target.checked)}
+                />
+                Exclude nodes without any links
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={includeGrafanaLegend}
+                  onChange={e => setIncludeGrafanaLegend(e.target.checked)}
+                />
+                Add traffic legend (top-left)
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={trafficRatesOnHoverOnly}
+                  onChange={e => setTrafficRatesOnHoverOnly(e.target.checked)}
+                />
+                Show traffic rates on hover only
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={includeHideRatesLegendToggle}
+                  onChange={e => setIncludeHideRatesLegendToggle(e.target.checked)}
+                />
+                Add hide-rates legend toggle for rate labels
+              </label>
+            </div>
+          )}
+
+          {grafanaSettingsTab === 'interface-names' && (
+            <div className="export-section">
+              <p className="export-help-text">
+                Filter links and choose which interface segment should be shown in endpoint labels.
+              </p>
+              <label>
+                Global override (all interfaces)
+                <select
+                  value={globalInterfaceOverrideSelection}
+                  onChange={e => setGlobalInterfaceOverrideSelection(e.target.value)}
+                >
+                  <option value={INTERFACE_SELECT_AUTO}>Auto</option>
+                  <option value={INTERFACE_SELECT_FULL}>Full interface name</option>
+                  {Array.from({ length: maxInterfacePartCount }, (_, index) => index + 1).map(
+                    (partIndex) => (
+                      <option
+                        key={`global-interface-part-${partIndex}`}
+                        value={`${GLOBAL_INTERFACE_PART_INDEX_PREFIX}${partIndex}`}
+                      >
+                        Part {partIndex}
+                      </option>
+                    )
+                  )}
+                </select>
+              </label>
+              <label>
+                Filter links
+                <input
+                  type="text"
+                  placeholder="Search node or interface name"
+                  value={interfaceLinkFilter}
+                  onChange={e => setInterfaceLinkFilter(e.target.value)}
+                />
+              </label>
+              <p className="export-help-text">
+                {filteredInterfaceRows.length} of {interfaceRows.length} links shown
+              </p>
+              <div className="interface-link-list">
+                {filteredInterfaceRows.length === 0 && (
+                  <div className="export-help-text">No links match the current filter.</div>
+                )}
+                {filteredInterfaceRows.map((row) => {
+                  const sourceParts = splitInterfaceParts(row.sourceEndpoint);
+                  const targetParts = splitInterfaceParts(row.targetEndpoint);
+                  return (
+                    <div key={row.edgeId} className="interface-link-card">
+                      <div className="interface-link-title">{row.source} &lt;-&gt; {row.target}</div>
+                      <div className="export-grid-two">
+                        <label>
+                          {row.sourceEndpoint}
+                          <select
+                            value={getInterfaceSelectionValue(row.sourceEndpoint, interfaceLabelOverrides)}
+                            onChange={e => updateInterfaceOverride(row.sourceEndpoint, e.target.value)}
+                          >
+                            <option value={INTERFACE_SELECT_AUTO}>Auto (use global)</option>
+                            <option value={INTERFACE_SELECT_FULL}>Full: {row.sourceEndpoint}</option>
+                            {sourceParts.map((part, idx) => (
+                              <option
+                                key={`${row.edgeId}-source-${idx}-${part}`}
+                                value={`${INTERFACE_SELECT_TOKEN_PREFIX}${part}`}
+                              >
+                                Part {idx + 1}: {part}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          {row.targetEndpoint}
+                          <select
+                            value={getInterfaceSelectionValue(row.targetEndpoint, interfaceLabelOverrides)}
+                            onChange={e => updateInterfaceOverride(row.targetEndpoint, e.target.value)}
+                          >
+                            <option value={INTERFACE_SELECT_AUTO}>Auto (use global)</option>
+                            <option value={INTERFACE_SELECT_FULL}>Full: {row.targetEndpoint}</option>
+                            {targetParts.map((part, idx) => (
+                              <option
+                                key={`${row.edgeId}-target-${idx}-${part}`}
+                                value={`${INTERFACE_SELECT_TOKEN_PREFIX}${part}`}
+                              >
+                                Part {idx + 1}: {part}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <div className="export-popup-buttons">
+            <button className="export-btn" onClick={() => setIsGrafanaSettingsOpen(false)}>Done</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderDashboardView = () => (
     <div className="dashboard" style={topologyCssVars}>
       <Box
         component="header"
@@ -2008,508 +2562,17 @@ function TopologyFlowDashboard() {
           />
         </div>
         <div className="info-card">
-          {infoCard.type === 'empty' && <span>Select a node, link, or traffic-rate label</span>}
-          {infoCard.type === 'node' && (
-            <InfoCardNode
-              info={infoCard.info}
-              raw={infoCard.raw}
-              onEditIcon={handleOpenNodeIconEditor}
-              onSsh={handleSshToNode}
-              onOpenResource={handleOpenResource}
-            />
-          )}
-          {infoCard.type === 'edge' && (
-            <InfoCardEdge
-              info={infoCard.info}
-              rawResource={infoCard.rawResource}
-              onOpenResource={handleOpenResource}
-            />
-          )}
-          {infoCard.type === 'rateLabel' && (
-            <InfoCardRateLabel
-              info={infoCard.info}
-              onRotateBy={rotateSelectedTelemetryRateLabelBy}
-              onSetRotation={setSelectedTelemetryRateLabelRotation}
-              onResetRotation={() => setSelectedTelemetryRateLabelRotation(0)}
-            />
-          )}
+          {renderInfoCardContent()}
         </div>
       </div>
-      {nodeIconEditor && (
-        <div className="export-popup">
-          <div className="export-popup-content appearance-popup-content">
-            <h3>Edit Node Icon</h3>
-            <p className="export-help-text">
-              Node: {nodeIconEditorNodeName}
-            </p>
-            <FormControl size="small" fullWidth sx={{ mb: 1.5 }}>
-              <InputLabel id="node-icon-select-label">Icon</InputLabel>
-              <Select
-                labelId="node-icon-select-label"
-                value={nodeIconEditor.iconKey}
-                label="Icon"
-                renderValue={(value) => {
-                  const selectedKey = value as NodeIconKey;
-                  const SelectedIcon = getNodeIconByKey(selectedKey);
-                  const optionLabel = NODE_ICON_OPTION_BY_VALUE.get(selectedKey)?.label ?? selectedKey;
-                  return (
-                    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.9 }}>
-                      <SelectedIcon sx={{ fontSize: 18 }} />
-                      <span>{optionLabel}</span>
-                    </Box>
-                  );
-                }}
-                onChange={(event) => setNodeIconEditor((previous) => {
-                  if (!previous) {
-                    return previous;
-                  }
-                  return { ...previous, iconKey: event.target.value as NodeIconKey };
-                })}
-              >
-                {NODE_ICON_OPTIONS.map((option) => {
-                  const OptionIcon = getNodeIconByKey(option.value);
-                  return (
-                    <MenuItem key={option.value} value={option.value}>
-                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
-                        <OptionIcon sx={{ fontSize: 18 }} />
-                        <span>{option.label}</span>
-                      </Box>
-                    </MenuItem>
-                  );
-                })}
-              </Select>
-            </FormControl>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={nodeIconEditor.useThemeColor}
-                onChange={(event) => {
-                  const checked = event.target.checked;
-                  setNodeIconEditor((previous) => {
-                    if (!previous) {
-                      return previous;
-                    }
-                    return { ...previous, useThemeColor: checked };
-                  });
-                }}
-              />
-              Use theme icon color
-            </label>
-            <label>
-              Icon color
-              <input
-                type="color"
-                value={nodeIconEditor.iconColor}
-                onChange={(event) => setNodeIconEditor((previous) => {
-                  if (!previous) {
-                    return previous;
-                  }
-                  return { ...previous, iconColor: event.target.value };
-                })}
-                disabled={nodeIconEditor.useThemeColor}
-              />
-            </label>
-            <div className="export-popup-buttons">
-              <button className="export-btn" onClick={handleApplyNodeIconEditor}>Apply</button>
-              <button className="export-btn" onClick={handleResetNodeIconEditor}>Reset</button>
-              <button className="export-btn cancel" onClick={() => setNodeIconEditor(null)}>Cancel</button>
-            </div>
-          </div>
-        </div>
-      )}
-      {showAppearancePopup && (
-        <div className="export-popup">
-          <div className="export-popup-content appearance-popup-content">
-            <h3>Canvas Appearance</h3>
-            <label>
-              Style
-              <select
-                value={appearanceMode}
-                onChange={e => setAppearanceMode(parseAppearanceMode(e.target.value))}
-              >
-                <option value="default">Default</option>
-                <option value="telemetry">Telemetry</option>
-              </select>
-            </label>
-            {appearanceMode === 'telemetry' && (
-              <div className="export-grid-two">
-                <label>
-                  Node size (px)
-                  <input
-                    type="number"
-                    min={12}
-                    max={240}
-                    step={1}
-                    value={telemetryNodeSizePx}
-                    onChange={e => setTelemetryNodeSizePx(
-                      parseBoundedNumber(e.target.value, 12, 240, DEFAULT_GRAFANA_NODE_SIZE_PX)
-                    )}
-                  />
-                </label>
-                <label>
-                  Interface size (%)
-                  <input
-                    type="number"
-                    min={40}
-                    max={400}
-                    step={5}
-                    value={telemetryInterfaceSizePercent}
-                    onChange={e => setTelemetryInterfaceSizePercent(
-                      parseBoundedNumber(e.target.value, 40, 400, DEFAULT_GRAFANA_INTERFACE_SIZE_PERCENT)
-                    )}
-                  />
-                </label>
-              </div>
-            )}
-            <div className="export-popup-buttons">
-              <button className="export-btn" onClick={() => setShowAppearancePopup(false)}>Done</button>
-            </div>
-          </div>
-        </div>
-      )}
-      {showExportPopup && (
-        <div className="export-popup">
-          <div className="export-popup-content export-popup-large">
-            <h3>Export SVG</h3>
-
-            <div className="export-section">
-              <h4>Quality & Size</h4>
-              <div className="export-grid-two">
-                <label>
-                  Zoom (%)
-                  <input
-                    type="number"
-                    min={10}
-                    max={300}
-                    step={1}
-                    value={borderZoom}
-                    onChange={e => setBorderZoom(Math.max(10, Math.min(300, parseFloat(e.target.value) || 0)))}
-                  />
-                </label>
-                <label>
-                  Padding (px)
-                  <input
-                    type="number"
-                    min={0}
-                    max={500}
-                    step={1}
-                    value={borderPadding}
-                    onChange={e => setBorderPadding(Math.max(0, parseFloat(e.target.value) || 0))}
-                  />
-                </label>
-              </div>
-            </div>
-
-            <div className="export-section">
-              <h4>Background</h4>
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={exportBgTransparent}
-                  onChange={e => setExportBgTransparent(e.target.checked)}
-                />
-                Transparent Background
-              </label>
-              <label>
-                Background Color
-                <input
-                  type="color"
-                  value={exportBgColor}
-                  onChange={e => setExportBgColor(e.target.value)}
-                  disabled={exportBgTransparent}
-                />
-              </label>
-            </div>
-
-            <div className="export-section">
-              <h4>Include</h4>
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={includeEdgeLabels}
-                  onChange={e => setIncludeEdgeLabels(e.target.checked)}
-                />
-                Edge labels
-              </label>
-              <div className="export-inline-controls">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={exportGrafanaBundle}
-                    onChange={e => setExportGrafanaBundle(e.target.checked)}
-                  />
-                  Grafana bundle
-                </label>
-                <button
-                  className="export-btn"
-                  disabled={!exportGrafanaBundle}
-                  onClick={() => setIsGrafanaSettingsOpen(true)}
-                >
-                  Advanced Grafana Settings
-                </button>
-              </div>
-            </div>
-
-            {exportStatus && (
-              <div className={`export-status ${exportStatus.type}`}>
-                {exportStatus.message}
-              </div>
-            )}
-
-            <div className="export-popup-buttons">
-              <button className="export-btn" onClick={handleExport} disabled={isExporting}>
-                {exportButtonLabel}
-              </button>
-              <button className="export-btn cancel" onClick={() => setShowExportPopup(false)} disabled={isExporting}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {isGrafanaSettingsOpen && (
-        <div className="export-popup">
-          <div className="export-popup-content export-popup-large">
-            <h3>Advanced Grafana Settings</h3>
-            <div className="export-tab-row">
-              <button
-                className={`export-tab ${grafanaSettingsTab === 'general' ? 'active' : ''}`}
-                onClick={() => setGrafanaSettingsTab(parseGrafanaSettingsTab('general'))}
-              >
-                General
-              </button>
-              <button
-                className={`export-tab ${grafanaSettingsTab === 'interface-names' ? 'active' : ''}`}
-                onClick={() => setGrafanaSettingsTab(parseGrafanaSettingsTab('interface-names'))}
-              >
-                Interface Names
-              </button>
-            </div>
-
-            {grafanaSettingsTab === 'general' && (
-              <div className="export-section">
-                <p className="export-help-text">
-                  Configure thresholds and topology sizing used in the exported Grafana panel.
-                </p>
-                <div className="export-grid-two">
-                  <label>
-                    Node size (px)
-                    <input
-                      type="number"
-                      min={12}
-                      max={240}
-                      step={1}
-                      value={grafanaNodeSizePx}
-                      onChange={e => setGrafanaNodeSizePx(
-                        parseBoundedNumber(e.target.value, 12, 240, DEFAULT_GRAFANA_NODE_SIZE_PX)
-                      )}
-                    />
-                  </label>
-                  <label>
-                    Interface size (%)
-                    <input
-                      type="number"
-                      min={40}
-                      max={400}
-                      step={5}
-                      value={grafanaInterfaceSizePercent}
-                      onChange={e => setGrafanaInterfaceSizePercent(
-                        parseBoundedNumber(e.target.value, 40, 400, DEFAULT_GRAFANA_INTERFACE_SIZE_PERCENT)
-                      )}
-                    />
-                  </label>
-                </div>
-                <label>
-                  Traffic threshold unit
-                  <select
-                    value={trafficThresholdUnit}
-                    onChange={e => setTrafficThresholdUnit(parseTrafficThresholdUnit(e.target.value))}
-                  >
-                    <option value="kbit">kbit/s</option>
-                    <option value="mbit">Mbit/s</option>
-                    <option value="gbit">Gbit/s</option>
-                  </select>
-                </label>
-                <div className="export-grid-two">
-                  <label>
-                    Green threshold
-                    <input
-                      type="number"
-                      min={0}
-                      step={getThresholdUnitStep(trafficThresholdUnit)}
-                      value={formatThresholdForUnit(trafficThresholds.green, trafficThresholdUnit)}
-                      onChange={e => updateTrafficThreshold('green', e.target.value)}
-                    />
-                  </label>
-                  <label>
-                    Yellow threshold
-                    <input
-                      type="number"
-                      min={0}
-                      step={getThresholdUnitStep(trafficThresholdUnit)}
-                      value={formatThresholdForUnit(trafficThresholds.yellow, trafficThresholdUnit)}
-                      onChange={e => updateTrafficThreshold('yellow', e.target.value)}
-                    />
-                  </label>
-                  <label>
-                    Orange threshold
-                    <input
-                      type="number"
-                      min={0}
-                      step={getThresholdUnitStep(trafficThresholdUnit)}
-                      value={formatThresholdForUnit(trafficThresholds.orange, trafficThresholdUnit)}
-                      onChange={e => updateTrafficThreshold('orange', e.target.value)}
-                    />
-                  </label>
-                  <label>
-                    Red threshold
-                    <input
-                      type="number"
-                      min={0}
-                      step={getThresholdUnitStep(trafficThresholdUnit)}
-                      value={formatThresholdForUnit(trafficThresholds.red, trafficThresholdUnit)}
-                      onChange={e => updateTrafficThreshold('red', e.target.value)}
-                    />
-                  </label>
-                </div>
-                <p className="export-help-text">
-                  Values must be strictly ascending: green {'<'} yellow {'<'} orange {'<'} red.
-                </p>
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={excludeNodesWithoutLinks}
-                    onChange={e => setExcludeNodesWithoutLinks(e.target.checked)}
-                  />
-                  Exclude nodes without any links
-                </label>
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={includeGrafanaLegend}
-                    onChange={e => setIncludeGrafanaLegend(e.target.checked)}
-                  />
-                  Add traffic legend (top-left)
-                </label>
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={trafficRatesOnHoverOnly}
-                    onChange={e => setTrafficRatesOnHoverOnly(e.target.checked)}
-                  />
-                  Show traffic rates on hover only
-                </label>
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={includeHideRatesLegendToggle}
-                    onChange={e => setIncludeHideRatesLegendToggle(e.target.checked)}
-                  />
-                  Add hide-rates legend toggle for rate labels
-                </label>
-              </div>
-            )}
-
-            {grafanaSettingsTab === 'interface-names' && (
-              <div className="export-section">
-                <p className="export-help-text">
-                  Filter links and choose which interface segment should be shown in endpoint labels.
-                </p>
-                <label>
-                  Global override (all interfaces)
-                  <select
-                    value={globalInterfaceOverrideSelection}
-                    onChange={e => setGlobalInterfaceOverrideSelection(e.target.value)}
-                  >
-                    <option value={INTERFACE_SELECT_AUTO}>Auto</option>
-                    <option value={INTERFACE_SELECT_FULL}>Full interface name</option>
-                    {Array.from({ length: maxInterfacePartCount }, (_, index) => index + 1).map(
-                      (partIndex) => (
-                        <option
-                          key={`global-interface-part-${partIndex}`}
-                          value={`${GLOBAL_INTERFACE_PART_INDEX_PREFIX}${partIndex}`}
-                        >
-                          Part {partIndex}
-                        </option>
-                      )
-                    )}
-                  </select>
-                </label>
-                <label>
-                  Filter links
-                  <input
-                    type="text"
-                    placeholder="Search node or interface name"
-                    value={interfaceLinkFilter}
-                    onChange={e => setInterfaceLinkFilter(e.target.value)}
-                  />
-                </label>
-                <p className="export-help-text">
-                  {filteredInterfaceRows.length} of {interfaceRows.length} links shown
-                </p>
-                <div className="interface-link-list">
-                  {filteredInterfaceRows.length === 0 && (
-                    <div className="export-help-text">No links match the current filter.</div>
-                  )}
-                  {filteredInterfaceRows.map((row) => {
-                    const sourceParts = splitInterfaceParts(row.sourceEndpoint);
-                    const targetParts = splitInterfaceParts(row.targetEndpoint);
-                    return (
-                      <div key={row.edgeId} className="interface-link-card">
-                        <div className="interface-link-title">{row.source} &lt;-&gt; {row.target}</div>
-                        <div className="export-grid-two">
-                          <label>
-                            {row.sourceEndpoint}
-                            <select
-                              value={getInterfaceSelectionValue(row.sourceEndpoint, interfaceLabelOverrides)}
-                              onChange={e => updateInterfaceOverride(row.sourceEndpoint, e.target.value)}
-                            >
-                              <option value={INTERFACE_SELECT_AUTO}>Auto (use global)</option>
-                              <option value={INTERFACE_SELECT_FULL}>Full: {row.sourceEndpoint}</option>
-                              {sourceParts.map((part, idx) => (
-                                <option
-                                  key={`${row.edgeId}-source-${idx}-${part}`}
-                                  value={`${INTERFACE_SELECT_TOKEN_PREFIX}${part}`}
-                                >
-                                  Part {idx + 1}: {part}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            {row.targetEndpoint}
-                            <select
-                              value={getInterfaceSelectionValue(row.targetEndpoint, interfaceLabelOverrides)}
-                              onChange={e => updateInterfaceOverride(row.targetEndpoint, e.target.value)}
-                            >
-                              <option value={INTERFACE_SELECT_AUTO}>Auto (use global)</option>
-                              <option value={INTERFACE_SELECT_FULL}>Full: {row.targetEndpoint}</option>
-                              {targetParts.map((part, idx) => (
-                                <option
-                                  key={`${row.edgeId}-target-${idx}-${part}`}
-                                  value={`${INTERFACE_SELECT_TOKEN_PREFIX}${part}`}
-                                >
-                                  Part {idx + 1}: {part}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            <div className="export-popup-buttons">
-              <button className="export-btn" onClick={() => setIsGrafanaSettingsOpen(false)}>Done</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {renderNodeIconEditorModal()}
+      {renderAppearancePopup()}
+      {renderExportPopup()}
+      {renderGrafanaSettingsPopup()}
     </div>
   );
+
+  return renderDashboardView();
 }
 
 mountWebview(TopologyFlowDashboard);
