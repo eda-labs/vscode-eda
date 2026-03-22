@@ -11,6 +11,7 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import { ALL_NAMESPACES } from '../../constants';
 import { mountWebview } from '../../shared/utils';
 import { usePostMessage, useMessageListener } from '../../shared/hooks';
+import { LoadingSpinner } from '../../shared/components/LoadingSpinner';
 
 import TopologyFlow, {
   type TopologyNode,
@@ -890,6 +891,61 @@ function extractDeviceNodePositions(flowNodes: FlowNode[]): NodePositionMap {
   return normalizeNodePositionMap(positions);
 }
 
+interface NamespaceLayout {
+  ns: string;
+  nodes: Array<{ node: BackendNode; position: { x: number; y: number } }>;
+  labelX: number;
+  xShift: number;
+  minY: number;
+}
+
+function computeNamespaceLayout(
+  ns: string,
+  nsNodes: BackendNode[],
+  persistedPositions: NodePositionMap,
+  hasMultipleNamespaces: boolean,
+  currentXOffset: number
+): { layout: NamespaceLayout; nextXOffset: number } {
+  const tiers = groupNodesByTier(nsNodes);
+  const sortedTiers = Object.keys(tiers).sort((a, b) => Number(a) - Number(b));
+  const nsDefaultWidth = Math.max(100, ...sortedTiers.map(t => (tiers[Number(t)].length - 1) * SPACING_X));
+  const namespaceNodes: Array<{ node: BackendNode; position: { x: number; y: number } }> = [];
+
+  for (let tierIndex = 0; tierIndex < sortedTiers.length; tierIndex++) {
+    const tierNodes = tiers[Number(sortedTiers[tierIndex])];
+    const tierWidth = (tierNodes.length - 1) * SPACING_X;
+    const tierXOffset = (nsDefaultWidth - tierWidth) / 2;
+
+    for (let idx = 0; idx < tierNodes.length; idx++) {
+      const node = tierNodes[idx];
+      const persisted = getPersistedPositionForNodeId(node.id, persistedPositions);
+      namespaceNodes.push({
+        node,
+        position: persisted ?? { x: tierXOffset + idx * SPACING_X, y: tierIndex * SPACING_Y }
+      });
+    }
+  }
+
+  const xCoordinates = namespaceNodes.map((entry) => entry.position.x);
+  const yCoordinates = namespaceNodes.map((entry) => entry.position.y);
+  const namespaceContentMinX = xCoordinates.length > 0 ? Math.min(...xCoordinates) : 0;
+  const namespaceContentMaxX = xCoordinates.length > 0 ? Math.max(...xCoordinates) : nsDefaultWidth;
+  const minY = yCoordinates.length > 0 ? Math.min(...yCoordinates) : 0;
+  const namespaceXShift = hasMultipleNamespaces
+    ? currentXOffset - namespaceContentMinX
+    : 0;
+  const namespacePlacedMinX = namespaceContentMinX + namespaceXShift;
+  const namespacePlacedMaxX = namespaceContentMaxX + namespaceXShift + LAYOUT_NODE_WIDTH;
+  const namespaceLabelX = (namespacePlacedMinX + namespacePlacedMaxX) / 2;
+
+  const nextXOffset = hasMultipleNamespaces ? namespacePlacedMaxX + NAMESPACE_GAP : currentXOffset;
+
+  return {
+    layout: { ns, nodes: namespaceNodes, labelX: namespaceLabelX, xShift: namespaceXShift, minY },
+    nextXOffset
+  };
+}
+
 function layoutNodesByTier(
   backendNodes: BackendNode[],
   persistedPositions: NodePositionMap = {}
@@ -898,61 +954,39 @@ function layoutNodesByTier(
   const sortedNamespaces = Object.keys(namespaceGroups).sort();
   const hasMultipleNamespaces = sortedNamespaces.length > 1;
   const result: FlowNode[] = [];
+
   let currentXOffset = 0;
-
+  const nsLayouts: NamespaceLayout[] = [];
   for (const ns of sortedNamespaces) {
-    const tiers = groupNodesByTier(namespaceGroups[ns]);
-    const sortedTiers = Object.keys(tiers).sort((a, b) => Number(a) - Number(b));
-    const nsDefaultWidth = Math.max(100, ...sortedTiers.map(t => (tiers[Number(t)].length - 1) * SPACING_X));
-    const namespaceNodes: Array<{ node: BackendNode; position: { x: number; y: number } }> = [];
+    const { layout, nextXOffset } = computeNamespaceLayout(
+      ns, namespaceGroups[ns], persistedPositions, hasMultipleNamespaces, currentXOffset
+    );
+    nsLayouts.push(layout);
+    currentXOffset = nextXOffset;
+  }
 
-    for (let tierIndex = 0; tierIndex < sortedTiers.length; tierIndex++) {
-      const tierNodes = tiers[Number(sortedTiers[tierIndex])];
-      const tierWidth = (tierNodes.length - 1) * SPACING_X;
-      const tierXOffset = (nsDefaultWidth - tierWidth) / 2;
+  const globalMinY = nsLayouts.length > 0 ? Math.min(...nsLayouts.map(l => l.minY)) : 0;
+  const labelY = globalMinY + LABEL_OFFSET_Y;
 
-      for (let idx = 0; idx < tierNodes.length; idx++) {
-        const node = tierNodes[idx];
-        const persisted = getPersistedPositionForNodeId(node.id, persistedPositions);
-        namespaceNodes.push({
-          node,
-          position: persisted ?? { x: tierXOffset + idx * SPACING_X, y: tierIndex * SPACING_Y }
-        });
-      }
-    }
-
-    const xCoordinates = namespaceNodes.map((entry) => entry.position.x);
-    const namespaceContentMinX = xCoordinates.length > 0 ? Math.min(...xCoordinates) : 0;
-    const namespaceContentMaxX = xCoordinates.length > 0 ? Math.max(...xCoordinates) : nsDefaultWidth;
-    const namespaceXShift = hasMultipleNamespaces
-      ? currentXOffset - namespaceContentMinX
-      : 0;
-    const namespacePlacedMinX = namespaceContentMinX + namespaceXShift;
-    const namespacePlacedMaxX = namespaceContentMaxX + namespaceXShift + LAYOUT_NODE_WIDTH;
-    const namespaceLabelX = (namespacePlacedMinX + namespacePlacedMaxX) / 2;
-
+  for (const { ns, nodes, labelX, xShift } of nsLayouts) {
     if (hasMultipleNamespaces) {
       result.push({
         id: `ns-label-${ns}`,
         type: 'namespaceLabel',
-        position: { x: namespaceLabelX, y: LABEL_OFFSET_Y },
+        position: { x: labelX, y: labelY },
         data: { label: ns },
         selectable: false,
         draggable: false
       });
     }
 
-    for (const { node, position } of namespaceNodes) {
+    for (const { node, position } of nodes) {
       result.push({
         id: node.id,
         type: 'deviceNode',
-        position: { x: position.x + namespaceXShift, y: position.y },
+        position: { x: position.x + xShift, y: position.y },
         data: { label: node.label, tier: node.tier ?? 1, role: node.role, namespace: ns, raw: node.raw }
       });
-    }
-
-    if (hasMultipleNamespaces) {
-      currentXOffset = namespacePlacedMaxX + NAMESPACE_GAP;
     }
   }
 
@@ -1107,6 +1141,7 @@ function TopologyFlowDashboard() {
   const [showAppearancePopup, setShowAppearancePopup] = useState(false);
   const [telemetryNodeSizePx, setTelemetryNodeSizePx] = useState(DEFAULT_GRAFANA_NODE_SIZE_PX);
   const [telemetryInterfaceSizePercent, setTelemetryInterfaceSizePercent] = useState(DEFAULT_GRAFANA_INTERFACE_SIZE_PERCENT);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Export state
   const topologyRef = useRef<TopologyFlowRef>(null);
@@ -1352,6 +1387,9 @@ function TopologyFlowDashboard() {
       setNodeIconEditor(null);
       setCurrentPositions({});
       setSavedPositions({});
+      setAllNodes([]);
+      setAllEdges([]);
+      setIsLoading(true);
     } else if (msg.command === 'data') {
       const backendNodes = msg.nodes ?? [];
       const normalizedSavedPositions = normalizeNodePositionMap(msg.savedPositions);
@@ -1364,6 +1402,7 @@ function TopologyFlowDashboard() {
       setAllEdges(processedEdges);
       setSavedPositions(baselinePositions);
       setCurrentPositions(baselinePositions);
+      setIsLoading(false);
     } else if (msg.command === 'saveTopologyPositionsResult') {
       setIsSavingLayout(false);
       if (msg.ok) {
@@ -2540,6 +2579,19 @@ function TopologyFlowDashboard() {
       </Box>
       <div className="body">
         <div className="topology-container">
+          {isLoading && (
+            <div style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 10,
+              backgroundColor: 'var(--topology-editor-bg, #1e1e1e)',
+            }}>
+              <LoadingSpinner size="lg" message="Loading topology..." />
+            </div>
+          )}
           <TopologyFlow
             ref={topologyRef}
             nodes={visibleNodes}

@@ -226,6 +226,7 @@ export class TopologyFlowDashboardPanel extends BasePanel {
   private selectedNamespace = ALL_NAMESPACES;
   private savedPositionsByNamespace: Map<string, NodePositionMap> = new Map();
   private postGraphTimer: ReturnType<typeof setTimeout> | undefined;
+  private loadingEpoch = 0;
   private namespaceSelectionDisposable: vscode.Disposable;
 
   constructor(context: vscode.ExtensionContext, title: string) {
@@ -257,6 +258,8 @@ export class TopologyFlowDashboardPanel extends BasePanel {
     this.panel.webview.onDidReceiveMessage(async (msg: WebviewMessage) => {
       if (msg.command === 'ready') {
         this.postNamespaceSelection();
+        this.loadingEpoch += 1;
+        if (this.postGraphTimer) { clearTimeout(this.postGraphTimer); this.postGraphTimer = undefined; }
         await this.loadGroupings();
         await this.loadInitial(this.selectedNamespace);
       } else if (msg.command === 'sshTopoNode') {
@@ -488,43 +491,71 @@ export class TopologyFlowDashboardPanel extends BasePanel {
     }
   }
 
+  private async loadNamespaceData(n: string): Promise<void> {
+    const nodes = (await this.edaClient.listTopoNodes(n)) as TopoNode[];
+    const map = new Map<string, TopoNode>();
+    for (const node of nodes) {
+      const name = node.metadata?.name;
+      if (!name) continue;
+      map.set(name, node);
+    }
+    this.nodeMap.set(n, map);
+    const links = (await this.edaClient.listTopoLinks(n)) as TopoLink[];
+    const filtered = Array.isArray(links)
+      ? links.filter(l => l.metadata?.labels?.['eda.nokia.com/role'] !== 'edge')
+      : [];
+    this.linkMap.set(n, filtered);
+  }
+
   private async loadInitial(ns: string): Promise<void> {
-    this.selectedNamespace = ns;
-    void this.ensureInterfaceTrafficRateStream(ns);
-    const target =
-      ns === ALL_NAMESPACES
-        ? this.edaClient
-            .getCachedNamespaces()
-            .filter(n => n !== this.edaClient.getCoreNamespace())
-        : [ns];
-    for (const n of target) {
-      try {
-        const nodes = (await this.edaClient.listTopoNodes(n)) as TopoNode[];
-        const map = new Map<string, TopoNode>();
-        for (const node of nodes) {
-          const name = node.metadata?.name;
-          if (!name) continue;
-          map.set(name, node);
+    this.loadingEpoch += 1;
+    const myEpoch = this.loadingEpoch;
+    if (this.postGraphTimer) { clearTimeout(this.postGraphTimer); this.postGraphTimer = undefined; }
+
+    try {
+      this.selectedNamespace = ns;
+      void this.ensureInterfaceTrafficRateStream(ns);
+      const coreNs = this.edaClient.getCoreNamespace();
+      const target =
+        ns === ALL_NAMESPACES
+          ? this.edaClient.getCachedNamespaces().filter(n => n !== coreNs)
+          : [ns];
+      const loaded = new Set<string>();
+      for (const n of target) {
+        try {
+          await this.loadNamespaceData(n);
+          loaded.add(n);
+        } catch {
+          /* ignore */
         }
-        this.nodeMap.set(n, map);
-        const links = (await this.edaClient.listTopoLinks(n)) as TopoLink[];
-        const filtered = Array.isArray(links)
-          ? links.filter(l => l.metadata?.labels?.['eda.nokia.com/role'] !== 'edge')
-          : [];
-        this.linkMap.set(n, filtered);
-      } catch {
-        /* ignore */
+      }
+
+      // Streams may have discovered additional namespaces during the load above.
+      // Load their data so links are not missing.
+      if (ns === ALL_NAMESPACES) {
+        for (const n of this.nodeMap.keys()) {
+          if (n === coreNs || loaded.has(n)) continue;
+          try {
+            await this.loadNamespaceData(n);
+            loaded.add(n);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+
+      if (ns === ALL_NAMESPACES) {
+        this.savedPositionsByNamespace.clear();
+        await this.loadSavedPositionsForNamespaces(Array.from(loaded));
+      } else {
+        await this.loadSavedPositionsForNamespace(ns);
+      }
+    } finally {
+      if (myEpoch === this.loadingEpoch) {
+        this.loadingEpoch = 0;
+        this.postGraph();
       }
     }
-
-    if (ns === ALL_NAMESPACES) {
-      this.savedPositionsByNamespace.clear();
-      await this.loadSavedPositionsForNamespaces(target);
-    } else {
-      await this.loadSavedPositionsForNamespace(ns);
-    }
-
-    this.postGraph();
   }
 
   private async getTopologyByName(topologyName: string): Promise<Topology | undefined> {
@@ -1183,6 +1214,7 @@ export class TopologyFlowDashboardPanel extends BasePanel {
 
   private schedulePostGraph(): void {
     if (this.postGraphTimer) clearTimeout(this.postGraphTimer);
+    if (this.loadingEpoch > 0) return;
     this.postGraphTimer = setTimeout(() => this.postGraph(), 50);
   }
 
