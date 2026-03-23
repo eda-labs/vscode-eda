@@ -19,10 +19,13 @@ const CMD_EDIT_RESOURCE = 'vscode-eda.switchToEditResource';
 const CMD_DELETE_RESOURCE = 'vscode-eda.deleteResource';
 const LABEL_EDIT_RESOURCE = 'Switch To Edit Mode';
 const LABEL_DELETE_RESOURCE = 'Delete Resource';
+const RESOURCE_LIST_CONSUMER_ID = 'explorer-resource-list-panel';
 
 interface ResourceTreeProvider {
   getChildren(element?: TreeItemBase): vscode.ProviderResult<TreeItemBase[]>;
   onDidChangeTreeData?: vscode.Event<TreeItemBase | undefined | null | void>;
+  acquireEdaResourceStreams?: (streams: string[], consumerId: string) => Promise<void>;
+  releaseEdaResourceStreams?: (consumerId: string) => void;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -425,6 +428,18 @@ async function collectCategoryItems(provider: ResourceTreeProvider, categoryNode
   return resources;
 }
 
+async function collectCategoryStreamNames(
+  provider: ResourceTreeProvider,
+  categoryNode: TreeItemBase
+): Promise<string[]> {
+  const streams = await getProviderChildren(provider, categoryNode);
+  const names = streams
+    .filter((streamNode) => streamNode.contextValue === CONTEXT_STREAM)
+    .map((streamNode) => normalizeLookupSegment(labelToText(streamNode.label)))
+    .filter((streamName) => streamName.length > 0);
+  return Array.from(new Set(names));
+}
+
 async function collectTrackedStreamItems(
   provider: ResourceTreeProvider,
   trackedStreams: ReadonlySet<string>
@@ -578,6 +593,40 @@ function createLiveDataSource(
   };
 }
 
+function payloadStreamNames(payload: ExplorerResourceListPayload): string[] {
+  const names = payload.resources
+    .map((resource) => normalizeLookupSegment(resource.stream))
+    .filter((streamName) => streamName.length > 0);
+  return Array.from(new Set(names));
+}
+
+async function resolveDemandStreams(
+  provider: ResourceTreeProvider,
+  payload: ExplorerResourceListPayload
+): Promise<string[]> {
+  if (!payload.sourceNodeId || !payload.sourceNodeContext) {
+    return payloadStreamNames(payload);
+  }
+  const selectedNode = await findNodeById(provider, payload.sourceNodeId);
+  if (!selectedNode) {
+    return payloadStreamNames(payload);
+  }
+
+  if (payload.sourceNodeContext === CONTEXT_STREAM) {
+    const stream = normalizeLookupSegment(labelToText(selectedNode.label));
+    if (stream.length > 0) {
+      return [stream];
+    }
+    return payloadStreamNames(payload);
+  }
+
+  const categoryStreams = await collectCategoryStreamNames(provider, selectedNode);
+  if (categoryStreams.length > 0) {
+    return categoryStreams;
+  }
+  return payloadStreamNames(payload);
+}
+
 export function registerExplorerResourceListCommand(
   context: vscode.ExtensionContext,
   provider?: ResourceTreeProvider
@@ -588,18 +637,36 @@ export function registerExplorerResourceListCommand(
       return;
     }
 
+    const supportsDemandStreaming = typeof provider?.acquireEdaResourceStreams === 'function'
+      && typeof provider.releaseEdaResourceStreams === 'function';
+    if (supportsDemandStreaming && payload.viewKind === 'resources') {
+      const demandStreams = await resolveDemandStreams(provider, payload);
+      try {
+        await provider.acquireEdaResourceStreams?.(demandStreams, RESOURCE_LIST_CONSUMER_ID);
+      } catch {
+        // Keep panel open even if stream bootstrap/subscription fails.
+      }
+    }
+
     const { ExplorerResourceListPanel } = await import('../webviews/explorer/explorerResourceListPanel');
     const dataSource = createLiveDataSource(payload, provider);
+    const options = supportsDemandStreaming
+      ? {
+        onDispose: () => {
+          provider.releaseEdaResourceStreams?.(RESOURCE_LIST_CONSUMER_ID);
+        }
+      }
+      : undefined;
     if (!dataSource) {
-      ExplorerResourceListPanel.show(context, payload);
+      ExplorerResourceListPanel.show(context, payload, undefined, options);
       return;
     }
 
     try {
       const initialPayload = await dataSource.loadPayload();
-      ExplorerResourceListPanel.show(context, initialPayload, dataSource);
+      ExplorerResourceListPanel.show(context, initialPayload, dataSource, options);
     } catch {
-      ExplorerResourceListPanel.show(context, payload, dataSource);
+      ExplorerResourceListPanel.show(context, payload, dataSource, options);
     }
   });
 

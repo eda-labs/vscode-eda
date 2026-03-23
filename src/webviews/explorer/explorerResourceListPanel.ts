@@ -13,6 +13,10 @@ interface ExplorerResourceListPanelDataSource {
   onDidChangeData: vscode.Event<unknown>;
 }
 
+interface ExplorerResourceListPanelOptions {
+  onDispose?: () => void;
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -53,11 +57,13 @@ export class ExplorerResourceListPanel extends BasePanel {
   private refreshHandle?: ReturnType<typeof setTimeout>;
   private refreshInFlight = false;
   private pendingRefresh = false;
+  private onDispose?: () => void;
 
   constructor(
     context: vscode.ExtensionContext,
     payload: ExplorerResourceListPayload,
-    dataSource?: ExplorerResourceListPanelDataSource
+    dataSource?: ExplorerResourceListPanelDataSource,
+    options?: ExplorerResourceListPanelOptions
   ) {
     super(
       context,
@@ -70,6 +76,7 @@ export class ExplorerResourceListPanel extends BasePanel {
 
     this.payload = payload;
     this.updateDataSource(dataSource);
+    this.onDispose = options?.onDispose;
 
     this.panel.webview.onDidReceiveMessage((message: ExplorerResourceListOutgoingMessage) => {
       void this.handleMessage(message);
@@ -82,6 +89,8 @@ export class ExplorerResourceListPanel extends BasePanel {
         clearTimeout(this.refreshHandle);
         this.refreshHandle = undefined;
       }
+      this.onDispose?.();
+      this.onDispose = undefined;
     });
 
     this.panel.webview.html = this.buildHtml();
@@ -129,6 +138,10 @@ export class ExplorerResourceListPanel extends BasePanel {
     this.dataChangeDisposable = dataSource.onDidChangeData(() => {
       this.scheduleRefresh();
     });
+  }
+
+  public setOnDispose(handler?: () => void): void {
+    this.onDispose = handler;
   }
 
   private scheduleRefresh(delayMs = ExplorerResourceListPanel.REFRESH_DEBOUNCE_MS): void {
@@ -191,16 +204,18 @@ export class ExplorerResourceListPanel extends BasePanel {
   public static show(
     context: vscode.ExtensionContext,
     payload: ExplorerResourceListPayload,
-    dataSource?: ExplorerResourceListPanelDataSource
+    dataSource?: ExplorerResourceListPanelDataSource,
+    options?: ExplorerResourceListPanelOptions
   ): ExplorerResourceListPanel {
     if (ExplorerResourceListPanel.currentPanel) {
       ExplorerResourceListPanel.currentPanel.updateDataSource(dataSource);
       ExplorerResourceListPanel.currentPanel.updatePayload(payload);
+      ExplorerResourceListPanel.currentPanel.setOnDispose(options?.onDispose);
       ExplorerResourceListPanel.currentPanel.panel.reveal(vscode.ViewColumn.Active, true);
       return ExplorerResourceListPanel.currentPanel;
     }
 
-    const panel = new ExplorerResourceListPanel(context, payload, dataSource);
+    const panel = new ExplorerResourceListPanel(context, payload, dataSource, options);
     ExplorerResourceListPanel.currentPanel = panel;
     panel.panel.reveal(vscode.ViewColumn.Active, true);
 

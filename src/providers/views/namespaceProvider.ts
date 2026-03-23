@@ -168,8 +168,8 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
   private pendingSummary?: string;
   private streamRefreshHandle?: ReturnType<typeof setTimeout>;
   private pendingStreamRefresh = false;
-  private namesOnlyBootstrapStreams: Set<string> = new Set();
-  private deferredBootstrapInFlight = false;
+  private edaDemandConsumerStreams: Map<string, Set<string>> = new Map();
+  private edaDemandStreamRefCounts: Map<string, number> = new Map();
   private k8sInitializationHandle?: ReturnType<typeof setTimeout>;
   private k8sStartupDelayMs = 3000;
   private resourceRefreshIntervalMs = 180;
@@ -310,11 +310,7 @@ constructor() {
     await this.loadStreams();
     this.scheduleNamespaceSelectionRefresh();
     void this.maybePromptIndexerInstall();
-    const loadedStreams = await this.loadFastResourceBootstrap();
-    void this.subscribeToKnownEdaStreams().catch((err) => {
-      log(`Failed to start EDA streams in background: ${err}`, LogLevel.DEBUG);
-    });
-    void this.loadDeferredResourceBootstrap(loadedStreams);
+    await this.loadFastResourceBootstrap();
     this.scheduleKubernetesInitialization();
     this.edaClient.streamEdaNamespaces().catch(() => {
       // startup path is best-effort; stream errors are surfaced via stream logs/events
@@ -377,30 +373,6 @@ constructor() {
       this.k8sInitializationHandle = undefined;
       void this.initializeKubernetesNamespaces();
     }, this.k8sStartupDelayMs);
-  }
-
-  private async subscribeToKnownEdaStreams(): Promise<void> {
-    const streams = new Set<string>();
-    for (const [group, names] of Object.entries(this.cachedStreamGroups)) {
-      if (group === STREAM_GROUP_KUBERNETES) {
-        continue;
-      }
-      for (const stream of names) {
-        if (!STREAM_SUBSCRIBE_EXCLUDE.has(stream) && !stream.startsWith('_')) {
-          streams.add(stream);
-        }
-      }
-    }
-
-    await Promise.all(
-      Array.from(streams).map(async stream => {
-        try {
-          await this.edaClient.streamByName(stream);
-        } catch (err) {
-          log(`Failed to subscribe stream ${stream}: ${err}`, LogLevel.DEBUG);
-        }
-      })
-    );
   }
 
   private hasKubernetesContext(): boolean {
@@ -794,10 +766,10 @@ constructor() {
     return changed || namespacesChanged;
   }
 
-  private async loadFastResourceBootstrap(): Promise<Set<string>> {
+  private async loadFastResourceBootstrap(): Promise<void> {
     const namespaces = this.getBootstrapNamespaces();
     if (namespaces.length === 0) {
-      return new Set<string>();
+      return;
     }
 
     const startedAt = Date.now();
@@ -820,83 +792,25 @@ constructor() {
         }
       });
 
-      this.namesOnlyBootstrapStreams = new Set(result.namesOnlyStreams);
       if (!postedSnapshot && this.mergeBootstrapSnapshot(result.snapshot)) {
         this.refresh();
       }
 
       const loadedCount = this.snapshotResourceCount(result.snapshot);
-      const availableStreams = this.edaClient.availableBootstrapStreams({
-        excludeStreams: STREAM_SUBSCRIBE_EXCLUDE
-      });
-      const remainingStreams = Math.max(0, availableStreams.length - result.loadedStreams.size);
       const elapsed = (Date.now() - startedAt) / 1000;
       log(
         `Fast resource bootstrap: ${loadedCount} resources in ${elapsed.toFixed(3)}s `
-        + `(${result.loadedStreams.size} streams, ${remainingStreams} deferred, `
+        + `(${result.loadedStreams.size} streams, `
         + `${result.namesOnlyStreams.size} name-only).`,
         LogLevel.INFO
       );
-
-      return result.loadedStreams;
     } catch (err) {
       log(`Fast resource bootstrap skipped: ${err}`, LogLevel.DEBUG);
-      this.namesOnlyBootstrapStreams.clear();
-      return new Set<string>();
-    }
-  }
-
-  private async loadDeferredResourceBootstrap(loadedStreams: Set<string>): Promise<void> {
-    if (this.deferredBootstrapInFlight) {
-      return;
-    }
-    this.deferredBootstrapInFlight = true;
-
-    try {
-      const namespaces = this.getBootstrapNamespaces();
-      if (namespaces.length === 0) {
-        return;
-      }
-
-      const availableStreams = this.edaClient.availableBootstrapStreams({
-        excludeStreams: STREAM_SUBSCRIBE_EXCLUDE
-      });
-      const remainingStreams = availableStreams.filter((stream) => !loadedStreams.has(stream));
-      const streamsToLoad = new Set<string>([
-        ...remainingStreams,
-        ...Array.from(this.namesOnlyBootstrapStreams)
-      ]);
-      if (streamsToLoad.size === 0) {
-        return;
-      }
-
-      const snapshot = await this.edaClient.bootstrapStreamItems(namespaces, {
-        excludeStreams: STREAM_SUBSCRIBE_EXCLUDE,
-        includeStreams: streamsToLoad
-      });
-
-      for (const stream of streamsToLoad) {
-        this.namesOnlyBootstrapStreams.delete(stream);
-      }
-
-      if (this.mergeBootstrapSnapshot(snapshot)) {
-        this.scheduleStreamRefresh();
-      }
-
-      log(
-        `Deferred resource bootstrap loaded ${this.snapshotResourceCount(snapshot)} resources `
-        + `from ${streamsToLoad.size} streams.`,
-        LogLevel.DEBUG
-      );
-    } catch (err) {
-      log(`Deferred resource bootstrap skipped: ${err}`, LogLevel.DEBUG);
-    } finally {
-      this.deferredBootstrapInFlight = false;
     }
   }
 
   /**
-   * Load all Kubernetes namespaces and start watchers for them
+   * Load all Kubernetes namespaces into cache (without starting watches)
    */
   private async initializeKubernetesNamespaces(): Promise<void> {
     if (!this.k8sClient) {
@@ -908,9 +822,40 @@ constructor() {
         .map(n => n.metadata?.name)
         .filter((n): n is string => typeof n === 'string');
       const all = Array.from(new Set([...ns, ...this.cachedNamespaces]));
-      this.k8sClient.setWatchedNamespaces(all);
+      this.k8sClient.setKnownNamespaces(all);
+      await this.bootstrapKubernetesResources(all);
+      this.scheduleRefresh();
     } catch (err) {
       log(`Failed to initialize Kubernetes namespaces: ${err}`, LogLevel.WARN);
+    }
+  }
+
+  private async bootstrapKubernetesResources(namespaces: string[]): Promise<void> {
+    if (!this.k8sClient || this.k8sStreams.length === 0) {
+      return;
+    }
+
+    const namespaceParallelism = 4;
+    for (const stream of this.k8sStreams) {
+      if (this.k8sClient.isNamespacedResource(stream)) {
+        for (let index = 0; index < namespaces.length; index += namespaceParallelism) {
+          const batch = namespaces.slice(index, index + namespaceParallelism);
+          await Promise.all(batch.map(async (namespace) => {
+            try {
+              await this.k8sClient?.listResourceType(stream, namespace);
+            } catch {
+              // Ignore per-resource bootstrap failures.
+            }
+          }));
+        }
+        continue;
+      }
+
+      try {
+        await this.k8sClient.listResourceType(stream);
+      } catch {
+        // Ignore per-resource bootstrap failures.
+      }
     }
   }
 
@@ -1472,8 +1417,106 @@ constructor() {
     if (this.k8sClient) {
       const existing = this.k8sClient.getCachedNamespaces();
       const all = Array.from(new Set([...existing, ...this.cachedNamespaces]));
-      this.k8sClient.setWatchedNamespaces(all);
+      this.k8sClient.setKnownNamespaces(all);
+      const newlyAdded = all.filter((namespace) => !existing.includes(namespace));
+      if (newlyAdded.length > 0) {
+        void this.bootstrapKubernetesResources(newlyAdded).then(() => {
+          this.scheduleRefresh();
+        });
+      }
     }
+  }
+
+  private normalizeDemandStreams(streams: string[]): Set<string> {
+    const normalized = new Set<string>();
+    for (const stream of streams) {
+      if (typeof stream !== 'string' || stream.length === 0) {
+        continue;
+      }
+      if (STREAM_SUBSCRIBE_EXCLUDE.has(stream) || stream.startsWith('_')) {
+        continue;
+      }
+      normalized.add(stream);
+    }
+    return normalized;
+  }
+
+  private incrementDemandStreamRef(stream: string): boolean {
+    const current = this.edaDemandStreamRefCounts.get(stream) ?? 0;
+    this.edaDemandStreamRefCounts.set(stream, current + 1);
+    return current === 0;
+  }
+
+  private decrementDemandStreamRef(stream: string): boolean {
+    const current = this.edaDemandStreamRefCounts.get(stream) ?? 0;
+    if (current <= 1) {
+      this.edaDemandStreamRefCounts.delete(stream);
+      return current > 0;
+    }
+    this.edaDemandStreamRefCounts.set(stream, current - 1);
+    return false;
+  }
+
+  public async acquireEdaResourceStreams(streams: string[], consumerId: string): Promise<void> {
+    if (!consumerId) {
+      return;
+    }
+
+    const desired = this.normalizeDemandStreams(streams);
+    const previous = this.edaDemandConsumerStreams.get(consumerId) ?? new Set<string>();
+    if (desired.size === 0) {
+      this.edaDemandConsumerStreams.delete(consumerId);
+    } else {
+      this.edaDemandConsumerStreams.set(consumerId, desired);
+    }
+
+    const toAdd = Array.from(desired).filter((stream) => !previous.has(stream));
+    const toRemove = Array.from(previous).filter((stream) => !desired.has(stream));
+
+    for (const stream of toRemove) {
+      if (this.decrementDemandStreamRef(stream)) {
+        this.edaClient.closeStreamByName(stream);
+      }
+    }
+
+    const firstSubscribers = toAdd.filter((stream) => this.incrementDemandStreamRef(stream));
+    if (firstSubscribers.length > 0) {
+      try {
+        const snapshot = await this.edaClient.bootstrapStreamItems(this.getBootstrapNamespaces(), {
+          excludeStreams: STREAM_SUBSCRIBE_EXCLUDE,
+          includeStreams: new Set(firstSubscribers),
+        });
+        if (this.mergeBootstrapSnapshot(snapshot)) {
+          this.scheduleStreamRefresh();
+        }
+
+        await Promise.all(firstSubscribers.map(async (stream) => {
+          try {
+            await this.edaClient.streamByName(stream);
+          } catch (err) {
+            log(`Failed to lazily subscribe stream ${stream}: ${err}`, LogLevel.DEBUG);
+          }
+        }));
+      } catch (err) {
+        log(`Failed to lazily bootstrap streams: ${err}`, LogLevel.DEBUG);
+      }
+    }
+  }
+
+  public releaseEdaResourceStreams(consumerId: string): void {
+    if (!consumerId) {
+      return;
+    }
+    const streams = this.edaDemandConsumerStreams.get(consumerId);
+    if (!streams) {
+      return;
+    }
+    for (const stream of streams) {
+      if (this.decrementDemandStreamRef(stream)) {
+        this.edaClient.closeStreamByName(stream);
+      }
+    }
+    this.edaDemandConsumerStreams.delete(consumerId);
   }
 
   /** Update cached namespaces from stream messages */
@@ -1725,6 +1768,10 @@ constructor() {
   }
 
   public dispose(): void {
+    for (const consumerId of Array.from(this.edaDemandConsumerStreams.keys())) {
+      this.releaseEdaResourceStreams(consumerId);
+    }
+    this.edaDemandStreamRefCounts.clear();
     if (this.refreshHandle) {
       clearTimeout(this.refreshHandle);
       this.refreshHandle = undefined;
