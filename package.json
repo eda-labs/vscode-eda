@@ -558,7 +558,7 @@
     "sinon": "^21.0.3",
     "ts-loader": "^9.5.4",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.2",
     "undici": "^7.24.5",
     "undici-types": "^7.24.5",
     "utf-8-validate": "^6.0.6",
