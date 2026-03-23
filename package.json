@@ -562,7 +562,7 @@
     "undici": "^7.24.5",
     "undici-types": "^7.24.5",
     "utf-8-validate": "^6.0.6",
-    "vite": "^8.0.1",
+    "vite": "^8.0.2",
     "webpack": "^5.105.4",
     "webpack-cli": "^7.0.2",
     "ws": "^8.20.0"
