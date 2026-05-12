@@ -231,6 +231,66 @@ describe('EdaApiClient token refresh', () => {
     );
   });
 
+  it('uses OpenAPI route metadata for exact 26.4 resource plurals', async () => {
+    const specManager = {
+      getResourceRoute: sinon.stub().resolves({
+        group: 'qos.eda.nokia.com',
+        version: 'v2',
+        kind: 'EgressPolicy',
+        plural: 'egresspolicys',
+        namespaced: true,
+        namespacedCollectionPath: '/apps/qos.eda.nokia.com/v2/namespaces/{namespace}/egresspolicys'
+      })
+    } as any;
+
+    fetchStub.returns(mockResponse(200, { items: [{ metadata: { name: 'ep-a' } }] }));
+
+    const client = new EdaApiClient(authClient);
+    client.setSpecManager(specManager);
+
+    const resources = await client.listResources(
+      'qos.eda.nokia.com',
+      'v2',
+      'EgressPolicy',
+      'fabric-a'
+    );
+
+    expect(resources).to.have.length(1);
+    expect(fetchStub.firstCall.args[0]).to.equal(
+      'https://api/apps/qos.eda.nokia.com/v2/namespaces/fabric-a/egresspolicys'
+    );
+  });
+
+  it('fills workflow resource and input paths from route metadata', async () => {
+    const specManager = {
+      getResourceRoute: sinon.stub().resolves({
+        group: 'topologies.eda.nokia.com',
+        version: 'v1',
+        kind: 'NetworkTopology',
+        plural: 'networktopologies',
+        namespaced: true,
+        workflowNamespacedReadPath: '/workflows/v1/topologies.eda.nokia.com/v1/namespaces/{namespace}/networktopologies/{name}',
+        workflowNamespacedInputPath: '/workflows/v1/topologies.eda.nokia.com/v1/namespaces/{namespace}/networktopologies/{name}/_input'
+      })
+    } as any;
+
+    const client = new EdaApiClient(authClient);
+    client.setSpecManager(specManager);
+
+    const paths = await client.getWorkflowResourcePaths(
+      'topologies.eda.nokia.com',
+      'v1',
+      'NetworkTopology',
+      'fabric-a',
+      'build-fabric'
+    );
+
+    expect(paths).to.deep.equal({
+      resourcePath: '/workflows/v1/topologies.eda.nokia.com/v1/namespaces/fabric-a/networktopologies/build-fabric',
+      inputPath: '/workflows/v1/topologies.eda.nokia.com/v1/namespaces/fabric-a/networktopologies/build-fabric/_input'
+    });
+  });
+
   it('falls back to apps path when all-namespace operationId is unavailable', async () => {
     const specManager = {
       getPathByOperationId: sinon.stub().rejects(new Error('not found')),
@@ -245,13 +305,13 @@ describe('EdaApiClient token refresh', () => {
 
     const resources = await client.listResources(
       'topologies.eda.nokia.com',
-      'v1alpha1',
+      'v1',
       'NetworkTopology'
     );
 
     expect(resources).to.deep.equal([]);
     expect(fetchStub.firstCall.args[0]).to.equal(
-      'https://api/apps/topologies.eda.nokia.com/v1alpha1/networktopologies'
+      'https://api/apps/topologies.eda.nokia.com/v1/networktopologies'
     );
   });
 

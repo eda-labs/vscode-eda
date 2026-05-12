@@ -559,6 +559,25 @@ export class EdaClient {
     return this.apiClient.listResources(group, version, kind, namespace) as Promise<K8sResource[]>;
   }
 
+  public async listResourcesByPlural(
+    group: string,
+    version: string,
+    plural: string,
+    namespace?: string
+  ): Promise<K8sResource[]> {
+    await this.initPromise;
+    return this.apiClient.listResourcesByPlural(group, version, plural, namespace) as Promise<K8sResource[]>;
+  }
+
+  public async listResourcesByGroupKind(
+    group: string,
+    kind: string,
+    namespace?: string
+  ): Promise<K8sResource[]> {
+    await this.initPromise;
+    return this.apiClient.listResourcesByGroupKind(group, kind, namespace) as Promise<K8sResource[]>;
+  }
+
   public async createResource(
     group: string,
     version: string,
@@ -568,6 +587,27 @@ export class EdaClient {
   ): Promise<K8sResource> {
     await this.initPromise;
     return this.apiClient.createResource(group, version, kind, resource, namespace) as Promise<K8sResource>;
+  }
+
+  public async createResourceByGroupKind(
+    group: string,
+    kind: string,
+    resource: K8sResource,
+    namespace?: string
+  ): Promise<K8sResource> {
+    await this.initPromise;
+    return this.apiClient.createResourceByGroupKind(group, kind, resource, namespace) as Promise<K8sResource>;
+  }
+
+  public async updateResourceByGroupKind(
+    group: string,
+    kind: string,
+    name: string,
+    resource: K8sResource,
+    namespace?: string
+  ): Promise<K8sResource> {
+    await this.initPromise;
+    return this.apiClient.updateResourceByGroupKind(group, kind, name, resource, namespace) as Promise<K8sResource>;
   }
 
   public async getWorkflowInputs(path: string): Promise<WorkflowGetInputsRespElem[]> {
@@ -583,6 +623,27 @@ export class EdaClient {
   public async getResource(path: string): Promise<K8sResource> {
     await this.initPromise;
     return this.apiClient.fetchJSON<K8sResource>(path);
+  }
+
+  public async getWorkflowResourcePaths(
+    group: string,
+    version: string,
+    kind: string,
+    namespace: string,
+    name: string
+  ): Promise<{ resourcePath: string; inputPath: string }> {
+    await this.initPromise;
+    return this.apiClient.getWorkflowResourcePaths(group, version, kind, namespace, name);
+  }
+
+  public async getEqlResourceRoot(group: string, kind: string): Promise<string | undefined> {
+    await this.initPromise;
+    return this.apiClient.getEqlResourceRoot(group, kind);
+  }
+
+  public async getResourceApiVersion(group: string, kind: string): Promise<string | undefined> {
+    await this.initPromise;
+    return this.apiClient.getResourceApiVersion(group, kind);
   }
 
   public async getResourceYaml(

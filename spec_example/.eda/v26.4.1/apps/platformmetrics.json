@@ -1,0 +1,13 @@
+{
+  "info": {
+    "description": "This version of the application has no accessible resources.",
+    "title": "Platform Metrics Application APIs.",
+    "version": "v1"
+  },
+  "openapi": "3.0.1",
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ]
+}

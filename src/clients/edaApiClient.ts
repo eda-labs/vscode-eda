@@ -6,7 +6,7 @@ import { sanitizeResource } from '../utils/yamlUtils';
 import { kindToPlural } from '../utils/pluralUtils';
 
 import type { EdaAuthClient } from './edaAuthClient';
-import type { EdaSpecManager } from './edaSpecManager';
+import type { EdaResourceRoute, EdaSpecManager } from './edaSpecManager';
 import type { StreamEndpoint } from './edaStreamClient';
 
 // Constants for duplicate strings
@@ -23,6 +23,7 @@ const DEFAULT_CORE_NAMESPACE = 'eda-system';
 const DEFAULT_BOOTSTRAP_PARALLELISM = 8;
 const DEFAULT_BOOTSTRAP_NAMESPACE_PARALLELISM = 2;
 const CRD_PATH_PATTERN = /^\/apps\/([^/]+)\/([^/]+)(?:\/namespaces\/\{[^}]+\})?\/([^/]+)$/;
+const NAMESPACE_PARAM_PATTERN = /^(namespace|nsname)$/i;
 const DB_KEY_NAME_PATTERN = /\{\.name=="([^"]+)"\}/g;
 const DB_MINIMAL_RESOURCE_FIELDS = 'apiVersion,kind,metadata.name,metadata.namespace';
 const CORE_API_GROUP = 'core';
@@ -184,36 +185,6 @@ export class EdaApiClient {
   private authClient: EdaAuthClient;
   private specManager?: EdaSpecManager;
   private dbTableByStream = new Map<string, string>();
-
-  private static readonly FAST_BOOTSTRAP_STREAMS: readonly string[] = [
-    'alarms',
-    'components',
-    'nodeprofiles',
-    'defaultbgppeers',
-    'fans',
-    'queues',
-    'forwardingclasss',
-    'indexallocationpools',
-    'interfaces',
-    'defaultinterfaces',
-    'powersupplies',
-    'topolinks',
-    'workflowdefinitions',
-    'isls',
-    'toponodes',
-    'exports',
-    'policys',
-    'chassis',
-    'controlmodules',
-    'interfacemodules',
-    'defaultrouters',
-    'systeminterfaces',
-    'ipallocationpools',
-    'ipinsubnetallocationpools',
-    'subnetallocationpools',
-    'httpproxies',
-    'defaultroutereflectorclients',
-  ];
 
   constructor(authClient: EdaAuthClient) {
     this.authClient = authClient;
@@ -398,6 +369,145 @@ export class EdaApiClient {
       }
     }
     return undefined;
+  }
+
+  private async getResourceRoute(
+    group: string,
+    version: string,
+    kind: string
+  ): Promise<EdaResourceRoute | undefined> {
+    return this.specManager?.getResourceRoute?.(group, version, kind);
+  }
+
+  private async getResourceRouteByPlural(
+    group: string,
+    version: string,
+    plural: string
+  ): Promise<EdaResourceRoute | undefined> {
+    return this.specManager?.getResourceRouteByPlural?.(group, version, plural);
+  }
+
+  private async getResourceRouteByGroupKind(
+    group: string,
+    kind: string
+  ): Promise<EdaResourceRoute | undefined> {
+    return this.specManager?.getResourceRouteByGroupKind?.(group, kind);
+  }
+
+  private fillRoutePath(
+    template: string | undefined,
+    values: { namespace?: string; name?: string } = {}
+  ): string | undefined {
+    if (!template) {
+      return undefined;
+    }
+
+    const path = template.replace(/\{([^}]+)\}/g, (match, token: string) => {
+      if (values.namespace !== undefined && NAMESPACE_PARAM_PATTERN.test(token)) {
+        return encodeURIComponent(values.namespace);
+      }
+      if (values.name !== undefined) {
+        return encodeURIComponent(values.name);
+      }
+      return match;
+    });
+
+    return path.includes('{') ? undefined : path;
+  }
+
+  private routeCollectionPath(
+    route: EdaResourceRoute | undefined,
+    namespace?: string
+  ): string | undefined {
+    if (!route) {
+      return undefined;
+    }
+    if (namespace) {
+      return this.fillRoutePath(
+        route.namespacedCollectionPath ?? route.workflowNamespacedCollectionPath ?? route.collectionPath ?? route.workflowCollectionPath,
+        { namespace }
+      );
+    }
+    return route.collectionPath ?? route.workflowCollectionPath;
+  }
+
+  private routeCreatePath(
+    route: EdaResourceRoute | undefined,
+    namespace?: string
+  ): string | undefined {
+    if (!route) {
+      return undefined;
+    }
+    if (namespace) {
+      return this.fillRoutePath(
+        route.namespacedCreatePath ?? route.workflowNamespacedCreatePath ?? route.createPath ?? route.workflowCreatePath,
+        { namespace }
+      );
+    }
+    return route.createPath ?? route.workflowCreatePath;
+  }
+
+  private routeReadPath(
+    route: EdaResourceRoute | undefined,
+    name: string,
+    namespace?: string
+  ): string | undefined {
+    if (!route) {
+      return undefined;
+    }
+    if (namespace) {
+      return this.fillRoutePath(
+        route.namespacedReadPath ?? route.workflowNamespacedReadPath ?? route.readPath ?? route.workflowReadPath,
+        { namespace, name }
+      );
+    }
+    return this.fillRoutePath(route.readPath ?? route.workflowReadPath, { name });
+  }
+
+  private routeUpdatePath(
+    route: EdaResourceRoute | undefined,
+    name: string,
+    namespace?: string
+  ): string | undefined {
+    if (!route) {
+      return undefined;
+    }
+    if (namespace) {
+      return this.fillRoutePath(route.namespacedUpdatePath ?? route.updatePath, { namespace, name });
+    }
+    return this.fillRoutePath(route.updatePath, { name });
+  }
+
+  private routeDeletePath(
+    route: EdaResourceRoute | undefined,
+    name: string,
+    namespace?: string
+  ): string | undefined {
+    if (!route) {
+      return undefined;
+    }
+    if (namespace) {
+      return this.fillRoutePath(route.namespacedDeletePath ?? route.deletePath, { namespace, name });
+    }
+    return this.fillRoutePath(route.deletePath, { name });
+  }
+
+  private routeWorkflowInputPath(
+    route: EdaResourceRoute | undefined,
+    name: string,
+    namespace?: string
+  ): string | undefined {
+    if (!route) {
+      return undefined;
+    }
+    if (namespace) {
+      return this.fillRoutePath(route.workflowNamespacedInputPath ?? route.workflowInputPath, { namespace, name });
+    }
+    return this.fillRoutePath(route.workflowInputPath, { name });
+  }
+
+  private routePlural(route: EdaResourceRoute | undefined, kind: string): string {
+    return route?.plural ?? kindToPlural(kind);
   }
 
   private toPascalIdentifier(input: string): string {
@@ -699,14 +809,15 @@ export class EdaApiClient {
     return typeof value === 'string' && value.length > 0 ? value : undefined;
   }
 
-  private dbFallbackIdentity(endpoint: StreamEndpoint): { apiVersion: string; kind: string } {
+  private async endpointResourceIdentity(endpoint: StreamEndpoint): Promise<{ apiVersion: string; kind: string }> {
     const pathMatch = endpoint.path.match(CRD_PATH_PATTERN);
     if (!pathMatch) {
       return { apiVersion: '', kind: '' };
     }
+    const route = await this.getResourceRouteByPlural(pathMatch[1], pathMatch[2], pathMatch[3]);
     return {
       apiVersion: `${pathMatch[1]}/${pathMatch[2]}`,
-      kind: this.kindFromPlural(pathMatch[3]),
+      kind: route?.kind ?? this.kindFromPlural(pathMatch[3]),
     };
   }
 
@@ -758,11 +869,11 @@ export class EdaApiClient {
   }
 
   private resourceFromDbEntry(
-    endpoint: StreamEndpoint,
+    fallbackIdentity: { apiVersion: string; kind: string },
     entryKey: string,
     entryValue: Record<string, unknown>
   ): K8sResource | undefined {
-    const { apiVersion: fallbackApiVersion, kind: fallbackKind } = this.dbFallbackIdentity(endpoint);
+    const { apiVersion: fallbackApiVersion, kind: fallbackKind } = fallbackIdentity;
     const metadata = this.isRecord(entryValue.metadata) ? entryValue.metadata : {};
     const keyNames = this.dbEntryKeyNames(entryKey);
     const name = this.dbEntryName(metadata, entryValue, keyNames);
@@ -995,11 +1106,12 @@ export class EdaApiClient {
 
   private snapshotFromDbEntries(
     endpoint: StreamEndpoint,
+    fallbackIdentity: { apiVersion: string; kind: string },
     entries: Array<[string, Record<string, unknown>]>
   ): BootstrapSnapshot {
     const snapshot: BootstrapSnapshot = new Map();
     for (const [entryKey, entryValue] of entries) {
-      const resource = this.resourceFromDbEntry(endpoint, entryKey, entryValue);
+      const resource = this.resourceFromDbEntry(fallbackIdentity, entryKey, entryValue);
       if (!resource?.metadata?.name || !resource.metadata.namespace) {
         continue;
       }
@@ -1018,13 +1130,14 @@ export class EdaApiClient {
     tableName: string
   ): Promise<BootstrapSnapshot | undefined> {
     try {
+      const fallbackIdentity = await this.endpointResourceIdentity(endpoint);
       const query = new URLSearchParams({
         fields: DB_MINIMAL_RESOURCE_FIELDS,
         jsPath: tableName,
       });
       const payload = await this.fetchJSON<unknown>(`${DB_DATA_PATH}?${query.toString()}`);
       const entries = this.dbEntriesFromPayload(payload);
-      return this.snapshotFromDbEntries(endpoint, entries);
+      return this.snapshotFromDbEntries(endpoint, fallbackIdentity, entries);
     } catch {
       return undefined;
     }
@@ -1057,16 +1170,17 @@ export class EdaApiClient {
     return `${group}/${version}/${kind}`.toLowerCase();
   }
 
-  private indexerIdentityFromEndpoint(endpoint: StreamEndpoint): {
+  private async indexerIdentityFromEndpoint(endpoint: StreamEndpoint): Promise<{
     key: string;
     stream: string;
-  } | undefined {
+  } | undefined> {
     const match = endpoint.path.match(CRD_PATH_PATTERN);
     if (!match) {
       return undefined;
     }
     const [, group, version, plural] = match;
-    const kindLower = this.kindFromPlural(plural).toLowerCase();
+    const route = await this.getResourceRouteByPlural(group, version, plural);
+    const kindLower = (route?.kind ?? this.kindFromPlural(plural)).toLowerCase();
     return {
       key: this.indexerIdentityKey(group, version, kindLower),
       stream: endpoint.stream
@@ -1146,7 +1260,7 @@ export class EdaApiClient {
         continue;
       }
       allowedStreams.add(endpoint.stream);
-      const identity = this.indexerIdentityFromEndpoint(endpoint);
+      const identity = await this.indexerIdentityFromEndpoint(endpoint);
       if (!identity || streamByIdentity.has(identity.key)) {
         continue;
       }
@@ -1411,7 +1525,6 @@ export class EdaApiClient {
         ?? Math.max(this.getBootstrapParallelism(), 6)
     );
     const available = this.availableBootstrapStreams({ excludeStreams: excluded });
-    const availableSet = new Set(available);
     const loadedStreams = new Set<string>();
     const namesOnlyStreams = new Set<string>();
     const snapshot: BootstrapSnapshot = new Map();
@@ -1436,33 +1549,10 @@ export class EdaApiClient {
       }
     }
 
-    const prioritized = EdaApiClient.FAST_BOOTSTRAP_STREAMS.filter(
-      (stream) => availableSet.has(stream) && !loadedStreams.has(stream)
-    );
-    if (prioritized.length > 0) {
-      const prioritizedBatchSize = Math.max(1, Math.min(additionalBatchSize, bootstrapParallelism));
-      for (let index = 0; index < prioritized.length; index += prioritizedBatchSize) {
-        const batch = prioritized.slice(index, index + prioritizedBatchSize);
-        const prioritizedSnapshot = await this.bootstrapStreamItems(namespaces, {
-          excludeStreams: excluded,
-          includeStreams: new Set(batch),
-          namesOnly: true,
-          namesOnlyStreams,
-        });
-        this.mergeBootstrapSnapshot(snapshot, prioritizedSnapshot);
-        reportBatch(prioritizedSnapshot);
-        for (const stream of batch) {
-          loadedStreams.add(stream);
-        }
-        if (this.snapshotResourceCount(snapshot) >= minimumResources) {
-          return { snapshot, loadedStreams, namesOnlyStreams };
-        }
-      }
-    }
-
     const remaining = available.filter((stream) => !loadedStreams.has(stream));
-    for (let index = 0; index < remaining.length; index += additionalBatchSize) {
-      const batch = remaining.slice(index, index + additionalBatchSize);
+    const batchSize = Math.max(1, Math.min(additionalBatchSize, bootstrapParallelism));
+    for (let index = 0; index < remaining.length; index += batchSize) {
+      const batch = remaining.slice(index, index + batchSize);
       const batchSnapshot = await this.bootstrapStreamItems(namespaces, {
         excludeStreams: excluded,
         includeStreams: new Set(batch),
@@ -1500,7 +1590,6 @@ export class EdaApiClient {
     namespace: string,
     apiVersion?: string
   ): Promise<string> {
-    const plural = kindToPlural(kind);
     let group = 'core.eda.nokia.com';
     let version = 'v1';
     if (apiVersion && apiVersion.includes('/')) {
@@ -1508,54 +1597,14 @@ export class EdaApiClient {
       group = parts[0];
       version = parts[1];
     }
-
-    const groupPascal = group
-      .split(/[.-]/)
-      .map(p => p.charAt(0).toUpperCase() + p.slice(1))
-      .join('');
-    const versionPascal = version.charAt(0).toUpperCase() + version.slice(1);
-    const pluralPascal = plural
-      .split(/[.-]/)
-      .map(p => p.charAt(0).toUpperCase() + p.slice(1))
-      .join('');
-
-    let path = '';
-    if (this.specManager) {
-      // First try namespaced operationId
-      const namespacedOpId = `read${groupPascal}${versionPascal}Namespace${pluralPascal}`;
-      try {
-        const template = await this.specManager.getPathByOperationId(namespacedOpId);
-        path = template
-          .replace(PARAM_NAMESPACE, namespace)
-          .replace(PARAM_NAME, name);
-      } catch {
-        // If not found, try cluster scoped operation
-        const clusterOpId = `read${groupPascal}${versionPascal}${pluralPascal}`;
-        try {
-          const template = await this.specManager.getPathByOperationId(clusterOpId);
-          path = template.replace(PARAM_NAME, name);
-        } catch {
-          // fall back to manual path below
-        }
-      }
-    }
-
-    if (!path) {
-      // Default to namespaced path, but allow for cluster scoped resources
-      const nsPart = namespace ? `/namespaces/${namespace}` : '';
-      path = `/apps/${group}/${version}${nsPart}/${plural}/${name}`;
-    }
-
-    const data = await this.fetchJSON<K8sResource>(path);
-    const sanitized = sanitizeResource(data);
-    return yaml.dump(sanitized, { indent: 2 });
+    return this.getResourceYaml(group, version, kind, name, namespace);
   }
 
   /**
    * Create a DeviationAction resource
    */
   public async createDeviationAction(namespace: string, action: DeviationAction): Promise<K8sResource> {
-    return this.requestJSON<K8sResource>('POST', `/apps/core.eda.nokia.com/v1/namespaces/${namespace}/deviationactions`, action);
+    return this.createResourceByGroupKind('core.eda.nokia.com', 'DeviationAction', action, namespace);
   }
 
   /**
@@ -1609,8 +1658,9 @@ export class EdaApiClient {
     namespaced = true,
     dryRun = false
   ): Promise<K8sResource> {
-    const nsPart = namespaced ? `/namespaces/${namespace}` : '';
-    const path = `/apps/${group}/${version}${nsPart}/${plural}`;
+    const route = await this.getResourceRouteByPlural(group, version, plural);
+    const path = this.routeCreatePath(route, namespaced ? namespace : undefined)
+      ?? `/apps/${group}/${version}${namespaced ? `/namespaces/${namespace}` : ''}/${plural}`;
     const url = dryRun ? `${path}?dryRun=true` : path;
     return this.requestJSON<K8sResource>('POST', url, body);
   }
@@ -1628,8 +1678,9 @@ export class EdaApiClient {
     namespaced = true,
     dryRun = false
   ): Promise<K8sResource> {
-    const nsPart = namespaced ? `/namespaces/${namespace}` : '';
-    const path = `/apps/${group}/${version}${nsPart}/${plural}/${name}`;
+    const route = await this.getResourceRouteByPlural(group, version, plural);
+    const path = this.routeUpdatePath(route, name, namespaced ? namespace : undefined)
+      ?? `/apps/${group}/${version}${namespaced ? `/namespaces/${namespace}` : ''}/${plural}/${name}`;
     const url = dryRun ? `${path}?dryRun=true` : path;
     return this.requestJSON<K8sResource>('PUT', url, body);
   }
@@ -1645,8 +1696,9 @@ export class EdaApiClient {
     name: string,
     namespaced = true
   ): Promise<unknown> {
-    const nsPart = namespaced ? `/namespaces/${namespace}` : '';
-    const path = `/apps/${group}/${version}${nsPart}/${plural}/${name}`;
+    const route = await this.getResourceRouteByPlural(group, version, plural);
+    const path = this.routeDeletePath(route, name, namespaced ? namespace : undefined)
+      ?? `/apps/${group}/${version}${namespaced ? `/namespaces/${namespace}` : ''}/${plural}/${name}`;
     return this.requestJSON('DELETE', path);
   }
 
@@ -1807,90 +1859,44 @@ export class EdaApiClient {
    * List TopoNodes in a namespace
    */
   public async listTopoNodes(namespace: string): Promise<K8sResource[]> {
-    if (!this.specManager) {
-      throw new Error(MSG_SPEC_NOT_INIT);
-    }
-    const template = await this.specManager.getPathByOperationId(
-      'listCoreEdaNokiaComV1NamespaceToponodes'
-    );
-    const path = template.replace(PARAM_NAMESPACE, namespace);
-    const data = await this.fetchJSON<K8sResourceList>(path);
-    return Array.isArray(data.items) ? data.items : [];
+    return this.listResourcesByGroupKind('core.eda.nokia.com', 'TopoNode', namespace);
   }
 
   /**
    * Get a specific TopoNode in a namespace
    */
   public async getTopoNode(namespace: string, name: string): Promise<K8sResource> {
-    if (!this.specManager) {
-      throw new Error(MSG_SPEC_NOT_INIT);
-    }
-    const template = await this.specManager.getPathByOperationId(
-      'readCoreEdaNokiaComV1NamespaceToponodes'
-    );
-    const path = template
-      .replace(PARAM_NAMESPACE, namespace)
-      .replace(PARAM_NAME, name);
-    return this.fetchJSON<K8sResource>(path);
+    return this.getResourceByGroupKind('core.eda.nokia.com', 'TopoNode', name, namespace);
   }
 
   /**
    * List NodeUsers in a namespace
    */
   public async listNodeUsers(namespace: string): Promise<K8sResource[]> {
-    if (!this.specManager) {
-      throw new Error(MSG_SPEC_NOT_INIT);
-    }
-    const template = await this.specManager.getPathByOperationId(
-      'listCoreEdaNokiaComV1NamespaceNodeusers'
-    );
-    const path = template.replace(PARAM_NAMESPACE, namespace);
-    const data = await this.fetchJSON<K8sResourceList>(path);
-    return Array.isArray(data.items) ? data.items : [];
+    return this.listResourcesByGroupKind('core.eda.nokia.com', 'NodeUser', namespace);
   }
 
   /**
    * List Interfaces in a namespace
    */
   public async listInterfaces(namespace: string): Promise<K8sResource[]> {
-    let path = '';
-    if (this.specManager) {
-      try {
-        const template = await this.specManager.getPathByOperationId(
-          'listInterfacesEdaNokiaComV1alpha1NamespaceInterfaces'
-        );
-        path = template.replace(PARAM_NAMESPACE, namespace);
-      } catch {
-        // fallback to manual path below
-      }
-    }
-    if (!path) {
-      path = `/apps/interfaces.eda.nokia.com/v1alpha1/namespaces/${namespace}/interfaces`;
-    }
-    const data = await this.fetchJSON<K8sResourceList>(path);
-    return Array.isArray(data.items) ? data.items : [];
+    return this.listResourcesByGroupKind('interfaces.eda.nokia.com', 'Interface', namespace);
   }
 
   /**
    * List TopoLinks in a namespace
    */
   public async listTopoLinks(namespace: string): Promise<K8sResource[]> {
-    if (!this.specManager) {
-      throw new Error(MSG_SPEC_NOT_INIT);
-    }
-    const template = await this.specManager.getPathByOperationId(
-      'listCoreEdaNokiaComV1NamespaceTopolinks'
-    );
-    const path = template.replace(PARAM_NAMESPACE, namespace);
-    const data = await this.fetchJSON<K8sResourceList>(path);
-    return Array.isArray(data.items) ? data.items : [];
+    return this.listResourcesByGroupKind('core.eda.nokia.com', 'TopoLink', namespace);
   }
 
   /**
    * List available namespaces from the API server.
    */
   public async listNamespaces(): Promise<string[]> {
-    const data = await this.fetchJSON<EdaNamespaceResponse>(EDA_NAMESPACES_PATH);
+    const route = await this.getResourceRouteByGroupKind('core.eda.nokia.com', 'Namespace');
+    const path = this.routeCollectionPath(route) ?? EDA_NAMESPACES_PATH;
+    const data = await this.fetchJSON<EdaNamespaceResponse>(path);
     const namespaces = new Set<string>();
 
     const namespaceEntries = Array.isArray(data.namespaces) ? data.namespaces : [];
@@ -1922,15 +1928,50 @@ export class EdaApiClient {
     kind: string,
     namespace?: string
   ): Promise<K8sResource[]> {
-    const plural = kindToPlural(kind);
+    const route = await this.getResourceRoute(group, version, kind);
+    return this.listResourcesForRoute(route, group, version, kind, namespace);
+  }
+
+  public async listResourcesByPlural(
+    group: string,
+    version: string,
+    plural: string,
+    namespace?: string
+  ): Promise<K8sResource[]> {
+    const route = await this.getResourceRouteByPlural(group, version, plural);
+    const kind = route?.kind ?? this.kindFromPlural(plural);
+    return this.listResourcesForRoute(route, group, version, kind, namespace);
+  }
+
+  public async listResourcesByGroupKind(
+    group: string,
+    kind: string,
+    namespace?: string
+  ): Promise<K8sResource[]> {
+    const route = await this.getResourceRouteByGroupKind(group, kind);
+    if (!route) {
+      throw new Error(`Resource route not found for ${group}/${kind}`);
+    }
+    return this.listResourcesForRoute(route, route.group, route.version, route.kind, namespace);
+  }
+
+  private async listResourcesForRoute(
+    route: EdaResourceRoute | undefined,
+    group: string,
+    version: string,
+    kind: string,
+    namespace?: string
+  ): Promise<K8sResource[]> {
+    const plural = this.routePlural(route, kind);
     const ids = this.buildOperationIds(group, version, kind);
     const namespaced = typeof namespace === 'string' && namespace.length > 0;
 
     if (namespaced) {
-      const path = await this.resolvePathFromOperationIds(
-        [...ids.listNamespaced, ...ids.listAll],
-        { [PARAM_NAMESPACE]: namespace }
-      );
+      const path = this.routeCollectionPath(route, namespace)
+        ?? await this.resolvePathFromOperationIds(
+          [...ids.listNamespaced, ...ids.listAll],
+          { [PARAM_NAMESPACE]: namespace }
+        );
 
       const resolvedPath = path ?? `/apps/${group}/${version}/namespaces/${namespace}/${plural}`;
       const data = await this.fetchJSON<K8sResourceList>(resolvedPath);
@@ -1939,12 +1980,13 @@ export class EdaApiClient {
 
     return this.listWithNamespacedSupplement(
       async () => {
-        const path = await this.resolvePathFromOperationIds(ids.listAll);
+        const path = this.routeCollectionPath(route)
+          ?? await this.resolvePathFromOperationIds(ids.listAll);
         const resolvedPath = path ?? `/apps/${group}/${version}/${plural}`;
         const data = await this.fetchJSON<K8sResourceList>(resolvedPath);
         return Array.isArray(data.items) ? data.items : [];
       },
-      async (targetNamespace) => this.listResources(group, version, kind, targetNamespace)
+      async (targetNamespace) => this.listResourcesForRoute(route, group, version, kind, targetNamespace)
     );
   }
 
@@ -1959,16 +2001,42 @@ export class EdaApiClient {
     resource: K8sResource,
     namespace?: string
   ): Promise<K8sResource> {
-    const plural = kindToPlural(kind);
+    const route = await this.getResourceRoute(group, version, kind);
+    return this.createResourceForRoute(route, group, version, kind, resource, namespace);
+  }
+
+  public async createResourceByGroupKind(
+    group: string,
+    kind: string,
+    resource: K8sResource,
+    namespace?: string
+  ): Promise<K8sResource> {
+    const route = await this.getResourceRouteByGroupKind(group, kind);
+    if (!route) {
+      throw new Error(`Resource route not found for ${group}/${kind}`);
+    }
+    return this.createResourceForRoute(route, route.group, route.version, route.kind, resource, namespace);
+  }
+
+  private async createResourceForRoute(
+    route: EdaResourceRoute | undefined,
+    group: string,
+    version: string,
+    kind: string,
+    resource: K8sResource,
+    namespace?: string
+  ): Promise<K8sResource> {
+    const plural = this.routePlural(route, kind);
     const ids = this.buildOperationIds(group, version, kind);
     const namespaced = typeof namespace === 'string' && namespace.length > 0;
 
-    const path = await this.resolvePathFromOperationIds(
-      namespaced
-        ? [...ids.createNamespaced, ...ids.createAll]
-        : ids.createAll,
-      namespaced ? { [PARAM_NAMESPACE]: namespace } : {}
-    );
+    const path = this.routeCreatePath(route, namespace)
+      ?? await this.resolvePathFromOperationIds(
+        namespaced
+          ? [...ids.createNamespaced, ...ids.createAll]
+          : ids.createAll,
+        namespaced ? { [PARAM_NAMESPACE]: namespace } : {}
+      );
 
     const resolvedPath = path ?? (
       namespaced
@@ -1977,6 +2045,24 @@ export class EdaApiClient {
     );
 
     return this.requestJSON<K8sResource>('POST', resolvedPath, resource);
+  }
+
+  public async updateResourceByGroupKind(
+    group: string,
+    kind: string,
+    name: string,
+    resource: K8sResource,
+    namespace?: string
+  ): Promise<K8sResource> {
+    const route = await this.getResourceRouteByGroupKind(group, kind);
+    if (!route) {
+      throw new Error(`Resource route not found for ${group}/${kind}`);
+    }
+    const path = this.routeUpdatePath(route, name, namespace);
+    if (!path) {
+      throw new Error(`Update route not found for ${group}/${kind}`);
+    }
+    return this.requestJSON<K8sResource>('PUT', path, resource);
   }
 
   /**
@@ -2004,18 +2090,20 @@ export class EdaApiClient {
     name: string,
     namespace?: string
   ): Promise<string> {
-    const plural = kindToPlural(kind);
+    const route = await this.getResourceRoute(group, version, kind);
+    const plural = this.routePlural(route, kind);
     const ids = this.buildOperationIds(group, version, kind);
     const namespaced = typeof namespace === 'string' && namespace.length > 0;
 
-    const path = await this.resolvePathFromOperationIds(
-      namespaced
-        ? [...ids.readNamespaced, ...ids.readAll]
-        : ids.readAll,
-      namespaced
-        ? { [PARAM_NAMESPACE]: namespace, [PARAM_NAME]: name }
-        : { [PARAM_NAME]: name }
-    );
+    const path = this.routeReadPath(route, name, namespace)
+      ?? await this.resolvePathFromOperationIds(
+        namespaced
+          ? [...ids.readNamespaced, ...ids.readAll]
+          : ids.readAll,
+        namespaced
+          ? { [PARAM_NAMESPACE]: namespace, [PARAM_NAME]: name }
+          : { [PARAM_NAME]: name }
+      );
 
     const resolvedPath = path ?? (
       namespaced
@@ -2026,6 +2114,58 @@ export class EdaApiClient {
     const data = await this.fetchJSON<K8sResource>(resolvedPath);
     const sanitized = sanitizeResource(data);
     return yaml.dump(sanitized, { indent: 2 });
+  }
+
+  public async getResourceByGroupKind(
+    group: string,
+    kind: string,
+    name: string,
+    namespace?: string
+  ): Promise<K8sResource> {
+    const route = await this.getResourceRouteByGroupKind(group, kind);
+    if (!route) {
+      throw new Error(`Resource route not found for ${group}/${kind}`);
+    }
+    const path = this.routeReadPath(route, name, namespace);
+    if (!path) {
+      throw new Error(`Read route not found for ${group}/${kind}`);
+    }
+    return this.fetchJSON<K8sResource>(path);
+  }
+
+  public async getWorkflowResourcePaths(
+    group: string,
+    version: string,
+    kind: string,
+    namespace: string,
+    name: string
+  ): Promise<{ resourcePath: string; inputPath: string }> {
+    const route = await this.getResourceRoute(group, version, kind);
+    const resourcePath = this.fillRoutePath(
+      route?.workflowNamespacedReadPath ?? route?.workflowReadPath,
+      { namespace, name }
+    );
+    const inputPath = this.routeWorkflowInputPath(route, name, namespace);
+    if (!resourcePath || !inputPath) {
+      throw new Error(`Workflow routes not found for ${group}/${version}/${kind}`);
+    }
+    return { resourcePath, inputPath };
+  }
+
+  public async getEqlResourceRoot(group: string, kind: string): Promise<string | undefined> {
+    const route = await this.getResourceRouteByGroupKind(group, kind);
+    if (!route) {
+      return undefined;
+    }
+    const groupToken = route.group.replace(/\./g, '_');
+    const [noun] = this.resourceNounCandidatesFromPlural(route.plural);
+    const resourceName = noun || route.plural;
+    return `.namespace.resources.cr.${groupToken}.${route.version}.${resourceName}`;
+  }
+
+  public async getResourceApiVersion(group: string, kind: string): Promise<string | undefined> {
+    const route = await this.getResourceRouteByGroupKind(group, kind);
+    return route ? `${route.group}/${route.version}` : undefined;
   }
 
   /**

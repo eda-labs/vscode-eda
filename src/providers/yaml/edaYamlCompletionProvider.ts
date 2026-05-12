@@ -17,8 +17,8 @@ import { DynamicValueProvider } from './dynamicValueProvider';
 
 const EDA_API_PATTERN = /apiVersion:\s*\S*eda\.nokia\.com/;
 const SELECTOR_KIND_FALLBACKS: Record<string, AutoCompleteHint> = {
-  Fabric: { type: 'gvr', group: 'fabrics.eda.nokia.com', version: 'v1alpha1', resource: 'fabrics', kind: 'Fabric' },
-  Interface: { type: 'gvr', group: 'interfaces.eda.nokia.com', version: 'v1alpha1', resource: 'interfaces', kind: 'Interface' },
+  Fabric: { type: 'gvr', group: 'fabrics.eda.nokia.com', version: 'v1', resource: 'fabrics', kind: 'Fabric' },
+  Interface: { type: 'gvr', group: 'interfaces.eda.nokia.com', version: 'v1', resource: 'interfaces', kind: 'Interface' },
   TopoLink: { type: 'gvr', group: 'core.eda.nokia.com', version: 'v1', resource: 'topolinks', kind: 'TopoLink' },
   TopoNode: { type: 'gvr', group: 'core.eda.nokia.com', version: 'v1', resource: 'toponodes', kind: 'TopoNode' },
 };
@@ -1239,7 +1239,7 @@ export class EdaYamlCompletionProvider implements vscode.CompletionItemProvider 
       return 'kind: Banner';
     }
     if (key === 'apiVersion') {
-      return 'apiVersion: siteinfo.eda.nokia.com/v1alpha1';
+      return 'apiVersion: siteinfo.eda.nokia.com/v1';
     }
 
     return `${key}: <value>`;

@@ -32,7 +32,7 @@ describe('EdaYamlValidationProvider', () => {
     properties: {
       apiVersion: {
         type: 'string',
-        enum: ['interfaces.eda.nokia.com/v1alpha1']
+        enum: ['interfaces.eda.nokia.com/v1']
       },
       kind: {
         type: 'string',
@@ -79,7 +79,7 @@ describe('EdaYamlValidationProvider', () => {
 
     const provider = new EdaYamlValidationProvider();
     const document = createDocument([
-      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'apiVersion: interfaces.eda.nokia.com/v1',
       'metadata:',
       '  namespace: eda',
       '  name: test',
@@ -107,7 +107,7 @@ describe('EdaYamlValidationProvider', () => {
 
     const provider = new EdaYamlValidationProvider();
     const document = createDocument([
-      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'apiVersion: interfaces.eda.nokia.com/v1',
       'kind: Interface',
       'metadata:',
       '  namespace: eda',
@@ -124,7 +124,7 @@ describe('EdaYamlValidationProvider', () => {
 
   it('revalidates open documents after schemas finish loading', () => {
     const document = createDocument([
-      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'apiVersion: interfaces.eda.nokia.com/v1',
       'metadata:',
       '  namespace: eda',
       '  name: test',

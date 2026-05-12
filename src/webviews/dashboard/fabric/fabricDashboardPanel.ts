@@ -9,7 +9,7 @@ import { namespaceSelectionService } from '../../../services/namespaceSelectionS
 import type { EdaClient } from '../../../clients/edaClient';
 import type { StreamMessagePayload } from '../../../clients/edaStreamClient';
 import { parseUpdateKey } from '../../../utils/parseUpdateKey';
-import { getUpdates, getOps, getDelete, getDeleteIds, getInsertOrModify, getRows } from '../../../utils/streamMessageUtils';
+import { getUpdates, getOps, getInsertOrModify, getRows } from '../../../utils/streamMessageUtils';
 
 /** Inner message payload containing updates or operations */
 interface InnerMessagePayload {
@@ -55,20 +55,12 @@ interface StreamOperation {
   Insert_or_modify?: InsertOrModifyOperation;
   insertOrModify?: InsertOrModifyOperation;
   InsertOrModify?: InsertOrModifyOperation;
-  delete?: DeleteOperation;
-  Delete?: DeleteOperation;
 }
 
 /** Insert or modify operation data */
 interface InsertOrModifyOperation {
   rows?: StreamRow[];
   Rows?: StreamRow[];
-}
-
-/** Delete operation data */
-interface DeleteOperation {
-  ids?: number[];
-  Ids?: number[];
 }
 
 /** Row entry in insert/modify operations */
@@ -122,22 +114,14 @@ export class FabricDashboardPanel extends BasePanel {
   private superSpineStreamName = '';
   private fabricStatusStreamName = '';
   private initialized = false;
-  private useFieldsQuery = false;
+  private fabricQueryBase: string | undefined;
   private namespaceSelectionDisposable: vscode.Disposable;
-
-  private get fabricQueryBase(): string {
-    return this.useFieldsQuery
-      ? '.namespace.resources.cr.fabrics_eda_nokia_com.v1alpha1.fabric'
-      : '.namespace.resources.cr-status.fabrics_eda_nokia_com.v1alpha1.fabric.status';
-  }
 
   private constructor(context: vscode.ExtensionContext, title: string) {
     super(context, 'edaDashboard', title, undefined, BasePanel.getEdaIconPath(context));
 
     this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.selectedNamespace = namespaceSelectionService.getSelectedNamespace();
-    const apiVersion = this.edaClient.getApiVersion();
-    this.useFieldsQuery = this.isVersionAtLeast(apiVersion, '25.8');
     this.streamDisposable = this.edaClient.onStreamMessage((stream, msg) => {
       const payload = msg as StreamMessagePayload;
       if (stream === 'toponodes') {
@@ -209,27 +193,6 @@ export class FabricDashboardPanel extends BasePanel {
     await this.sendBorderLeafStats(namespace);
     await this.sendSuperSpineStats(namespace);
     await this.sendFabricHealth(namespace);
-  }
-
-  private isVersionAtLeast(version: string, target: string): boolean {
-    const parse = (v: string) =>
-      v
-        .replace(/^\D*/, '')
-        .split('.')
-        .map(n => {
-          const num = parseInt(n, 10);
-          return Number.isNaN(num) ? 0 : num;
-        });
-    const vParts = parse(version);
-    const tParts = parse(target);
-    const len = Math.max(vParts.length, tParts.length);
-    for (let i = 0; i < len; i++) {
-      const vVal = vParts[i] ?? 0;
-      const tVal = tParts[i] ?? 0;
-      if (vVal > tVal) return true;
-      if (vVal < tVal) return false;
-    }
-    return true;
   }
 
   protected getScriptTags(nonce: string): string {
@@ -689,13 +652,20 @@ export class FabricDashboardPanel extends BasePanel {
     await this.edaClient.streamEql(query, namespaces, this.trafficStreamName);
   }
 
+  private async getFabricQueryBase(): Promise<string> {
+    if (this.fabricQueryBase) {
+      return this.fabricQueryBase;
+    }
+    this.fabricQueryBase = await this.edaClient.getEqlResourceRoot('fabrics.eda.nokia.com', 'Fabric')
+      ?? '.namespace.resources.cr.fabrics_eda_nokia_com.v1.fabric';
+    return this.fabricQueryBase;
+  }
+
   private async sendSpineStats(ns: string): Promise<void> {
     await this.edaClient.closeEqlStream(this.spineStreamName);
     const namespaces = ns === ALL_NAMESPACES ? undefined : ns;
     this.spineStreamName = `spine-${namespaces ?? 'all'}-${randomUUID()}`;
-    const query = this.useFieldsQuery
-      ? `${this.fabricQueryBase} fields [ status.spineNodes[].node ]`
-      : `${this.fabricQueryBase}.spineNodes`;
+    const query = `${await this.getFabricQueryBase()} fields [ status.spineNodes[].node ]`;
     await this.edaClient.streamEql(query, namespaces, this.spineStreamName);
     const stats = this.computeFabricGroupStats(ns, 'spines');
     this.panel.webview.postMessage({ command: 'fabricSpineStats', namespace: ns, stats });
@@ -705,9 +675,7 @@ export class FabricDashboardPanel extends BasePanel {
     await this.edaClient.closeEqlStream(this.leafStreamName);
     const namespaces = ns === ALL_NAMESPACES ? undefined : ns;
     this.leafStreamName = `leaf-${namespaces ?? 'all'}-${randomUUID()}`;
-    const query = this.useFieldsQuery
-      ? `${this.fabricQueryBase} fields [ status.leafNodes[].node ]`
-      : `${this.fabricQueryBase}.leafNodes`;
+    const query = `${await this.getFabricQueryBase()} fields [ status.leafNodes[].node ]`;
     await this.edaClient.streamEql(query, namespaces, this.leafStreamName);
     const stats = this.computeFabricGroupStats(ns, 'leafs');
     this.panel.webview.postMessage({ command: 'fabricLeafStats', namespace: ns, stats });
@@ -717,9 +685,7 @@ export class FabricDashboardPanel extends BasePanel {
     await this.edaClient.closeEqlStream(this.borderLeafStreamName);
     const namespaces = ns === ALL_NAMESPACES ? undefined : ns;
     this.borderLeafStreamName = `borderleaf-${namespaces ?? 'all'}-${randomUUID()}`;
-    const query = this.useFieldsQuery
-      ? `${this.fabricQueryBase} fields [ status.borderLeafNodes[].node ]`
-      : `${this.fabricQueryBase}.borderLeafNodes`;
+    const query = `${await this.getFabricQueryBase()} fields [ status.borderLeafNodes[].node ]`;
     await this.edaClient.streamEql(query, namespaces, this.borderLeafStreamName);
     const stats = this.computeFabricGroupStats(ns, 'borderleafs');
     this.panel.webview.postMessage({ command: 'fabricBorderLeafStats', namespace: ns, stats });
@@ -729,9 +695,7 @@ export class FabricDashboardPanel extends BasePanel {
     await this.edaClient.closeEqlStream(this.superSpineStreamName);
     const namespaces = ns === ALL_NAMESPACES ? undefined : ns;
     this.superSpineStreamName = `superspine-${namespaces ?? 'all'}-${randomUUID()}`;
-    const query = this.useFieldsQuery
-      ? `${this.fabricQueryBase} fields [ status.superSpineNodes[].node ]`
-      : `${this.fabricQueryBase}.superSpineNodes`;
+    const query = `${await this.getFabricQueryBase()} fields [ status.superSpineNodes[].node ]`;
     await this.edaClient.streamEql(query, namespaces, this.superSpineStreamName);
     const stats = this.computeFabricGroupStats(ns, 'superspines');
     this.panel.webview.postMessage({ command: 'fabricSuperSpineStats', namespace: ns, stats });
@@ -741,9 +705,7 @@ export class FabricDashboardPanel extends BasePanel {
     await this.edaClient.closeEqlStream(this.fabricStatusStreamName);
     const namespaces = ns === ALL_NAMESPACES ? undefined : ns;
     this.fabricStatusStreamName = `fabricstatus-${namespaces ?? 'all'}-${randomUUID()}`;
-    const query = this.useFieldsQuery
-      ? `${this.fabricQueryBase} fields [ status.health ]`
-      : this.fabricQueryBase;
+    const query = `${await this.getFabricQueryBase()} fields [ status.health ]`;
     await this.edaClient.streamEql(query, namespaces, this.fabricStatusStreamName);
     const health = this.computeFabricHealth(ns);
     this.panel.webview.postMessage({ command: 'fabricHealth', namespace: ns, health });
@@ -814,7 +776,6 @@ export class FabricDashboardPanel extends BasePanel {
 
     for (const op of ops) {
       this.processNodeGroupInsertOrModify(op, key, changed);
-      this.processNodeGroupDeletes(op, key, changed);
     }
 
     return changed;
@@ -836,21 +797,6 @@ export class FabricDashboardPanel extends BasePanel {
     }
   }
 
-  private processNodeGroupDeletes(op: StreamOperation, key: FabricGroupKey, changed: Set<string>): void {
-    if (this.useFieldsQuery) return;
-
-    const deleteOp = getDelete(op) as DeleteOperation | undefined;
-    const delIds = getDeleteIds(deleteOp) as number[];
-
-    for (const delId of delIds) {
-      for (const [ns, stats] of this.fabricMap) {
-        if (stats[key].nodes.delete(delId)) {
-          changed.add(ns);
-        }
-      }
-    }
-  }
-
   private getOrCreateFabricStats(ns: string): FabricStats {
     let stats = this.fabricMap.get(ns);
     if (!stats) {
@@ -867,18 +813,9 @@ export class FabricDashboardPanel extends BasePanel {
   }
 
   private applyNodeGroupRowUpdate(stats: FabricStats, r: StreamRow, key: FabricGroupKey): boolean {
-    if (this.useFieldsQuery) {
-      const nodes = this.extractNodesFromRow(r.data, key);
-      stats[key].nodes.clear();
-      nodes.forEach((n, idx) => stats[key].nodes.set(idx, n));
-      return true;
-    }
-
-    const name = r.data?.node;
-    const id = r.id;
-    if (!name || id === undefined) return false;
-
-    stats[key].nodes.set(id, name);
+    const nodes = this.extractNodesFromRow(r.data, key);
+    stats[key].nodes.clear();
+    nodes.forEach((n, idx) => stats[key].nodes.set(idx, n));
     return true;
   }
 
