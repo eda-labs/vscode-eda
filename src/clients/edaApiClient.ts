@@ -1544,7 +1544,10 @@ export class EdaApiClient {
         loadedStreams.add(stream);
         namesOnlyStreams.add(stream);
       }
-      if (this.snapshotResourceCount(snapshot) >= minimumResources) {
+      if (
+        loadedStreams.size >= available.length
+        && this.snapshotResourceCount(snapshot) >= minimumResources
+      ) {
         return { snapshot, loadedStreams, namesOnlyStreams };
       }
     }
@@ -1564,7 +1567,10 @@ export class EdaApiClient {
       for (const stream of batch) {
         loadedStreams.add(stream);
       }
-      if (this.snapshotResourceCount(snapshot) >= minimumResources) {
+      if (
+        loadedStreams.size >= available.length
+        && this.snapshotResourceCount(snapshot) >= minimumResources
+      ) {
         break;
       }
     }

@@ -526,6 +526,62 @@ describe('EdaApiClient token refresh', () => {
     expect(result.snapshot.get('forwardingclasss:eda')?.has('gold')).to.equal(true);
   });
 
+  it('continues bootstrapping streams missing from an otherwise large indexer snapshot', async () => {
+    const specManager = {
+      getStreamEndpoints: () => [
+        {
+          path: '/apps/core.eda.nokia.com/v1/namespaces/{namespace}/toponodes',
+          stream: 'toponodes',
+          namespaced: true,
+          namespaceParam: 'namespace'
+        },
+        {
+          path: '/apps/components.eda.nokia.com/v2/namespaces/{namespace}/chassis',
+          stream: 'chassis',
+          namespaced: true,
+          namespaceParam: 'namespace'
+        }
+      ],
+      getCoreNamespace: () => CORE_NAMESPACE
+    } as any;
+
+    const calls: string[] = [];
+    fetchStub.callsFake((url: string) => {
+      const urlText = String(url);
+      calls.push(urlText);
+      if (urlText === 'https://api/core/httpproxy/v1/indexer/resources.txt') {
+        return mockResponse(200, 'clab-eda-tiny/core.eda.nokia.com/v1/TopoNode/dut2 labels={}\n');
+      }
+      if (urlText.startsWith('https://api/core/db/v2/data?')) {
+        const dbUrl = new URL(urlText);
+        if (dbUrl.searchParams.get('jsPath') === '.namespace.resources.cr.components_eda_nokia_com.v2.chassis') {
+          return mockResponse(200, {
+            '.namespace{.name=="clab-eda-tiny"}.resources.cr.components_eda_nokia_com.v2.chassis{.name=="dut2"}': {
+              apiVersion: 'components.eda.nokia.com/v2',
+              kind: 'Chassis',
+              metadata: {
+                name: 'dut2',
+                namespace: 'clab-eda-tiny'
+              }
+            }
+          });
+        }
+      }
+      return mockResponse(404, { message: 'unexpected path' });
+    });
+
+    const client = new EdaApiClient(authClient);
+    client.setSpecManager(specManager);
+    const result = await client.fastBootstrapStreamItems(['clab-eda-tiny'], { minimumResources: 1 });
+
+    expect(calls.includes('https://api/core/httpproxy/v1/indexer/resources.txt')).to.equal(true);
+    expect(calls.some((url) => url.startsWith('https://api/core/db/v2/data?'))).to.equal(true);
+    expect(result.loadedStreams.has('toponodes')).to.equal(true);
+    expect(result.loadedStreams.has('chassis')).to.equal(true);
+    expect(result.snapshot.get('toponodes:clab-eda-tiny')?.has('dut2')).to.equal(true);
+    expect(result.snapshot.get('chassis:clab-eda-tiny')?.has('dut2')).to.equal(true);
+  });
+
   it('falls back to DB names-only bootstrap when indexer is unavailable', async () => {
     const endpointPath = '/apps/core.eda.nokia.com/v1/namespaces/{namespace}/toponodes';
     const specManager = {
