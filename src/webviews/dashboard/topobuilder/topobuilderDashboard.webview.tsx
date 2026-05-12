@@ -249,6 +249,8 @@ function VsCodeYamlPanel({
   const linkTemplates = useTopologyStore(state => state.linkTemplates);
   const simulation = useTopologyStore(state => state.simulation);
   const annotations = useTopologyStore(state => state.annotations);
+  const disableAnnotations = useTopologyStore(state => state.disableAnnotations);
+  const schemaVersion = useTopologyStore(state => state.schemaVersion);
   const yamlRefreshCounter = useTopologyStore(state => state.yamlRefreshCounter);
   const importFromYaml = useTopologyStore(state => state.importFromYaml);
   const error = useTopologyStore(state => state.error);
@@ -265,15 +267,19 @@ function VsCodeYamlPanel({
       linkTemplates,
       simulation,
       annotations,
+      disableAnnotations,
+      schemaVersion,
     }),
     [
       annotations,
+      disableAnnotations,
       edges,
       linkTemplates,
       namespace,
       nodeTemplates,
       nodes,
       operation,
+      schemaVersion,
       simulation,
       topologyName
     ]
