@@ -1258,6 +1258,7 @@ constructor() {
     const ti = new TreeItemBase(stream, collapsible, 'stream');
     ti.id = key;
     ti.iconPath = isExpanded ? this.expandedStreamIcon : this.collapsedStreamIcon;
+    ti.resourceType = stream;
     ti.streamGroup = category;
     ti.resourceCategory = category;
     return ti;
@@ -1297,6 +1298,7 @@ constructor() {
       ti.id = key;
       ti.iconPath = isExpanded ? this.expandedStreamIcon : this.collapsedStreamIcon;
       ti.namespace = namespace;
+      ti.resourceType = s;
       ti.streamGroup = group;
       items.push(ti);
     }
