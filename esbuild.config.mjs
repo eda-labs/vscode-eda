@@ -1,6 +1,5 @@
 /* eslint-env node */
 import { build } from 'esbuild';
-import path from 'path';
 
 const webviewEntryPoints = {
   toponodesDashboard: 'src/webviews/dashboard/toponodes/toponodesDashboard.webview.tsx',
@@ -35,10 +34,6 @@ const webviewOptions = {
   treeShaking: true,
   jsx: 'automatic',
   jsxImportSource: 'react',
-  alias: {
-    '@eda-labs/topo-builder': path.resolve('node_modules/@eda-labs/topo-builder/src/index.ts'),
-    '@eda-labs/topo-builder/styles.css': path.resolve('node_modules/@eda-labs/topo-builder/src/styles.css')
-  },
   loader: {
     '.svg': 'text',
     '.yaml': 'text',

@@ -271,7 +271,7 @@ const nodeConfigFixtureAnnotations = [
       name: 'spine01-bgp',
       gvk: {
         group: 'routing.eda.nokia.com',
-        version: 'v1alpha1',
+        version: 'v1',
         kind: 'BgpNeighbor'
       }
     },
@@ -411,14 +411,14 @@ const deviationDetailsFixtureByKey: Readonly<Record<string, DeviationDetailsFixt
     name: 'leaf02-bgp-hold-time',
     namespace: 'fabric-a',
     kind: 'Deviation',
-    apiVersion: 'routing.eda.nokia.com/v1alpha1',
+    apiVersion: 'routing.eda.nokia.com/v1',
     status: 'Pending',
     valueDiff: [
       '- hold-time: 180',
       '+ hold-time: 90'
     ].join('\n'),
     resourceYaml: [
-      'apiVersion: routing.eda.nokia.com/v1alpha1',
+      'apiVersion: routing.eda.nokia.com/v1',
       'kind: BgpNeighbor',
       'metadata:',
       '  name: leaf02-peer-spine01',
@@ -432,7 +432,7 @@ const deviationDetailsFixtureByKey: Readonly<Record<string, DeviationDetailsFixt
       name: 'leaf02-bgp-hold-time',
       namespace: 'fabric-a',
       kind: 'Deviation',
-      apiVersion: 'routing.eda.nokia.com/v1alpha1',
+      apiVersion: 'routing.eda.nokia.com/v1',
       status: 'Pending',
       metadata: {
         name: 'leaf02-bgp-hold-time',
@@ -446,7 +446,7 @@ const transactionDiffListFixture = {
   diffs: [
     {
       group: 'routing.eda.nokia.com',
-      version: 'v1alpha1',
+      version: 'v1',
       kind: 'BgpNeighbor',
       name: 'leaf01-peer-spine01',
       namespace: 'fabric-a'
@@ -644,7 +644,7 @@ const resourceDataByName: Readonly<Record<string, { kind: string; description: s
     kind: 'BgpNeighbor',
     description: 'BGP neighbor resource for routing policy and timers.',
     yaml: [
-      'apiVersion: routing.eda.nokia.com/v1alpha1',
+      'apiVersion: routing.eda.nokia.com/v1',
       'kind: BgpNeighbor'
     ].join('\n'),
     schema: {
@@ -2102,7 +2102,7 @@ function inferApiVersion(kind: string): string {
   }
 
   if (kind === 'BgpNeighbor') {
-    return 'routing.eda.nokia.com/v1alpha1';
+    return 'routing.eda.nokia.com/v1';
   }
 
   if (kind === 'Pod' || kind === 'Deployment') {

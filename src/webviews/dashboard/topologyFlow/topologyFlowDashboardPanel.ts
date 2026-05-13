@@ -206,9 +206,7 @@ interface StreamRowLike {
 }
 
 const TOPOLOGY_GROUP = 'topologies.eda.nokia.com';
-const TOPOLOGY_VERSION = 'v1alpha1';
 const TOPOLOGY_KIND = 'Topology';
-const TOPOLOGY_PLURAL = 'topologies';
 const TOPOLOGY_BOOTSTRAP_LABEL = 'eda.nokia.com/bootstrap';
 const TOPOLOGY_NODE_POSITIONS_ANNOTATION = 'eda.nokia.com/topology-node-positions';
 const TOPOLOGY_INTERFACE_TRAFFIC_RATE_EQL_QUERY = '.namespace.node.srl.interface.traffic-rate';
@@ -559,9 +557,8 @@ export class TopologyFlowDashboardPanel extends BasePanel {
   }
 
   private async getTopologyByName(topologyName: string): Promise<Topology | undefined> {
-    const topologies = (await this.edaClient.listResources(
+    const topologies = (await this.edaClient.listResourcesByGroupKind(
       TOPOLOGY_GROUP,
-      TOPOLOGY_VERSION,
       TOPOLOGY_KIND
     )) as Topology[];
 
@@ -584,9 +581,8 @@ export class TopologyFlowDashboardPanel extends BasePanel {
     }
 
     try {
-      const topologies = (await this.edaClient.listResources(
+      const topologies = (await this.edaClient.listResourcesByGroupKind(
         TOPOLOGY_GROUP,
-        TOPOLOGY_VERSION,
         TOPOLOGY_KIND
       )) as Topology[];
 
@@ -641,9 +637,17 @@ export class TopologyFlowDashboardPanel extends BasePanel {
     });
   }
 
-  private buildTopologyCreateBody(topologyName: string, positions: NodePositionMap): Topology {
+  private async getTopologyApiVersion(): Promise<string> {
+    const apiVersion = await this.edaClient.getResourceApiVersion(TOPOLOGY_GROUP, TOPOLOGY_KIND);
+    if (!apiVersion) {
+      throw new Error(`Resource route not found for ${TOPOLOGY_GROUP}/${TOPOLOGY_KIND}`);
+    }
+    return apiVersion;
+  }
+
+  private async buildTopologyCreateBody(topologyName: string, positions: NodePositionMap): Promise<Topology> {
     return {
-      apiVersion: `${TOPOLOGY_GROUP}/${TOPOLOGY_VERSION}`,
+      apiVersion: await this.getTopologyApiVersion(),
       kind: TOPOLOGY_KIND,
       metadata: {
         name: topologyName,
@@ -664,7 +668,8 @@ export class TopologyFlowDashboardPanel extends BasePanel {
   private buildTopologyUpdateBody(
     topology: Topology,
     topologyName: string,
-    positions: NodePositionMap
+    positions: NodePositionMap,
+    apiVersion: string
   ): Topology {
     const metadata = topology.metadata ?? {};
     const annotations = metadata.annotations ?? {};
@@ -672,7 +677,7 @@ export class TopologyFlowDashboardPanel extends BasePanel {
 
     return {
       ...topology,
-      apiVersion: topology.apiVersion ?? `${TOPOLOGY_GROUP}/${TOPOLOGY_VERSION}`,
+      apiVersion: topology.apiVersion ?? apiVersion,
       kind: topology.kind ?? TOPOLOGY_KIND,
       metadata: {
         ...metadataWithoutNamespace,
@@ -699,29 +704,25 @@ export class TopologyFlowDashboardPanel extends BasePanel {
 
       if (existingTopology) {
         const topologyResourceName = existingTopology.metadata?.name ?? topologyName;
+        const topologyApiVersion = await this.getTopologyApiVersion();
         const updateBody = this.buildTopologyUpdateBody(
           existingTopology,
           topologyResourceName,
-          normalizedPositions
+          normalizedPositions,
+          topologyApiVersion
         );
-        await this.edaClient.updateCustomResource(
+        await this.edaClient.updateResourceByGroupKind(
           TOPOLOGY_GROUP,
-          TOPOLOGY_VERSION,
-          undefined,
-          TOPOLOGY_PLURAL,
+          TOPOLOGY_KIND,
           topologyResourceName,
-          updateBody,
-          false
+          updateBody
         );
       } else {
-        const createBody = this.buildTopologyCreateBody(topologyName, normalizedPositions);
-        await this.edaClient.createCustomResource(
+        const createBody = await this.buildTopologyCreateBody(topologyName, normalizedPositions);
+        await this.edaClient.createResourceByGroupKind(
           TOPOLOGY_GROUP,
-          TOPOLOGY_VERSION,
-          undefined,
-          TOPOLOGY_PLURAL,
-          createBody,
-          false
+          TOPOLOGY_KIND,
+          createBody
         );
       }
 

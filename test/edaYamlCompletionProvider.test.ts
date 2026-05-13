@@ -240,7 +240,7 @@ describe('EdaYamlCompletionProvider', () => {
     const provider = new EdaYamlCompletionProvider();
     const getValuesStub = sinon.stub((provider as any).dynamicProvider, 'getValuesForHint').resolves(['leaf1', 'spine1']);
     const document = createDocument([
-      'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+      'apiVersion: siteinfo.eda.nokia.com/v1',
       'kind: Banner',
       'metadata:',
       '  namespace: eda',
@@ -268,7 +268,7 @@ describe('EdaYamlCompletionProvider', () => {
   it('expands required Interface spec fields when inserting the spec key', async () => {
     const provider = new EdaYamlCompletionProvider();
     const text = [
-      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'apiVersion: interfaces.eda.nokia.com/v1',
       'kind: Interface',
       'metadata:',
       '  namespace: eda',
@@ -287,7 +287,7 @@ describe('EdaYamlCompletionProvider', () => {
     const specItem = getItemByLabel(items, 'spec');
     expect(specItem).to.not.equal(undefined);
     expect(applyCompletion(text, position, specItem!)).to.equal([
-      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'apiVersion: interfaces.eda.nokia.com/v1',
       'kind: Interface',
       'metadata:',
       '  namespace: eda',
@@ -301,7 +301,7 @@ describe('EdaYamlCompletionProvider', () => {
   it('suggests missing keys inside Interface members items without bubbling up spec keys', async () => {
     const provider = new EdaYamlCompletionProvider();
     const document = createDocument([
-      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'apiVersion: interfaces.eda.nokia.com/v1',
       'kind: Interface',
       'metadata:',
       '  namespace: eda',
@@ -327,7 +327,7 @@ describe('EdaYamlCompletionProvider', () => {
   it('does not suggest schema keys on misaligned indentation under spec', async () => {
     const provider = new EdaYamlCompletionProvider();
     const document = createDocument([
-      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'apiVersion: interfaces.eda.nokia.com/v1',
       'kind: Interface',
       'metadata:',
       '  namespace: eda',
@@ -351,7 +351,7 @@ describe('EdaYamlCompletionProvider', () => {
   it('adds the dash when inserting a new Interface members item', async () => {
     const provider = new EdaYamlCompletionProvider();
     const text = [
-      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'apiVersion: interfaces.eda.nokia.com/v1',
       'kind: Interface',
       'metadata:',
       '  namespace: eda',
@@ -375,7 +375,7 @@ describe('EdaYamlCompletionProvider', () => {
     const interfaceItem = getItemByLabel(items, 'interface');
     expect(interfaceItem).to.not.equal(undefined);
     expect(applyCompletion(text, position, interfaceItem!)).to.equal([
-      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'apiVersion: interfaces.eda.nokia.com/v1',
       'kind: Interface',
       'metadata:',
       '  namespace: eda',
@@ -391,7 +391,7 @@ describe('EdaYamlCompletionProvider', () => {
   it('suggests missing keys for the current Interface members item only', async () => {
     const provider = new EdaYamlCompletionProvider();
     const document = createDocument([
-      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'apiVersion: interfaces.eda.nokia.com/v1',
       'kind: Interface',
       'metadata:',
       '  namespace: eda',
@@ -419,7 +419,7 @@ describe('EdaYamlCompletionProvider', () => {
   it('suggests spec-level Interface keys after the members list at sibling indentation', async () => {
     const provider = new EdaYamlCompletionProvider();
     const document = createDocument([
-      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'apiVersion: interfaces.eda.nokia.com/v1',
       'kind: Interface',
       'metadata:',
       '  namespace: eda',
@@ -450,7 +450,7 @@ describe('EdaYamlCompletionProvider', () => {
   it('keeps Interface sibling insertions undashed after members and filters used spec keys', async () => {
     const provider = new EdaYamlCompletionProvider();
     const text = [
-      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'apiVersion: interfaces.eda.nokia.com/v1',
       'kind: Interface',
       'metadata:',
       '  namespace: eda',
@@ -483,7 +483,7 @@ describe('EdaYamlCompletionProvider', () => {
     const enabledItem = getItemByLabel(items, 'enabled');
     expect(enabledItem).to.not.equal(undefined);
     expect(applyCompletion(text, position, enabledItem!)).to.equal([
-      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'apiVersion: interfaces.eda.nokia.com/v1',
       'kind: Interface',
       'metadata:',
       '  namespace: eda',
@@ -505,7 +505,7 @@ describe('EdaYamlCompletionProvider', () => {
     const provider = new EdaYamlCompletionProvider();
     sinon.stub((provider as any).dynamicProvider, 'getValuesForHint').resolves(['leaf1']);
     const document = createDocument([
-      'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+      'apiVersion: siteinfo.eda.nokia.com/v1',
       'kind: Banner',
       'metadata:',
       '  namespace: eda',
@@ -529,7 +529,7 @@ describe('EdaYamlCompletionProvider', () => {
     const provider = new EdaYamlCompletionProvider();
     sinon.stub((provider as any).dynamicProvider, 'getValuesForHint').resolves(['leaf1']);
     const document = createDocument([
-      'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+      'apiVersion: siteinfo.eda.nokia.com/v1',
       'kind: Banner',
       'metadata:',
       '  namespace: eda',
@@ -554,7 +554,7 @@ describe('EdaYamlCompletionProvider', () => {
     const selectorStub = sinon.stub((provider as any).dynamicProvider, 'getLabelSelectorValuesForHint')
       .resolves(['eda.nokia.com/role=leaf', 'containerlab=managedSrl']);
     const document = createDocument([
-      'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+      'apiVersion: siteinfo.eda.nokia.com/v1',
       'kind: Banner',
       'metadata:',
       '  namespace: eda',
@@ -583,7 +583,7 @@ describe('EdaYamlCompletionProvider', () => {
     const provider = new EdaYamlCompletionProvider();
     sinon.stub((provider as any).dynamicProvider, 'getValuesForHint').resolves(['leaf1']);
     const document = createDocument([
-      'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+      'apiVersion: siteinfo.eda.nokia.com/v1',
       'kind: Banner',
       'metadata:',
       '  namespace: eda',
@@ -613,7 +613,7 @@ describe('EdaYamlCompletionProvider', () => {
     const provider = new EdaYamlCompletionProvider();
     sinon.stub((provider as any).dynamicProvider, 'getValuesForHint').resolves(['leaf1', 'spine1']);
     const document = createDocument([
-      'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+      'apiVersion: siteinfo.eda.nokia.com/v1',
       'kind: Banner',
       'metadata:',
       '  namespace: eda',
@@ -638,7 +638,7 @@ describe('EdaYamlCompletionProvider', () => {
     const provider = new EdaYamlCompletionProvider();
     sinon.stub((provider as any).dynamicProvider, 'getValuesForHint').resolves(['leaf1', 'spine1', 'spine2']);
     const document = createDocument([
-      'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+      'apiVersion: siteinfo.eda.nokia.com/v1',
       'kind: Banner',
       'metadata:',
       '  namespace: eda',
@@ -668,7 +668,7 @@ describe('EdaYamlCompletionProvider', () => {
       'containerlab=managedSrl'
     ]);
     const document = createDocument([
-      'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+      'apiVersion: siteinfo.eda.nokia.com/v1',
       'kind: Banner',
       'metadata:',
       '  namespace: eda',
@@ -697,7 +697,7 @@ describe('EdaYamlCompletionProvider', () => {
       'containerlab=managedSrl'
     ]);
     const document = createDocument([
-      'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+      'apiVersion: siteinfo.eda.nokia.com/v1',
       'kind: Banner',
       'metadata:',
       '  namespace: eda',
@@ -727,7 +727,7 @@ describe('EdaYamlCompletionProvider', () => {
   it('keeps Banner key suggestions clean and renders rich markdown in documentation', async () => {
     const provider = new EdaYamlCompletionProvider();
     const document = createDocument([
-      'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+      'apiVersion: siteinfo.eda.nokia.com/v1',
       'kind: Banner',
       'metadata:',
       '  namespace: eda',
@@ -753,7 +753,7 @@ describe('EdaYamlCompletionProvider', () => {
   it('renders object previews in completion documentation without escaped placeholder text', async () => {
     const provider = new EdaYamlCompletionProvider();
     const document = createDocument([
-      'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+      'apiVersion: siteinfo.eda.nokia.com/v1',
       ''
     ].join('\n'));
 
@@ -773,7 +773,7 @@ describe('EdaYamlCompletionProvider', () => {
     const provider = new EdaYamlCompletionProvider();
     sinon.stub((provider as any).dynamicProvider, 'getValuesForHint').resolves(['leaf1']);
     const document = createDocument([
-      'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+      'apiVersion: siteinfo.eda.nokia.com/v1',
       'kind: Banner',
       'metadata:',
       '  namespace: eda',
@@ -807,7 +807,7 @@ describe('EdaYamlCompletionProvider', () => {
       {
         name: 'spec blank line suggests child keys without typing',
         text: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -818,7 +818,7 @@ describe('EdaYamlCompletionProvider', () => {
         includeLabels: ['nodes', 'nodeSelector'],
         selectedLabel: 'nodeSelector',
         expectedAppliedText: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -830,7 +830,7 @@ describe('EdaYamlCompletionProvider', () => {
       {
         name: 'spec typed key prefix replaces instead of duplicating',
         text: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -841,7 +841,7 @@ describe('EdaYamlCompletionProvider', () => {
         includeLabels: ['nodes', 'nodeSelector'],
         selectedLabel: 'nodeSelector',
         expectedAppliedText: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -853,7 +853,7 @@ describe('EdaYamlCompletionProvider', () => {
       {
         name: 'spec blank line filters existing sibling keys',
         text: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -867,7 +867,7 @@ describe('EdaYamlCompletionProvider', () => {
         excludeLabels: ['nodes'],
         selectedLabel: 'nodeSelector',
         expectedAppliedText: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -881,7 +881,7 @@ describe('EdaYamlCompletionProvider', () => {
       {
         name: 'nodes blank line suggests scalar values without typing',
         text: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -893,7 +893,7 @@ describe('EdaYamlCompletionProvider', () => {
         includeLabels: ['leaf1', 'spine1'],
         selectedLabel: 'leaf1',
         expectedAppliedText: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -905,7 +905,7 @@ describe('EdaYamlCompletionProvider', () => {
       {
         name: 'nodes dash-only line suggests scalar values',
         text: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -917,7 +917,7 @@ describe('EdaYamlCompletionProvider', () => {
         includeLabels: ['leaf1', 'spine1'],
         selectedLabel: 'leaf1',
         expectedAppliedText: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -929,7 +929,7 @@ describe('EdaYamlCompletionProvider', () => {
       {
         name: 'nodes typed prefix replaces cleanly',
         text: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -941,7 +941,7 @@ describe('EdaYamlCompletionProvider', () => {
         includeLabels: ['leaf1'],
         selectedLabel: 'leaf1',
         expectedAppliedText: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -953,7 +953,7 @@ describe('EdaYamlCompletionProvider', () => {
       {
         name: 'nodeSelector blank line suggests selector values without typing',
         text: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -965,7 +965,7 @@ describe('EdaYamlCompletionProvider', () => {
         includeLabels: ['eda.nokia.com/role=leaf', 'containerlab=managedSrl'],
         selectedLabel: 'containerlab=managedSrl',
         expectedAppliedText: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -977,7 +977,7 @@ describe('EdaYamlCompletionProvider', () => {
       {
         name: 'nodeSelector dash-only line suggests selector values',
         text: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -989,7 +989,7 @@ describe('EdaYamlCompletionProvider', () => {
         includeLabels: ['eda.nokia.com/role=leaf', 'containerlab=managedSrl'],
         selectedLabel: 'containerlab=managedSrl',
         expectedAppliedText: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -1001,7 +1001,7 @@ describe('EdaYamlCompletionProvider', () => {
       {
         name: 'nodeSelector extra whitespace still suggests and normalizes',
         text: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -1013,7 +1013,7 @@ describe('EdaYamlCompletionProvider', () => {
         includeLabels: ['containerlab=managedSrl'],
         selectedLabel: 'containerlab=managedSrl',
         expectedAppliedText: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -1074,7 +1074,7 @@ describe('EdaYamlCompletionProvider', () => {
       {
         name: 'spec one-space blank line',
         text: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -1088,7 +1088,7 @@ describe('EdaYamlCompletionProvider', () => {
       {
         name: 'spec two-space blank line',
         text: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -1102,7 +1102,7 @@ describe('EdaYamlCompletionProvider', () => {
       {
         name: 'nodes blank line',
         text: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -1117,7 +1117,7 @@ describe('EdaYamlCompletionProvider', () => {
       {
         name: 'nodeSelector blank line',
         text: [
-          'apiVersion: siteinfo.eda.nokia.com/v1alpha1',
+          'apiVersion: siteinfo.eda.nokia.com/v1',
           'kind: Banner',
           'metadata:',
           '  namespace: eda',
@@ -1160,7 +1160,7 @@ describe('EdaYamlCompletionProvider', () => {
   it('suggests enum values for scalar array items such as Interface transparentL2CPProtocols', async () => {
     const provider = new EdaYamlCompletionProvider();
     const document = createDocument([
-      'apiVersion: interfaces.eda.nokia.com/v1alpha1',
+      'apiVersion: interfaces.eda.nokia.com/v1',
       'kind: Interface',
       'metadata:',
       '  namespace: eda',
@@ -1185,7 +1185,7 @@ describe('EdaYamlCompletionProvider', () => {
     const selectorStub = sinon.stub((provider as any).dynamicProvider, 'getLabelSelectorValuesForHint')
       .resolves(['eda.nokia.com/role=leaf']);
     const document = createDocument([
-      'apiVersion: fabrics.eda.nokia.com/v1alpha1',
+      'apiVersion: fabrics.eda.nokia.com/v1',
       'kind: Fabric',
       'metadata:',
       '  namespace: eda',

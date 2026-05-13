@@ -231,6 +231,66 @@ describe('EdaApiClient token refresh', () => {
     );
   });
 
+  it('uses OpenAPI route metadata for exact 26.4 resource plurals', async () => {
+    const specManager = {
+      getResourceRoute: sinon.stub().resolves({
+        group: 'qos.eda.nokia.com',
+        version: 'v2',
+        kind: 'EgressPolicy',
+        plural: 'egresspolicys',
+        namespaced: true,
+        namespacedCollectionPath: '/apps/qos.eda.nokia.com/v2/namespaces/{namespace}/egresspolicys'
+      })
+    } as any;
+
+    fetchStub.returns(mockResponse(200, { items: [{ metadata: { name: 'ep-a' } }] }));
+
+    const client = new EdaApiClient(authClient);
+    client.setSpecManager(specManager);
+
+    const resources = await client.listResources(
+      'qos.eda.nokia.com',
+      'v2',
+      'EgressPolicy',
+      'fabric-a'
+    );
+
+    expect(resources).to.have.length(1);
+    expect(fetchStub.firstCall.args[0]).to.equal(
+      'https://api/apps/qos.eda.nokia.com/v2/namespaces/fabric-a/egresspolicys'
+    );
+  });
+
+  it('fills workflow resource and input paths from route metadata', async () => {
+    const specManager = {
+      getResourceRoute: sinon.stub().resolves({
+        group: 'topologies.eda.nokia.com',
+        version: 'v1',
+        kind: 'NetworkTopology',
+        plural: 'networktopologies',
+        namespaced: true,
+        workflowNamespacedReadPath: '/workflows/v1/topologies.eda.nokia.com/v1/namespaces/{namespace}/networktopologies/{name}',
+        workflowNamespacedInputPath: '/workflows/v1/topologies.eda.nokia.com/v1/namespaces/{namespace}/networktopologies/{name}/_input'
+      })
+    } as any;
+
+    const client = new EdaApiClient(authClient);
+    client.setSpecManager(specManager);
+
+    const paths = await client.getWorkflowResourcePaths(
+      'topologies.eda.nokia.com',
+      'v1',
+      'NetworkTopology',
+      'fabric-a',
+      'build-fabric'
+    );
+
+    expect(paths).to.deep.equal({
+      resourcePath: '/workflows/v1/topologies.eda.nokia.com/v1/namespaces/fabric-a/networktopologies/build-fabric',
+      inputPath: '/workflows/v1/topologies.eda.nokia.com/v1/namespaces/fabric-a/networktopologies/build-fabric/_input'
+    });
+  });
+
   it('falls back to apps path when all-namespace operationId is unavailable', async () => {
     const specManager = {
       getPathByOperationId: sinon.stub().rejects(new Error('not found')),
@@ -245,13 +305,13 @@ describe('EdaApiClient token refresh', () => {
 
     const resources = await client.listResources(
       'topologies.eda.nokia.com',
-      'v1alpha1',
+      'v1',
       'NetworkTopology'
     );
 
     expect(resources).to.deep.equal([]);
     expect(fetchStub.firstCall.args[0]).to.equal(
-      'https://api/apps/topologies.eda.nokia.com/v1alpha1/networktopologies'
+      'https://api/apps/topologies.eda.nokia.com/v1/networktopologies'
     );
   });
 
@@ -464,6 +524,62 @@ describe('EdaApiClient token refresh', () => {
     expect(result.loadedStreams.has('forwardingclasss')).to.equal(true);
     expect(result.namesOnlyStreams.has('forwardingclasss')).to.equal(true);
     expect(result.snapshot.get('forwardingclasss:eda')?.has('gold')).to.equal(true);
+  });
+
+  it('continues bootstrapping streams missing from an otherwise large indexer snapshot', async () => {
+    const specManager = {
+      getStreamEndpoints: () => [
+        {
+          path: '/apps/core.eda.nokia.com/v1/namespaces/{namespace}/toponodes',
+          stream: 'toponodes',
+          namespaced: true,
+          namespaceParam: 'namespace'
+        },
+        {
+          path: '/apps/components.eda.nokia.com/v2/namespaces/{namespace}/chassis',
+          stream: 'chassis',
+          namespaced: true,
+          namespaceParam: 'namespace'
+        }
+      ],
+      getCoreNamespace: () => CORE_NAMESPACE
+    } as any;
+
+    const calls: string[] = [];
+    fetchStub.callsFake((url: string) => {
+      const urlText = String(url);
+      calls.push(urlText);
+      if (urlText === 'https://api/core/httpproxy/v1/indexer/resources.txt') {
+        return mockResponse(200, 'clab-eda-tiny/core.eda.nokia.com/v1/TopoNode/dut2 labels={}\n');
+      }
+      if (urlText.startsWith('https://api/core/db/v2/data?')) {
+        const dbUrl = new URL(urlText);
+        if (dbUrl.searchParams.get('jsPath') === '.namespace.resources.cr.components_eda_nokia_com.v2.chassis') {
+          return mockResponse(200, {
+            '.namespace{.name=="clab-eda-tiny"}.resources.cr.components_eda_nokia_com.v2.chassis{.name=="dut2"}': {
+              apiVersion: 'components.eda.nokia.com/v2',
+              kind: 'Chassis',
+              metadata: {
+                name: 'dut2',
+                namespace: 'clab-eda-tiny'
+              }
+            }
+          });
+        }
+      }
+      return mockResponse(404, { message: 'unexpected path' });
+    });
+
+    const client = new EdaApiClient(authClient);
+    client.setSpecManager(specManager);
+    const result = await client.fastBootstrapStreamItems(['clab-eda-tiny'], { minimumResources: 1 });
+
+    expect(calls.includes('https://api/core/httpproxy/v1/indexer/resources.txt')).to.equal(true);
+    expect(calls.some((url) => url.startsWith('https://api/core/db/v2/data?'))).to.equal(true);
+    expect(result.loadedStreams.has('toponodes')).to.equal(true);
+    expect(result.loadedStreams.has('chassis')).to.equal(true);
+    expect(result.snapshot.get('toponodes:clab-eda-tiny')?.has('dut2')).to.equal(true);
+    expect(result.snapshot.get('chassis:clab-eda-tiny')?.has('dut2')).to.equal(true);
   });
 
   it('falls back to DB names-only bootstrap when indexer is unavailable', async () => {

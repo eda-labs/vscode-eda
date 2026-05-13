@@ -18,7 +18,6 @@ type TopoBuilderIncomingCommand =
   | 'topobuilderConfirmInput';
 
 const WORKFLOW_INPUT_POLL_INTERVAL_MS = 2000;
-const TOPOLOGY_WORKFLOW_BASE_PATH = '/workflows/v1/topologies.eda.nokia.com/v1alpha1/namespaces';
 
 interface TopoBuilderWorkflowRequest {
   command: 'topobuilderWorkflowAction';
@@ -77,6 +76,15 @@ interface ActiveWorkflowInputSession {
   lastInputSignature: string | null;
   pendingInputs: WorkflowGetInputsRespElem[];
   awaitingUserResponse: boolean;
+}
+
+interface WorkflowSubmission {
+  namespace: string;
+  name: string;
+  group: string;
+  version: string;
+  kind: string;
+  retriedWithAlternateName: boolean;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -168,7 +176,7 @@ export class TopoBuilderDashboardPanel extends BasePanel {
       );
 
       this.stopWorkflowInputPolling();
-      this.startWorkflowInputPolling(request.requestId, submission.namespace, submission.name);
+      await this.startWorkflowInputPolling(request.requestId, submission);
     } catch (error: unknown) {
       const messageText = error instanceof Error ? error.message : String(error);
       this.postWorkflowError(command, message, messageText);
@@ -356,12 +364,14 @@ export class TopoBuilderDashboardPanel extends BasePanel {
     return metadata as K8sMetadata;
   }
 
-  private async submitWorkflow(resource: K8sResource): Promise<{ namespace: string; name: string; retriedWithAlternateName: boolean }> {
+  private async submitWorkflow(resource: K8sResource): Promise<WorkflowSubmission> {
     const namespace = resource.metadata?.namespace ?? this.edaClient.getCoreNamespace();
     const name = this.getDisplayName(resource.metadata);
+    const kind = resource.kind ?? '';
+    const { group, version } = this.parseGroupVersion(resource.apiVersion ?? '');
     try {
       await this.createWorkflowResource(resource, namespace);
-      return { namespace, name, retriedWithAlternateName: false };
+      return { namespace, name, group, version, kind, retriedWithAlternateName: false };
     } catch (error: unknown) {
       if (!this.isAlreadyExistsError(error)) {
         throw error;
@@ -376,6 +386,9 @@ export class TopoBuilderDashboardPanel extends BasePanel {
       return {
         namespace,
         name: this.getDisplayName(retryResource.metadata),
+        group,
+        version,
+        kind,
         retriedWithAlternateName: true
       };
     }
@@ -387,11 +400,14 @@ export class TopoBuilderDashboardPanel extends BasePanel {
     await this.edaClient.createResource(group, version, kind, resource, namespace);
   }
 
-  private startWorkflowInputPolling(requestId: string, namespace: string, name: string): void {
-    const encodedNamespace = encodeURIComponent(namespace);
-    const encodedName = encodeURIComponent(name);
-    const workflowPath = `${TOPOLOGY_WORKFLOW_BASE_PATH}/${encodedNamespace}/networktopologies/${encodedName}`;
-    const inputPath = `${workflowPath}/_input`;
+  private async startWorkflowInputPolling(requestId: string, submission: WorkflowSubmission): Promise<void> {
+    const { resourcePath: workflowPath, inputPath } = await this.edaClient.getWorkflowResourcePaths(
+      submission.group,
+      submission.version,
+      submission.kind,
+      submission.namespace,
+      submission.name
+    );
 
     this.activeWorkflowInputSession = {
       requestId,

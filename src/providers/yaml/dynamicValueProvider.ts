@@ -93,9 +93,7 @@ export class DynamicValueProvider {
     const client = this.getEdaClient();
     if (!client) return [];
 
-    // Convert resource plural to kind (best effort: capitalize + remove trailing s)
-    const kind = this.pluralToKind(hint.resource);
-    const resources = await client.listResources(hint.group, hint.version, kind, namespace);
+    const resources = await client.listResourcesByPlural(hint.group, hint.version, hint.resource, namespace);
     return this.extractNames(resources);
   }
 
@@ -133,7 +131,9 @@ export class DynamicValueProvider {
     const client = this.getEdaClient();
     if (!client) return [];
 
-    const resources = await client.listResources(hint.group, hint.version, kind, namespace);
+    const resources = hint.resource
+      ? await client.listResourcesByPlural(hint.group, hint.version, hint.resource, namespace)
+      : await client.listResources(hint.group, hint.version, kind, namespace);
     const pairs = new Set<string>();
     for (const resource of resources) {
       const labels = resource.metadata?.labels;

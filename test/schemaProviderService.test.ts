@@ -114,13 +114,13 @@ describe('SchemaProviderService', () => {
       components: {
         schemas: {
           // Real CRD schema first
-          'com.nokia.eda.topologies.v1alpha1.Topology': {
+          'com.nokia.eda.topologies.v1.Topology': {
             type: 'object',
             required: ['apiVersion', 'kind', 'metadata', 'spec'],
             properties: {
               apiVersion: {
                 type: 'string',
-                default: 'topologies.eda.nokia.com/v1alpha1'
+                default: 'topologies.eda.nokia.com/v1'
               },
               kind: {
                 type: 'string',
@@ -162,7 +162,7 @@ describe('SchemaProviderService', () => {
 
     const resourceSchema = service.getResolvedSchemaForResourceSync(
       'Topology',
-      'topologies.eda.nokia.com/v1alpha1'
+      'topologies.eda.nokia.com/v1'
     );
     expect(resourceSchema?.properties).to.have.property('apiVersion');
   });

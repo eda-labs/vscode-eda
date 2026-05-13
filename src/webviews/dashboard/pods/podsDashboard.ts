@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { randomUUID } from 'crypto';
 
 import type { EdaClient } from '../../../clients/edaClient';
 import type { KubernetesClient } from '../../../clients/kubernetesClient';
@@ -56,6 +57,7 @@ export class PodsDashboardPanel extends BasePanel {
   private edaClient: EdaClient;
   private selectedNamespace = ALL_NAMESPACES;
   private disposables: vscode.Disposable[] = [];
+  private readonly watchConsumerId = `pods-dashboard:${randomUUID()}`;
 
   private constructor(context: vscode.ExtensionContext, title: string) {
     super(context, 'podsDashboard', title, undefined, BasePanel.getEdaIconPath(context));
@@ -79,6 +81,7 @@ export class PodsDashboardPanel extends BasePanel {
       for (const disposable of this.disposables) {
         disposable.dispose();
       }
+      this.kubernetesClient.releaseResourceWatches(this.watchConsumerId);
     });
 
     this.panel.onDidChangeViewState((event) => {
@@ -103,7 +106,7 @@ export class PodsDashboardPanel extends BasePanel {
     switch (msg.command) {
       case 'ready':
         this.postNamespaceSelection();
-        this.loadInitial(this.selectedNamespace);
+        await this.loadInitial(this.selectedNamespace);
         break;
       case 'showInTree':
         await vscode.commands.executeCommand('vscode-eda.filterTree', 'pods');
@@ -149,20 +152,20 @@ export class PodsDashboardPanel extends BasePanel {
       selected: namespace
     });
     if (this.panel.visible) {
-      this.loadInitial(namespace);
+      void this.loadInitial(namespace);
     }
   }
 
   private reloadPanelData(): void {
     this.postNamespaceSelection();
-    this.loadInitial(this.selectedNamespace);
+    void this.loadInitial(this.selectedNamespace);
   }
 
   private refreshData(): void {
     if (!this.panel.visible) {
       return;
     }
-    this.loadInitial(this.selectedNamespace);
+    this.postResults(this.buildRowsFromCache(this.selectedNamespace));
   }
 
   private resolveTargetNamespaces(namespace: string): string[] {
@@ -220,12 +223,33 @@ export class PodsDashboardPanel extends BasePanel {
     };
   }
 
-  private loadInitial(namespace: string): void {
+  private async loadInitial(namespace: string): Promise<void> {
     this.selectedNamespace = namespace;
+    const targetNamespaces = this.resolveTargetNamespaces(namespace);
+    if (targetNamespaces.length === 0) {
+      this.postResults([]);
+      return;
+    }
+
+    await this.kubernetesClient.acquireResourceWatches(['pods'], targetNamespaces, this.watchConsumerId);
+    await Promise.all(
+      targetNamespaces.map(async (targetNamespace) => {
+        try {
+          await this.kubernetesClient.listResourceType('pods', targetNamespace);
+        } catch {
+          // Ignore list failures and keep cached results.
+        }
+      })
+    );
+
+    this.postResults(this.buildRowsFromCache(namespace));
+  }
+
+  private buildRowsFromCache(namespace: string): PodRow[] {
+    const targetNamespaces = this.resolveTargetNamespaces(namespace);
 
     const rows: PodRow[] = [];
     const seen = new Set<string>();
-    const targetNamespaces = this.resolveTargetNamespaces(namespace);
 
     for (const targetNamespace of targetNamespaces) {
       const pods = this.kubernetesClient.getCachedPods(targetNamespace) as PodResource[];
@@ -242,8 +266,7 @@ export class PodsDashboardPanel extends BasePanel {
         rows.push(row);
       }
     }
-
-    this.postResults(rows);
+    return rows;
   }
 
   private postResults(rows: PodRow[]): void {

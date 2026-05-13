@@ -14,6 +14,33 @@ const X_EDA_NOKIA_COM = 'x-eda-nokia-com';
 const NAMESPACE_PARAM_PATTERN = /^(namespace|nsname)$/i;
 const CRD_PATH_PATTERN = /^\/apps\/([^/]+)\/([^/]+)(?:\/namespaces\/\{[^}]+\})?\/([^/]+)$/;
 const GENERATE_SPEC_TYPES = process.env.EDA_GENERATE_SPEC_TYPES === 'true';
+const JSON_CONTENT_TYPE = 'application/json';
+
+export interface EdaResourceRoute {
+  group: string;
+  version: string;
+  kind: string;
+  plural: string;
+  namespaced: boolean;
+  collectionPath?: string;
+  namespacedCollectionPath?: string;
+  readPath?: string;
+  namespacedReadPath?: string;
+  createPath?: string;
+  namespacedCreatePath?: string;
+  updatePath?: string;
+  namespacedUpdatePath?: string;
+  deletePath?: string;
+  namespacedDeletePath?: string;
+  workflowCollectionPath?: string;
+  workflowNamespacedCollectionPath?: string;
+  workflowReadPath?: string;
+  workflowNamespacedReadPath?: string;
+  workflowCreatePath?: string;
+  workflowNamespacedCreatePath?: string;
+  workflowInputPath?: string;
+  workflowNamespacedInputPath?: string;
+}
 
 interface NamespaceData {
   name?: string;
@@ -33,10 +60,23 @@ interface OpenApiParameter {
   schema?: unknown;
 }
 
+interface OpenApiMediaType {
+  schema?: unknown;
+}
+
+interface OpenApiRequestBody {
+  content?: Record<string, OpenApiMediaType | undefined>;
+}
+
+interface OpenApiResponse {
+  content?: Record<string, OpenApiMediaType | undefined>;
+}
+
 interface OpenApiOperation {
   operationId?: string;
   parameters?: OpenApiParameter[];
-  responses?: Record<string, unknown>;
+  requestBody?: OpenApiRequestBody;
+  responses?: Record<string, OpenApiResponse | undefined>;
   tags?: string[];
 }
 
@@ -51,7 +91,9 @@ interface OpenApiPathItem {
 
 interface OpenApiSpec {
   paths?: Record<string, OpenApiPathItem>;
-  components?: Record<string, unknown>;
+  components?: {
+    schemas?: Record<string, unknown>;
+  };
   info?: {
     title?: string;
     version?: string;
@@ -76,6 +118,30 @@ interface VersionResponse {
   };
 }
 
+interface ResourcePathInfo {
+  source: 'app' | 'workflow';
+  group: string;
+  version: string;
+  plural: string;
+  namespaced: boolean;
+  collection: boolean;
+  item: boolean;
+  input: boolean;
+}
+
+interface ResourceIdentity {
+  group: string;
+  version: string;
+  kind: string;
+  plural: string;
+}
+
+interface ResourceRouteCandidate {
+  pathTemplate: string;
+  pathInfo: ResourcePathInfo;
+  method: string;
+}
+
 /**
  * Manager for EDA OpenAPI specifications
  */
@@ -85,6 +151,9 @@ export class EdaSpecManager {
   private streamUiCategories: Record<string, string> = {};
   private namespaceSet: Set<string> = new Set();
   private operationMap: Map<string, string> = new Map();
+  private resourceRoutes: Map<string, EdaResourceRoute> = new Map();
+  private resourceRoutesByPlural: Map<string, EdaResourceRoute> = new Map();
+  private resourceRoutesByGroupKind: Map<string, EdaResourceRoute> = new Map();
   private cacheBaseDir = path.join(os.homedir(), '.eda', 'vscode');
   private initPromise: Promise<void> = Promise.resolve();
   private apiClient: EdaApiClient;
@@ -193,9 +262,83 @@ export class EdaSpecManager {
     return path;
   }
 
+  public async getResourceRoute(group: string, version: string, kind: string): Promise<EdaResourceRoute | undefined> {
+    await this.initPromise;
+    return this.cloneRoute(this.resourceRoutes.get(this.resourceRouteKey(group, version, kind)));
+  }
+
+  public async getResourceRouteByPlural(
+    group: string,
+    version: string,
+    plural: string
+  ): Promise<EdaResourceRoute | undefined> {
+    await this.initPromise;
+    return this.cloneRoute(this.resourceRoutesByPlural.get(this.resourcePluralKey(group, version, plural)));
+  }
+
+  public async getResourceRouteByGroupKind(group: string, kind: string): Promise<EdaResourceRoute | undefined> {
+    await this.initPromise;
+    return this.cloneRoute(this.resourceRoutesByGroupKind.get(this.resourceGroupKindKey(group, kind)));
+  }
+
+  private cloneRoute(route: EdaResourceRoute | undefined): EdaResourceRoute | undefined {
+    return route ? { ...route } : undefined;
+  }
+
+  private resourceRouteKey(group: string, version: string, kind: string): string {
+    return `${group}/${version}/${kind}`.toLowerCase();
+  }
+
+  private resourcePluralKey(group: string, version: string, plural: string): string {
+    return `${group}/${version}/${plural}`.toLowerCase();
+  }
+
+  private resourceGroupKindKey(group: string, kind: string): string {
+    return `${group}/${kind}`.toLowerCase();
+  }
+
+  private compareVersions(left: string, right: string): number {
+    const parse = (value: string): { numbers: number[]; qualifier: string } => {
+      const normalized = value.trim().replace(/^v/i, '');
+      const match = /^(\d+(?:\.\d+)*)(.*)$/.exec(normalized);
+      if (!match) {
+        return { numbers: [], qualifier: normalized.toLowerCase() };
+      }
+      return {
+        numbers: match[1].split('.').map(part => Number.parseInt(part, 10)),
+        qualifier: match[2].toLowerCase()
+      };
+    };
+
+    const leftVersion = parse(left);
+    const rightVersion = parse(right);
+    const maxLength = Math.max(leftVersion.numbers.length, rightVersion.numbers.length);
+    for (let index = 0; index < maxLength; index += 1) {
+      const leftPart = leftVersion.numbers[index] ?? 0;
+      const rightPart = rightVersion.numbers[index] ?? 0;
+      if (leftPart !== rightPart) {
+        return leftPart - rightPart;
+      }
+    }
+    if (leftVersion.qualifier !== rightVersion.qualifier) {
+      if (!leftVersion.qualifier) {
+        return 1;
+      }
+      if (!rightVersion.qualifier) {
+        return -1;
+      }
+      return leftVersion.qualifier.localeCompare(rightVersion.qualifier);
+    }
+    return left.localeCompare(right);
+  }
+
   private async initializeSpecs(): Promise<void> {
     log('Initializing API specs...', LogLevel.INFO);
     try {
+      this.operationMap.clear();
+      this.resourceRoutes.clear();
+      this.resourceRoutesByPlural.clear();
+      this.resourceRoutesByGroupKind.clear();
       const baseUrl = this.apiClient['authClient'].getBaseUrl();
       const apiRoot = await this.apiClient.fetchJsonUrl(`${baseUrl}/openapi/v3`) as ApiRootSpec;
       const paths = apiRoot.paths ?? {};
@@ -211,7 +354,7 @@ export class EdaSpecManager {
       }
       const coreUrl = `${baseUrl}${relUrl}`;
       const coreSpec = await this.apiClient.fetchJsonUrl(coreUrl) as OpenApiSpec;
-      this.collectOperationPaths(coreSpec);
+      this.collectSpecMetadata(coreSpec);
       const nsPath = this.findPathByOperationId(coreSpec, 'accessGetNamespaces');
       const versionPath = this.findPathByOperationId(coreSpec, 'versionGet');
       this.apiVersion = await this.fetchVersion(versionPath);
@@ -446,6 +589,345 @@ export class EdaSpecManager {
     }
   }
 
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
+  private refName(ref: string | undefined): string | undefined {
+    if (!ref) {
+      return undefined;
+    }
+    const marker = '#/components/schemas/';
+    const markerIndex = ref.indexOf(marker);
+    return markerIndex >= 0 ? ref.slice(markerIndex + marker.length) : ref.split('/').pop();
+  }
+
+  private schemaRef(schema: unknown): string | undefined {
+    return this.isRecord(schema) && typeof schema.$ref === 'string' ? schema.$ref : undefined;
+  }
+
+  private schemaByRef(spec: OpenApiSpec, ref: string | undefined): Record<string, unknown> | undefined {
+    const name = this.refName(ref);
+    const schemas = this.isRecord(spec.components?.schemas)
+      ? spec.components.schemas as Record<string, unknown>
+      : {};
+    const schema = name ? schemas[name] : undefined;
+    return this.isRecord(schema) ? schema : undefined;
+  }
+
+  private schemaPropertyString(schema: Record<string, unknown>, propertyName: string): string | undefined {
+    const properties = this.isRecord(schema.properties) ? schema.properties : {};
+    const property = properties[propertyName];
+    if (!this.isRecord(property)) {
+      return undefined;
+    }
+    if (typeof property.default === 'string') {
+      return property.default;
+    }
+    if (Array.isArray(property.enum) && typeof property.enum[0] === 'string') {
+      return property.enum[0];
+    }
+    return undefined;
+  }
+
+  private listItemRef(schema: Record<string, unknown>): string | undefined {
+    const properties = this.isRecord(schema.properties) ? schema.properties : {};
+    const itemsProperty = properties.items;
+    if (!this.isRecord(itemsProperty)) {
+      return undefined;
+    }
+    const items = itemsProperty.items;
+    return this.schemaRef(items);
+  }
+
+  private identityFromSchema(
+    spec: OpenApiSpec,
+    group: string,
+    version: string,
+    plural: string,
+    schemaRef: string | undefined
+  ): ResourceIdentity | undefined {
+    let schema = this.schemaByRef(spec, schemaRef);
+    if (!schema) {
+      return undefined;
+    }
+
+    const itemRef = this.listItemRef(schema);
+    if (itemRef) {
+      schema = this.schemaByRef(spec, itemRef);
+    }
+    if (!schema) {
+      return undefined;
+    }
+
+    const kind = this.schemaPropertyString(schema, 'kind');
+    const apiVersion = this.schemaPropertyString(schema, 'apiVersion');
+    if (!kind || apiVersion !== `${group}/${version}`) {
+      return undefined;
+    }
+
+    return { group, version, kind, plural };
+  }
+
+  private requestBodyRef(operation: OpenApiOperation | undefined): string | undefined {
+    const content = operation?.requestBody?.content;
+    return this.schemaRef(content?.[JSON_CONTENT_TYPE]?.schema);
+  }
+
+  private responseRef(operation: OpenApiOperation | undefined): string | undefined {
+    const responses = operation?.responses;
+    if (!responses) {
+      return undefined;
+    }
+    const preferredResponses = [
+      responses['200'],
+      responses['201'],
+      responses.default,
+      ...Object.values(responses)
+    ];
+    for (const response of preferredResponses) {
+      const ref = this.schemaRef(response?.content?.[JSON_CONTENT_TYPE]?.schema);
+      if (ref) {
+        return ref;
+      }
+    }
+    return undefined;
+  }
+
+  private identityFromOperation(
+    spec: OpenApiSpec,
+    pathInfo: ResourcePathInfo,
+    operation: OpenApiOperation | undefined
+  ): ResourceIdentity | undefined {
+    const refs = [
+      this.requestBodyRef(operation),
+      this.responseRef(operation)
+    ];
+    for (const ref of refs) {
+      const identity = this.identityFromSchema(
+        spec,
+        pathInfo.group,
+        pathInfo.version,
+        pathInfo.plural,
+        ref
+      );
+      if (identity) {
+        return identity;
+      }
+    }
+    return undefined;
+  }
+
+  private isPlaceholder(segment: string | undefined): boolean {
+    return typeof segment === 'string' && segment.startsWith('{') && segment.endsWith('}');
+  }
+
+  private parseResourcePath(pathTemplate: string): ResourcePathInfo | undefined {
+    const parts = pathTemplate.split('/').filter(Boolean);
+    if (parts[0] === 'apps') {
+      return this.parseResourcePathTail('app', parts.slice(1));
+    }
+    if (parts[0] === 'workflows' && parts[1] === 'v1') {
+      return this.parseResourcePathTail('workflow', parts.slice(2));
+    }
+    return undefined;
+  }
+
+  private parseResourcePathTail(
+    source: 'app' | 'workflow',
+    parts: string[]
+  ): ResourcePathInfo | undefined {
+    const [group, version] = parts;
+    if (!group || !version) {
+      return undefined;
+    }
+
+    let rest = parts.slice(2);
+    let namespaced = false;
+    if (rest[0] === 'namespaces' && this.isPlaceholder(rest[1]) && rest.length >= 3) {
+      namespaced = true;
+      rest = rest.slice(2);
+    }
+
+    const [plural, ...tail] = rest;
+    if (!plural || plural.startsWith('_')) {
+      return undefined;
+    }
+
+    if (tail.length === 0) {
+      return { source, group, version, plural, namespaced, collection: true, item: false, input: false };
+    }
+
+    if (tail.length === 1 && this.isPlaceholder(tail[0])) {
+      return { source, group, version, plural, namespaced, collection: false, item: true, input: false };
+    }
+
+    if (source === 'workflow' && tail.length === 2 && this.isPlaceholder(tail[0]) && tail[1] === '_input') {
+      return { source, group, version, plural, namespaced, collection: false, item: false, input: true };
+    }
+
+    return undefined;
+  }
+
+  private routeForIdentity(identity: ResourceIdentity): EdaResourceRoute {
+    const key = this.resourceRouteKey(identity.group, identity.version, identity.kind);
+    let route = this.resourceRoutes.get(key);
+    if (!route) {
+      route = {
+        group: identity.group,
+        version: identity.version,
+        kind: identity.kind,
+        plural: identity.plural,
+        namespaced: false
+      };
+      this.resourceRoutes.set(key, route);
+    }
+
+    route.plural = identity.plural;
+    this.resourceRoutesByPlural.set(
+      this.resourcePluralKey(identity.group, identity.version, identity.plural),
+      route
+    );
+
+    const groupKindKey = this.resourceGroupKindKey(identity.group, identity.kind);
+    const existingGroupKind = this.resourceRoutesByGroupKind.get(groupKindKey);
+    if (!existingGroupKind || this.compareVersions(route.version, existingGroupKind.version) >= 0) {
+      this.resourceRoutesByGroupKind.set(groupKindKey, route);
+    }
+
+    return route;
+  }
+
+  private updateResourceRoute(
+    identity: ResourceIdentity,
+    pathInfo: ResourcePathInfo,
+    method: string,
+    pathTemplate: string
+  ): void {
+    const route = this.routeForIdentity(identity);
+    route.namespaced = route.namespaced || pathInfo.namespaced;
+
+    if (pathInfo.source === 'workflow') {
+      this.updateWorkflowRoute(route, pathInfo, method, pathTemplate);
+      return;
+    }
+
+    this.updateAppRoute(route, pathInfo, method, pathTemplate);
+  }
+
+  private updateAppRoute(
+    route: EdaResourceRoute,
+    pathInfo: ResourcePathInfo,
+    method: string,
+    pathTemplate: string
+  ): void {
+    if (pathInfo.collection) {
+      if (method === 'get') {
+        if (pathInfo.namespaced) route.namespacedCollectionPath = pathTemplate;
+        else route.collectionPath = pathTemplate;
+      } else if (method === 'post') {
+        if (pathInfo.namespaced) route.namespacedCreatePath = pathTemplate;
+        else route.createPath = pathTemplate;
+      }
+      return;
+    }
+
+    if (!pathInfo.item) {
+      return;
+    }
+    if (method === 'get') {
+      if (pathInfo.namespaced) route.namespacedReadPath = pathTemplate;
+      else route.readPath = pathTemplate;
+    } else if (method === 'put' || method === 'patch') {
+      if (pathInfo.namespaced) route.namespacedUpdatePath = pathTemplate;
+      else route.updatePath = pathTemplate;
+    } else if (method === 'delete') {
+      if (pathInfo.namespaced) route.namespacedDeletePath = pathTemplate;
+      else route.deletePath = pathTemplate;
+    }
+  }
+
+  private updateWorkflowRoute(
+    route: EdaResourceRoute,
+    pathInfo: ResourcePathInfo,
+    method: string,
+    pathTemplate: string
+  ): void {
+    if (pathInfo.collection) {
+      if (method === 'get') {
+        if (pathInfo.namespaced) route.workflowNamespacedCollectionPath = pathTemplate;
+        else route.workflowCollectionPath = pathTemplate;
+      } else if (method === 'post') {
+        if (pathInfo.namespaced) route.workflowNamespacedCreatePath = pathTemplate;
+        else route.workflowCreatePath = pathTemplate;
+      }
+      return;
+    }
+
+    if (pathInfo.item && method === 'get') {
+      if (pathInfo.namespaced) route.workflowNamespacedReadPath = pathTemplate;
+      else route.workflowReadPath = pathTemplate;
+      return;
+    }
+
+    if (pathInfo.input && (method === 'get' || method === 'put')) {
+      if (pathInfo.namespaced) route.workflowNamespacedInputPath = pathTemplate;
+      else route.workflowInputPath = pathTemplate;
+    }
+  }
+
+  private collectResourceRoutes(spec: OpenApiSpec): void {
+    const deferred: ResourceRouteCandidate[] = [];
+    const paths = spec.paths ?? {};
+    for (const [pathTemplate, methods] of Object.entries(paths)) {
+      const pathInfo = this.parseResourcePath(pathTemplate);
+      if (!pathInfo) {
+        continue;
+      }
+
+      for (const [method, operation] of Object.entries(methods)) {
+        if (!operation) {
+          continue;
+        }
+        const identity = this.identityFromOperation(spec, pathInfo, operation);
+        if (!identity) {
+          deferred.push({ pathTemplate, pathInfo, method });
+          continue;
+        }
+        this.updateResourceRoute(identity, pathInfo, method, pathTemplate);
+      }
+    }
+
+    for (const { pathTemplate, pathInfo, method } of deferred) {
+      const identity = this.identityFromExistingRoute(pathInfo);
+      if (!identity) {
+        continue;
+      }
+      this.updateResourceRoute(identity, pathInfo, method, pathTemplate);
+    }
+  }
+
+  private identityFromExistingRoute(pathInfo: ResourcePathInfo): ResourceIdentity | undefined {
+    const route = this.resourceRoutesByPlural.get(
+      this.resourcePluralKey(pathInfo.group, pathInfo.version, pathInfo.plural)
+    );
+    if (!route) {
+      return undefined;
+    }
+    return {
+      group: route.group,
+      version: route.version,
+      kind: route.kind,
+      plural: route.plural
+    };
+  }
+
+  private collectSpecMetadata(spec: OpenApiSpec): StreamEndpoint[] {
+    this.collectOperationPaths(spec);
+    this.collectResourceRoutes(spec);
+    return this.collectStreamEndpoints(spec);
+  }
+
   /** Deduplicate endpoints, preferring namespaced and '/apps' paths */
   private deduplicateEndpoints(endpoints: StreamEndpoint[]): StreamEndpoint[] {
     const result = new Map<string, StreamEndpoint>();
@@ -519,8 +1001,7 @@ export class EdaSpecManager {
       const spec = await this.apiClient.fetchJsonUrl(url) as OpenApiSpec;
       const { category, name } = this.parseApiPath(apiPath);
       await this.writeSpecAndTypes(spec, name, version, category);
-      this.collectOperationPaths(spec);
-      all.push(...this.collectStreamEndpoints(spec));
+      all.push(...this.collectSpecMetadata(spec));
     }
     return all;
   }
@@ -569,8 +1050,7 @@ export class EdaSpecManager {
       try {
         const raw = await fs.promises.readFile(cachedSpec, 'utf8');
         const spec = JSON.parse(raw) as OpenApiSpec;
-        this.collectOperationPaths(spec);
-        all.push(...this.collectStreamEndpoints(spec));
+        all.push(...this.collectSpecMetadata(spec));
       } catch (err) {
         log(`Skipping unreadable cached spec '${cachedSpec}': ${err}`, LogLevel.DEBUG);
       }

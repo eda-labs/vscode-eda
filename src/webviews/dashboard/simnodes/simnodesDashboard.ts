@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { randomUUID } from 'crypto';
 
 import { BasePanel } from '../../basePanel';
 import { ALL_NAMESPACES } from '../../constants';
@@ -46,6 +47,7 @@ export class SimnodesDashboardPanel extends BasePanel {
   private columnSet: Set<string> = new Set();
   private selectedNamespace = ALL_NAMESPACES;
   private disposables: vscode.Disposable[] = [];
+  private readonly watchConsumerId = `simnodes-dashboard:${randomUUID()}`;
 
   constructor(context: vscode.ExtensionContext, title: string) {
     super(context, 'simnodesDashboard', title, undefined, BasePanel.getEdaIconPath(context));
@@ -70,6 +72,7 @@ export class SimnodesDashboardPanel extends BasePanel {
       for (const d of this.disposables) {
         d.dispose();
       }
+      this.kubernetesClient.releaseResourceWatches(this.watchConsumerId);
     });
 
     this.panel.onDidChangeViewState((event) => {
@@ -81,7 +84,7 @@ export class SimnodesDashboardPanel extends BasePanel {
     this.panel.webview.onDidReceiveMessage((msg: { command: string; namespace?: string; name?: string; operatingSystem?: string }) => {
       if (msg.command === 'ready') {
         this.postNamespaceSelection();
-        this.loadInitial(this.selectedNamespace);
+        void this.loadInitial(this.selectedNamespace);
       } else if (msg.command === 'showInTree') {
         void vscode.commands.executeCommand(
           'vscode-eda.filterTree',
@@ -118,7 +121,7 @@ export class SimnodesDashboardPanel extends BasePanel {
       selected: namespace
     });
     if (this.panel.visible) {
-      this.loadInitial(namespace);
+      await this.loadInitial(namespace);
     }
   }
 
@@ -206,7 +209,7 @@ export class SimnodesDashboardPanel extends BasePanel {
     return phase;
   }
 
-  private loadInitial(ns: string): void {
+  private async loadInitial(ns: string): Promise<void> {
     this.selectedNamespace = ns;
     const coreNs = this.edaClient.getCoreNamespace();
     const targetNamespaces =
@@ -215,6 +218,35 @@ export class SimnodesDashboardPanel extends BasePanel {
             .getCachedNamespaces()
             .filter(n => n !== coreNs)
         : [ns];
+
+    const watchNamespaces = Array.from(new Set([...targetNamespaces, coreNs]));
+    await this.kubernetesClient.acquireResourceWatches(
+      ['simnodes', 'pods'],
+      watchNamespaces,
+      this.watchConsumerId
+    );
+    await Promise.all([
+      ...targetNamespaces.map(async (namespace) => {
+        try {
+          await this.kubernetesClient.listResourceType('simnodes', namespace);
+        } catch {
+          // Ignore list failures and keep cached data.
+        }
+      }),
+      (async () => {
+        try {
+          await this.kubernetesClient.listResourceType('pods', coreNs);
+        } catch {
+          // Ignore list failures and keep cached data.
+        }
+      })()
+    ]);
+
+    this.rebuildRowsFromCache(targetNamespaces);
+    this.postResults();
+  }
+
+  private rebuildRowsFromCache(targetNamespaces: string[]): void {
 
     // Clear existing data
     this.rowMap.clear();
@@ -242,7 +274,6 @@ export class SimnodesDashboardPanel extends BasePanel {
         /* ignore */
       }
     }
-    this.postResults();
   }
 
   private refreshData(): void {
@@ -250,12 +281,20 @@ export class SimnodesDashboardPanel extends BasePanel {
     if (!this.panel.visible) {
       return;
     }
-    this.loadInitial(this.selectedNamespace);
+    const coreNs = this.edaClient.getCoreNamespace();
+    const targetNamespaces =
+      this.selectedNamespace === ALL_NAMESPACES
+        ? this.edaClient
+            .getCachedNamespaces()
+            .filter(n => n !== coreNs)
+        : [this.selectedNamespace];
+    this.rebuildRowsFromCache(targetNamespaces);
+    this.postResults();
   }
 
   private reloadPanelData(): void {
     this.postNamespaceSelection();
-    this.loadInitial(this.selectedNamespace);
+    void this.loadInitial(this.selectedNamespace);
   }
 
   private postResults(): void {

@@ -28,6 +28,9 @@ export interface ExplorerNode {
   description?: string;
   tooltip?: string;
   contextValue?: string;
+  resourceType?: string;
+  streamGroup?: string;
+  resourceCategory?: string;
   statusIndicator?: string;
   statusDescription?: string;
   commandArg?: unknown;

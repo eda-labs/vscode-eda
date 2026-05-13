@@ -6,7 +6,7 @@
   "description": "Manage and monitor Nokia EDA (Event Driven Automation) resources via the EDA API",
   "author": "EDA Labs",
   "homepage": "https://docs.eda.dev/",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "engines": {
     "vscode": "^1.99.0"
   },
@@ -543,10 +543,10 @@
     "chai": "^6.2.2",
     "chai-as-promised": "^8.0.2",
     "chai-http": "^5.1.2",
-    "diff": "^8.0.3",
+    "diff": "^9.0.0",
     "esbuild": "^0.27.4",
     "file-loader": "^6.2.0",
-    "handlebars": "^4.7.8",
+    "handlebars": "^4.7.9",
     "handlebars-loader": "^1.7.3",
     "jest-mock-vscode": "^4.12.0",
     "js-yaml": "^4.1.1",
@@ -562,13 +562,13 @@
     "undici": "^7.24.5",
     "undici-types": "^7.24.5",
     "utf-8-validate": "^6.0.6",
-    "vite": "^8.0.1",
+    "vite": "^8.0.12",
     "webpack": "^5.105.4",
     "webpack-cli": "^7.0.2",
     "ws": "^8.20.0"
   },
   "dependencies": {
-    "@eda-labs/topo-builder": "https://codeload.github.com/eda-labs/topo-builder/tar.gz/0c3809627010e70b42374a3b602412570231086f",
+    "@eda-labs/topo-builder": "^0.2.2",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^7.3.9",
@@ -579,6 +579,7 @@
     "@xyflow/react": "^12.10.1",
     "bezier-js": "^6.1.4",
     "html-to-image": "^1.11.13",
+    "monaco-editor": "^0.55.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "yaml": "^2.8.3"

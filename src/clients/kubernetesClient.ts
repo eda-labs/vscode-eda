@@ -131,6 +131,8 @@ export class KubernetesClient {
   private pollInterval: number = 5000;
 
   private activeWatchers: Map<string, AbortController> = new Map();
+  private watchConsumerKeys: Map<string, Set<string>> = new Map();
+  private watchKeyRefCounts: Map<string, number> = new Map();
   private lastChangeLogTime: Map<string, number> = new Map();
   private resourceChangeTimer: ReturnType<typeof setTimeout> | undefined;
   private resourceChangeDebounceMs = 100;
@@ -342,7 +344,7 @@ export class KubernetesClient {
     this.clearAllCaches();
     this.currentContext = contextName;
     this.loadKubeConfig(contextName);
-    this.startWatchers(prevNamespaces);
+    this.setKnownNamespaces(prevNamespaces);
   }
 
   private async fetchJSON<T = unknown>(pathname: string): Promise<T> {
@@ -771,9 +773,28 @@ export class KubernetesClient {
     this.updateNamespaceWatchers(namespaces);
   }
 
+  public setKnownNamespaces(namespaces: string[]): void {
+    const next = Array.from(
+      new Set(
+        namespaces
+          .filter((namespace): namespace is string => typeof namespace === 'string' && namespace.length > 0)
+      )
+    ).sort((left, right) => left.localeCompare(right));
+    const changed = JSON.stringify(this.namespaceCache) !== JSON.stringify(next);
+    this.namespaceCache = next;
+    if (changed) {
+      this._onNamespacesChanged.fire();
+    }
+  }
+
   public async listNamespaces(): Promise<K8sResource[]> {
     const data = await this.fetchJSON<{ items?: K8sResource[] }>('/api/v1/namespaces');
-    return data.items || [];
+    const items = data.items || [];
+    const namespaces = items
+      .map((item) => item.metadata?.name)
+      .filter((namespace): namespace is string => typeof namespace === 'string' && namespace.length > 0);
+    this.setKnownNamespaces(namespaces);
+    return items;
   }
 
   public async listCrds(): Promise<K8sResource[]> {
@@ -910,6 +931,172 @@ export class KubernetesClient {
     return Array.isArray(cache) ? cache : [];
   }
 
+  public async listResourceType(type: string, namespace?: string): Promise<K8sResource[]> {
+    const definition = this.watchDefinitions.find((candidate) => candidate.name === type);
+    if (!definition) {
+      return [];
+    }
+
+    if (definition.namespaced) {
+      if (!namespace) {
+        return [];
+      }
+      const base = definition.group
+        ? `/apis/${definition.group}/${definition.version}`
+        : `/api/${definition.version}`;
+      const payload = await this.fetchJSON<{ items?: K8sResource[] }>(
+        `${base}/namespaces/${encodeURIComponent(namespace)}/${definition.plural}`
+      );
+      const items = payload.items || [];
+      const namespacedCache = this.getNamespacedCacheByName(type);
+      namespacedCache?.set(namespace, items);
+      return items;
+    }
+
+    const base = definition.group
+      ? `/apis/${definition.group}/${definition.version}`
+      : `/api/${definition.version}`;
+    const payload = await this.fetchJSON<{ items?: K8sResource[] }>(`${base}/${definition.plural}`);
+    const items = payload.items || [];
+    if (this.clusterScopedCaches.has(type)) {
+      this.clusterScopedCaches.set(type, items);
+    }
+    return items;
+  }
+
+  private watchKey(def: { name: string; namespaced: boolean }, namespace?: string): string | undefined {
+    if (def.namespaced) {
+      if (!namespace) {
+        return undefined;
+      }
+      return `${def.name}:${namespace}`;
+    }
+    return def.name;
+  }
+
+  private desiredWatchKeys(resourceTypes: string[], namespaces: string[]): Set<string> {
+    const desired = new Set<string>();
+    for (const resourceType of resourceTypes) {
+      const definition = this.watchDefinitions.find((candidate) => candidate.name === resourceType);
+      if (!definition) {
+        continue;
+      }
+      if (definition.namespaced) {
+        for (const namespace of namespaces) {
+          const key = this.watchKey(definition, namespace);
+          if (key) {
+            desired.add(key);
+          }
+        }
+        continue;
+      }
+      const key = this.watchKey(definition);
+      if (key) {
+        desired.add(key);
+      }
+    }
+    return desired;
+  }
+
+  private stopWatcherByKey(key: string): void {
+    const controller = this.activeWatchers.get(key);
+    if (!controller) {
+      return;
+    }
+    controller.abort();
+    this.activeWatchers.delete(key);
+    this.watchControllers = this.watchControllers.filter((candidate) => candidate !== controller);
+  }
+
+  private startWatcherByKey(key: string): void {
+    const [resourceType, namespace] = key.split(':');
+    const definition = this.watchDefinitions.find((candidate) => candidate.name === resourceType);
+    if (!definition) {
+      return;
+    }
+    if (definition.namespaced) {
+      if (!namespace) {
+        return;
+      }
+      this.watchApiResource(definition, namespace);
+      return;
+    }
+    this.watchApiResource(definition);
+  }
+
+  public async acquireResourceWatches(
+    resourceTypes: string[],
+    namespaces: string[],
+    consumerId: string
+  ): Promise<void> {
+    if (!consumerId) {
+      return;
+    }
+
+    const normalizedTypes = Array.from(
+      new Set(
+        resourceTypes
+          .filter((resourceType): resourceType is string => typeof resourceType === 'string' && resourceType.length > 0)
+      )
+    );
+    const normalizedNamespaces = Array.from(
+      new Set(
+        namespaces
+          .filter((namespace): namespace is string => typeof namespace === 'string' && namespace.length > 0)
+      )
+    );
+
+    const desired = this.desiredWatchKeys(normalizedTypes, normalizedNamespaces);
+    const previous = this.watchConsumerKeys.get(consumerId) ?? new Set<string>();
+
+    const toAdd = Array.from(desired).filter((key) => !previous.has(key));
+    const toRemove = Array.from(previous).filter((key) => !desired.has(key));
+
+    for (const key of toRemove) {
+      const current = this.watchKeyRefCounts.get(key) ?? 0;
+      if (current <= 1) {
+        this.watchKeyRefCounts.delete(key);
+        this.stopWatcherByKey(key);
+      } else {
+        this.watchKeyRefCounts.set(key, current - 1);
+      }
+    }
+
+    for (const key of toAdd) {
+      const current = this.watchKeyRefCounts.get(key) ?? 0;
+      this.watchKeyRefCounts.set(key, current + 1);
+      if (current === 0) {
+        this.startWatcherByKey(key);
+      }
+    }
+
+    if (desired.size === 0) {
+      this.watchConsumerKeys.delete(consumerId);
+      return;
+    }
+    this.watchConsumerKeys.set(consumerId, desired);
+  }
+
+  public releaseResourceWatches(consumerId: string): void {
+    if (!consumerId) {
+      return;
+    }
+    const keys = this.watchConsumerKeys.get(consumerId);
+    if (!keys) {
+      return;
+    }
+    for (const key of keys) {
+      const current = this.watchKeyRefCounts.get(key) ?? 0;
+      if (current <= 1) {
+        this.watchKeyRefCounts.delete(key);
+        this.stopWatcherByKey(key);
+      } else {
+        this.watchKeyRefCounts.set(key, current - 1);
+      }
+    }
+    this.watchConsumerKeys.delete(consumerId);
+  }
+
   public getWatchedResourceTypes(): string[] {
     return this.watchDefinitions.map(d => d.name);
   }
@@ -924,6 +1111,8 @@ export class KubernetesClient {
     }
     this.watchControllers = [];
     this.activeWatchers.clear();
+    this.watchConsumerKeys.clear();
+    this.watchKeyRefCounts.clear();
   }
 
   public dispose(): void {
