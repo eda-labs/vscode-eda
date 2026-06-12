@@ -126,7 +126,7 @@ export class TargetWizardPanel extends BasePanel {
   private targets: TargetConfig[];
   private selected: number;
   private scope: string;
-  private resolve: (value: void | PromiseLike<void>) => void;
+  private resolve?: (value: void | PromiseLike<void>) => void;
 
   constructor(
     context: vscode.ExtensionContext,
@@ -326,7 +326,7 @@ export class TargetWizardPanel extends BasePanel {
 
     this.dispose();
     if (this.resolve) {
-      this.resolve();
+      this.resolve(undefined);
     }
   }
 

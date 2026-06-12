@@ -1,7 +1,8 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
-    "types": ["mocha", "node"],
+    "module": "commonjs",
+    "types": ["mocha", "node", "vscode"],
     "rootDir": ".."
   },
   "include": ["**/*.ts", "../src/types/**/*.d.ts", "../diff.d.ts"]

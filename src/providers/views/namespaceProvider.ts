@@ -185,6 +185,7 @@ export class EdaNamespaceProvider extends FilteredTreeProvider<TreeItemBase> {
 
 constructor() {
     super();
+    this.edaClient = serviceManager.getClient<EdaClient>('eda');
     this.kubernetesIcon = new vscode.ThemeIcon('layers');
     log('EdaNamespaceProvider constructor starting', LogLevel.DEBUG);
     const configuredInterval = Number(process.env.EDA_STREAM_TREE_REFRESH_MS);
@@ -262,8 +263,6 @@ constructor() {
 
   /** Initialize resource and status services */
   private initializeServices(): void {
-    this.edaClient = serviceManager.getClient<EdaClient>('eda');
-
     try {
       this.resourceService = serviceManager.getService<ResourceService>('kubernetes-resources');
     } catch {

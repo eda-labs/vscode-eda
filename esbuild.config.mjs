@@ -27,6 +27,7 @@ const webviewOptions = {
   bundle: true,
   platform: 'browser',
   format: 'esm',
+  target: 'es2024',
   splitting: true,
   conditions: ['style'],
   sourcemap: false,
@@ -52,7 +53,7 @@ async function run() {
     format: 'cjs',
     sourcemap: true,
     minify: true,
-    target: 'node16',
+    target: 'es2024',
     external: ['vscode'],
     outfile: 'dist/extension.js'
   });

@@ -16,6 +16,12 @@ const CRD_PATH_PATTERN = /^\/apps\/([^/]+)\/([^/]+)(?:\/namespaces\/\{[^}]+\})?\
 const GENERATE_SPEC_TYPES = process.env.EDA_GENERATE_SPEC_TYPES === 'true';
 const JSON_CONTENT_TYPE = 'application/json';
 
+type OpenApiTypescriptRuntime = {
+  default: (source: never) => Promise<unknown>;
+  COMMENT_HEADER: string;
+  astToString: (ast: unknown) => string;
+};
+
 /**
  * Resolve the on-disk spec cache directory for an EDA endpoint. Specs are keyed
  * by endpoint host so that two endpoints running the same EDA version cannot
@@ -986,7 +992,7 @@ export class EdaSpecManager {
     }
 
     try {
-      const openapiModule = await import('openapi-typescript');
+      const openapiModule = await import('openapi-typescript') as unknown as OpenApiTypescriptRuntime;
       const tsAst = await openapiModule.default(spec as never);
       const ts = openapiModule.COMMENT_HEADER + openapiModule.astToString(tsAst);
       const dtsPath = path.join(versionDir, `${name}.d.ts`);
