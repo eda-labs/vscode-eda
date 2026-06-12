@@ -3,17 +3,18 @@ import * as vscode from 'vscode';
 
 import type { EdaClient } from '../clients/edaClient';
 import type { KubernetesClient } from '../clients/kubernetesClient';
-import type { EdaTargetValue } from '../extension';
 import {
   LogLevel,
   getHostFromUrl,
   loadCredentials,
+  loadCurrentScopeTargets,
   loadTargetConfig,
   log,
   updateContextStatusBar,
   verifyKubernetesContext
 } from '../extension';
 import { resetResourceOrigins } from '../utils/resourceOriginStore';
+import { getCurrentScope, setSelectedTargetIndex } from '../utils/hostScope';
 import { BasePanel } from '../webviews/basePanel';
 
 import { namespaceSelectionService } from './namespaceSelectionService';
@@ -50,10 +51,9 @@ export async function switchToTarget(
   options: SwitchToTargetOptions = {}
 ): Promise<boolean> {
   const config = vscode.workspace.getConfiguration('vscode-eda');
-  const targetsCfg = config.get<Record<string, EdaTargetValue>>('edaTargets') || {};
-  const entries = Object.entries(targetsCfg);
+  const entries = await loadCurrentScopeTargets(config);
   if (entries.length === 0) {
-    vscode.window.showInformationMessage('No EDA targets configured.');
+    vscode.window.showInformationMessage('No EDA targets configured for the current host scope.');
     return false;
   }
 
@@ -85,7 +85,7 @@ export async function switchToTarget(
     // The service architecture was never initialized (first-run path where
     // activation bailed out before creating clients); only a reload can set
     // it up.
-    await context.globalState.update('selectedEdaTarget', index);
+    await setSelectedTargetIndex(context, getCurrentScope(), index);
     promptReload('EDA target updated. Reload window to apply.');
     return false;
   }

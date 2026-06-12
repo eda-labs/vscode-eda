@@ -5,6 +5,16 @@ import { EXTENSION_CONFIG_SECTION } from '../constants';
 import { KubernetesClient } from '../../clients/kubernetesClient';
 import { fetchClientSecretDirectly } from '../../services/clientSecretService';
 import { serviceManager } from '../../services/serviceManager';
+import type { EdaTargetValue } from '../../extension';
+import { loadVisibleTargetEntries } from '../../extension';
+import {
+  type EdaTargetsByScope,
+  getCurrentScope,
+  getScopeLabel,
+  getSelectedTargetIndex,
+  normalizeTargetsShape,
+  setSelectedTargetIndex
+} from '../../utils/hostScope';
 
 // Helper to extract host from URL, falling back to the URL string if invalid
 function extractHost(url: string): string {
@@ -54,19 +64,52 @@ function buildTargetFromConfig(
   };
 }
 
-// Helper to load targets from configuration with their secrets
-async function loadTargetsFromConfig(
-  context: vscode.ExtensionContext,
-  targetsMap: Record<string, unknown>
+// Build the wizard's target list from the current scope's entries, paired
+// with their stored secrets.
+async function loadVisibleTargets(
+  context: vscode.ExtensionContext
 ): Promise<TargetConfig[]> {
-  return Promise.all(
-    Object.entries(targetsMap).map(async ([url, val]) => {
-      const host = extractHost(url);
-      const edaPassword = await context.secrets.get(`edaPassword:${host}`);
-      const clientSecret = await context.secrets.get(`clientSecret:${host}`);
-      return buildTargetFromConfig(url, val, edaPassword, clientSecret);
-    })
-  );
+  const config = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
+  const entries = await loadVisibleTargetEntries(config);
+  return Promise.all(entries.map(async ({ url, value }) => {
+    const host = extractHost(url);
+    const edaPassword = await context.secrets.get(`edaPassword:${host}`);
+    const clientSecret = await context.secrets.get(`clientSecret:${host}`);
+    return buildTargetFromConfig(url, value, edaPassword, clientSecret);
+  }));
+}
+
+/**
+ * Read `edaTargets` from settings, migrating any legacy flat shape into the
+ * current scope. Returns `{scoped, bucket}` so callers can mutate the bucket
+ * for the current scope and still persist all other buckets unchanged.
+ */
+function readScopedTargets(
+  scope: string
+): { scoped: EdaTargetsByScope; bucket: Record<string, EdaTargetValue> } {
+  const config = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
+  const raw = config.get<unknown>('edaTargets');
+  const { scoped } = normalizeTargetsShape(raw, scope);
+  return { scoped, bucket: scoped[scope] ?? {} };
+}
+
+async function persistScopedTargets(scoped: EdaTargetsByScope): Promise<void> {
+  const config = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
+  const inspect = config.inspect('edaTargets');
+  const target = inspect?.workspaceValue !== undefined
+    ? vscode.ConfigurationTarget.Workspace
+    : vscode.ConfigurationTarget.Global;
+  await config.update('edaTargets', scoped, target);
+}
+
+function collectAllUrls(scoped: EdaTargetsByScope): Set<string> {
+  const urls = new Set<string>();
+  for (const bucket of Object.values(scoped)) {
+    for (const url of Object.keys(bucket)) {
+      urls.add(url);
+    }
+  }
+  return urls;
 }
 
 export interface TargetWizardResult {
@@ -80,36 +123,23 @@ export interface TargetWizardResult {
 
 export class TargetWizardPanel extends BasePanel {
   private contexts: string[];
-  private targets: {
-    url: string;
-    context?: string;
-    edaUsername?: string;
-    edaPassword?: string;
-    clientSecret?: string;
-    skipTlsVerify?: boolean;
-    coreNamespace?: string;
-  }[];
+  private targets: TargetConfig[];
   private selected: number;
+  private scope: string;
   private resolve: (value: void | PromiseLike<void>) => void;
 
   constructor(
     context: vscode.ExtensionContext,
     contexts: string[],
-    targets: {
-      url: string;
-      context?: string;
-      edaUsername?: string;
-      edaPassword?: string;
-      clientSecret?: string;
-      skipTlsVerify?: boolean;
-      coreNamespace?: string;
-    }[],
-    selected: number
+    targets: TargetConfig[],
+    selected: number,
+    scope: string
   ) {
-    super(context, 'edaTargetWizard', 'Configure EDA Targets');
+    super(context, 'edaTargetWizard', `Configure EDA Targets — ${getScopeLabel(scope)}`);
     this.contexts = contexts;
     this.targets = targets;
     this.selected = selected;
+    this.scope = scope;
     this.panel.webview.html = this.buildHtml();
 
     this.panel.webview.onDidReceiveMessage((msg: unknown) => this.handleMessage(msg));
@@ -124,10 +154,12 @@ export class TargetWizardPanel extends BasePanel {
       delete: () => this.deleteTarget(message.url as string),
       confirmDelete: () => this.confirmDelete(message.index as number, message.url as string),
       commit: () => this.commitTargets(message.targets as unknown[]),
-      select: () => this.context.globalState.update('selectedEdaTarget', message.index),
+      select: () => setSelectedTargetIndex(this.context, this.scope, message.index as number),
       switchTarget: () => this.switchTarget(message.index as number),
       close: () => this.showReload(),
-      retrieveClientSecret: () => this.retrieveClientSecret(message.url as string)
+      retrieveClientSecret: () => this.retrieveClientSecret(message.url as string),
+      exportTargets: () => vscode.commands.executeCommand('vscode-eda.exportTargets'),
+      importTargets: () => this.importTargets()
     };
 
     const handler = handlers[message.command];
@@ -143,8 +175,21 @@ export class TargetWizardPanel extends BasePanel {
       targets: this.targets,
       selected: this.selected,
       contexts: this.contexts,
-      logoUri: logoUri.toString()
+      logoUri: logoUri.toString(),
+      scope: this.scope,
+      scopeLabel: getScopeLabel(this.scope)
     });
+  }
+
+  private async importTargets(): Promise<void> {
+    await vscode.commands.executeCommand('vscode-eda.importTargets');
+    await this.reloadTargetsFromConfig();
+  }
+
+  private async reloadTargetsFromConfig(): Promise<void> {
+    this.targets = await loadVisibleTargets(this.context);
+    this.selected = Math.min(getSelectedTargetIndex(this.context, this.scope), Math.max(this.targets.length - 1, 0));
+    this.sendInitialData();
   }
 
   protected getScriptTags(nonce: string): string {
@@ -153,38 +198,30 @@ export class TargetWizardPanel extends BasePanel {
   }
 
   private async saveConfiguration(msg: { command: string; [key: string]: unknown }, close: boolean): Promise<void> {
-    const config = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
-    const current = config.get<Record<string, unknown>>('edaTargets') || {};
+    const { scoped, bucket } = readScopedTargets(this.scope);
     const url = msg.url as string;
     const originalUrl = msg.originalUrl as string | undefined;
 
-    // Handle URL changes (remove old entry if URL changed)
     if (originalUrl && originalUrl !== url) {
-      delete current[originalUrl];
+      delete bucket[originalUrl];
     }
 
-    // Save new/updated configuration (excluding secrets)
-    current[url] = {
-      context: msg.context || undefined,
-      edaUsername: msg.edaUsername || undefined,
-      skipTlsVerify: msg.skipTlsVerify || undefined,
-      coreNamespace: msg.coreNamespace || undefined
+    bucket[url] = {
+      context: (msg.context as string) || undefined,
+      edaUsername: (msg.edaUsername as string) || undefined,
+      skipTlsVerify: (msg.skipTlsVerify as boolean) || undefined,
+      coreNamespace: (msg.coreNamespace as string) || undefined
     };
+    scoped[this.scope] = bucket;
+    await persistScopedTargets(scoped);
 
-    await config.update('edaTargets', current, vscode.ConfigurationTarget.Global);
-
-    // Extract host for password storage
     const host = extractHost(url);
-
-    // Store passwords securely
     if (msg.edaPassword) {
       await this.context.secrets.store(`edaPassword:${host}`, msg.edaPassword as string);
     }
     if (msg.clientSecret) {
       await this.context.secrets.store(`clientSecret:${host}`, msg.clientSecret as string);
     }
-
-    // Clean up old passwords if URL changed
     if (originalUrl && originalUrl !== url) {
       await this.cleanupSecrets(originalUrl);
     }
@@ -205,11 +242,15 @@ export class TargetWizardPanel extends BasePanel {
   }
 
   private async deleteTarget(url: string): Promise<void> {
-    const config = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
-    const current = config.get<Record<string, unknown>>('edaTargets') || {};
-    delete current[url];
-    await config.update('edaTargets', current, vscode.ConfigurationTarget.Global);
-    await this.cleanupSecrets(url);
+    const { scoped, bucket } = readScopedTargets(this.scope);
+    delete bucket[url];
+    scoped[this.scope] = bucket;
+    await persistScopedTargets(scoped);
+    // Only clean up secrets when no other scope still references the URL.
+    const stillReferenced = Object.values(scoped).some(b => b && Object.prototype.hasOwnProperty.call(b, url));
+    if (!stillReferenced) {
+      await this.cleanupSecrets(url);
+    }
   }
 
   private async confirmDelete(index: number, url: string): Promise<void> {
@@ -224,25 +265,24 @@ export class TargetWizardPanel extends BasePanel {
   }
 
   private async commitTargets(targets: unknown[]): Promise<void> {
-    const config = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
-    const previous = config.get<Record<string, unknown>>('edaTargets') || {};
-    const updated: Record<string, unknown> = {};
+    const { scoped, bucket: previous } = readScopedTargets(this.scope);
+    const updatedBucket: Record<string, EdaTargetValue> = {};
 
-    // Build new configuration from targets array (excluding secrets)
-    for (const target of targets as Array<{ url: string; context?: string; edaUsername?: string; skipTlsVerify?: boolean; coreNamespace?: string }>) {
-      updated[target.url] = {
-        context: target.context || undefined,
-        edaUsername: target.edaUsername || undefined,
-        skipTlsVerify: target.skipTlsVerify || undefined,
-        coreNamespace: target.coreNamespace || undefined
+    for (const t of targets as Array<{ url: string; context?: string; edaUsername?: string; skipTlsVerify?: boolean; coreNamespace?: string }>) {
+      updatedBucket[t.url] = {
+        context: t.context || undefined,
+        edaUsername: t.edaUsername || undefined,
+        skipTlsVerify: t.skipTlsVerify || undefined,
+        coreNamespace: t.coreNamespace || undefined
       };
     }
+    scoped[this.scope] = updatedBucket;
+    await persistScopedTargets(scoped);
 
-    await config.update('edaTargets', updated, vscode.ConfigurationTarget.Global);
-
-    // Clean up passwords for removed targets
+    // Only clean up secrets when no other scope still references the URL.
+    const stillReferenced = collectAllUrls(scoped);
     const cleanupPromises = Object.keys(previous)
-      .filter(url => !updated[url])
+      .filter(url => !stillReferenced.has(url))
       .map(url => this.cleanupSecrets(url));
     await Promise.all(cleanupPromises);
   }
@@ -255,7 +295,7 @@ export class TargetWizardPanel extends BasePanel {
     if (!this.isServiceArchitectureInitialized()) {
       // First-run path: activation bailed out before creating clients, so a
       // runtime switch is impossible.
-      await this.context.globalState.update('selectedEdaTarget', index);
+      await setSelectedTargetIndex(this.context, this.scope, index);
       vscode.window.showInformationMessage('EDA target updated. Reload window to apply.', 'Reload').then(value => {
         if (value === 'Reload') {
           void vscode.commands.executeCommand('workbench.action.reloadWindow');
@@ -271,7 +311,7 @@ export class TargetWizardPanel extends BasePanel {
     if (this.isServiceArchitectureInitialized()) {
       // Re-apply the selected target so edited URLs/credentials take effect
       // without a window reload.
-      const selected = this.context.globalState.get<number>('selectedEdaTarget', 0) ?? 0;
+      const selected = getSelectedTargetIndex(this.context, this.scope);
       const { switchToTarget } = await import('../../services/targetSwitchService');
       await switchToTarget(this.context, selected, { excludePanel: this });
     } else {
@@ -372,12 +412,11 @@ export class TargetWizardPanel extends BasePanel {
   static async show(context: vscode.ExtensionContext): Promise<void> {
     const k8sClient = new KubernetesClient();
     const contexts = k8sClient.getAvailableContexts();
-    const config = vscode.workspace.getConfiguration(EXTENSION_CONFIG_SECTION);
-    const targetsMap = config.get<Record<string, unknown>>('edaTargets') || {};
+    const scope = getCurrentScope();
 
-    const targets = await loadTargetsFromConfig(context, targetsMap);
-    const selected = context.globalState.get<number>('selectedEdaTarget', 0) ?? 0;
-    const panel = new TargetWizardPanel(context, contexts, targets, selected);
+    const targets = await loadVisibleTargets(context);
+    const selected = Math.min(getSelectedTargetIndex(context, scope), Math.max(targets.length - 1, 0));
+    const panel = new TargetWizardPanel(context, contexts, targets, selected, scope);
     return panel.waitForClose();
   }
 }

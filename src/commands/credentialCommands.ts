@@ -1,5 +1,11 @@
 import * as vscode from 'vscode';
 
+import { loadCurrentScopeTargets } from '../extension';
+import {
+  getCurrentScope,
+  getSelectedTargetIndex as getScopedSelectedTargetIndex
+} from '../utils/hostScope';
+
 function getHost(url: string): string {
   try {
     return new URL(url).host;
@@ -12,7 +18,10 @@ function getSelectedTargetIndex(
   context: vscode.ExtensionContext,
   entryCount: number
 ): number {
-  const idx = context.globalState.get<number>('selectedEdaTarget', 0) ?? 0;
+  if (entryCount === 0) {
+    return 0;
+  }
+  const idx = getScopedSelectedTargetIndex(context, getCurrentScope());
   return Math.min(idx, entryCount - 1);
 }
 
@@ -44,8 +53,7 @@ export function registerCredentialCommands(context: vscode.ExtensionContext) {
     async () => {
       const config = vscode.workspace.getConfiguration('vscode-eda');
       let edaUrl = 'https://eda-api';
-      const edaTargetsCfg = config.get<Record<string, unknown>>('edaTargets');
-      const targetEntries = edaTargetsCfg ? Object.entries(edaTargetsCfg) : [];
+      const targetEntries = await loadCurrentScopeTargets(config);
       if (targetEntries.length > 0) {
         const idx = getSelectedTargetIndex(context, targetEntries.length);
         const [url] = targetEntries[idx];
@@ -69,10 +77,9 @@ export function registerCredentialCommands(context: vscode.ExtensionContext) {
 
   const updateTargetCredsCmd = vscode.commands.registerCommand('vscode-eda.updateTargetCredentials', async () => {
     const config = vscode.workspace.getConfiguration('vscode-eda');
-    const targetsMap = config.get<Record<string, unknown>>('edaTargets') ?? {};
-    const entries = Object.entries(targetsMap);
+    const entries = await loadCurrentScopeTargets(config);
     if (entries.length === 0) {
-      vscode.window.showInformationMessage('No EDA targets configured.');
+      vscode.window.showInformationMessage('No EDA targets configured for the current host scope.');
       return;
     }
     const items = entries.map(([url]) => ({ label: url }));
