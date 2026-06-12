@@ -1,7 +1,7 @@
 // src/commands/deploymentCommands.ts
 import * as vscode from 'vscode';
 
-import { runKubectl } from '../utils/kubectlRunner';
+import { runKubectl, ensureActiveK8sContext } from '../utils/kubectlRunner';
 import { log, LogLevel, edaOutputChannel } from '../extension';
 import { serviceManager } from '../services/serviceManager';
 import type { ResourceService } from '../services/resourceService';
@@ -21,6 +21,9 @@ interface DeploymentTreeItem {
 
 export function registerDeploymentCommands(context: vscode.ExtensionContext) {
   const restartDeploymentCmd = vscode.commands.registerCommand('vscode-eda.restartDeployment', async (treeItem: DeploymentTreeItem | undefined) => {
+    if (!ensureActiveK8sContext()) {
+      return;
+    }
     // First check if this is actually a deployment
     if (
       !treeItem ||

@@ -214,6 +214,11 @@ constructor() {
     this.logKubernetesClientStatus();
     this.initializeNamespaceCache();
     this.setupStreamMessageHandler();
+    this.disposables.push(
+      this.edaClient.onEndpointChanged(() => {
+        void this.handleEndpointChanged();
+      })
+    );
     this.selectedNamespace = namespaceSelectionService.getSelectedNamespace();
     this.disposables.push(
       namespaceSelectionService.onDidChangeSelection((namespace) => {
@@ -304,6 +309,29 @@ constructor() {
   }
 
   /**
+   * Drop all old-endpoint data after a runtime endpoint switch and reload
+   * from the new endpoint. Streams are re-subscribed by EdaClient itself
+   * (ref counts survive the switch), so this only rebuilds caches.
+   */
+  private async handleEndpointChanged(): Promise<void> {
+    this.streamData.clear();
+    this.expandedStreams.clear();
+    this.cachedStreamGroups = {};
+    this.cachedStreamUiCategories = {};
+    this.cachedNamespaces = [];
+    this.selectionEdaNamespaces = [];
+    this.initializeNamespaceCache();
+    this.refresh();
+
+    await this.loadStreams();
+    this.scheduleNamespaceSelectionRefresh();
+    await this.loadFastResourceBootstrap();
+    this.syncNamespacesWithK8s();
+    this.scheduleKubernetesInitialization();
+    this.refresh();
+  }
+
+  /**
    * Initialize async operations. Call this after construction.
    */
   public async initialize(): Promise<void> {
@@ -359,7 +387,7 @@ constructor() {
   }
 
   private scheduleKubernetesInitialization(): void {
-    if (!this.k8sClient) {
+    if (!this.k8sClient || !this.hasKubernetesContext()) {
       return;
     }
     if (this.k8sStartupDelayMs <= 0) {
@@ -1193,7 +1221,7 @@ constructor() {
   }
 
   private getKubernetesRoot(): TreeItemBase | undefined {
-    if (!this.k8sClient) {
+    if (!this.k8sClient || !this.hasKubernetesContext()) {
       return undefined;
     }
     if (this.treeFilter && !this.kubernetesRootMatches()) {

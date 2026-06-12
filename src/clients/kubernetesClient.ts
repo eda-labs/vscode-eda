@@ -200,7 +200,49 @@ export class KubernetesClient {
     if (!Number.isNaN(eventDebounce) && eventDebounce >= 0) {
       this.resourceChangeDebounceMs = eventDebounce;
     }
-    this.loadKubeConfig(contextName);
+    if (contextName === undefined) {
+      // Idle mode: the active EDA target has no Kubernetes context. Only load
+      // the available contexts list so a later switchContext() can activate
+      // one; do not bind to the kubeconfig's current-context.
+      this.loadContextsOnly();
+    } else {
+      this.loadKubeConfig(contextName);
+    }
+  }
+
+  /**
+   * Whether this client is bound to a Kubernetes context. False when the
+   * active EDA target is configured without one (idle mode).
+   */
+  public hasActiveContext(): boolean {
+    return this.currentContext.length > 0;
+  }
+
+  /**
+   * Put the client into idle mode: stop all watchers, clear caches and drop
+   * the bound context. Used when switching to an EDA target without a
+   * Kubernetes context.
+   */
+  public deactivate(): void {
+    this.clearWatchers();
+    this.namespaceCache = [];
+    this.clearAllCaches();
+    this.currentContext = '';
+    this.server = '';
+    this.token = undefined;
+    this.agent = undefined;
+    this._onNamespacesChanged.fire();
+    this._onResourceChanged.fire();
+  }
+
+  private loadContextsOnly(): void {
+    try {
+      const content = fs.readFileSync(this.getKubeConfigPath(), 'utf8');
+      const kc = yaml.load(content) as KubeConfigFile;
+      this.contexts = (kc.contexts ?? []).map(c => c.name);
+    } catch (err) {
+      log(`Failed to load kubeconfig: ${err}`, LogLevel.ERROR);
+    }
   }
 
   /**
@@ -348,6 +390,9 @@ export class KubernetesClient {
   }
 
   private async fetchJSON<T = unknown>(pathname: string): Promise<T> {
+    if (!this.server) {
+      throw new Error('No active Kubernetes context');
+    }
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
@@ -366,6 +411,9 @@ export class KubernetesClient {
   }
 
   private async requestJSON<T = unknown>(method: string, pathname: string, body?: K8sResource): Promise<T | undefined> {
+    if (!this.server) {
+      throw new Error('No active Kubernetes context');
+    }
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
@@ -530,6 +578,9 @@ export class KubernetesClient {
   }
 
   private updateNamespaceWatchers(namespaces: string[]): void {
+    if (!this.server) {
+      return;
+    }
     const old = this.namespaceCache;
     this.namespaceCache = namespaces;
 

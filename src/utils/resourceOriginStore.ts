@@ -31,3 +31,9 @@ export function getResourceOrigin(
 ): boolean | undefined {
   return resourceOrigins.get(getKey(namespace, kind, name));
 }
+
+/** Clear all tracked origins; used when switching to a different EDA endpoint. */
+export function resetResourceOrigins(): void {
+  viewOrigins.clear();
+  resourceOrigins.clear();
+}

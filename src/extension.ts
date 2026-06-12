@@ -112,7 +112,7 @@ interface TargetConfigResult {
   clientId: string;
 }
 
-function getHostFromUrl(url: string): string {
+export function getHostFromUrl(url: string): string {
   try {
     return new URL(url).host;
   } catch {
@@ -120,7 +120,7 @@ function getHostFromUrl(url: string): string {
   }
 }
 
-function loadTargetConfig(
+export function loadTargetConfig(
   config: vscode.WorkspaceConfiguration,
   targetEntries: [string, EdaTargetValue][],
   selectedIndex: number
@@ -168,7 +168,7 @@ function loadTargetConfig(
   };
 }
 
-async function loadCredentials(
+export async function loadCredentials(
   context: vscode.ExtensionContext,
   hostKey: string,
   edaUrl: string,
@@ -212,6 +212,15 @@ function initializeEmbeddingSearchInBackground(): void {
   });
 }
 
+export function updateContextStatusBar(edaUrl: string, edaContext?: string): void {
+  if (!contextStatusBarItem) {
+    return;
+  }
+  const host = getHostFromUrl(edaUrl);
+  const ctxText = edaContext ? ` (${edaContext})` : '';
+  contextStatusBarItem.text = `$(server) ${host}${ctxText}`;
+}
+
 function createStatusBarItem(context: vscode.ExtensionContext): vscode.StatusBarItem {
   const statusBarItem = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
@@ -224,11 +233,11 @@ function createStatusBarItem(context: vscode.ExtensionContext): vscode.StatusBar
   return statusBarItem;
 }
 
-function registerSwitchContextCommand(
-  context: vscode.ExtensionContext,
-  config: vscode.WorkspaceConfiguration
-): void {
+function registerSwitchContextCommand(context: vscode.ExtensionContext): void {
   const switchCmd = vscode.commands.registerCommand('vscode-eda.switchContext', async () => {
+    // Re-read the configuration at invocation time; the targets may have
+    // changed since activation.
+    const config = vscode.workspace.getConfiguration('vscode-eda');
     const targetsMap = config.get<Record<string, string | EdaTargetConfig | undefined>>('edaTargets') || {};
     const entries = Object.entries(targetsMap);
     if (entries.length === 0) {
@@ -251,20 +260,8 @@ function registerSwitchContextCommand(
       return;
     }
 
-    await context.globalState.update('selectedEdaTarget', choice.index);
-    if (contextStatusBarItem) {
-      const ctxVal = entries[choice.index][1];
-      const ctx = typeof ctxVal === 'string' ? ctxVal : ctxVal?.context;
-      const host = getHostFromUrl(entries[choice.index][0]);
-      const ctxText = ctx ? ` (${ctx})` : '';
-      contextStatusBarItem.text = `$(server) ${host}${ctxText}`;
-    }
-
-    vscode.window.showInformationMessage('EDA target updated. Reload window to apply.', 'Reload').then(value => {
-      if (value === 'Reload') {
-        vscode.commands.executeCommand('workbench.action.reloadWindow');
-      }
-    });
+    const { switchToTarget } = await import('./services/targetSwitchService');
+    await switchToTarget(context, choice.index);
   });
   context.subscriptions.push(switchCmd);
 }
@@ -323,8 +320,10 @@ async function initializeServiceArchitecture(
     activationStartMs
   } = config;
 
-  // 1) Create the clients
-  const k8sClient = edaContext ? new KubernetesClient(edaContext) : undefined;
+  // 1) Create the clients. The KubernetesClient always exists so that targets
+  // with and without a k8s context can be switched at runtime; without a
+  // context it stays in idle mode.
+  const k8sClient = new KubernetesClient(edaContext);
   const edaClient = new EdaClient(edaUrl, {
     clientId,
     clientSecret,
@@ -336,31 +335,23 @@ async function initializeServiceArchitecture(
 
   // 2) Register clients FIRST - before any providers are created
   serviceManager.registerClient('eda', edaClient);
-  if (k8sClient) {
-    serviceManager.registerClient('kubernetes', k8sClient);
-  }
+  serviceManager.registerClient('kubernetes', k8sClient);
 
   // 3) Switch context if needed
-  if (k8sClient && edaContext) {
+  if (edaContext) {
     k8sClient.switchContext(edaContext);
   }
 
   // 4) Update status bar
-  if (contextStatusBarItem) {
-    const host = getHostFromUrl(edaUrl);
-    const ctxText = edaContext ? ` (${edaContext})` : '';
-    contextStatusBarItem.text = `$(server) ${host}${ctxText}`;
-  }
+  updateContextStatusBar(edaUrl, edaContext);
 
   // 5) Register services
   const resourceStatusService = new ResourceStatusService();
   serviceManager.registerService('resource-status', resourceStatusService);
   resourceStatusService.initialize(context);
 
-  if (k8sClient) {
-    const resourceService = new ResourceService(k8sClient);
-    serviceManager.registerService('kubernetes-resources', resourceService);
-  }
+  const resourceService = new ResourceService(k8sClient);
+  serviceManager.registerService('kubernetes-resources', resourceService);
 
   // 6) Register file system providers
   resourceViewProvider = new ResourceViewDocumentProvider();
@@ -378,15 +369,13 @@ async function initializeServiceArchitecture(
   registerResourceViewCommands(context, resourceViewProvider);
   registerNodeConfigCommands(context);
 
-  if (k8sClient) {
-    podDescribeProvider = new PodDescribeDocumentProvider();
-    context.subscriptions.push(
-      vscode.workspace.registerFileSystemProvider('k8s-describe', podDescribeProvider, { isCaseSensitive: true })
-    );
-    registerPodCommands(context, podDescribeProvider);
-    registerDeploymentCommands(context);
-    registerTopoNodeCommands(context);
-  }
+  podDescribeProvider = new PodDescribeDocumentProvider();
+  context.subscriptions.push(
+    vscode.workspace.registerFileSystemProvider('k8s-describe', podDescribeProvider, { isCaseSensitive: true })
+  );
+  registerPodCommands(context, podDescribeProvider);
+  registerDeploymentCommands(context);
+  registerTopoNodeCommands(context);
 
   registerResourceDeleteCommand(context);
 
@@ -416,7 +405,7 @@ async function initializeServiceArchitecture(
     log(`Failed to initialize schema provider service: ${String(err)}`, LogLevel.ERROR, true);
   });
 
-  if (k8sClient) {
+  if (k8sClient.hasActiveContext()) {
     void verifyKubernetesContext(edaClient, k8sClient);
   }
 }
@@ -600,7 +589,7 @@ interface K8sNamespaceResource {
   metadata?: { name?: string };
 }
 
-async function verifyKubernetesContext(
+export async function verifyKubernetesContext(
   edaClient: EdaClient,
   k8sClient: KubernetesClient
 ): Promise<void> {
@@ -730,7 +719,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Create status bar and register commands
   contextStatusBarItem = createStatusBarItem(context);
-  registerSwitchContextCommand(context, config);
+  registerSwitchContextCommand(context);
 
   const configCmd = vscode.commands.registerCommand('vscode-eda.configureTargets', async () => {
     await configureTargetsFromWizard(context);

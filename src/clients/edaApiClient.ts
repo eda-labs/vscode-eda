@@ -195,6 +195,14 @@ export class EdaApiClient {
     this.specManager = specManager;
   }
 
+  public setAuthClient(authClient: EdaAuthClient): void {
+    this.authClient = authClient;
+  }
+
+  public clearEndpointCaches(): void {
+    this.dbTableByStream.clear();
+  }
+
   /**
    * Fetch JSON from API endpoint
    */

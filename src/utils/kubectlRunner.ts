@@ -2,6 +2,8 @@
 import type { ExecSyncOptions } from 'child_process';
 import { execSync } from 'child_process';
 
+import * as vscode from 'vscode';
+
 import { LogLevel, log } from '../extension';
 import { serviceManager } from '../services/serviceManager';
 import type { KubernetesClient } from '../clients/kubernetesClient';
@@ -32,6 +34,19 @@ export function getKubectlContext(): string | undefined {
     /* ignore */
   }
   return undefined;
+}
+
+/**
+ * Ensure the active EDA target has a Kubernetes context. Shows an
+ * informational message and returns false when it doesn't, so Kubernetes
+ * commands can bail out instead of running against an unrelated context.
+ */
+export function ensureActiveK8sContext(): boolean {
+  if (getKubectlContext()) {
+    return true;
+  }
+  vscode.window.showInformationMessage('This EDA target has no Kubernetes context configured.');
+  return false;
 }
 
 /**

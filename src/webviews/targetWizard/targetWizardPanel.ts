@@ -4,6 +4,7 @@ import { BasePanel } from '../basePanel';
 import { EXTENSION_CONFIG_SECTION } from '../constants';
 import { KubernetesClient } from '../../clients/kubernetesClient';
 import { fetchClientSecretDirectly } from '../../services/clientSecretService';
+import { serviceManager } from '../../services/serviceManager';
 
 // Helper to extract host from URL, falling back to the URL string if invalid
 function extractHost(url: string): string {
@@ -246,23 +247,42 @@ export class TargetWizardPanel extends BasePanel {
     await Promise.all(cleanupPromises);
   }
 
-  private async switchTarget(index: number): Promise<void> {
-    await this.context.globalState.update('selectedEdaTarget', index);
-    vscode.window.showInformationMessage('EDA target updated. Reload window to apply.', 'Reload').then(value => {
-      if (value === 'Reload') {
-        void vscode.commands.executeCommand('workbench.action.reloadWindow');
-      }
-    });
+  private isServiceArchitectureInitialized(): boolean {
+    return serviceManager.getClientNames().includes('eda');
   }
 
-  private showReload(): void {
-    vscode.window
-      .showInformationMessage('EDA targets updated. Reload window to apply changes.', 'Reload')
-      .then(selection => {
-        if (selection === 'Reload') {
+  private async switchTarget(index: number): Promise<void> {
+    if (!this.isServiceArchitectureInitialized()) {
+      // First-run path: activation bailed out before creating clients, so a
+      // runtime switch is impossible.
+      await this.context.globalState.update('selectedEdaTarget', index);
+      vscode.window.showInformationMessage('EDA target updated. Reload window to apply.', 'Reload').then(value => {
+        if (value === 'Reload') {
           void vscode.commands.executeCommand('workbench.action.reloadWindow');
         }
       });
+      return;
+    }
+    const { switchToTarget } = await import('../../services/targetSwitchService');
+    await switchToTarget(this.context, index, { excludePanel: this });
+  }
+
+  private async showReload(): Promise<void> {
+    if (this.isServiceArchitectureInitialized()) {
+      // Re-apply the selected target so edited URLs/credentials take effect
+      // without a window reload.
+      const selected = this.context.globalState.get<number>('selectedEdaTarget', 0) ?? 0;
+      const { switchToTarget } = await import('../../services/targetSwitchService');
+      await switchToTarget(this.context, selected, { excludePanel: this });
+    } else {
+      vscode.window
+        .showInformationMessage('EDA targets updated. Reload window to apply changes.', 'Reload')
+        .then(selection => {
+          if (selection === 'Reload') {
+            void vscode.commands.executeCommand('workbench.action.reloadWindow');
+          }
+        });
+    }
 
     this.dispose();
     if (this.resolve) {

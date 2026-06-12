@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 
 import type { PodDescribeDocumentProvider } from '../providers/documents/podDescribeProvider';
 import type { TreeItemBase } from '../providers/views/treeItem';
-import { runKubectl, getKubectlContext } from '../utils/kubectlRunner';
+import { runKubectl, getKubectlContext, ensureActiveK8sContext } from '../utils/kubectlRunner';
 
 import {
   MSG_POD_NS_OR_NAME_MISSING,
@@ -29,6 +29,9 @@ export function registerPodCommands(
   podDescribeProvider: PodDescribeDocumentProvider
 ) {
   const deletePodCmd = vscode.commands.registerCommand('vscode-eda.deletePod', async (treeItem: TreeItemBase | undefined) => {
+    if (!ensureActiveK8sContext()) {
+      return;
+    }
     const { namespace: ns, name } = resolvePodInfo(treeItem);
 
     if (!ns || !name) {
@@ -55,6 +58,9 @@ export function registerPodCommands(
 
   // Open Terminal (shell) in Pod
   const terminalPodCmd = vscode.commands.registerCommand('vscode-eda.terminalPod', (treeItem: TreeItemBase | undefined) => {
+    if (!ensureActiveK8sContext()) {
+      return;
+    }
     const { namespace: ns, name } = resolvePodInfo(treeItem);
 
     if (!ns || !name) {
@@ -77,6 +83,9 @@ export function registerPodCommands(
 
   // View Logs in a new Terminal
   const logsPodCmd = vscode.commands.registerCommand('vscode-eda.logsPod', (treeItem: TreeItemBase | undefined) => {
+    if (!ensureActiveK8sContext()) {
+      return;
+    }
     const { namespace: ns, name } = resolvePodInfo(treeItem);
 
     if (!ns || !name) {
@@ -99,6 +108,9 @@ export function registerPodCommands(
 
   // Describe Pod in a read-only doc
   const describePodCmd = vscode.commands.registerCommand('vscode-eda.describePod', async (treeItem: TreeItemBase | undefined) => {
+    if (!ensureActiveK8sContext()) {
+      return;
+    }
     const { namespace: ns, name } = resolvePodInfo(treeItem);
 
     if (!ns || !name) {

@@ -131,6 +131,13 @@ export class EdaTransactionProvider extends FilteredTreeProvider<TransactionTree
         this.processTransactionMessage(msg as StreamMessageEnvelope);
       }
     });
+
+    this.edaClient.onEndpointChanged(() => {
+      // Drop all old-endpoint data; the re-subscribed stream sends a full
+      // snapshot from the new endpoint.
+      this.cachedTransactions = [];
+      this.refresh();
+    });
   }
 
   /**

@@ -10,6 +10,8 @@ export abstract class BasePanel {
   protected panel: vscode.WebviewPanel;
   protected context: vscode.ExtensionContext;
 
+  private static openPanels = new Set<BasePanel>();
+
   constructor(
     context: vscode.ExtensionContext,
     viewType: string,
@@ -34,6 +36,28 @@ export abstract class BasePanel {
       this.panel.iconPath = iconPath;
     }
 
+    BasePanel.openPanels.add(this);
+    this.panel.onDidDispose(() => {
+      BasePanel.openPanels.delete(this);
+    });
+  }
+
+  /**
+   * Close all open webview panels, optionally keeping one alive. Used when
+   * switching the EDA endpoint: panel data is endpoint-specific and closing
+   * panels also releases their EQL/NQL stream subscriptions.
+   */
+  public static closeAll(except?: BasePanel): void {
+    for (const panel of Array.from(BasePanel.openPanels)) {
+      if (panel === except) {
+        continue;
+      }
+      try {
+        panel.dispose();
+      } catch {
+        // panel may already be disposed
+      }
+    }
   }
 
   protected getNonce(): string {
