@@ -16,6 +16,24 @@ const CRD_PATH_PATTERN = /^\/apps\/([^/]+)\/([^/]+)(?:\/namespaces\/\{[^}]+\})?\
 const GENERATE_SPEC_TYPES = process.env.EDA_GENERATE_SPEC_TYPES === 'true';
 const JSON_CONTENT_TYPE = 'application/json';
 
+/**
+ * Resolve the on-disk spec cache directory for an EDA endpoint. Specs are keyed
+ * by endpoint host so that two endpoints running the same EDA version cannot
+ * pollute each other's cached specs.
+ */
+export function specCacheBaseDirForUrl(baseUrl?: string): string {
+  const root = path.join(os.homedir(), '.eda', 'vscode');
+  if (!baseUrl) {
+    return root;
+  }
+  try {
+    const host = new URL(baseUrl).host.replace(/[^a-zA-Z0-9.-]/g, '_');
+    return host ? path.join(root, host) : root;
+  } catch {
+    return root;
+  }
+}
+
 export interface EdaResourceRoute {
   group: string;
   version: string;
@@ -154,15 +172,16 @@ export class EdaSpecManager {
   private resourceRoutes: Map<string, EdaResourceRoute> = new Map();
   private resourceRoutesByPlural: Map<string, EdaResourceRoute> = new Map();
   private resourceRoutesByGroupKind: Map<string, EdaResourceRoute> = new Map();
-  private cacheBaseDir = path.join(os.homedir(), '.eda', 'vscode');
+  private cacheBaseDir: string;
   private initPromise: Promise<void> = Promise.resolve();
   private apiClient: EdaApiClient;
   private coreNamespace: string;
   private backgroundSpecRefreshInFlight = false;
 
-  constructor(apiClient: EdaApiClient, coreNamespace = 'eda-system') {
+  constructor(apiClient: EdaApiClient, coreNamespace = 'eda-system', baseUrl?: string) {
     this.apiClient = apiClient;
     this.coreNamespace = coreNamespace;
+    this.cacheBaseDir = specCacheBaseDirForUrl(baseUrl);
     log('EdaSpecManager initialized', LogLevel.DEBUG);
   }
 

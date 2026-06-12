@@ -830,6 +830,33 @@ export class EdaStreamClient {
   }
 
   /**
+   * Tear down all endpoint-specific state in preparation for switching to a
+   * different EDA endpoint, while keeping this instance (and its event
+   * emitter, which providers are subscribed to) alive. `activeStreams` is
+   * preserved so the next connect() re-subscribes everything against the new
+   * endpoint.
+   */
+  public resetForEndpointSwitch(): void {
+    this.disconnect(false);
+    // Namespaced aliases belong to the old endpoint; don't rely on
+    // setNamespaces() diffing to remove them across endpoints.
+    this.streamAliases.clear();
+    this.namespaces.clear();
+    // EQL/NQL/file streams carry endpoint-specific query/path state, so they
+    // must not be re-subscribed on the new endpoint.
+    for (const name of this.eqlStreams.keys()) {
+      this.activeStreams.delete(name);
+    }
+    for (const name of this.nqlStreams.keys()) {
+      this.activeStreams.delete(name);
+    }
+    this.activeStreams.delete(STREAM_FILE);
+    this.userStorageFiles.clear();
+    this.eqlStreams.clear();
+    this.nqlStreams.clear();
+  }
+
+  /**
    * Add a user-storage file to stream
    */
   public async streamUserStorageFile(path: string): Promise<void> {

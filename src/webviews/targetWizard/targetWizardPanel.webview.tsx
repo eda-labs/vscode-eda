@@ -2,6 +2,8 @@ import React, { useState, useCallback, useMemo } from 'react';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
+import FileDownloadIcon from '@mui/icons-material/FileDownload';
+import FileUploadIcon from '@mui/icons-material/FileUpload';
 import SyncAltIcon from '@mui/icons-material/SyncAlt';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
@@ -53,6 +55,7 @@ interface TargetWizardMessage {
   logoUri?: string;
   index?: number;
   clientSecret?: string;
+  scopeLabel?: string;
 }
 
 type Mode = 'view' | 'edit' | 'new';
@@ -98,7 +101,8 @@ function handleInitMessage(
   setSelectedIdx: React.Dispatch<React.SetStateAction<number>>,
   setDefaultIdx: React.Dispatch<React.SetStateAction<number>>,
   setContexts: React.Dispatch<React.SetStateAction<string[]>>,
-  setLogoUri: React.Dispatch<React.SetStateAction<string>>
+  setLogoUri: React.Dispatch<React.SetStateAction<string>>,
+  setScopeLabel: React.Dispatch<React.SetStateAction<string>>
 ): void {
   const selected = msg.selected ?? 0;
   setTargets(msg.targets ?? []);
@@ -106,6 +110,7 @@ function handleInitMessage(
   setDefaultIdx(selected);
   setContexts(msg.contexts ?? []);
   setLogoUri(msg.logoUri ?? '');
+  setScopeLabel(msg.scopeLabel ?? '');
 }
 
 function handleDeleteConfirmedMessage(
@@ -279,7 +284,13 @@ interface TargetDetailsViewProps {
   onDelete: () => void;
 }
 
-function TargetDetailsView({ target, isCurrent, onSwitchTo, onEdit, onDelete }: Readonly<TargetDetailsViewProps>) {
+function TargetDetailsView({
+  target,
+  isCurrent,
+  onSwitchTo,
+  onEdit,
+  onDelete
+}: Readonly<TargetDetailsViewProps>) {
   return (
     <Stack spacing={2.25} sx={{ maxWidth: 760 }}>
       <ReadOnlyField label="EDA API URL" value={target.url} />
@@ -445,6 +456,7 @@ function TargetWizardPanel() {
   const [defaultIdx, setDefaultIdx] = useState(0);
   const [contexts, setContexts] = useState<string[]>([]);
   const [logoUri, setLogoUri] = useState('');
+  const [scopeLabel, setScopeLabel] = useState('');
   const [mode, setMode] = useState<Mode>('view');
   const [editIndex, setEditIndex] = useState<number | null>(null);
 
@@ -458,7 +470,7 @@ function TargetWizardPanel() {
   useMessageListener<TargetWizardMessage>(useCallback((msg) => {
     switch (msg.command) {
       case 'init':
-        handleInitMessage(msg, setTargets, setSelectedIdx, setDefaultIdx, setContexts, setLogoUri);
+        handleInitMessage(msg, setTargets, setSelectedIdx, setDefaultIdx, setContexts, setLogoUri, setScopeLabel);
         break;
       case 'deleteConfirmed':
         handleDeleteConfirmedMessage(msg, setTargets, setSelectedIdx, setDefaultIdx, setMode);
@@ -468,6 +480,14 @@ function TargetWizardPanel() {
         break;
     }
   }, []));
+
+  const handleExport = useCallback(() => {
+    postMessage({ command: 'exportTargets' });
+  }, [postMessage]);
+
+  const handleImport = useCallback(() => {
+    postMessage({ command: 'importTargets' });
+  }, [postMessage]);
 
   const currentTarget = useMemo(() => {
     return targets[selectedIdx] ?? null;
@@ -604,7 +624,12 @@ function TargetWizardPanel() {
       <Stack direction={{ xs: 'column', lg: 'row' }} spacing={3} alignItems="flex-start" sx={{ maxWidth: 1600, mx: 'auto' }}>
         <Card variant="outlined" sx={{ width: { xs: '100%', lg: 420 }, flexShrink: 0 }}>
           <CardContent sx={{ p: 0 }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+            <Stack
+              direction="row"
+              justifyContent="space-between"
+              alignItems="flex-start"
+              sx={{ p: 2, borderBottom: 1, borderColor: 'divider', gap: 1, flexWrap: 'wrap' }}
+            >
               <Stack direction="row" spacing={1} alignItems="center">
                 {logoUri && (
                   <Box
@@ -614,11 +639,43 @@ function TargetWizardPanel() {
                     sx={{ width: 22, height: 22, objectFit: 'contain', flexShrink: 0 }}
                   />
                 )}
-                <Typography variant="h6">EDA Targets</Typography>
+                <Stack>
+                  <Typography variant="h6">EDA Targets</Typography>
+                  {scopeLabel && (
+                    <Tooltip title="Targets are scoped to the host VS Code is running on. Switch hosts to see a different list.">
+                      <Chip
+                        size="small"
+                        label={scopeLabel}
+                        color="primary"
+                        variant="outlined"
+                        sx={{ alignSelf: 'flex-start', mt: 0.25, height: 18 }}
+                      />
+                    </Tooltip>
+                  )}
+                </Stack>
               </Stack>
-              <Button variant="contained" size="small" startIcon={<AddIcon fontSize="small" />} onClick={handleAddNew}>
-                Add New
-              </Button>
+              <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
+                <Tooltip title="Import targets for this host from a JSON file">
+                  <IconButton size="small" onClick={handleImport} aria-label="Import targets">
+                    <FileUploadIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Export this host's targets to a JSON file">
+                  <span>
+                    <IconButton
+                      size="small"
+                      onClick={handleExport}
+                      aria-label="Export targets"
+                      disabled={targets.length === 0}
+                    >
+                      <FileDownloadIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Button variant="contained" size="small" startIcon={<AddIcon fontSize="small" />} onClick={handleAddNew}>
+                  Add New
+                </Button>
+              </Stack>
             </Stack>
             {targets.length === 0 ? (
               <Typography sx={{ p: 3 }} color="text.secondary">No targets configured yet.</Typography>

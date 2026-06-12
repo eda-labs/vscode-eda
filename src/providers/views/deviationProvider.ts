@@ -70,6 +70,14 @@ export class EdaDeviationProvider extends FilteredTreeProvider<DeviationTreeItem
       }
     });
 
+    this.edaClient.onEndpointChanged(() => {
+      // Drop all old-endpoint data; the re-subscribed stream sends a full
+      // snapshot from the new endpoint.
+      this.deviations.clear();
+      this._onDeviationCountChanged.fire(this.count);
+      this.refresh();
+    });
+
     // Emit initial count
     this._onDeviationCountChanged.fire(this.count);
   }

@@ -4,6 +4,7 @@ import { serviceManager } from '../services/serviceManager';
 import type { EdaClient } from '../clients/edaClient';
 import type { KubernetesClient } from '../clients/kubernetesClient';
 import { log, LogLevel } from '../extension';
+import { ensureActiveK8sContext } from '../utils/kubectlRunner';
 
 const NODE_DETAILS_KEY = 'node-details';
 
@@ -159,6 +160,9 @@ function buildSshCommand(
 
 export function registerTopoNodeCommands(context: vscode.ExtensionContext) {
   const sshCmd = vscode.commands.registerCommand('vscode-eda.sshTopoNode', async (info: TopoNodeInfo) => {
+    if (!ensureActiveK8sContext()) {
+      return;
+    }
     const name = extractNodeName(info);
 
     if (!name) {

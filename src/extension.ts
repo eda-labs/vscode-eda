@@ -37,6 +37,7 @@ import { registerViewCommands } from './commands/viewCommands';
 import { registerResourceEditCommands } from './commands/resourceEditCommands';
 import { registerResourceCreateCommand } from './commands/resourceCreateCommand';
 import { registerCredentialCommands } from './commands/credentialCommands';
+import { registerTargetPortabilityCommands } from './commands/targetPortabilityCommands';
 import { registerResourceDeleteCommand } from './commands/resourceDeleteCommand';
 import { registerDashboardCommands } from './commands/dashboardCommands';
 import { registerApplyYamlFileCommand } from './commands/applyYamlFileCommand';
@@ -44,6 +45,14 @@ import { registerResourceBrowserCommand } from './commands/resourceBrowserComman
 import { registerExplorerResourceListCommand } from './commands/explorerResourceListCommand';
 import { EdaExplorerViewProvider } from './webviews/explorer/edaExplorerViewProvider';
 import { setAuthLogger } from './clients/edaAuthClient';
+import {
+  type ScopedTargetEntry,
+  getCurrentScope,
+  getScopeLabel,
+  getSelectedTargetIndex,
+  getVisibleEntries,
+  normalizeTargetsShape
+} from './utils/hostScope';
 
 export interface EdaTargetConfig {
   context?: string;
@@ -112,7 +121,7 @@ interface TargetConfigResult {
   clientId: string;
 }
 
-function getHostFromUrl(url: string): string {
+export function getHostFromUrl(url: string): string {
   try {
     return new URL(url).host;
   } catch {
@@ -120,7 +129,7 @@ function getHostFromUrl(url: string): string {
   }
 }
 
-function loadTargetConfig(
+export function loadTargetConfig(
   config: vscode.WorkspaceConfiguration,
   targetEntries: [string, EdaTargetValue][],
   selectedIndex: number
@@ -168,7 +177,7 @@ function loadTargetConfig(
   };
 }
 
-async function loadCredentials(
+export async function loadCredentials(
   context: vscode.ExtensionContext,
   hostKey: string,
   edaUrl: string,
@@ -212,6 +221,65 @@ function initializeEmbeddingSearchInBackground(): void {
   });
 }
 
+export function updateContextStatusBar(edaUrl: string, edaContext?: string): void {
+  if (!contextStatusBarItem) {
+    return;
+  }
+  const host = getHostFromUrl(edaUrl);
+  const ctxText = edaContext ? ` (${edaContext})` : '';
+  const scopeLabel = getScopeLabel(getCurrentScope());
+  contextStatusBarItem.text = `$(server) ${host}${ctxText}`;
+  contextStatusBarItem.tooltip =
+    `EDA target: ${edaUrl}${ctxText}\nHost scope: ${scopeLabel}\nClick to switch`;
+}
+
+/**
+ * Read `edaTargets` and return the entries visible from the current scope.
+ *
+ * Each scope is independent; only the current scope's bucket is returned.
+ * Legacy flat config is migrated into the current scope and the migrated
+ * shape is persisted back to settings.json so what the user sees in their
+ * settings matches the new model.
+ */
+export async function loadCurrentScopeTargets(
+  config: vscode.WorkspaceConfiguration
+): Promise<[string, EdaTargetValue][]> {
+  const entries = await loadVisibleTargetEntries(config);
+  return entries.map(({ url, value }) => [url, value]);
+}
+
+/**
+ * Same as {@link loadCurrentScopeTargets} but keeps the owning scope for
+ * each entry. Used by the wizard so edits write back to the right bucket.
+ */
+export async function loadVisibleTargetEntries(
+  config: vscode.WorkspaceConfiguration
+): Promise<ScopedTargetEntry[]> {
+  const raw = config.get<unknown>('edaTargets');
+  const scope = getCurrentScope();
+  const { scoped, migrated } = normalizeTargetsShape(raw, scope);
+  if (migrated) {
+    const inspect = config.inspect('edaTargets');
+    const target = inspect?.workspaceValue !== undefined
+      ? vscode.ConfigurationTarget.Workspace
+      : vscode.ConfigurationTarget.Global;
+    try {
+      await config.update('edaTargets', scoped, target);
+      log(`Migrated legacy edaTargets into scope '${scope}'.`, LogLevel.INFO, true);
+    } catch (err) {
+      log(`Failed to persist edaTargets migration: ${err}`, LogLevel.WARN, true);
+    }
+  }
+  const entries = getVisibleEntries(scoped, scope);
+  log(
+    `edaTargets: scope='${scope}', shape=${migrated ? 'legacy-flat' : 'scoped'}, ` +
+      `buckets=[${Object.keys(scoped).join(', ')}], visible=${entries.length}.`,
+    LogLevel.INFO,
+    true
+  );
+  return entries;
+}
+
 function createStatusBarItem(context: vscode.ExtensionContext): vscode.StatusBarItem {
   const statusBarItem = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
@@ -224,47 +292,46 @@ function createStatusBarItem(context: vscode.ExtensionContext): vscode.StatusBar
   return statusBarItem;
 }
 
-function registerSwitchContextCommand(
-  context: vscode.ExtensionContext,
-  config: vscode.WorkspaceConfiguration
-): void {
+function registerSwitchContextCommand(context: vscode.ExtensionContext): void {
   const switchCmd = vscode.commands.registerCommand('vscode-eda.switchContext', async () => {
-    const targetsMap = config.get<Record<string, string | EdaTargetConfig | undefined>>('edaTargets') || {};
-    const entries = Object.entries(targetsMap);
-    if (entries.length === 0) {
-      vscode.window.showInformationMessage('No EDA targets configured.');
+    // Re-read the configuration at invocation time; the targets may have
+    // changed since activation. Use the migration-aware helper so legacy
+    // configs are also handled on the fly.
+    const config = vscode.workspace.getConfiguration('vscode-eda');
+    const visible = await loadVisibleTargetEntries(config);
+    const scopeLabel = getScopeLabel(getCurrentScope());
+    if (visible.length === 0) {
+      const choice = await vscode.window.showInformationMessage(
+        `No EDA targets configured for host scope "${scopeLabel}".`,
+        'Configure Targets',
+        'Import Targets'
+      );
+      if (choice === 'Configure Targets') {
+        void vscode.commands.executeCommand('vscode-eda.configureTargets');
+      } else if (choice === 'Import Targets') {
+        void vscode.commands.executeCommand('vscode-eda.importTargets');
+      }
       return;
     }
-    const items = entries.map(([url, val], i) => {
-      const ctx = typeof val === 'string' ? val : val?.context;
+    const items = visible.map(({ url, value, scope }, i) => {
+      const ctx = typeof value === 'string' ? value : value?.context;
+      const ctxText = ctx ? `context: ${ctx}` : 'no kubernetes';
       return {
         label: url,
-        description: ctx ? `context: ${ctx}` : 'no kubernetes',
+        description: `${ctxText} · ${getScopeLabel(scope)}`,
         index: i
       };
     });
 
     const choice = await vscode.window.showQuickPick(items, {
-      placeHolder: 'Select the EDA API URL and optional context'
+      placeHolder: `Select EDA target for ${scopeLabel}`
     });
     if (!choice) {
       return;
     }
 
-    await context.globalState.update('selectedEdaTarget', choice.index);
-    if (contextStatusBarItem) {
-      const ctxVal = entries[choice.index][1];
-      const ctx = typeof ctxVal === 'string' ? ctxVal : ctxVal?.context;
-      const host = getHostFromUrl(entries[choice.index][0]);
-      const ctxText = ctx ? ` (${ctx})` : '';
-      contextStatusBarItem.text = `$(server) ${host}${ctxText}`;
-    }
-
-    vscode.window.showInformationMessage('EDA target updated. Reload window to apply.', 'Reload').then(value => {
-      if (value === 'Reload') {
-        vscode.commands.executeCommand('workbench.action.reloadWindow');
-      }
-    });
+    const { switchToTarget } = await import('./services/targetSwitchService');
+    await switchToTarget(context, choice.index);
   });
   context.subscriptions.push(switchCmd);
 }
@@ -323,8 +390,10 @@ async function initializeServiceArchitecture(
     activationStartMs
   } = config;
 
-  // 1) Create the clients
-  const k8sClient = edaContext ? new KubernetesClient(edaContext) : undefined;
+  // 1) Create the clients. The KubernetesClient always exists so that targets
+  // with and without a k8s context can be switched at runtime; without a
+  // context it stays in idle mode.
+  const k8sClient = new KubernetesClient(edaContext);
   const edaClient = new EdaClient(edaUrl, {
     clientId,
     clientSecret,
@@ -336,31 +405,23 @@ async function initializeServiceArchitecture(
 
   // 2) Register clients FIRST - before any providers are created
   serviceManager.registerClient('eda', edaClient);
-  if (k8sClient) {
-    serviceManager.registerClient('kubernetes', k8sClient);
-  }
+  serviceManager.registerClient('kubernetes', k8sClient);
 
   // 3) Switch context if needed
-  if (k8sClient && edaContext) {
+  if (edaContext) {
     k8sClient.switchContext(edaContext);
   }
 
   // 4) Update status bar
-  if (contextStatusBarItem) {
-    const host = getHostFromUrl(edaUrl);
-    const ctxText = edaContext ? ` (${edaContext})` : '';
-    contextStatusBarItem.text = `$(server) ${host}${ctxText}`;
-  }
+  updateContextStatusBar(edaUrl, edaContext);
 
   // 5) Register services
   const resourceStatusService = new ResourceStatusService();
   serviceManager.registerService('resource-status', resourceStatusService);
   resourceStatusService.initialize(context);
 
-  if (k8sClient) {
-    const resourceService = new ResourceService(k8sClient);
-    serviceManager.registerService('kubernetes-resources', resourceService);
-  }
+  const resourceService = new ResourceService(k8sClient);
+  serviceManager.registerService('kubernetes-resources', resourceService);
 
   // 6) Register file system providers
   resourceViewProvider = new ResourceViewDocumentProvider();
@@ -378,15 +439,13 @@ async function initializeServiceArchitecture(
   registerResourceViewCommands(context, resourceViewProvider);
   registerNodeConfigCommands(context);
 
-  if (k8sClient) {
-    podDescribeProvider = new PodDescribeDocumentProvider();
-    context.subscriptions.push(
-      vscode.workspace.registerFileSystemProvider('k8s-describe', podDescribeProvider, { isCaseSensitive: true })
-    );
-    registerPodCommands(context, podDescribeProvider);
-    registerDeploymentCommands(context);
-    registerTopoNodeCommands(context);
-  }
+  podDescribeProvider = new PodDescribeDocumentProvider();
+  context.subscriptions.push(
+    vscode.workspace.registerFileSystemProvider('k8s-describe', podDescribeProvider, { isCaseSensitive: true })
+  );
+  registerPodCommands(context, podDescribeProvider);
+  registerDeploymentCommands(context);
+  registerTopoNodeCommands(context);
 
   registerResourceDeleteCommand(context);
 
@@ -416,7 +475,7 @@ async function initializeServiceArchitecture(
     log(`Failed to initialize schema provider service: ${String(err)}`, LogLevel.ERROR, true);
   });
 
-  if (k8sClient) {
+  if (k8sClient.hasActiveContext()) {
     void verifyKubernetesContext(edaClient, k8sClient);
   }
 }
@@ -592,6 +651,7 @@ async function initializeTreeViewsAndCommands(
   registerResourceBrowserCommand(context);
   registerExplorerResourceListCommand(context, namespaceProvider);
   registerCredentialCommands(context);
+  registerTargetPortabilityCommands(context);
   registerApplyYamlFileCommand(context);
 }
 
@@ -600,7 +660,7 @@ interface K8sNamespaceResource {
   metadata?: { name?: string };
 }
 
-async function verifyKubernetesContext(
+export async function verifyKubernetesContext(
   edaClient: EdaClient,
   k8sClient: KubernetesClient
 ): Promise<void> {
@@ -687,15 +747,32 @@ export async function activate(context: vscode.ExtensionContext) {
   // Initialize embeddingsearch service in background
   initializeEmbeddingSearchInBackground();
 
-  const edaTargetsCfg = config.get<Record<string, string | EdaTargetConfig | undefined>>('edaTargets');
-  const targetEntries = edaTargetsCfg ? Object.entries(edaTargetsCfg) : [];
+  let targetEntries: [string, EdaTargetValue][];
+  try {
+    targetEntries = await loadCurrentScopeTargets(config);
+  } catch (err) {
+    log(`Failed to read edaTargets: ${err}`, LogLevel.ERROR, true);
+    vscode.window.showErrorMessage(
+      `Failed to read EDA targets from settings: ${err instanceof Error ? err.message : String(err)}`
+    );
+    return;
+  }
   if (targetEntries.length === 0) {
+    const scopeLabel = getScopeLabel(getCurrentScope());
+    log(
+      `No EDA targets visible for host scope "${scopeLabel}". Opening configuration wizard.`,
+      LogLevel.INFO,
+      true
+    );
+    void vscode.window.showInformationMessage(
+      `No EDA targets configured for "${scopeLabel}". Use the wizard that just opened to add one, or run "EDA: Import Targets" if you have a JSON export.`
+    );
     await configureTargetsFromWizard(context);
     return;
   }
 
   // Load target configuration
-  const selectedIndex = context.globalState.get<number>('selectedEdaTarget', 0) ?? 0;
+  const selectedIndex = getSelectedTargetIndex(context, getCurrentScope());
   const targetConfig = loadTargetConfig(config, targetEntries, selectedIndex);
   const { edaUrl, edaContext, edaUsername, skipTlsVerify, coreNamespace, clientId } = targetConfig;
   const hostKey = getHostFromUrl(edaUrl);
@@ -730,7 +807,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Create status bar and register commands
   contextStatusBarItem = createStatusBarItem(context);
-  registerSwitchContextCommand(context, config);
+  registerSwitchContextCommand(context);
 
   const configCmd = vscode.commands.registerCommand('vscode-eda.configureTargets', async () => {
     await configureTargetsFromWizard(context);

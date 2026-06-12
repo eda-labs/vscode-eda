@@ -8,6 +8,7 @@ import { log, LogLevel } from '../extension';
 import type { EdaCrd } from '../types';
 import type { KubernetesClient } from '../clients/kubernetesClient';
 import type { EdaClient } from '../clients/edaClient';
+import { specCacheBaseDirForUrl } from '../clients/edaSpecManager';
 import type { ResolvedJsonSchema } from '../providers/yaml/types';
 
 import { serviceManager } from './serviceManager';
@@ -163,19 +164,47 @@ export class SchemaProviderService extends CoreService {
     log('Initialized EDA schema provider', LogLevel.INFO, true);
   }
 
+  /**
+   * Drop all cached schemas/CRDs and reload them from the active endpoint's
+   * spec cache. Used after a runtime endpoint switch.
+   */
+  public async reload(): Promise<void> {
+    await this.loadSchemas();
+  }
+
   private async findSpecDir(preferredVersion?: string): Promise<string> {
-    const baseDir = path.join(os.homedir(), '.eda', 'vscode');
+    // Prefer the active endpoint's host-keyed cache dir; fall back to the
+    // legacy shared layout for caches written by older extension versions.
+    const candidates = [...new Set([
+      this.resolveConnectedCacheBaseDir(),
+      path.join(os.homedir(), '.eda', 'vscode')
+    ].filter((dir): dir is string => typeof dir === 'string'))];
+    for (const baseDir of candidates) {
+      try {
+        const entries = await fs.promises.readdir(baseDir, { withFileTypes: true });
+        const dirs = entries.filter(e => e.isDirectory()).map(e => e.name);
+        const selectedDir = SchemaProviderService.selectSpecDirName(dirs, preferredVersion);
+        if (selectedDir) {
+          return path.join(baseDir, selectedDir);
+        }
+      } catch {
+        // ignore and try the next candidate
+      }
+    }
+    throw new Error(`No EDA specifications found in ${candidates.join(' or ')}`);
+  }
+
+  private resolveConnectedCacheBaseDir(): string | undefined {
     try {
-      const entries = await fs.promises.readdir(baseDir, { withFileTypes: true });
-      const dirs = entries.filter(e => e.isDirectory()).map(e => e.name);
-      const selectedDir = SchemaProviderService.selectSpecDirName(dirs, preferredVersion);
-      if (selectedDir) {
-        return path.join(baseDir, selectedDir);
+      const edaClient = serviceManager.getClient<EdaClient>('eda');
+      const baseUrl = typeof edaClient.getBaseUrl === 'function' ? edaClient.getBaseUrl() : undefined;
+      if (baseUrl) {
+        return specCacheBaseDirForUrl(baseUrl);
       }
     } catch {
-      // ignore
+      // ignore and use the legacy layout
     }
-    throw new Error(`No EDA specifications found in ${baseDir}`);
+    return undefined;
   }
 
   private static selectSpecDirName(dirNames: string[]): string | undefined;

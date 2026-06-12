@@ -1,3 +1,5 @@
+import * as vscode from 'vscode';
+
 import { LogLevel, log } from '../extension';
 
 import type { EdaAuthOptions } from './edaAuthClient';
@@ -203,6 +205,9 @@ export class EdaClient {
   private streamRefCounts: Map<string, number> = new Map();
   private eqlStreamRefCounts: Map<string, number> = new Map();
   private nqlStreamRefCounts: Map<string, number> = new Map();
+  private switchInProgress = false;
+  private _onEndpointChanged = new vscode.EventEmitter<{ baseUrl: string }>();
+  public readonly onEndpointChanged = this._onEndpointChanged.event;
 
   constructor(baseUrl: string, opts: EdaClientOptions) {
     log('Initializing EdaClient with new architecture', LogLevel.DEBUG);
@@ -211,7 +216,7 @@ export class EdaClient {
     this.authClient = new EdaAuthClient(baseUrl, opts);
     this.apiClient = new EdaApiClient(this.authClient);
     this.streamClient = new EdaStreamClient();
-    this.specManager = new EdaSpecManager(this.apiClient, opts.coreNamespace);
+    this.specManager = new EdaSpecManager(this.apiClient, opts.coreNamespace, baseUrl);
     this.apiClient.setSpecManager(this.specManager);
 
     // Connect components
@@ -231,6 +236,79 @@ export class EdaClient {
       this.streamClient.setCoreNamespace(this.specManager.getCoreNamespace());
       this.streamClient.setNamespaces(this.specManager.getCachedNamespaces());
     });
+  }
+
+  public getBaseUrl(): string {
+    return this.authClient.getBaseUrl();
+  }
+
+  /**
+   * Switch this client to a different EDA endpoint at runtime without
+   * recreating the instance. The EdaClient/EdaStreamClient object identities
+   * (and therefore all provider stream subscriptions and ref counts) survive;
+   * only endpoint-specific internals are swapped: auth client, spec manager,
+   * caches, and the WebSocket connection. Active streams are re-subscribed
+   * against the new endpoint automatically on reconnect.
+   *
+   * The new endpoint is authenticated *before* any teardown happens, so a
+   * failed switch leaves the old endpoint fully functional.
+   */
+  public async switchEndpoint(baseUrl: string, opts: EdaClientOptions): Promise<void> {
+    if (this.switchInProgress) {
+      throw new Error('An endpoint switch is already in progress');
+    }
+    this.switchInProgress = true;
+
+    // Validate the new endpoint before tearing anything down. On failure the
+    // old endpoint is untouched and keeps working.
+    const newAuthClient = new EdaAuthClient(baseUrl, opts);
+    try {
+      await newAuthClient.waitForAuth();
+    } catch (err) {
+      newAuthClient.dispose();
+      this.switchInProgress = false;
+      throw new Error(`Authentication against ${baseUrl} failed: ${err}`);
+    }
+
+    log(`Switching EDA endpoint to ${baseUrl}`, LogLevel.INFO, true);
+
+    // Gate all API and stream operations behind the switch: nearly every
+    // public method awaits initPromise first.
+    let releaseGate!: () => void;
+    this.initPromise = new Promise<void>(resolve => {
+      releaseGate = resolve;
+    });
+
+    try {
+      this.streamClient.resetForEndpointSwitch();
+
+      this.authClient.dispose();
+      this.authClient = newAuthClient;
+      this.apiClient.setAuthClient(newAuthClient);
+      this.streamClient.setAuthClient(newAuthClient);
+      this.apiClient.clearEndpointCaches();
+
+      this.specManager = new EdaSpecManager(this.apiClient, opts.coreNamespace, baseUrl);
+      this.apiClient.setSpecManager(this.specManager);
+      this.specManager.startInitialization();
+      await this.specManager.waitForInit();
+      if (this.specManager.getStreamEndpoints().length === 0) {
+        throw new Error(`Connected to ${baseUrl} but stream discovery failed; see EDA output for details`);
+      }
+
+      this.streamClient.setStreamEndpoints(this.specManager.getStreamEndpoints());
+      this.streamClient.setCoreNamespace(this.specManager.getCoreNamespace());
+      this.streamClient.setNamespaces(this.specManager.getCachedNamespaces());
+
+      if (this.streamRefCounts.size > 0) {
+        await this.streamClient.connect();
+      }
+
+      this._onEndpointChanged.fire({ baseUrl });
+    } finally {
+      releaseGate();
+      this.switchInProgress = false;
+    }
   }
 
   private incrementRefCount(map: Map<string, number>, key: string): boolean {
@@ -768,5 +846,6 @@ export class EdaClient {
     this.nqlStreamRefCounts.clear();
     this.streamClient.dispose();
     this.authClient.dispose();
+    this._onEndpointChanged.dispose();
   }
 }

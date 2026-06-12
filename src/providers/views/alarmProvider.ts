@@ -69,6 +69,16 @@ export class EdaAlarmProvider extends FilteredTreeProvider<TreeItemBase> {
       }
     });
 
+    this.edaClient.onEndpointChanged(() => {
+      // Drop all old-endpoint data; the re-subscribed stream sends a full
+      // snapshot from the new endpoint.
+      this.alarms.clear();
+      this.alarmIdToKey.clear();
+      this.alarmKeyRefCount.clear();
+      this._onAlarmCountChanged.fire(this.count);
+      this.refresh();
+    });
+
     // Emit initial count
     this._onAlarmCountChanged.fire(this.count);
   }

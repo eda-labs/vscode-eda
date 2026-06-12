@@ -241,6 +241,16 @@
         "icon": "$(gear)"
       },
       {
+        "command": "vscode-eda.exportTargets",
+        "title": "EDA: Export Targets for Current Host",
+        "icon": "$(export)"
+      },
+      {
+        "command": "vscode-eda.importTargets",
+        "title": "EDA: Import Targets for Current Host",
+        "icon": "$(import)"
+      },
+      {
         "command": "vscode-eda.commitBasket",
         "title": "EDA: Commit Basket",
         "icon": "$(debug-start)"
@@ -416,49 +426,53 @@
         },
         "vscode-eda.edaTargets": {
           "type": "object",
-          "markdownDescription": "Map EDA API URLs to optional Kubernetes contexts and credentials. Example:\n```jsonc\n{\n  \"https://eda-example.com/\": {\n    \"context\": \"kubernetes-admin@kubernetes\",\n    \"edaUsername\": \"admin\",\n    \"kcUsername\": \"admin\",\n    \"skipTlsVerify\": true\n  }\n}\n```",
+          "markdownDescription": "EDA targets, bucketed by the host scope where VS Code is running (`local`, `ssh-remote+<host>`, `wsl+<distro>`, ...). Each bucket maps EDA API URLs to optional Kubernetes contexts and credentials. Legacy flat config is migrated into the current scope on first activation. Example:\n```jsonc\n{\n  \"local\": {\n    \"https://eda-lab.local:9443\": {\n      \"context\": \"kind-lab\",\n      \"skipTlsVerify\": true\n    }\n  },\n  \"ssh-remote+jumphost\": {\n    \"https://eda-internal:9443\": {\n      \"context\": \"prod\",\n      \"edaUsername\": \"admin\"\n    }\n  }\n}\n```",
           "additionalProperties": {
-            "oneOf": [
-              {
-                "type": "string",
-                "markdownDescription": "Optional Kubernetes context for this URL. Leave blank to disable Kubernetes."
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "context": {
-                    "type": "string",
-                    "markdownDescription": "Optional Kubernetes context for this URL. Leave blank to disable Kubernetes."
-                  },
-                  "edaUsername": {
-                    "type": "string",
-                    "description": "Username for the EDA realm for this target"
-                  },
-                  "edaPassword": {
-                    "type": "string",
-                    "description": "EDA user password for this target (optional)"
-                  },
-                  "kcUsername": {
-                    "type": "string",
-                    "description": "Keycloak admin username for this target"
-                  },
-                  "kcPassword": {
-                    "type": "string",
-                    "description": "Keycloak admin password for this target (optional)"
-                  },
-                  "skipTlsVerify": {
-                    "type": "boolean",
-                    "description": "Skip TLS verification when connecting to this target"
-                  },
-                  "coreNamespace": {
-                    "type": "string",
-                    "description": "EDA core namespace for this target",
-                    "default": "eda-system"
-                  }
+            "type": "object",
+            "description": "Targets available when VS Code is running in this host scope.",
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "markdownDescription": "Optional Kubernetes context for this URL. Leave blank to disable Kubernetes."
                 },
-                "additionalProperties": false
-              }
-            ]
+                {
+                  "type": "object",
+                  "properties": {
+                    "context": {
+                      "type": "string",
+                      "markdownDescription": "Optional Kubernetes context for this URL. Leave blank to disable Kubernetes."
+                    },
+                    "edaUsername": {
+                      "type": "string",
+                      "description": "Username for the EDA realm for this target"
+                    },
+                    "edaPassword": {
+                      "type": "string",
+                      "description": "EDA user password for this target (optional)"
+                    },
+                    "kcUsername": {
+                      "type": "string",
+                      "description": "Keycloak admin username for this target"
+                    },
+                    "kcPassword": {
+                      "type": "string",
+                      "description": "Keycloak admin password for this target (optional)"
+                    },
+                    "skipTlsVerify": {
+                      "type": "boolean",
+                      "description": "Skip TLS verification when connecting to this target"
+                    },
+                    "coreNamespace": {
+                      "type": "string",
+                      "description": "EDA core namespace for this target",
+                      "default": "eda-system"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            }
           }
         },
         "vscode-eda.clientId": {
